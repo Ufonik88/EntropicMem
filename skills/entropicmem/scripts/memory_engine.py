@@ -152,7 +152,15 @@ class MemoryEngine:
         top_k: int = 10,
         domain: Optional[str] = None,
     ) -> List[StoredFact]:
-        """Full-text search over stored facts."""
+        """Full-text search over stored facts.
+
+        Returns facts ranked by relevance. An EXACT content/id match is
+        always surfaced first (so a fact is always self-retrievable),
+        followed by FTS5 prefix matches and a LIKE fallback.
+
+        This matters for migration parity: every written fact must be
+        recallable by its own content.
+        """
         clean = query.replace('"', '""')
         fts_query = f'content: "{clean}"* OR title: "{clean}"* OR tags: "{clean}"*'
 
@@ -162,16 +170,53 @@ class MemoryEngine:
             where = "AND facts_fts.domain = ?"
             params = (domain,)
 
+        # ── Exact-match boost: content or id equals query ──────────────
+        exact_rows = self.db.execute(
+            f"""
+            SELECT * FROM facts
+            WHERE (content = ? OR id = ?) {("AND domain = ?" if domain else "")}
+            ORDER BY importance DESC
+            """,
+            (query, StoredFact.make_id(query), *((domain,) if domain else ())),
+        ).fetchall()
+        exact = [self._row_to_fact(r) for r in exact_rows]
+
         rows = self.db.execute(
-            f"""SELECT f.* FROM facts_fts
+            f"""
+            SELECT f.* FROM facts_fts
             JOIN facts f ON facts_fts.rowid = f.rowid
             WHERE facts_fts MATCH ? {where}
             ORDER BY f.importance DESC, rank
-            LIMIT ?""",
+            LIMIT ?
+            """,
             (fts_query, *params, top_k),
         ).fetchall()
+        fts_hits = [self._row_to_fact(r) for r in rows]
+        if fts_hits:
+            # de-dup exact from FTS results, keep exact first
+            seen = {f.id for f in exact}
+            combined = exact + [f for f in fts_hits if f.id not in seen]
+            return combined[:top_k]
 
-        return [self._row_to_fact(r) for r in rows]
+        # ── LIKE fallback for non-token-aligned queries ───────────────
+        like_where = "WHERE f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ?"
+        like_params = (f"%{query}%", f"%{query}%", f"%{query}%")
+        if domain:
+            like_where += " AND f.domain = ?"
+            like_params = (*like_params, domain)
+        rows = self.db.execute(
+            f"""
+            SELECT f.* FROM facts f
+            {like_where}
+            ORDER BY f.importance DESC
+            LIMIT ?
+            """,
+            (*like_params, top_k),
+        ).fetchall()
+        like_hits = [self._row_to_fact(r) for r in rows]
+        seen = {f.id for f in exact}
+        combined = exact + [f for f in like_hits if f.id not in seen]
+        return combined[:top_k]
 
     def get_fact(self, entropic_id: str) -> Optional[StoredFact]:
         row = self.db.execute("SELECT * FROM facts WHERE id = ?", (entropic_id,)).fetchone()
