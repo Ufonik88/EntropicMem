@@ -1,6 +1,6 @@
 ---
 name: entropicmem
-description: Hermes second brain: vault, Mnemosyne bridge, galaxy graph. Use for ingest, query, lint, graph.
+description: Vault+graph+Mnemosyne: ingest, query, note, lint, graph.
 version: 0.1.0
 author: Hermes
 platforms: [linux, macos, windows]
@@ -96,7 +96,7 @@ entropicmem bridge export --since "$(date -d '6 hours ago')"
 
 ## Prerequisites
 
-- Python 3.10+ (stdlib + `jinja2`; `sentence-transformers` optional for semantic rerank)
+- Python 3.10+ (stdlib only for core; `sentence-transformers` optional for semantic rerank)
 - Mnemosyne DB at `~/.hermes/mnemosyne/data/mnemosyne.db`
 - Existing Obsidian vault at `~/Documents/Obsidian Vault` (optional — safe-mode bind)
 

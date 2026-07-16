@@ -119,7 +119,7 @@ Agent runs `entropicmem --check-deps` and reports:
 
 ```
 [EntropicMem deps]
-Core:        OK (stdlib + jinja2)
+Core:        OK (stdlib)
 sentence-tf: NOT INSTALLED  → semantic re-rank disabled
 graphviz:    NOT INSTALLED  → DOT export disabled
 d3 (local):  BUNDLED         → graph.html works offline
