@@ -26,7 +26,7 @@ Mirror of `PROJECT_PLAN.md` §10. All items must be ✅ before tagging `v1.0.0`.
 
 ---
 
-## 10.3 CLI (`scripts/entropicmem.py`)
+## 10.3 CLI (`skills/entropicmem/scripts/entropicmem.py`)
 
 | Subcommand | Required | Test Criteria |
 |------------|----------|---------------|

@@ -477,7 +477,7 @@ ENTROPICMEM_INDEX_DB="/home/ufonik/.hermes/entropicmem/index.db"
 ENTROPICMEM_MNEMOSYNE_DB="/home/ufonik/.hermes/mnemosyne/data/mnemosyne.db"
 
 ## 4. Initialize
-python3 skills/entropicmem/scripts/entropicmem.py init --vault "$ENTROPICMEM_VAULT_PATH"
+python3 ~/.hermes/skills/entropicmem/scripts/entropicmem.py init --vault "$ENTROPICMEM_VAULT_PATH"
 
 ## 5. Smoke Test
 entropicmem lint
