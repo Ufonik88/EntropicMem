@@ -1,3 +1,8 @@
-# COMPARISON_TABLE
-
-See PROJECT_PLAN.md. Full doc in Phase 1.
+| Feature | EntropicMem |
+|---------|-------------|
+| Durable fact store | memory.db + remember/recall |
+| Linked notes | Markdown vault + wikilinks |
+| Full-text search | index.db + query |
+| Graph view | graph.html export |
+| Hermes install | /learn + skill |
+| Offline core | stdlib Python |

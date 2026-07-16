@@ -1,7 +1,7 @@
 ---
 name: entropicmem
-description: Standalone knowledge engine: vault, memory, graph. Use for ingest, query, remember.
-version: 0.5.0
+description: Standalone knowledge engine: vault, memory, graph.
+version: 1.0.0
 author: Hermes
 platforms: [linux, macos, windows]
 metadata:
@@ -12,74 +12,42 @@ metadata:
 
 # EntropicMem — Standalone Agent Memory
 
-A self-contained knowledge engine for Hermes Agent. Own SQLite memory, Markdown vault, visual graph, and full ingest/query/workflow loop.
+Complete memory system for Hermes: **memory engine** (facts), **vault** (linked notes), **index** (search), **graph** (visual map).
 
-## Quick Start
+## Install
+`/learn https://github.com/Ufonik88/EntropicMem` then follow `SETUP.md` and run `entropicmem init`.
 
-```bash
-entropicmem init                    # Bootstrap vault + memory engine
-entropicmem ingest "https://..."    # Source → literature + atomic notes
-entropicmem query "topic"           # Full-text search with citations
-entropicmem remember "durable fact" # Store in memory engine
-entropicmem graph export --format html  # Galaxy graph
-```
+## Operating contract
 
-## When to Use
+### When to WRITE
+| Situation | Command |
+|-----------|---------|
+| Durable fact, preference, identity, stable lesson | `remember "..."` |
+| URL/file/source capture | `ingest` / `ingest-pile` |
+| Structured note from stdin | `note` |
+| Research to pursue | `research` (then agent uses web tools) |
+| Ephemeral reasoning | **Do not** persist |
+| Credentials | **Never** store |
 
-- Creating or seeding a knowledge vault
-- Ingesting web sources, files, or conversation into durable notes
-- Querying linked notes with cited results
-- Storing durable facts in the memory engine
-- Visualizing knowledge as a galaxy graph
-- Maintaining vault health (lint, moc, hotcache)
+### When to READ
+| Need | Command |
+|------|---------|
+| Linked conceptual context | `query "..."` |
+| Stored facts | `recall "..."` or `memory list` |
+| Session orientation | read `Wiki-Cache.md` or `hotcache` |
+| Relationships | `graph export --format html` |
 
-## Workflows
+### Session pattern
+1. Orient (`hotcache` if stale)
+2. Retrieve before long-horizon answers (`query` / `recall`)
+3. Capture outcomes (`remember` / `ingest` / `note`)
+4. Maintain after heavy work (`lint`, `moc`)
 
-### 1. Bootstrap
-```bash
-entropicmem init [--vault PATH]
-```
+### Promotion from chat
+When the user states a preference, correction, or fact that will matter later → `remember` immediately (do not rely on chat memory alone).
 
-### 2. Ingest
-```bash
-entropicmem ingest <url|file|-> [--domain DOMAIN]
-```
-
-### 3. Query
-```bash
-entropicmem query "<query>" [--top-k N] [--domain DOMAIN] [--semantic]
-```
-
-### 4. Store Durable Facts
-```bash
-entropicmem remember "fact" [--domain DOMAIN] [--tags t1,t2]
-entropicmem forget <entropic_id>
-```
-
-### 5. Visual Graph
-```bash
-entropicmem graph export --format html
-entropicmem graph serve --port 8080
-```
-
-### 6. Maintain
-```bash
-entropicmem lint          # Orphans, dead links, stale
-entropicmem moc           # Rebuild domain indexes
-entropicmem hotcache      # Refresh Wiki-Cache.md
-entropicmem memory stats  # Engine statistics
-```
-
-## Prerequisites
-
-- Python 3.10+ (stdlib only for core)
-- Optional: `sentence-transformers` for semantic re-rank
+## Commands
+See `references/CLI_REFERENCE.md`.
 
 ## References
-
-- `SETUP.md` — first-run checklist
-- `references/MEMORY_MODEL.md` — architecture
-- `references/VAULT_SCHEMA.md` — structure
-- `references/CLI_REFERENCE.md` — every subcommand
-- `references/VISUALIZER.md` — graph spec
-EOF
+- `SETUP.md`, `references/MEMORY_MODEL.md`, `references/VAULT_SCHEMA.md`, `references/HERMES_INTEGRATION.md`

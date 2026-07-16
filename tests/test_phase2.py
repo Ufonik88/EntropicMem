@@ -159,7 +159,7 @@ class TestRememberForget:
         r2 = _run("forget", eid,
                   ENTROPICMEM_VAULT_PATH=str(vp), ENTROPICMEM_INDEX_DB=str(ip))
         assert r2.returncode == 0
-        assert "Forgot:" in r2.stdout
+        assert "Forgot" in r2.stdout
 
 
 class TestResearch:

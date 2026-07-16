@@ -6,6 +6,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - run: pip install -q pytest jinja2
-      - run: pytest -q tests/ || echo "Tests scaffold not yet populated"
+        with:
+          python-version: '3.11'
+      - run: pip install -q pytest
+      - run: pytest -q tests/

@@ -1,7 +1,7 @@
 """
 memory_engine.py — Standalone SQLite memory engine for EntropicMem.
 
-Replaces the need for external memory systems. Provides:
+Provides:
   - Durable fact storage with FTS5 search
   - Graph edges (wikilink relationships)
   - entropic_id-based deduplication and round-trip identity

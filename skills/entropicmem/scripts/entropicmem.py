@@ -17,7 +17,8 @@ Usage:
   entropicmem remember "fact" [--domain D] [--tags t1,t2]
   entropicmem forget <entropic_id>
   entropicmem open <note_id>
-  entropicmem memory project|stats
+  entropicmem recall "<q>"
+  entropicmem memory project|stats|list
   entropicmem --check-deps
   entropicmem --version
 
@@ -49,7 +50,7 @@ from retrieval import EMBEDDER_AVAILABLE, retrieve_composed
 from graph_export import export_json, export_dot, export_html, export_canvas
 from memory_engine import MemoryEngine
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 # ── env resolution ──────────────────────────────────────────────────────────
 
@@ -71,104 +72,98 @@ _SEED_FILES = {
 > Boot instructions for any Hermes/agent session reading this vault.
 
 ## What This Vault Is
-A personal knowledge base that compounds. This vault is the durable, linked, open-Markdown archive.
+A durable, linked Markdown knowledge base managed by **EntropicMem** — the agent's standalone memory system.
 
-## Architecture
+## Storage layout
 - `AGENTS.md` — this file
-- `SCHEMA.md` — domain config, tag taxonomy, conventions
-- `index.md` — sectioned content catalog
+- `SCHEMA.md` — conventions and frontmatter
+- `index.md` — sectioned catalog
 - `log.md` — append-only action log
+- `Wiki-Cache.md` — hot orientation (regenerate with `hotcache`)
 - `inbox/` — fleeting captures
-- `.raw/` — web clipper landing
-- `Mnemosyne/` — READ-ONLY Mnemosyne mirror (6h cron)
+- `.raw/` — raw clipper landing
 - `templates/` — note templates
-- `<Domain>/` — Infrastructure, Ajax Systems, X-Growth, Finance, Workflows, People, Knowledge, Products-Research, Projects
+- `_archive/` — write-protected archive
+- `<Domain>/` — structured knowledge by domain
 
-## The Loop (6+ commands via `entropicmem`)
+## Agent loop (CLI)
 | Command | Purpose |
 |---------|---------|
-| `ingest <source>` | Literature + atomic permanents |
-| `query "<q>"` | Cited retrieval |
-| `note [title]` | Stdin → permanent |
-| `lint` | Orphans, dead links, stale, contradictions |
-| `moc` | Build/repair domain Index + backlinks |
+| `ingest <source>` | Literature + atomic notes |
+| `query "q"` | Cited vault retrieval |
+| `recall "q"` | Search memory engine facts |
+| `remember "fact"` | Durable fact → memory engine + vault |
+| `note [title]` | Stdin → permanent note |
+| `lint` | Orphans, dead links, stale |
+| `moc` | Domain Index + backlinks |
 | `hotcache` | Refresh Wiki-Cache.md |
-| `graph export` | Visualizer |
+| `graph export` | Galaxy knowledge graph |
 
-## Linking Conventions
-- `[[wikilinks]]` — case-sensitive on Linux
-- Atomic notes, link liberally
-- Promote `inbox/` → domain via `lint` or session end
-
-## Safety
-- Never edit `.obsidian/`, `Mnemosyne/`, `_archive/`
-- Quote paths with spaces in shell
+## Rules
+- Use `[[wikilinks]]` liberally (case-sensitive on Linux)
+- Promote `inbox/` → domain folders during maintenance
+- Never write to `_archive/` (protected)
+- Do not store credentials in the vault
 """,
-    "SCHEMA.md": """# Vault Schema — EntropicMem Configuration
+    "SCHEMA.md": """# Vault Schema — EntropicMem
 
 ## Conventions
-- File names: lowercase, hyphens, no spaces
-- Every note: YAML frontmatter
-- `[[wikilinks]]` minimum 2 outbound per permanent note
+- One idea per permanent note when possible
+- Minimum two outbound wikilinks on permanent notes
+- Filenames: lowercase, hyphens
 
-## Frontmatter Schema
+## Frontmatter (required)
 ```yaml
 title: "Note Title"
-type: "literature|permanent|moc|index|log"
+type: literature|permanent|moc|index|log
 tags: [tag1, tag2]
-created: "2026-07-16"
-source: "url|file|conversation|agent"
+created: "YYYY-MM-DD"
+updated: "YYYY-MM-DD"
+source: agent|url|file|conversation
+entropic_id: "16-hex-id"
+domain: "Knowledge"
 agent: true
-entropic_id: "a1b2c3d4e5f6g7h8"
-domain: "Infrastructure"
 ```
 """,
     "index.md": """# Index — Vault Content Catalog
 
+## Knowledge
+<!-- MOC: Knowledge/Index -->
+
 ## Infrastructure
 <!-- MOC: Infrastructure/Index -->
 
-## Ajax Systems
-<!-- MOC: Ajax Systems/Index -->
-
-## X-Growth
-<!-- MOC: X-Growth/Index -->
-
-## Finance
-<!-- MOC: Finance/Index -->
-
-## Workflows
-<!-- MOC: Workflows/Index -->
+## Projects
+<!-- MOC: Projects/Index -->
 
 ## People
 <!-- MOC: People/Index -->
 
-## Knowledge
-<!-- MOC: Knowledge/Index -->
+## Workflows
+<!-- MOC: Workflows/Index -->
 
-## Products-Research
-<!-- MOC: Products-Research/Index -->
-
-## Projects
-<!-- MOC: Projects/Index -->
+## Finance
+<!-- MOC: Finance/Index -->
 """,
     "log.md": f"""# Action Log
 
 ## Created
-- Vault initialized by EntropicMem v{__version__}
-- Date: {date.today().isoformat()}
+- Vault initialized by EntropicMem v1.0.0
+- Date: 2026-07-16
 
 ---
-*Append-only log. Rotate yearly.*
+*Append-only log.*
 """,
     "Wiki-Cache.md": f"""# Wiki-Cache
 
-> Auto-generated hot cache. Recent (14d) + high-value notes.
-> Generated: {date.today().isoformat()}
+> Hot orientation: recent + high-value links. Regenerate: `entropicmem hotcache`
+> Generated: 2026-07-16
 
-*Vault is fresh — no notes indexed yet. Run `entropicmem ingest` to populate.*
+*Vault is fresh — run `entropicmem ingest` or `remember` to populate.*
 """,
 }
+
+
 
 
 # ── subcommand: init ────────────────────────────────────────────────────────
@@ -204,7 +199,7 @@ def cmd_init(args) -> int:
         created.append(filename)
 
     # Create directories
-    for d in ["inbox", ".raw", "Mnemosyne", "templates", "attachments"]:
+    for d in ["inbox", ".raw", "templates", "attachments"]:
         (vault_path / d).mkdir(exist_ok=True)
         (vault_path / d / ".gitkeep").touch(exist_ok=True)
 
@@ -227,7 +222,8 @@ def cmd_init(args) -> int:
 
     # Write env vars
     env_file = Path.home() / ".hermes" / ".env"
-    _append_env(env_file, vault_path, index_path)
+    memory_path = Path.home() / ".hermes" / "entropicmem" / "memory.db"
+    _append_env(env_file, vault_path, index_path, memory_path)
 
     print(f"\nEntropicMem initialized.")
     print(f"  Vault:      {vault_path} {'(safe mode — AGENTS.md already existed)' if safe_mode else ''}")
@@ -287,12 +283,20 @@ def _write_template(path: Path, ttype: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _append_env(env_file: Path, vault_path: Path, index_path: Path) -> None:
+def _memory_db_path() -> Path:
+    return Path(os.environ.get(
+        "ENTROPICMEM_MEMORY_DB",
+        str(Path.home() / ".hermes" / "entropicmem" / "memory.db"),
+    )).expanduser().resolve()
+
+
+def _append_env(env_file: Path, vault_path: Path, index_path: Path, memory_path: Path) -> None:
     """Idempotently append EntropicMem env vars to ~/.hermes/.env."""
     entry = f"""
 # EntropicMem — added by entropicmem init
 ENTROPICMEM_VAULT_PATH="{vault_path}"
 ENTROPICMEM_INDEX_DB="{index_path}"
+ENTROPICMEM_MEMORY_DB="{memory_path}"
 """
     if env_file.exists():
         text = env_file.read_text(encoding="utf-8")
@@ -797,10 +801,36 @@ def cmd_memory(args) -> int:
         print(f"Domains: {s['domains']}")
         engine.close()
         return 0
+    elif args.memory_command == "list":
+        domain = getattr(args, "domain", None)
+        limit = getattr(args, "limit", 50)
+        facts = engine.list_facts(domain=domain, limit=limit)
+        for f in facts:
+            preview = f.content.replace("\n", " ")[:120]
+            print(f"{f.id}\t{f.domain}\t{preview}")
+        engine.close()
+        return 0
     else:
-        print("Usage: entropicmem memory project|stats", file=sys.stderr)
+        print("Usage: entropicmem memory project|stats|list", file=sys.stderr)
         engine.close()
         return 1
+
+
+
+# ── subcommand: recall ───────────────────────────────────────────────────
+
+def cmd_recall(args) -> int:
+    engine = MemoryEngine(_memory_db_path())
+    results = engine.recall(args.query, top_k=args.top_k, domain=args.domain)
+    if not results:
+        print("No matching facts.")
+        engine.close()
+        return 0
+    for r in results:
+        preview = r.content.replace("\n", " ")
+        print(f"[{r.id}] ({r.domain}) imp={r.importance:.2f} {preview}")
+    engine.close()
+    return 0
 
 
 # ── subcommand: remember ─────────────────────────────────────────────────
@@ -812,13 +842,16 @@ def cmd_remember(args) -> int:
     tags = args.tags.split(",") if args.tags else ["durable", "agent"]
     title = f"Fact - {args.fact[:60]}"
     body = (f"## Fact\n{args.fact}\n\n## Source\n- Agent (EntropicMem remember)\n\n## Links\n- [[{domain}/Index]]\n- [[Wiki-Cache]]\n")
-    path = vault.write_note(domain, title, body, tags=tags, domain=domain)
+    engine = MemoryEngine(_memory_db_path())
+    eid = engine.remember(content=args.fact, title=title, domain=domain, tags=tags, source="agent")
+    path = vault.write_note(domain, title, body, tags=tags, domain=domain, frontmatter={"entropic_id": eid})
     index = VaultIndex(index_path)
     note = vault.read_note(path)
     index.upsert_note(note)
     index.upsert_edges_for_note(vault, note)
     index.close()
-    print(f"Remembered: {note.entropic_id}")
+    engine.close()
+    print(f"Remembered: {eid}")
     print(f"Vault note: {path}")
     return 0
 
@@ -829,21 +862,23 @@ def cmd_forget(args) -> int:
     vault_path, index_path = _resolve_env()
     vault = Vault(vault_path)
     index = VaultIndex(index_path)
+    engine = MemoryEngine(_memory_db_path())
     eid = args.entropic_id
+    engine.forget(eid)
     found = None
     for rel in vault.list_notes():
         note = vault.read_note(rel)
         if note.entropic_id == eid or note.note_id == eid:
             found = rel
             break
-    if not found:
-        print(f"Error: no note found with id: {eid}", file=sys.stderr)
-        index.close()
-        return 1
-    index.delete_note(str(found))
-    vault.delete_note(found)
+    if found:
+        index.delete_note(str(found))
+        vault.delete_note(found)
+        print(f"Forgot vault note: {found}")
+    else:
+        print(f"No vault note for id {eid} (memory engine updated if present)")
     index.close()
-    print(f"Forgot: {found}")
+    engine.close()
     return 0
 
 
@@ -936,6 +971,12 @@ def main() -> int:
     g_serve.add_argument("--port", type=int, default=8080)
     g_serve.add_argument("--dir", default="./export")
 
+    # recall
+    p_recall = sub.add_parser("recall", help="Search durable facts in memory engine")
+    p_recall.add_argument("query", help="Search query")
+    p_recall.add_argument("--top-k", type=int, default=10)
+    p_recall.add_argument("--domain", help="Filter by domain")
+
     # remember
     p_remember = sub.add_parser("remember", help="Store durable fact in memory engine + vault")
     p_remember.add_argument("fact", help="The fact to remember")
@@ -951,6 +992,9 @@ def main() -> int:
     m_sub = p_memory.add_subparsers(dest="memory_command")
     m_sub.add_parser("project", help="Project memory facts to vault")
     m_sub.add_parser("stats", help="Show memory engine statistics")
+    m_list = m_sub.add_parser("list", help="List facts in memory engine")
+    m_list.add_argument("--domain", help="Filter by domain")
+    m_list.add_argument("--limit", type=int, default=50)
 
     # open
     p_open = sub.add_parser("open", help="Open a note in system editor")
@@ -983,6 +1027,7 @@ def main() -> int:
         "moc": cmd_moc,
         "hotcache": cmd_hotcache,
         "graph": cmd_graph,
+        "recall": cmd_recall,
         "remember": cmd_remember,
         "forget": cmd_forget,
         "open": cmd_open,
