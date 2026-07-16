@@ -27,6 +27,7 @@ Remaining subcommands are stubs that print "Not implemented yet — Phase 2+".
 
 import argparse
 import os
+import re
 import shutil
 import sys
 from datetime import date
@@ -487,11 +488,285 @@ def cmd_note(args) -> int:
     return 0
 
 
-# ── stub subcommands (Phase 2+) ─────────────────────────────────────────────
+
+# ── subcommand: open ────────────────────────────────────────────────────────
+
+def cmd_open(args) -> int:
+    vault_path, _ = _resolve_env()
+    vault = Vault(vault_path)
+    try:
+        vault.open_note(args.note_id)
+        print(f"Opened: {args.note_id}")
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+# ── subcommand: ingest ──────────────────────────────────────────────────────
+
+def cmd_ingest(args) -> int:
+    vault_path, index_path = _resolve_env()
+    vault = Vault(vault_path)
+    index = VaultIndex(index_path)
+
+    source = args.source
+    if source == "-" or not source:
+        text = sys.stdin.read().strip()
+        if not text:
+            print("Error: no source specified and no stdin input.", file=sys.stderr)
+            return 1
+        title = "Stdin Capture"
+        source_label = "stdin"
+    elif source.startswith("http://") or source.startswith("https://"):
+        import urllib.request
+        try:
+            req = urllib.request.Request(source, headers={"User-Agent": "EntropicMem/0.1"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                text = resp.read().decode("utf-8", errors="replace")
+        except Exception as e:
+            print(f"Error fetching URL: {e}", file=sys.stderr)
+            return 1
+        text = re.sub(r'<script.*?</script>', '', text, flags=re.S | re.I)
+        text = re.sub(r'<style.*?</style>', '', text, flags=re.S | re.I)
+        text = re.sub(r'<[^>]+>', ' ', text)
+        text = re.sub(r'\n\s*\n+', '\n\n', text)
+        text = re.sub(r'[ \t]+', ' ', text).strip()
+        title = vault.sanitize(source.split("/")[-1] or "Web Capture")
+        source_label = source
+    else:
+        p = Path(source)
+        if not p.exists():
+            print(f"Error: file not found: {source}", file=sys.stderr)
+            return 1
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        title = vault.sanitize(p.stem)
+        source_label = source
+
+    domain = args.domain or "Knowledge"
+
+    entities = set(re.findall(r'\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})\b', text))
+    stop_words = {"The","This","That","When","Where","What","Which","After","Before","There","Their","These","Those","From","With","About","Every","Daily","Your","They"}
+    entities = {e for e in entities if e.split()[0] not in stop_words and len(e) > 3}
+    known_titles = set(vault.get_all_titles().keys())
+    entities = entities - known_titles
+
+    lines = [l.strip() for l in text.split("\n") if l.strip() and len(l.strip()) > 20]
+    key_points = lines[:15]
+
+    lit_body = (
+        f"**Source:** {source_label}\n\n"
+        f"## Key Points\n"
+        + "\n".join(f"- {p[:200]}" for p in key_points)
+        + "\n\n## Extracted Entities\n"
+        + "\n".join(f"- [[{e}]]" for e in sorted(entities)[:15])
+        + "\n\n## Links\n- [[Mnemosyne Dashboard]]\n"
+    )
+    lit_path = vault.write_note(
+        "inbox", f"Lit - {title}",
+        lit_body,
+        tags=["literature", "auto-ingested"],
+        source=source_label,
+        source_url=source if source_label.startswith("http") else "",
+        note_type="literature",
+        domain=domain,
+    )
+    lit_note = vault.read_note(lit_path)
+    index.upsert_note(lit_note)
+    print(f"  Literature: {lit_path}")
+
+    atomic_count = 0
+    all_titles = set(vault.get_all_titles().keys())
+    for entity in sorted(entities)[:15]:
+        if entity in all_titles:
+            continue
+        m = re.search(rf'.{{0,80}}{re.escape(entity)}.{{0,120}}', text)
+        snippet = m.group(0).strip() if m else f"Concept extracted from {title}."
+        body = (
+            f"## Context\n{snippet}\n\n"
+            f"## Source\n- [[Lit - {title}]]\n\n"
+            f"## Links\n- [[{domain}/Index]]\n- [[Mnemosyne Dashboard]]\n"
+        )
+        path = vault.write_note(domain, entity, body, tags=["permanent","auto-ingested"], source=source_label, domain=domain)
+        note = vault.read_note(path)
+        index.upsert_note(note)
+        index.upsert_edges_for_note(vault, note)
+        atomic_count += 1
+        all_titles.add(entity)
+
+    index.close()
+    print(f"Ingested: 1 literature + {atomic_count} atomic notes (domain: {domain})")
+    return 0
+
+
+# ── subcommand: ingest-pile ─────────────────────────────────────────────────
+
+def cmd_ingest_pile(args) -> int:
+    vault_path, index_path = _resolve_env()
+    vault = Vault(vault_path)
+    index = VaultIndex(index_path)
+    d = Path(args.dir)
+    if not d.is_dir():
+        print(f"Error: not a directory: {d}", file=sys.stderr)
+        return 1
+    files = [str(f) for f in d.rglob("*") if f.suffix in (".md", ".txt", ".html", ".json")]
+    if not files:
+        print(f"No readable files found in {d}")
+        return 0
+
+    domain = args.domain or "Knowledge"
+    print(f"Ingesting {len(files)} sources from {d}")
+
+    all_titles = []
+    for f in files:
+        with open(f, encoding="utf-8", errors="ignore") as fh:
+            text = fh.read()
+        p = Path(f)
+        title = vault.sanitize(p.stem)
+        all_titles.append(title)
+        key_points = [l.strip() for l in text.split("\n") if l.strip() and len(l.strip()) > 20][:10]
+        lit_body = (
+            f"**Source:** {f}\n\n"
+            f"## Key Points\n"
+            + "\n".join(f"- {pt[:200]}" for pt in key_points)
+            + "\n\n## Links\n"
+            + "\n".join(f"- [[{t}]]" for t in all_titles if t != title)[:10]
+            + "\n"
+        )
+        lit_path = vault.write_note("inbox", f"Lit - {title}", lit_body, tags=["literature","pile-ingested","auto-ingested"], source=str(f), domain=domain, note_type="literature")
+        lit_note = vault.read_note(lit_path)
+        index.upsert_note(lit_note)
+        index.upsert_edges_for_note(vault, lit_note)
+
+    index.close()
+    print(f"Done: {len(files)} literature notes with cross-references (domain: {domain})")
+    return 0
+
+
+# ── subcommand: moc ─────────────────────────────────────────────────────────
+
+def cmd_moc(args) -> int:
+    vault_path, index_path = _resolve_env()
+    vault = Vault(vault_path)
+    index = VaultIndex(index_path)
+    domains = [args.domain] if args.domain else vault.get_domains()
+    for domain in domains:
+        notes = vault.list_notes(folder=domain)
+        domain_dir = vault.root / domain
+        domain_dir.mkdir(exist_ok=True)
+        lines = [
+            "---",
+            f'title: "{domain} — Map of Content"',
+            'type: "index"',
+            f'created: "{date.today().isoformat()}"',
+            f'domain: "{domain}"',
+            'source: "agent"',
+            'agent: true',
+            '---',
+            '',
+            f"# {domain} — Map of Content",
+            "",
+            f"> Auto-generated MOC.",
+            f"> Generated: {date.today().isoformat()}",
+            "",
+            "## Notes",
+            "",
+
+            ]
+        for rel in notes:
+            note = vault.read_note(rel)
+            lines.append(f"- [[{note.title}]] — {note.note_type}")
+        (domain_dir / "Index.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        for rel in notes:
+            text = (vault.root / rel).read_text(encoding="utf-8")
+            if "## Links" not in text:
+                text += f"\n\n## Links\n- [[{domain}/Index]]\n"
+            elif f"[[{domain}/Index]]" not in text:
+                text = text.replace("## Links", f"## Links\n- [[{domain}/Index]]")
+            (vault.root / rel).write_text(text, encoding="utf-8")
+            note = vault.read_note(rel)
+            index.upsert_note(note)
+            index.upsert_edges_for_note(vault, note)
+        print(f"  {domain}: {len(notes)} notes indexed + backlinks added")
+    index.close()
+    print(f"MOC rebuilt for {len(domains)} domain(s).")
+    return 0
+
+
+# ── subcommand: research ────────────────────────────────────────────────────
+
+def cmd_research(args) -> int:
+    vault_path, index_path = _resolve_env()
+    vault = Vault(vault_path)
+    q = args.query
+    brief = (
+        f"# Research: {q}\n\n"
+        f"> Agent-driven research brief (created {date.today().isoformat()}).\n"
+        f"> Run web_search for the query below, fetch 2-4 top sources with\n"
+        f"> web_extract, synthesize into this note, and link related notes.\n\n"
+        f"## Query\n{q}\n\n"
+        f"## Sources\n_Add findings here after web_search._\n\n"
+        f"## Key Findings\n_Add synthesized findings here._\n\n"
+        f"## Links\n- [[Mnemosyne Dashboard]]\n"
+    )
+    path = vault.write_note("inbox", f"Research - {q[:40]}", brief, tags=["literature","research"], note_type="literature", source="agent", domain="Knowledge")
+    index = VaultIndex(index_path)
+    note = vault.read_note(path)
+    index.upsert_note(note)
+    index.close()
+    print(f"Research brief: {path}")
+    print(f"NEXT: agent runs web_search then web_extract, appends findings.")
+    return 0
+
+
+# ── subcommand: remember (vault-only, Mnemosyne bridge in Phase 4+) ────────
+
+def cmd_remember(args) -> int:
+    vault_path, index_path = _resolve_env()
+    vault = Vault(vault_path)
+    domain = args.domain or "Knowledge"
+    tags = args.tags.split(",") if args.tags else ["durable", "agent"]
+    title = f"Fact - {args.fact[:60]}"
+    body = (f"## Fact\n{args.fact}\n\n## Source\n- Agent (EntropicMem remember)\n\n## Links\n- [[{domain}/Index]]\n- [[Mnemosyne Dashboard]]\n")
+    path = vault.write_note(domain, title, body, tags=tags, domain=domain)
+    index = VaultIndex(index_path)
+    note = vault.read_note(path)
+    index.upsert_note(note)
+    index.upsert_edges_for_note(vault, note)
+    index.close()
+    print(f"Remembered: {note.entropic_id}")
+    print(f"Vault note: {path}")
+    return 0
+
+
+# ── subcommand: forget (vault-only) ─────────────────────────────────────────
+
+def cmd_forget(args) -> int:
+    vault_path, index_path = _resolve_env()
+    vault = Vault(vault_path)
+    index = VaultIndex(index_path)
+    eid = args.entropic_id
+    found = None
+    for rel in vault.list_notes():
+        note = vault.read_note(rel)
+        if note.entropic_id == eid or note.note_id == eid:
+            found = rel
+            break
+    if not found:
+        print(f"Error: no note found with id: {eid}", file=sys.stderr)
+        index.close()
+        return 1
+    index.delete_note(str(found))
+    vault.delete_note(found)
+    index.close()
+    print(f"Forgot: {found}")
+    return 0
+
+
+# ── stub for Phase 3-4 ──────────────────────────────────────────────────────
 
 def _stub(cmd: str) -> int:
-    """Print 'not implemented yet' for Phase 2+ subcommands."""
-    print(f"`entropicmem {cmd}` — not implemented yet. Coming in Phase 2–5.")
+    print(f"`entropicmem {cmd}` — not implemented yet. Coming in Phase 3–4.")
     return 0
 
 
@@ -615,18 +890,18 @@ def main() -> int:
     # Route to subcommand
     routes = {
         "init": cmd_init,
-        "ingest": lambda a: _stub("ingest"),
-        "ingest-pile": lambda a: _stub("ingest-pile"),
+        "ingest": cmd_ingest,
+        "ingest-pile": cmd_ingest_pile,
         "query": cmd_query,
         "note": cmd_note,
-        "research": lambda a: _stub("research"),
+        "research": cmd_research,
         "lint": cmd_lint,
-        "moc": lambda a: _stub("moc"),
+        "moc": cmd_moc,
         "hotcache": cmd_hotcache,
         "graph": lambda a: _stub("graph"),
-        "remember": lambda a: _stub("remember"),
-        "forget": lambda a: _stub("forget"),
-        "open": lambda a: _stub("open"),
+        "remember": cmd_remember,
+        "forget": cmd_forget,
+        "open": cmd_open,
         "bridge": lambda a: _stub("bridge"),
     }
 
