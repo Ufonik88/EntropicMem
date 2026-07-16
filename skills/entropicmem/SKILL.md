@@ -1,126 +1,85 @@
 ---
 name: entropicmem
-description: Vault+graph+Mnemosyne: ingest, query, note, lint, graph.
-version: 0.1.0
+description: Standalone knowledge engine: vault, memory, graph. Use for ingest, query, remember.
+version: 0.5.0
 author: Hermes
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [Vault, Memory, Graph, Mnemosyne, Knowledge-Base]
+    tags: [Memory, Knowledge, Vault, Graph]
     category: memory
-    related_skills: [obsidian, llm-wiki, mnemosyne-cron-writes]
 ---
 
-# EntropicMem — Agent-Native Second Brain
+# EntropicMem — Standalone Agent Memory
 
-Build and maintain an Obsidian-style vault on top of Mnemosyne working memory. Provides a 6-command knowledge loop, galaxy-themed visual graph, and explicit Mnemosyne↔vault round-trip sync.
-
-## When to Use
-
-- **Create/seed a vault** — `/learn` this skill, then `entropicmem init`
-- **Ingest sources** — URL, file, or conversation → literature + atomic permanent notes
-- **Query linked notes** — cited retrieval with wikilink expansion (not raw Mnemosyne recall)
-- **Visualize knowledge** — export galaxy graph (`graph.html`) and serve locally
-- **Promote durable facts** — `entropicmem remember "fact"` writes to vault + Mnemosyne
-- **Maintain health** — `lint` finds orphans, dead links, stale notes, contradictions
-- **Sync Mnemosyne mirror** — cron runs `bridge export` to project durable memories to `Mnemosyne/`
-
-## Division of Labor
-
-| Task | Use |
-|------|-----|
-| General chat, preferences, transient facts | Mnemosyne (`memory` tool) |
-| Durable linked knowledge, graph, human-browsable vault | EntropicMem (`entropicmem` CLI) |
+A self-contained knowledge engine for Hermes Agent. Own SQLite memory, Markdown vault, visual graph, and full ingest/query/workflow loop.
 
 ## Quick Start
 
 ```bash
-# After /learn installs this skill:
-entropicmem init                    # Bootstraps vault + index + env vars
-entropicmem ingest "https://..."    # Ingest source → lit + permanents
-entropicmem query "topic"           # Cited retrieval
+entropicmem init                    # Bootstrap vault + memory engine
+entropicmem ingest "https://..."    # Source → literature + atomic notes
+entropicmem query "topic"           # Full-text search with citations
+entropicmem remember "durable fact" # Store in memory engine
 entropicmem graph export --format html  # Galaxy graph
 ```
 
+## When to Use
+
+- Creating or seeding a knowledge vault
+- Ingesting web sources, files, or conversation into durable notes
+- Querying linked notes with cited results
+- Storing durable facts in the memory engine
+- Visualizing knowledge as a galaxy graph
+- Maintaining vault health (lint, moc, hotcache)
+
 ## Workflows
 
-### 1. Bootstrap (first run after `/learn`)
-See `SETUP.md` — resolves vault path, writes `.env`, seeds templates, runs smoke tests.
-
-### 2. Ingest a Source
+### 1. Bootstrap
 ```bash
-entropicmem ingest "https://arxiv.org/abs/2301.00001" --domain Knowledge
-# Creates: inbox/Lit-*.md + Knowledge/* permanents with wikilinks
+entropicmem init [--vault PATH]
 ```
 
-### 3. Query the Vault
+### 2. Ingest
 ```bash
-entropicmem query "transformer attention" --top-k 10
-# Returns: cited note paths + snippets + graph context
+entropicmem ingest <url|file|-> [--domain DOMAIN]
 ```
 
-### 4. Lint & Maintain
+### 3. Query
 ```bash
-entropicmem lint              # Orphans, dead links, >90d stale, contradictions
-entropicmem moc               # Rebuilds domain Index.md + backlinks
-entropicmem hotcache          # Refreshes Wiki-Cache.md
+entropicmem query "<query>" [--top-k N] [--domain DOMAIN] [--semantic]
+```
+
+### 4. Store Durable Facts
+```bash
+entropicmem remember "fact" [--domain DOMAIN] [--tags t1,t2]
+entropicmem forget <entropic_id>
 ```
 
 ### 5. Visual Graph
 ```bash
-entropicmem graph export --format html --max-nodes 500
-entropicmem graph serve       # Opens http://localhost:8080/graph.html
+entropicmem graph export --format html
+entropicmem graph serve --port 8080
 ```
 
-### 6. Promote Durable Fact (Vault + Mnemosyne)
+### 6. Maintain
 ```bash
-entropicmem remember "VaultKnox evaluates policies at request time" \
-  --domain Infrastructure --tags vaultknox,policy
-# Creates permanent note + Mnemosyne row with same entropic_id
+entropicmem lint          # Orphans, dead links, stale
+entropicmem moc           # Rebuild domain indexes
+entropicmem hotcache      # Refresh Wiki-Cache.md
+entropicmem memory stats  # Engine statistics
 ```
-
-### 7. Mnemosyne → Vault Mirror (Cron)
-```bash
-# In Hermes cron or systemd:
-entropicmem bridge export --since "$(date -d '6 hours ago')"
-# Projects scope=global memories to Mnemosyne/ as permanent notes
-```
-
-## Tool Framing
-
-- **Vault ops** → invoke via `terminal` tool: `entropicmem <subcommand>`
-- **File reads/writes** → `read_file` / `write_file` / `patch` on vault paths
-- **Search** → `search_files` for content/filename patterns
-- **Web sources** → `web_extract` for URLs, `web_search` for research
-- **Mnemosyne** → `mnemosyne_remember` / `mnemosyne_recall` tools (via bridge)
 
 ## Prerequisites
 
-- Python 3.10+ (stdlib only for core; `sentence-transformers` optional for semantic rerank)
-- Mnemosyne DB at `~/.hermes/mnemosyne/data/mnemosyne.db`
-- Existing Obsidian vault at `~/Documents/Obsidian Vault` (optional — safe-mode bind)
-
-## Verification
-
-```bash
-entropicmem lint          # 0 errors on fresh vault
-entropicmem --check-deps  # Reports optional dep status
-entropicmem --version     # Prints version
-```
+- Python 3.10+ (stdlib only for core)
+- Optional: `sentence-transformers` for semantic re-rank
 
 ## References
 
-- `SETUP.md` — first-run checklist (vault resolution, env vars, init, smoke test)
-- `references/MEMORY_MODEL.md` — 5-layer memory model, entropic_id round-trip
-- `references/VAULT_SCHEMA.md` — frontmatter, domains, tag taxonomy, linking rules
-- `references/CLI_REFERENCE.md` — every subcommand with examples
-- `references/VISUALIZER.md` — D3 spec, node/edge schema, palette, physics
-- `references/HERMES_INTEGRATION.md` — /learn flow, safe-mode guards, coexistence
-
-## Pitfalls
-
-- **Never write** `Mnemosyne/`, `.obsidian/`, `_archive/` — guarded in `vault.py`
-- **Embeddings optional** — FTS5 is mandatory path; semantic rerank degrades gracefully
-- **Graph caps at 500 nodes** — filter by domain/importance for large vaults
-- **`/learn` cannot pip-install** — core runs stdlib-only; optional deps documented in SETUP.md
-
+- `SETUP.md` — first-run checklist
+- `references/MEMORY_MODEL.md` — architecture
+- `references/VAULT_SCHEMA.md` — structure
+- `references/CLI_REFERENCE.md` — every subcommand
+- `references/VISUALIZER.md` — graph spec
+EOF

@@ -17,7 +17,7 @@ Usage:
   entropicmem remember "fact" [--domain D] [--tags t1,t2]
   entropicmem forget <entropic_id>
   entropicmem open <note_id>
-  entropicmem bridge export [--since DATETIME]
+  entropicmem memory project|stats
   entropicmem --check-deps
   entropicmem --version
 
@@ -48,7 +48,7 @@ from vault import (
 from index import VaultIndex
 from retrieval import EMBEDDER_AVAILABLE, retrieve_composed
 from graph_export import export_json, export_dot, export_html, export_canvas
-from mnemosyne_bridge import MnemosyneBridge, MNEMOSYNE_AVAILABLE
+from memory_engine import MemoryEngine
 
 __version__ = "0.1.0"
 
@@ -72,7 +72,7 @@ _SEED_FILES = {
 > Boot instructions for any Hermes/agent session reading this vault.
 
 ## What This Vault Is
-A personal knowledge base that compounds. Mnemosyne is working memory; this vault is the durable, linked, open-Markdown archive.
+A personal knowledge base that compounds. This vault is the durable, linked, open-Markdown archive.
 
 ## Architecture
 - `AGENTS.md` — this file
@@ -775,26 +775,32 @@ def cmd_graph(args) -> int:
     return 0
 
 
-# ── subcommand: bridge ────────────────────────────────────────────────────
+# ── subcommand: project ──────────────────────────────────────────────────
 
-def cmd_bridge(args) -> int:
+def cmd_memory(args) -> int:
     vault_path, index_path = _resolve_env()
     vault = Vault(vault_path)
     index = VaultIndex(index_path)
-    bridge = MnemosyneBridge(vault, index)
+    mem_path = Path(os.environ.get("ENTROPICMEM_MEMORY_DB",
+                   str(Path.home() / ".hermes" / "entropicmem" / "memory.db")))
+    engine = MemoryEngine(mem_path)
 
-    if args.bridge_command == "export":
-        since = getattr(args, "since", None)
-        r = bridge.export_to_vault(since=since, limit=500, verbose=True)
-        print(f"\nBridge export: {r.created} created, {r.updated} updated, {r.skipped} skipped")
-        if r.errors:
-            for e in r.errors:
-                print(f"  Error: {e}", file=sys.stderr)
+    if args.memory_command == "project":
+        r = engine.project_to_vault(vault, index, limit=500)
+        print(f"Memory project: {r['created']} created, {r['updated']} updated, {r['skipped']} skipped")
         index.close()
-        return 0 if not r.errors else 1
+        engine.close()
+        return 0
+    elif args.memory_command == "stats":
+        s = engine.stats()
+        print(f"Memory DB: {s['db_path']}")
+        print(f"Facts: {s['fact_count']}")
+        print(f"Domains: {s['domains']}")
+        engine.close()
+        return 0
     else:
-        print(f"Usage: entropicmem bridge export [--since DATETIME]", file=sys.stderr)
-        index.close()
+        print("Usage: entropicmem memory project|stats", file=sys.stderr)
+        engine.close()
         return 1
 
 
@@ -941,16 +947,16 @@ def main() -> int:
     p_forget = sub.add_parser("forget", help="Delete note + Mnemosyne row [Phase 4+]")
     p_forget.add_argument("entropic_id", help="The entropic_id to forget")
 
+    # memory
+    p_memory = sub.add_parser("memory", help="Memory engine operations")
+    m_sub = p_memory.add_subparsers(dest="memory_command")
+    m_sub.add_parser("project", help="Project memory facts to vault")
+    m_sub.add_parser("stats", help="Show memory engine statistics")
+
     # open
     p_open = sub.add_parser("open", help="Open a note in system editor")
     p_open.add_argument("note_id", help="Note ID (Domain/Name or vault://Domain/Name)")
 
-    # bridge
-    p_bridge = sub.add_parser("bridge", help="Mnemosyne ↔ Vault bridge [Phase 4+]")
-    b_sub = p_bridge.add_subparsers(dest="bridge_command")
-    b_export = b_sub.add_parser("export", help="Export Mnemosyne → Vault Mnemosyne/")
-    b_export.add_argument("--since", help="ISO datetime filter")
-    b_import = b_sub.add_parser("import", help="Import Vault → Mnemosyne")
 
     # Parse
     args = parser.parse_args()
@@ -981,7 +987,7 @@ def main() -> int:
         "remember": cmd_remember,
         "forget": cmd_forget,
         "open": cmd_open,
-        "bridge": cmd_bridge,
+        "memory": cmd_memory,
     }
 
     handler = routes.get(args.command)

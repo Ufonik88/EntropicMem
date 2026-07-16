@@ -1,5 +1,5 @@
 """
-test_phase4.py — Tests for Phase 4 Mnemosyne bridge.
+test_phase4.py — Tests for the standalone MemoryEngine.
 """
 
 import hashlib
@@ -17,7 +17,7 @@ sys.path.insert(0, str(_SCRIPT_DIR))
 
 from vault import Vault
 from index import VaultIndex
-from mnemosyne_bridge import MnemosyneBridge, MNEMOSYNE_AVAILABLE, MNEMOSYNE_DB_PATH
+from memory_engine import MemoryEngine, StoredFact
 
 
 def _run(*args, **env):
@@ -29,162 +29,172 @@ def _run(*args, **env):
 
 
 @pytest.fixture
-def vault_with_bridge():
-    """Create a temp vault with index and bridge."""
+def engine():
+    """Create an in-memory MemoryEngine for testing."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = Path(tmp.name)
+    eng = MemoryEngine(db_path)
+    yield eng
+    eng.close()
+    db_path.unlink(missing_ok=True)
+
+
+@pytest.fixture
+def vault_with_engine():
+    """Create a temp vault with MemoryEngine."""
     with tempfile.TemporaryDirectory() as td:
         vp = Path(td) / "vault"
         ip = Path(td) / "index.db"
+        mp = Path(td) / "memory.db"
         _run("init", "--vault", str(vp), "--index-db", str(ip),
              ENTROPICMEM_VAULT_PATH=str(vp), ENTROPICMEM_INDEX_DB=str(ip))
 
         vault = Vault(vp)
         index = VaultIndex(ip)
+        engine = MemoryEngine(mp)
 
-        # Add some test notes for graph context
         for i in range(5):
             path = vault.write_note(
-                "Infrastructure", f"Bridge Test Note {i}",
-                f"Body for bridge test {i}. Links to [[Bridge Test Note {i+1}]]" if i < 4 else f"Final bridge test note {i}.",
-                tags=["bridge-test"], domain="Infrastructure",
+                "Infrastructure", f"Engine Test Note {i}",
+                f"Body for engine test {i}.",
+                tags=["engine-test"], domain="Infrastructure",
             )
             note = vault.read_note(path)
             index.upsert_note(note)
             index.upsert_edges_for_note(vault, note)
 
-        bridge = MnemosyneBridge(vault, index)
-        yield vault, index, bridge
+        yield vault, index, engine
         index.close()
+        engine.close()
 
 
-class TestMnemosyneBridge:
-    def test_bridge_available_status(self):
-        """Bridge should report Mnemosyne availability correctly."""
-        assert isinstance(MNEMOSYNE_AVAILABLE, bool)
+class TestMemoryEngine:
+    def test_remember_returns_id(self, engine):
+        eid = engine.remember(content="Test fact for memory engine")
+        assert len(eid) == 16
 
-    def test_entropic_id_deterministic(self):
-        """Same content should produce same entropic_id."""
-        content = "Test fact about EntropicMem bridge"
-        eid1 = hashlib.sha256(content.encode()).hexdigest()[:16]
-        eid2 = hashlib.sha256(content.encode()).hexdigest()[:16]
+    def test_remember_deterministic(self, engine):
+        content = "Test deterministic ID generation"
+        eid1 = engine.remember(content=content)
+        eid2 = engine.remember(content=content)
         assert eid1 == eid2
-        assert len(eid1) == 16
 
-    def test_entropic_id_different(self):
-        """Different content should produce different entropic_id."""
-        eid1 = hashlib.sha256(b"Content A").hexdigest()[:16]
-        eid2 = hashlib.sha256(b"Content B").hexdigest()[:16]
+    def test_remember_different_content(self, engine):
+        eid1 = engine.remember(content="Content A")
+        eid2 = engine.remember(content="Content B")
         assert eid1 != eid2
 
-    def test_remember_vault_only(self, vault_with_bridge):
-        """remember() should always create vault note regardless of Mnemosyne status."""
-        vault, index, bridge = vault_with_bridge
-        content = "Test vault-only remember for EntropicMem bridge testing"
-        mnemo_id, path = bridge.remember(
-            content=content, domain="Infrastructure", tags=["test"],
-            importance=0.5, source="test",
-        )
+    def test_recall_finds_fact(self, engine):
+        engine.remember(content="A unique memory about quantum computing", domain="Knowledge")
+        results = engine.recall("quantum")
+        assert len(results) > 0
+        assert any("quantum" in r.content for r in results)
 
-        assert path is not None
-        assert (vault.root / path).exists()
+    def test_recall_domain_filter(self, engine):
+        engine.remember(content="Infrastructure fact", domain="Infrastructure")
+        engine.remember(content="Finance fact", domain="Finance")
+        results = engine.recall("fact", domain="Infrastructure")
+        for r in results:
+            assert r.domain == "Infrastructure"
 
-        note = vault.read_note(path)
-        assert note.entropic_id
-        assert len(note.entropic_id) == 16
+    def test_forget_removes_fact(self, engine):
+        eid = engine.remember(content="Fact to be forgotten")
+        assert engine.forget(eid) is True
+        assert engine.get_fact(eid) is None
 
-    def test_remember_entropic_id_consistent(self, vault_with_bridge):
-        """Same content should produce same entropic_id across calls."""
-        vault, index, bridge = vault_with_bridge
-        content = "Consistent entropic_id test fact"
+    def test_forget_returns_false_for_missing(self, engine):
+        assert engine.forget("nonexistent_id_") is False
 
-        mnemo_id1, path1 = bridge.remember(content=content, domain="Infrastructure")
-        mnemo_id2, path2 = bridge.remember(content=content, domain="Infrastructure")
+    def test_list_facts(self, engine):
+        for i in range(5):
+            engine.remember(content=f"Test list fact {i}", domain="Infrastructure")
+        facts = engine.list_facts(domain="Infrastructure")
+        assert len(facts) >= 5
 
-        note1 = vault.read_note(path1)
-        note2 = vault.read_note(path2)
-        # Both notes should compute the same entropic_id
-        assert note1.compute_entropic_id() == note2.compute_entropic_id()
+    def test_stats(self, engine):
+        engine.remember(content="Stats test fact", domain="Knowledge")
+        s = engine.stats()
+        assert s["fact_count"] >= 1
+        assert "domains" in s
 
-    def test_bridge_export_creates_folder(self, vault_with_bridge):
-        """Bridge export should create Mnemosyne/ folder if it doesn't exist."""
-        vault, index, bridge = vault_with_bridge
-        mnemosyne_dir = vault.root / "Mnemosyne"
-        assert not mnemosyne_dir.exists() or mnemosyne_dir.is_dir()
-        # After export attempt
-        if bridge.available:
-            result = bridge.export_to_vault(limit=5)
-            assert isinstance(result.created, int)
-            assert isinstance(result.skipped, int)
+    def test_project_to_vault(self, vault_with_engine):
+        vault, index, engine = vault_with_engine
+        engine.remember(content="A projectable fact about infrastructure", domain="Infrastructure")
+        r = engine.project_to_vault(vault, index, limit=10)
+        assert r["created"] >= 1
 
-    def test_bridge_export_dedup(self, vault_with_bridge):
-        """Bridge export should not duplicate notes with same entropic_id."""
-        vault, index, bridge = vault_with_bridge
-        if not bridge.available:
-            pytest.skip("Mnemosyne DB not available")
-
-        # Two exports should not double the count
-        result1 = bridge.export_to_vault(limit=10)
-        result2 = bridge.export_to_vault(limit=10)
-        # After first export, second should mostly skip
-        assert result2.created <= result1.created or result1.created == 0
-
-    def test_bridge_remember_has_mnemosyne_id(self, vault_with_bridge):
-        """When Mnemosyne available, remember should return a non-None mnemosyne_id."""
-        vault, index, bridge = vault_with_bridge
-        if not bridge.available:
-            pytest.skip("Mnemosyne DB not available")
-
-        mnemo_id, path = bridge.remember(
-            content="Test Mnemosyne dual-write for bridge testing",
-            domain="Infrastructure", tags=["test"],
-        )
-        assert mnemo_id is not None
-        assert len(mnemo_id) > 0
+    def test_deduplication(self, engine):
+        content = "Deduplication test: should not create duplicates"
+        eid1 = engine.remember(content=content)
+        eid2 = engine.remember(content=content)
+        assert eid1 == eid2
+        facts = engine.recall("Deduplication")
+        count = sum(1 for r in facts if r.id == eid1)
+        assert count == 1
 
 
-class TestBridgeCLI:
-    def test_cli_bridge_export(self, vault_with_bridge):
-        vault, index, bridge = vault_with_bridge
+class TestMemoryCLI:
+    def test_cli_remember(self, vault_with_engine):
+        vault, index, engine = vault_with_engine
+        engine.close()
         index.close()
-        r = _run("bridge", "export",
-                 ENTROPICMEM_VAULT_PATH=str(vault.root), ENTROPICMEM_INDEX_DB=str(index.db_path))
+        mp = engine.db_path
+        r = _run("remember", "CLI memory engine test fact",
+                 "--domain", "Infrastructure",
+                 ENTROPICMEM_VAULT_PATH=str(vault.root),
+                 ENTROPICMEM_INDEX_DB=str(index.db_path),
+                 ENTROPICMEM_MEMORY_DB=str(mp))
         assert r.returncode == 0
-        assert "created" in r.stdout.lower() or "skipped" in r.stdout.lower()
+        assert "Remembered:" in r.stdout
 
-    def test_cli_remember_mnemosyne(self, vault_with_bridge):
-        """remember CLI should output entropic_id and Mnemosyne status."""
-        vault, index, bridge = vault_with_bridge
+    def test_cli_remember_forget_roundtrip(self, vault_with_engine):
+        vault, index, engine = vault_with_engine
+        engine.close()
         index.close()
-        r = _run("remember", "CLI bridge test fact for phase 4",
-                 "--domain", "Infrastructure", "--tags", "bridge-test",
-                 ENTROPICMEM_VAULT_PATH=str(vault.root), ENTROPICMEM_INDEX_DB=str(index.db_path))
+        mp = engine.db_path
+        r = _run("remember", "Roundtrip test fact for CLI",
+                 "--domain", "Infrastructure",
+                 ENTROPICMEM_VAULT_PATH=str(vault.root),
+                 ENTROPICMEM_INDEX_DB=str(index.db_path),
+                 ENTROPICMEM_MEMORY_DB=str(mp))
         assert r.returncode == 0
-        assert "Remembered" in r.stdout
-        assert "remembered" in r.stdout.lower()
+        eid_line = [l for l in r.stdout.split("\n") if "Remembered:" in l][0]
+        eid = eid_line.split(":")[1].strip()
+
+        r2 = _run("forget", eid,
+                  ENTROPICMEM_VAULT_PATH=str(vault.root),
+                  ENTROPICMEM_INDEX_DB=str(index.db_path),
+                  ENTROPICMEM_MEMORY_DB=str(mp))
+        assert r2.returncode == 0
+
+    def test_cli_memory_stats(self, vault_with_engine):
+        vault, index, engine = vault_with_engine
+        engine.remember(content="Stats CLI test", domain="Knowledge")
+        engine.close()
+        index.close()
+        r = _run("memory", "stats",
+                 ENTROPICMEM_VAULT_PATH=str(vault.root),
+                 ENTROPICMEM_INDEX_DB=str(index.db_path),
+                 ENTROPICMEM_MEMORY_DB=str(engine.db_path))
+        assert r.returncode == 0
+        assert "Facts:" in r.stdout
 
 
 class TestPhase4Gate:
-    def test_gate_roundtrip_entropic_id(self, vault_with_bridge):
-        """Gate: remember stores entropic_id in frontmatter."""
-        vault, index, bridge = vault_with_bridge
-        content = "Phase 4 gate test: round-trip entropic_id verification for EntropicMem"
+    def test_gate_entropic_id_consistent(self, engine):
+        content = "Phase 4 gate: standalone memory engine entropic_id verification"
+        eid = engine.remember(content=content)
+        fact = engine.get_fact(eid)
+        assert fact is not None
+        assert fact.id == eid
+        assert len(eid) == 16
 
-        _, path = bridge.remember(content=content, domain="Infrastructure", tags=["gate-test"])
-        note = vault.read_note(path)
-        # entropic_id should be present and 16 chars
-        assert note.entropic_id
-        assert len(note.entropic_id) == 16
-
-    def test_gate_mnemosyne_dual_write(self, vault_with_bridge):
-        """Gate: dual write creates both vault note and Mnemosyne memory."""
-        vault, index, bridge = vault_with_bridge
-        if not bridge.available:
-            pytest.skip("Mnemosyne DB not available")
-
-        content = "Gate test dual write: vault and Mnemosyne"
-        mnemo_id, path = bridge.remember(content=content, domain="Infrastructure")
-
-        # Vault note exists
-        assert (vault.root / path).exists()
-        # Mnemosyne ID returned
-        assert mnemo_id is not None
-        assert len(mnemo_id) > 0
+    def test_gate_remember_dual_write(self, vault_with_engine):
+        vault, index, engine = vault_with_engine
+        content = "Gate test: dual write to memory engine and vault"
+        eid = engine.remember(content=content, domain="Infrastructure")
+        # Memory engine has it
+        assert engine.get_fact(eid) is not None
+        # Now project to vault
+        r = engine.project_to_vault(vault, index, limit=10)
+        assert r["created"] >= 1

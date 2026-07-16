@@ -1,13 +1,8 @@
 """
 vault.py — Core vault operations for EntropicMem.
 
-Reads, writes, and manages Markdown notes in an Obsidian-style vault.
-Stdlib-only. All paths are Path objects. Never writes to protected prefixes.
-
-Protected prefixes (never write):
-    Mnemosyne/   — auto-generated mirror
-    .obsidian/   — Obsidian config
-    _archive/    — historical exports
+Reads, writes, and manages Markdown notes in the EntropicMem vault.
+Stdlib-only. All paths are Path objects.
 """
 
 import hashlib
@@ -21,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 # ── protected prefixes (never write) ────────────────────────────────────────
-PROTECTED_PREFIXES = ("Mnemosyne/", ".obsidian/", "_archive/", ".stfolder/")
+PROTECTED_PREFIXES = ("_archive/",)
 
 # ── domain list (seeded at init) ────────────────────────────────────────────
 DEFAULT_DOMAINS = [
@@ -76,7 +71,7 @@ class Note:
         return round(min(score, 1.0), 2)
 
     def compute_entropic_id(self) -> str:
-        """Deterministic content hash for Mnemosyne round-trip."""
+        """Deterministic content hash for deduplication and identity."""
         payload = self.title + "\n" + self.body
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
@@ -116,7 +111,7 @@ class Note:
 # ── vault class ─────────────────────────────────────────────────────────────
 
 class Vault:
-    """Operations on an Obsidian-style Markdown vault."""
+    """Operations on an EntropicMem Markdown vault."""
 
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
@@ -220,7 +215,7 @@ class Vault:
         """
         Create a new note. Returns the relative path within the vault.
 
-        Raises ValueError if the path is write-protected (Mnemosyne/, .obsidian/, _archive/).
+        Raises ValueError if the path is write-protected (_archive/).
         """
         slug = self.sanitize(title)
         filename = f"{slug}.md"
@@ -230,8 +225,7 @@ class Vault:
         rel_check = Path(folder) / filename
         if self._is_protected(rel_check) and not _allow_protected:
             raise ValueError(
-                f"Path '{rel_check}' is write-protected. "
-                f"EntropicMem never writes to {', '.join(PROTECTED_PREFIXES)}."
+                f"Path '{rel_check}' is write-protected (_archive/)."
             )
 
         filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -303,7 +297,7 @@ class Vault:
             rel = md.relative_to(self.root)
             if self._is_protected(rel):
                 continue
-            if not include_archive and any(p in str(rel) for p in ["_archive/", ".obsidian/"]):
+            if not include_archive and "_archive/" in str(rel):
                 continue
             notes.append(rel)
         return sorted(notes)
@@ -357,7 +351,7 @@ class Vault:
         """Return list of domain folders that have content."""
         domains = []
         for item in sorted(self.root.iterdir()):
-            if item.is_dir() and not item.name.startswith(".") and item.name not in ("inbox", "templates", ".raw", "Mnemosyne", "_archive", "attachments"):
+            if item.is_dir() and not item.name.startswith(".") and item.name not in ("inbox", "templates", ".raw", "_archive", "attachments"):
                 if item.name in DEFAULT_DOMAINS or any(item.iterdir()):
                     domains.append(item.name)
         return domains

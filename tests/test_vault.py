@@ -145,7 +145,7 @@ class TestVault:
     def test_write_protected_raises(self, temp_vault):
         vault, _ = temp_vault
         with pytest.raises(ValueError, match="write-protected"):
-            vault.write_note("Mnemosyne", "Test", "body")
+            vault.write_note("_archive", "Test", "body")
 
     def test_list_notes(self, temp_vault):
         vault, _ = temp_vault

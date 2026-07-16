@@ -2,7 +2,7 @@
 graph_export.py — Visual graph export for EntropicMem.
 
 Exports vault data as JSON (primary), DOT (Graphviz), HTML (self-contained D3),
-and Obsidian Canvas format using data from VaultIndex.
+and Canvas format using data from VaultIndex.
 
 Stdlib-only. D3 loaded from CDN in HTML output.
 """
@@ -170,7 +170,7 @@ def export_canvas(
     min_importance: float = 0.0,
     max_nodes: int = 100,
 ) -> dict:
-    """Export as Obsidian JSON Canvas format."""
+    """Export as JSON Canvas format."""
     nodes = index.get_graph_nodes(
         domain=domain, min_importance=min_importance, max_nodes=max_nodes
     )
