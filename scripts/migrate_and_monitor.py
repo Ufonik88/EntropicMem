@@ -20,16 +20,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-REPO_SCRIPTS = Path("/home/ufonik/Documents/Coding Projects/EntropicMem/skills/entropicmem/scripts")
+import os
+
+REPO_SCRIPTS = Path(os.environ.get(
+    "ENTROPICMEM_REPO_SCRIPTS",
+    "/home/ufonik/Documents/Coding Projects/EntropicMem/skills/entropicmem/scripts"
+))
 if str(REPO_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(REPO_SCRIPTS))
 
-HERMES_HOME = Path.home() / ".hermes"
+HERMES_HOME = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
 MNEMOSYNE_DB = HERMES_HOME / "mnemosyne" / "data" / "mnemosyne.db"
 ENTROPICMEM_HOME = HERMES_HOME / "entropicmem"
-VAULT_PATH = ENTROPICMEM_HOME / "vault"
-INDEX_DB = ENTROPICMEM_HOME / "index.db"
-MEMORY_DB = ENTROPICMEM_HOME / "memory.db"
+VAULT_PATH = Path(os.environ.get("ENTROPICMEM_VAULT_PATH", str(ENTROPICMEM_HOME / "vault")))
+INDEX_DB = Path(os.environ.get("ENTROPICMEM_INDEX_DB", str(ENTROPICMEM_HOME / "index.db")))
+MEMORY_DB = Path(os.environ.get("ENTROPICMEM_MEMORY_DB", str(ENTROPICMEM_HOME / "memory.db")))
 LOG_DIR = ENTROPICMEM_HOME / "migration_logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 

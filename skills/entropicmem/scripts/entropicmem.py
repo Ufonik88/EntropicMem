@@ -52,6 +52,67 @@ from memory_engine import MemoryEngine
 
 __version__ = "1.0.0"
 
+# ── input validation helpers ────────────────────────────────────────────────
+
+def validate_domain(domain: str) -> str:
+    """Validate and sanitize domain name."""
+    if not domain:
+        return "Knowledge"
+    # Only allow alphanumeric, hyphens, spaces
+    import re
+    safe = re.sub(r'[^a-zA-Z0-9\s-]', '', domain).strip()
+    return safe or "Knowledge"
+
+def validate_query(query: str, max_len: int = 500) -> str:
+    """Validate and truncate query string."""
+    if not query:
+        return ""
+    # Remove any potential injection chars, just keep reasonable text
+    safe = query.strip()[:max_len]
+    return safe
+
+def validate_entropic_id(eid: str) -> str:
+    """Validate entropic_id format (16-char hex)."""
+    if not eid:
+        return ""
+    import re
+    if re.fullmatch(r'[a-f0-9]{16}', eid.lower()):
+        return eid.lower()
+    raise ValueError(f"Invalid entropic_id format: {eid}")
+
+def validate_path(path: str, max_len: int = 4096) -> str:
+    """Validate file/path input."""
+    if not path:
+        return ""
+    # Basic sanitization - prevent directory traversal
+    safe = path.strip()[:max_len]
+    if '..' in safe or safe.startswith('/'):
+        raise ValueError(f"Invalid path: {path}")
+    return safe
+
+def validate_url(url: str) -> str:
+    """Validate URL scheme and block internal addresses."""
+    if not url:
+        return ""
+    import urllib.parse
+    import ipaddress
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ('http', 'https'):
+        raise ValueError("Only http/https URLs allowed")
+    hostname = parsed.hostname or ""
+    # Block private IPs and localhost
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise ValueError("Private/internal IP addresses not allowed")
+    except ValueError as e:
+        if "not allowed" in str(e):
+            raise
+        # Not an IP, check hostname
+        if hostname.lower() in ('localhost', 'localhost.localdomain', 'metadata', 'metadata.google.internal', '169.254.169.254'):
+            raise ValueError("Internal hostname not allowed")
+    return url.strip()
+
 # ── env resolution ──────────────────────────────────────────────────────────
 
 def _resolve_env() -> tuple[Path, Path]:
@@ -525,11 +586,38 @@ def cmd_ingest(args) -> int:
         title = "Stdin Capture"
         source_label = "stdin"
     elif source.startswith("http://") or source.startswith("https://"):
+        import urllib.parse
         import urllib.request
+        import ipaddress
+        
+        # Validate URL to prevent SSRF
+        try:
+            parsed = urllib.parse.urlparse(source)
+            if parsed.scheme not in ("http", "https"):
+                print(f"Error: only http/https URLs allowed", file=sys.stderr)
+                return 1
+            # Block private/internal IPs
+            hostname = parsed.hostname or ""
+            try:
+                ip = ipaddress.ip_address(hostname)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    print(f"Error: private/internal IP addresses not allowed", file=sys.stderr)
+                    return 1
+            except ValueError:
+                # Not an IP address, that's fine - it's a hostname
+                # Additional check: block localhost and common internal hostnames
+                if hostname.lower() in ("localhost", "localhost.localdomain", "metadata", "metadata.google.internal", "169.254.169.254"):
+                    print(f"Error: internal hostname not allowed", file=sys.stderr)
+                    return 1
+        except Exception as e:
+            print(f"Error: invalid URL: {e}", file=sys.stderr)
+            return 1
+            
         try:
             req = urllib.request.Request(source, headers={"User-Agent": "EntropicMem/0.1"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                text = resp.read().decode("utf-8", errors="replace")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                # Limit response size to prevent memory exhaustion
+                text = resp.read(10 * 1024 * 1024).decode("utf-8", errors="replace")
         except Exception as e:
             print(f"Error fetching URL: {e}", file=sys.stderr)
             return 1
@@ -968,7 +1056,7 @@ def main() -> int:
     g_export.add_argument("--domain", help="Filter by domain")
     g_export.add_argument("--min-importance", type=float, default=0.0, help="Min importance filter")
     g_serve = g_sub.add_parser("serve", help="Serve graph export dir via HTTP")
-    g_serve.add_argument("--port", type=int, default=8080)
+    g_serve.add_argument("--port", type=int, default=8069)
     g_serve.add_argument("--dir", default="./export")
 
     # recall

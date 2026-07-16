@@ -19,11 +19,15 @@ Emits JSON to stdout: {report, needs_plan, plan_brief}
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path("/home/ufonik/Documents/Coding Projects/EntropicMem")
+REPO = Path(os.environ.get(
+    "ENTROPICMEM_REPO",
+    "/home/ufonik/Documents/Coding Projects/EntropicMem"
+))
 sys.path.insert(0, str(REPO / "scripts"))
 
 
@@ -32,17 +36,37 @@ def run(cmd: list[str]) -> str:
 
 
 def main() -> int:
-    # 1. migrate
-    env = dict(__import__("os").environ)
+    # Resolve paths from env with defaults
+    vault_path = os.environ.get(
+        "ENTROPICMEM_VAULT_PATH",
+        str(Path.home() / ".hermes" / "entropicmem" / "vault")
+    )
+    index_db = os.environ.get(
+        "ENTROPICMEM_INDEX_DB",
+        str(Path.home() / ".hermes" / "entropicmem" / "index.db")
+    )
+    memory_db = os.environ.get(
+        "ENTROPICMEM_MEMORY_DB",
+        str(Path.home() / ".hermes" / "entropicmem" / "memory.db")
+    )
+    log_dir = Path(
+        os.environ.get(
+            "ENTROPICMEM_LOG_DIR",
+            str(Path.home() / ".hermes" / "entropicmem" / "migration_logs")
+        )
+    )
+
+    env = dict(os.environ)
     env.update({
-        "ENTROPICMEM_VAULT_PATH": "/home/ufonik/.hermes/entropicmem/vault",
-        "ENTROPICMEM_INDEX_DB": "/home/ufonik/.hermes/entropicmem/index.db",
-        "ENTROPICMEM_MEMORY_DB": "/home/ufonik/.hermes/entropicmem/memory.db",
+        "ENTROPICMEM_VAULT_PATH": vault_path,
+        "ENTROPICMEM_INDEX_DB": index_db,
+        "ENTROPICMEM_MEMORY_DB": memory_db,
     })
+    
+    # 1. migrate
     subprocess.run(
         ["python3", str(REPO / "skills/entropicmem/scripts/entropicmem.py"),
-         "init", "--vault", env["ENTROPICMEM_VAULT_PATH"],
-         "--index-db", env["ENTROPICMEM_INDEX_DB"]],
+         "init", "--vault", vault_path, "--index-db", index_db],
         env=env, capture_output=True, text=True,
     )
     subprocess.run(
@@ -56,7 +80,6 @@ def main() -> int:
     ).stdout
 
     # load latest analysis JSON
-    log_dir = Path.home() / ".hermes" / "entropicmem" / "migration_logs"
     analyses = sorted(log_dir.glob("analysis_*.json"))
     rep = json.loads(analyses[-1].read_text()) if analyses else {}
 

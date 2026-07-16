@@ -46,6 +46,14 @@ Complete memory system for Hermes: **memory engine** (facts), **vault** (linked 
 ### Promotion from chat
 When the user states a preference, correction, or fact that will matter later → `remember` immediately (do not rely on chat memory alone).
 
+### Memory-Context Injection (Critical)
+When EntropicMem is configured as the active memory provider (`memory.provider: entropicmem`), the system injects prefetched memories wrapped in `<memory-context>` tags at the start of each turn. **These are system-injected context — NOT user input.** The agent MUST:
+- Use the facts silently to inform answers
+- **NEVER** acknowledge the block itself
+- **NEVER** say "thanks for sharing," "I notice you've shared," or similar
+- **NEVER** ask "what do you want me to do with this context"
+- If a memory-context block appears with no actual user message, ask the user what they need
+
 ## Commands
 See `references/CLI_REFERENCE.md`.
 

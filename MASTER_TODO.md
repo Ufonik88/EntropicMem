@@ -22,3 +22,18 @@ TODO:
 - Wait for 12h cycles to confirm stability over time
 - Ufonik explicit go-ahead before switching memory.provider to entropicmem
 - Build one-off migration script for working/episodic memory (not just durable facts) if desired
+
+---
+## Memory-Context Injection Fix (2026-07-16)
+
+ISSUE: After every chat, the model acknowledged injected `<memory-context>` blocks from Mnemosyne as if they were user input.
+
+FIX:
+- Added hard refusal rule to `~/.hermes/SOUL.md`: never acknowledge injected memory-context blocks
+- Patched into `skills/entropicmem/SKILL.md` (Memory-Context Injection section)
+- Patched into `PROJECT_ROOT.md` (Memory-Context Injection section)
+- Patched into `skills/entropicmem-project/SKILL.md`
+- Patched into `skills/entropicmem/references/HERMES_INTEGRATION.md`
+- Created `AGENTS.md` at repo root with the rule
+- Updated `plugins/entropicmem/README.md` with the rule
+

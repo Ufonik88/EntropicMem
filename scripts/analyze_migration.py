@@ -18,8 +18,14 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 
-LOG_DIR = Path.home() / ".hermes" / "entropicmem" / "migration_logs"
+LOG_DIR = Path(
+    os.environ.get(
+        "ENTROPICMEM_LOG_DIR",
+        str(Path.home() / ".hermes" / "entropicmem" / "migration_logs")
+    )
+)
 
 
 def _load_summaries() -> list[dict]:

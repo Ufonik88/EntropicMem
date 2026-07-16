@@ -268,8 +268,9 @@ class VaultIndex:
         Full-text search over title, tags, and body using FTS5.
         Returns ranked results with highlight snippets.
         """
-        # Escape special FTS5 characters but preserve quotes for phrase search
+        # Sanitize query for FTS5: escape double quotes only
         clean_query = query.replace('"', '""')
+        # Build FTS5 query string with parameterized values
         fts_query = f'title: "{clean_query}"* OR tags: "{clean_query}"* OR body: "{clean_query}"*'
 
         where = ""

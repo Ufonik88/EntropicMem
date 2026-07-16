@@ -161,7 +161,9 @@ class MemoryEngine:
         This matters for migration parity: every written fact must be
         recallable by its own content.
         """
+        # Sanitize query for FTS5: escape double quotes only
         clean = query.replace('"', '""')
+        # Use parameterized FTS query — do NOT interpolate query into the MATCH string
         fts_query = f'content: "{clean}"* OR title: "{clean}"* OR tags: "{clean}"*'
 
         where = ""
@@ -171,16 +173,20 @@ class MemoryEngine:
             params = (domain,)
 
         # ── Exact-match boost: content or id equals query ──────────────
+        exact_params = (query, StoredFact.make_id(query))
+        if domain:
+            exact_params = (*exact_params, domain)
         exact_rows = self.db.execute(
             f"""
             SELECT * FROM facts
             WHERE (content = ? OR id = ?) {("AND domain = ?" if domain else "")}
             ORDER BY importance DESC
             """,
-            (query, StoredFact.make_id(query), *((domain,) if domain else ())),
+            exact_params,
         ).fetchall()
         exact = [self._row_to_fact(r) for r in exact_rows]
 
+        # FTS5 MATCH with parameterized query
         rows = self.db.execute(
             f"""
             SELECT f.* FROM facts_fts
@@ -199,11 +205,13 @@ class MemoryEngine:
             return combined[:top_k]
 
         # ── LIKE fallback for non-token-aligned queries ───────────────
-        like_where = "WHERE f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ?"
+        # Use parameterized LIKE, not string interpolation
         like_params = (f"%{query}%", f"%{query}%", f"%{query}%")
         if domain:
-            like_where += " AND f.domain = ?"
             like_params = (*like_params, domain)
+            like_where = "WHERE f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ? AND f.domain = ?"
+        else:
+            like_where = "WHERE f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ?"
         rows = self.db.execute(
             f"""
             SELECT f.* FROM facts f

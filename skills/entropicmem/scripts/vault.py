@@ -121,7 +121,11 @@ class Vault:
     def resolve_path(self, relative: str) -> Path:
         """Resolve a relative path within the vault. Accepts vault://Domain/Note format."""
         clean = relative.removeprefix("vault://")
-        return self.root / clean
+        # Prevent path traversal: resolve and ensure it's within vault root
+        resolved = (self.root / clean).resolve()
+        if not str(resolved).startswith(str(self.root.resolve())):
+            raise ValueError(f"Path traversal attempt blocked: {relative}")
+        return resolved
 
     def sanitize(self, name: str) -> str:
         """Sanitize a string into a safe filename stub."""
@@ -133,7 +137,11 @@ class Vault:
     def _is_protected(self, rel: Path) -> bool:
         """Check if a relative path falls under a protected prefix."""
         r = str(rel)
-        return any(r.startswith(p) for p in PROTECTED_PREFIXES)
+        # Check both with and without trailing slash
+        for p in PROTECTED_PREFIXES:
+            if r.startswith(p) or r.startswith(p.rstrip('/') + '/') or r == p.rstrip('/'):
+                return True
+        return False
 
     def is_safe_mode(self) -> bool:
         """Detect safe mode: AGENTS.md already exists in the vault root."""
@@ -217,28 +225,36 @@ class Vault:
 
         Raises ValueError if the path is write-protected (_archive/).
         """
+        # Check protected prefix BEFORE sanitizing (sanitize removes underscores)
+        # Normalize folder for protection check
+        normalized_folder = folder.strip().rstrip('/')
+        if any(normalized_folder == p.rstrip('/') or normalized_folder.startswith(p.rstrip('/') + '/') for p in PROTECTED_PREFIXES):
+            if not _allow_protected:
+                raise ValueError(
+                    f"Path '{normalized_folder}' is write-protected (_archive/)."
+                )
+        
+        # Sanitize folder to prevent path traversal
+        safe_folder = self.sanitize(folder)
         slug = self.sanitize(title)
         filename = f"{slug}.md"
-        filepath = self.root / folder / filename
-
-        # ── write guard (bypassed for bridge exports via _allow_protected) ──
-        rel_check = Path(folder) / filename
-        if self._is_protected(rel_check) and not _allow_protected:
-            raise ValueError(
-                f"Path '{rel_check}' is write-protected (_archive/)."
-            )
+        
+        # Ensure the resolved path is within vault root
+        filepath = (self.root / safe_folder / filename).resolve()
+        if not str(filepath).startswith(str(self.root.resolve())):
+            raise ValueError(f"Path traversal attempt blocked: {folder}/{filename}")
 
         filepath.parent.mkdir(parents=True, exist_ok=True)
 
         note = Note(
-            path=Path(folder) / filename,
+            path=Path(safe_folder) / filename,
             title=title,
             body=body,
             tags=tags or [],
             note_type=note_type,
             source=source,
             source_url=source_url,
-            domain=domain or folder,
+            domain=domain or safe_folder,
             agent=agent,
             created=date.today().isoformat(),
         )
@@ -247,7 +263,7 @@ class Vault:
                 setattr(note, k, v) if hasattr(note, k) else None
 
         filepath.write_text(note.to_markdown(), encoding="utf-8")
-        return Path(folder) / filename
+        return Path(safe_folder) / filename
 
     def append_note(self, path: Path, content: str, anchor: Optional[str] = None) -> None:
         """Append content to an existing note, optionally after an anchor line."""
@@ -289,7 +305,19 @@ class Vault:
         include_archive: bool = False,
     ) -> List[Path]:
         """List all Markdown files, optionally scoped to a folder. Skips protected + archive."""
-        base = self.root / (folder or "")
+        # Find the actual folder (case-insensitive match against existing dirs)
+        base = self.root
+        if folder:
+            # Try exact match first, then case-insensitive
+            folder_path = self.root / folder
+            if not folder_path.exists():
+                # Try case-insensitive match
+                for item in self.root.iterdir():
+                    if item.is_dir() and item.name.lower() == folder.lower():
+                        folder_path = item
+                        break
+            base = folder_path
+        
         if not base.exists():
             return []
         notes = []
@@ -307,16 +335,29 @@ class Vault:
     ) -> List[Tuple[Path, int, str]]:
         """Grep-like search inside note bodies. Returns (path, line_number, line)."""
         results = []
-        base = self.root / (folder or "")
+        base = self.root
+        if folder:
+            folder_path = self.root / folder
+            if not folder_path.exists():
+                for item in self.root.iterdir():
+                    if item.is_dir() and item.name.lower() == folder.lower():
+                        folder_path = item
+                        break
+            base = folder_path
         if not base.exists():
             return results
+        # Sanitize pattern: only use for case-insensitive substring match, no regex
+        safe_pattern = pattern.lower()
         for md in base.rglob("*.md"):
             rel = md.relative_to(self.root)
             if self._is_protected(rel):
                 continue
-            for i, line in enumerate(md.read_text(encoding="utf-8").split("\n"), 1):
-                if pattern.lower() in line.lower():
-                    results.append((rel, i, line.strip()[:200]))
+            try:
+                for i, line in enumerate(md.read_text(encoding="utf-8").split("\n"), 1):
+                    if safe_pattern in line.lower():
+                        results.append((rel, i, line.strip()[:200]))
+            except Exception:
+                continue
         return results
 
     def get_all_titles(self) -> Dict[str, Path]:
@@ -332,12 +373,14 @@ class Vault:
     def linkify(self, text: str) -> str:
         """Convert known note titles in text to [[wikilinks]]."""
         titles = self.get_all_titles()
-        # sort by length descending to match longest first (avoid partial matches)
+        # Sort by length descending to match longest first (avoid partial matches)
         for title in sorted(titles.keys(), key=len, reverse=True):
             if title in text and f"[[{title}]]" not in text:
-                # only replace standalone occurrences (word boundaries)
+                # Only replace standalone occurrences (word boundaries)
+                # Escape special regex chars in title
+                safe_title = re.escape(title)
                 text = re.sub(
-                    rf"(?<!\[\[)(?<!\w){re.escape(title)}(?!\w)(?!\]\])",
+                    rf"(?<!\[\[)(?<!\w){safe_title}(?!\w)(?!\]\])",
                     f"[[{title}]]",
                     text,
                 )

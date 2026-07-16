@@ -224,16 +224,31 @@ def export_html(
     """
     Export as a single self-contained HTML file with embedded graph data.
     Works via file:// or HTTP server. D3 v7 loaded from CDN.
+    Includes full note bodies for modal display.
     """
     data = export_json(
         index, output_path.parent / "graph.json",
         domain=domain, min_importance=min_importance, max_nodes=max_nodes
     )
+    # Include full note bodies for modal display
+    for node in data["nodes"]:
+        if "note_id" in node:
+            meta = index.get_note(node["note_id"])
+            if meta:
+                node["full_body"] = meta.get("body_preview", "")
+                # Try to get full body from vault
+                try:
+                    from vault import Vault
+                    vault = Vault(index.db_path.parent / "vault")
+                    note = vault.read_note(Path(meta["path"]))
+                    node["full_body"] = note.body
+                except Exception:
+                    pass
     graph_json = json.dumps(data)
-
     html = _HTML_TEMPLATE.replace("{{GRAPH_DATA}}", graph_json)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
+    return html
     return html
 
 
@@ -246,6 +261,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EntropicMem — Vault Graph</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #0a0a0f; color: #ccc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; }
@@ -265,6 +281,39 @@ body { background: #0a0a0f; color: #ccc; font-family: -apple-system, BlinkMacSys
 #tooltip .tt-meta { color: #888; }
 #stats { position: absolute; bottom: 12px; left: 12px; color: #555; font-size: 11px; z-index: 10; }
 svg text { fill: #ccc; font-size: 10px; pointer-events: none; }
+
+/* Modal styles */
+#modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: none; backdrop-filter: blur(4px); }
+#modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 75vw; max-width: 1000px; height: 75vh; max-height: 90vh; background: #111218; border: 1px solid #2a2a3a; border-radius: 12px; z-index: 101; display: none; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(90,228,170,0.1); }
+#modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #2a2a3a; background: #0d0d14; border-radius: 12px 12px 0 0; }
+#modal-title { font-size: 16px; font-weight: 600; color: #5AE4AA; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%; }
+#modal-close { background: none; border: none; color: #888; font-size: 24px; cursor: pointer; padding: 4px 8px; line-height: 1; transition: color 0.15s; }
+#modal-close:hover { color: #5AE4AA; }
+#modal-body { flex: 1; overflow: auto; padding: 20px; }
+#modal-body .markdown-body { max-width: 100%; }
+#modal-body h1, #modal-body h2, #modal-body h3, #modal-body h4, #modal-body h5, #modal-body h6 { color: #5AE4AA; margin: 1.2em 0 0.5em; font-weight: 600; line-height: 1.3; }
+#modal-body h1 { font-size: 1.8em; border-bottom: 1px solid #2a2a3a; padding-bottom: 0.3em; }
+#modal-body h2 { font-size: 1.5em; }
+#modal-body h3 { font-size: 1.25em; }
+#modal-body p { margin: 0.8em 0; line-height: 1.6; color: #ddd; }
+#modal-body a { color: #5AE4AA; text-decoration: none; }
+#modal-body a:hover { text-decoration: underline; }
+#modal-body code { background: #1a1a2e; padding: 0.15em 0.4em; border-radius: 4px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9em; color: #5AE4AA; }
+#modal-body pre { background: #0d0d14; border: 1px solid #2a2a3a; border-radius: 8px; padding: 16px; overflow-x: auto; margin: 1em 0; }
+#modal-body pre code { background: none; padding: 0; color: #ccc; font-size: 0.85em; }
+#modal-body blockquote { border-left: 3px solid #5AE4AA; padding-left: 16px; margin: 1em 0; color: #888; font-style: italic; }
+#modal-body ul, #modal-body ol { margin: 1em 0; padding-left: 24px; }
+#modal-body li { margin: 0.4em 0; line-height: 1.5; }
+#modal-body table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.9em; }
+#modal-body th, #modal-body td { border: 1px solid #2a2a3a; padding: 8px 12px; text-align: left; }
+#modal-body th { background: #1a1a2e; color: #5AE4AA; font-weight: 600; }
+#modal-body tr:nth-child(even) { background: #151520; }
+#modal-body hr { border: none; border-top: 1px solid #2a2a3a; margin: 2em 0; }
+#modal-body .wikilink { color: #5AE4AA; text-decoration: none; border-bottom: 1px dotted #5AE4AA; cursor: pointer; }
+#modal-body .wikilink:hover { border-bottom: 1px solid #5AE4AA; background: rgba(90,228,170,0.1); }
+#modal-body .frontmatter { background: #151520; border: 1px solid #2a2a3a; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 0.85em; color: #aaa; }
+#modal-body .frontmatter .fm-key { color: #5AE4AA; font-weight: 600; }
+#modal-body .frontmatter .fm-value { color: #ccc; }
 </style>
 </head>
 <body>
@@ -284,6 +333,16 @@ svg text { fill: #ccc; font-size: 10px; pointer-events: none; }
 <div id="legend"></div>
 <div id="stats"></div>
 <div id="tooltip"></div>
+
+<!-- Modal -->
+<div id="modal-overlay" onclick="closeModal()"></div>
+<div id="modal">
+  <div id="modal-header">
+    <span id="modal-title">Note</span>
+    <button id="modal-close" onclick="closeModal()">&times;</button>
+  </div>
+  <div id="modal-body"></div>
+</div>
 <script>
 const DATA = {{GRAPH_DATA}};
 const PALETTE = {};
@@ -294,11 +353,21 @@ DATA.nodes.forEach(n => { if (n.domain && !PALETTE[n.domain]) PALETTE[n.domain] 
 const SHAPES = { circle: "circle", square: "rect", diamond: "diamond", triangle: "triangle" };
 
 let simulation, svg, linkG, nodeG, currentDomain = "", currentMinImp = 0, currentTag = "";
+let currentNodeData = null; // store clicked node for modal
 
 function nodeRadius(d) { return Math.max(4, Math.min(24, Math.log((d.importance || 0.3) * 100) * 6)); }
 function edgeWidth(d) { return 0.5 + (d.weight || 1) * 1.2; }
 function nodeColor(d) { return d.color || PALETTE[d.domain] || "#888"; }
 
+/* Zoom / Pan */
+const zoom = d3.zoom()
+  .scaleExtent([0.1, 4])
+  .on("zoom", (event) => {
+    nodeG.attr("transform", event.transform);
+    linkG.attr("transform", event.transform);
+  });
+
+/* Legend */
 function buildLegend() {
   const legend = document.getElementById("legend");
   let html = '<div style="font-weight:600;margin-bottom:4px;">Domains</div>';
@@ -312,6 +381,7 @@ function buildLegend() {
   legend.innerHTML = html;
 }
 
+/* Domain Checks */
 function buildDomainChecks() {
   const container = document.getElementById("domain-checks");
   container.innerHTML = "";
@@ -329,6 +399,7 @@ function buildDomainChecks() {
   }
 }
 
+/* Filters */
 function getFilteredData() {
   let nodes = DATA.nodes;
   if (currentDomain) nodes = nodes.filter(n => n.domain === currentDomain);
@@ -365,6 +436,7 @@ function resetFilters() {
   render();
 }
 
+/* Render */
 function render() {
   const { nodes, edges } = getFilteredData();
   document.getElementById("stats").textContent =
@@ -380,6 +452,9 @@ function render() {
   const merge = filter.append("feMerge");
   merge.append("feMergeNode").attr("in", "blur");
   merge.append("feMergeNode").attr("in", "SourceGraphic");
+
+  // Apply zoom behavior to svg
+  svg.call(zoom);
 
   // Edges
   linkG = svg.append("g").selectAll("line").data(edges).join("line")
@@ -413,7 +488,7 @@ function render() {
     tip.style.display = "block";
     tip.innerHTML = `<div class="tt-title" style="color:${nodeColor(d)}">${d.title || d.id}</div>
       <div class="tt-meta">${d.type} | ${d.domain || "uncategorized"} | imp: ${(d.importance || 0).toFixed(2)}</div>
-      <div class="tt-meta">tags: ${(d.tags || []).join(", ") || "—"}<br>Click to open in vault</div>`;
+      <div class="tt-meta">tags: ${(d.tags || []).join(", ") || "—"}</div>`;
   });
   nodeG.on("mousemove", (event) => {
     const tip = document.getElementById("tooltip");
@@ -422,11 +497,9 @@ function render() {
   });
   nodeG.on("mouseout", () => { document.getElementById("tooltip").style.display = "none"; });
 
-  // Click → open via protocol
+  // Click -> open modal
   nodeG.on("click", (event, d) => {
-    const url = "entropicmem://open/" + encodeURIComponent(d.id);
-    try { navigator.sendBeacon(url); } catch(e) {}
-    window.open(url, "_blank");
+    openModal(d);
   });
 
   // Simulation
@@ -443,9 +516,63 @@ function render() {
   });
 }
 
-// Init
+/* Modal */
+function openModal(node) {
+  currentNodeData = node;
+  const modal = document.getElementById("modal");
+  const overlay = document.getElementById("modal-overlay");
+  const body = document.getElementById("modal-body");
+  const title = document.getElementById("modal-title");
+
+  title.textContent = node.title || node.id;
+
+  // Build note content
+  let content = "";
+  
+  // Frontmatter
+  if (node.domain || node.type || node.importance || node.tags) {
+    content += '<div class="frontmatter">';
+    if (node.domain) content += `<div><span class="fm-key">domain:</span> <span class="fm-value">${node.domain}</span></div>`;
+    if (node.type) content += `<div><span class="fm-key">type:</span> <span class="fm-value">${node.type}</span></div>`;
+    if (node.importance) content += `<div><span class="fm-key">importance:</span> <span class="fm-value">${node.importance.toFixed(2)}</span></div>`;
+    if (node.tags && node.tags.length) content += `<div><span class="fm-key">tags:</span> <span class="fm-value">${node.tags.join(", ")}</span></div>`;
+    if (node.entropic_id) content += `<div><span class="fm-key">entropic_id:</span> <span class="fm-value">${node.entropic_id}</span></div>`;
+    content += '</div>';
+  }
+
+  // Full body if available
+  const body = node.full_body || node.body_preview || "";
+  if (body) {
+    content += marked.parse(body);
+  } else {
+    content += '<p style="color:#888; font-style:italic;">No content available for this note.</p>';
+  }
+
+  body.innerHTML = content;
+  modal.style.display = "flex";
+  overlay.style.display = "block";
+  document.body.style.overflow = "hidden";
+}
+
+function closeModal() {
+  const modal = document.getElementById("modal");
+  const overlay = document.getElementById("modal-overlay");
+  modal.style.display = "none";
+  overlay.style.display = "none";
+  document.body.style.overflow = "";
+  currentNodeData = null;
+}
+
+// Close on Escape
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeModal();
+});
+
+/* Init */
+let currentNodeData = null;
+
 document.addEventListener("DOMContentLoaded", () => {
-  svg = d3.select("#graph").append("svg").attr("width", "100%").attr("height", "100%");
+  svg = d3.select("#graph").append("svg").attr("width", "100%").attr("height", "100%").call(zoom);
   buildLegend();
   buildDomainChecks();
   document.getElementById("imp-slider").oninput = updateFilters;
