@@ -46,6 +46,7 @@ from vault import (
 )
 from index import VaultIndex
 from retrieval import EMBEDDER_AVAILABLE, retrieve_composed
+from graph_export import export_json, export_dot, export_html, export_canvas
 
 __version__ = "0.1.0"
 
@@ -719,6 +720,59 @@ def cmd_research(args) -> int:
     return 0
 
 
+# ── subcommand: graph ─────────────────────────────────────────────────────
+
+def cmd_graph(args) -> int:
+    vault_path, index_path = _resolve_env()
+    index = VaultIndex(index_path)
+
+    if args.graph_command == "export":
+        out_dir = Path(args.output_dir).resolve()
+        fmt = args.format
+        domain = args.domain or None
+        min_imp = args.min_importance
+        max_n = args.max_nodes
+
+        if fmt == "json":
+            export_json(index, out_dir / "graph.json", domain=domain, min_importance=min_imp, max_nodes=max_n)
+            print(f"Exported: {out_dir / 'graph.json'}")
+        elif fmt == "dot":
+            export_dot(index, out_dir / "graph.dot", domain=domain, min_importance=min_imp, max_nodes=max_n)
+            print(f"Exported: {out_dir / 'graph.dot'}")
+        elif fmt == "html":
+            export_html(index, out_dir / "graph.html", domain=domain, min_importance=min_imp, max_nodes=max_n)
+            print(f"Exported: {out_dir / 'graph.html'}")
+            print(f"Open with: file://{out_dir / 'graph.html'}")
+        elif fmt == "canvas":
+            export_canvas(index, out_dir / "graph.canvas", domain=domain, min_importance=min_imp, max_nodes=max_n)
+            print(f"Exported: {out_dir / 'graph.canvas'}")
+    elif args.graph_command == "serve":
+        out_dir = Path(args.dir).resolve()
+        if not (out_dir / "graph.html").exists():
+            print(f"Error: graph.html not found in {out_dir}. Run 'graph export' first.", file=sys.stderr)
+            index.close()
+            return 1
+        import http.server
+        import socketserver
+        port = args.port
+        os.chdir(str(out_dir))
+        handler = http.server.SimpleHTTPRequestHandler
+        print(f"Serving graph at http://localhost:{port}/graph.html" f" (Ctrl+C to stop)")
+        try:
+            with socketserver.TCPServer(("", port), handler) as httpd:
+                httpd.serve_forever()
+        except KeyboardInterrupt:
+            print()
+    else:
+        print("Usage: entropicmem graph export|serve", file=sys.stderr)
+        index.close()
+        return 1
+
+    stats = index.get_stats()
+    index.close()
+    return 0
+
+
 # ── subcommand: remember (vault-only, Mnemosyne bridge in Phase 4+) ────────
 
 def cmd_remember(args) -> int:
@@ -898,7 +952,7 @@ def main() -> int:
         "lint": cmd_lint,
         "moc": cmd_moc,
         "hotcache": cmd_hotcache,
-        "graph": lambda a: _stub("graph"),
+        "graph": cmd_graph,
         "remember": cmd_remember,
         "forget": cmd_forget,
         "open": cmd_open,
