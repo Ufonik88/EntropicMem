@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+
+# Build / distribution
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Databases / local state
+*.db
+*.sqlite
+*.sqlite3
+
+# Exports (generated)
+export/
+*.json
+!export/graph.html
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+*.env.local
+*.key
+*.pem
+
+# Logs
+*.log
+logs/
+
+# Test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+.hypothesis/
+
+# Skill packaging (runtime)
+skills/entropicmem/__pycache__/

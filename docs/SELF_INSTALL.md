@@ -1,0 +1,3 @@
+# SELF_INSTALL
+
+See PROJECT_PLAN.md. Full doc in Phase 1.
