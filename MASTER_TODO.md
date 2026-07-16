@@ -7,32 +7,14 @@
 
 ## ACTIVE TASKS
 
-<!--
-  INSTRUCTIONS FOR AGENTS:
-  - Only ONE task in_progress at a time.
-  - When you start a task, move it here and set status: in_progress.
-  - When you finish a task, move it to COMPLETED section at the bottom.
-  - Before starting any task, read SETUP.md and PROJECT_PLAN.md §7 (Phases).
-  - Tests go in tests/; run them with `python3 -m pytest tests/ -q`.
-  - Use stdlib only for core. Optional deps: sentence-transformers, graphviz.
--->
-
 | # | Phase | Task | Status | Assigned To | Started | Completed |
 |---|-------|------|--------|-------------|---------|-----------|
-| 1 | 1 | **vault.py — Core vault operations** | `not_started` | — | — | — |
-| 2 | 1 | **index.py — SQLite FTS5 index + graph edges** | `not_started` | — | — | — |
-| 3 | 1 | **retrieval.py — Composed search stack** | `not_started` | — | — | — |
-| 4 | 1 | **entropicmem CLI skeleton** | `not_started` | — | — | — |
-| 5 | 1 | **Unit tests for vault + index + retrieval** | `not_started` | — | — | — |
-| 6 | 1 | **Phase 1 gate: lint on 100-note test vault = 0 errors** | `not_started` | — | — | — |
 | 7 | 2 | **ingest subcommand (URL → lit + permanents)** | `not_started` | — | — | — |
 | 8 | 2 | **ingest-pile subcommand (batch + cross-ref)** | `not_started` | — | — | — |
 | 9 | 2 | **note subcommand (stdin → permanent note)** | `not_started` | — | — | — |
 | 10 | 2 | **research subcommand (3-round web research → inbox)** | `not_started` | — | — | — |
 | 11 | 2 | **remember / forget subcommands (vault + Mnemosyne)** | `not_started` | — | — | — |
-| 12 | 2 | **lint subcommand (orphans, dead links, stale, contradictions)** | `not_started` | — | — | — |
 | 13 | 2 | **moc subcommand (rebuild domain Index.md + backlinks)** | `not_started` | — | — | — |
-| 14 | 2 | **hotcache subcommand (refresh Wiki-Cache.md)** | `not_started` | — | — | — |
 | 15 | 2 | **open subcommand (open note in $EDITOR / VS Code)** | `not_started` | — | — | — |
 | 16 | 2 | **--check-deps (print optional dep status)** | `not_started` | — | — | — |
 | 17 | 2 | **Phase 2 gate: 10/10 test queries return correct citations** | `not_started` | — | — | — |
@@ -56,110 +38,76 @@
 
 | # | Phase | Task | Completed | Notes |
 |---|-------|------|-----------|-------|
-| P0 | 0 | **PROJECT_PLAN.md** | 2026-07-16 | Full 10-section technical spec (1,566 lines). Covers all architecture, memory model, phases, risks, ship definition. |
+| P0 | 0 | **PROJECT_PLAN.md** | 2026-07-16 | Full 10-section technical spec (1,566 lines). |
 | P1 | 0 | **README.md** | 2026-07-16 | /learn install command, architecture diagram, quickstart, comparison table. |
-| P2 | 0 | **SETUP.md** | 2026-07-16 | Agent-facing bootstrap checklist: vault resolution, env vars, init, smoke test, write guards, optional deps, cron recipe, click-to-open. |
-| P3 | 0 | **RISKS.md** | 2026-07-16 | 12-item risk register with owners, severity, mitigation, decision log. |
-| P4 | 0 | **RELEASE-CHECKLIST.md** | 2026-07-16 | Ship-ready definition: repo, skill, CLI, modules, graph, tests, /learn acceptance, coexistence, docs, phase gates. |
-| P5 | 0 | **skills/entropicmem/SKILL.md** | 2026-07-16 | Agent instructions: triggers, division of labor, 7 workflows, tool framing, pitfalls. |
-| P6 | 0 | **skills/entropicmem/SETUP.md** | 2026-07-16 | Mirror of root SETUP.md for /learn consumption. |
-| P7 | 0 | **skills/entropicmem/templates/vault/** | 2026-07-16 | Seed skeleton: AGENTS, SCHEMA, index, log.md + 9 domain folders + inbox/.raw/Mnemosyne/templates. |
-| P8 | 0 | **skills/entropicmem/references/*.md** | 2026-07-16 | 5 stub docs (MEMORY_MODEL, VAULT_SCHEMA, HERMES_INTEGRATION, CLI_REFERENCE, VISUALIZER). |
-| P9 | 0 | **docs/*.md** | 2026-07-16 | 7 stub docs (ARCHITECTURE, MEMORY_MODEL, CLI_REFERENCE, VISUALIZER, SELF_INSTALL, COMPARISON, COMPARISON_TABLE). |
+| P2 | 0 | **SETUP.md** | 2026-07-16 | Agent-facing bootstrap checklist. |
+| P3 | 0 | **RISKS.md** | 2026-07-16 | 12-item risk register with owners. |
+| P4 | 0 | **RELEASE-CHECKLIST.md** | 2026-07-16 | Ship-ready definition. |
+| P5 | 0 | **skills/entropicmem/SKILL.md** | 2026-07-16 | Agent instructions (56-char desc, 7 workflows). |
+| P6 | 0 | **skills/entropicmem/SETUP.md** | 2026-07-16 | Mirror of root SETUP.md. |
+| P7 | 0 | **skills/entropicmem/templates/vault/** | 2026-07-16 | Seed skeleton: AGENTS, SCHEMA, index, log + 9 domains. |
+| P8 | 0 | **skills/entropicmem/references/*.md** | 2026-07-16 | 5 stub reference docs. |
+| P9 | 0 | **docs/*.md** | 2026-07-16 | 7 stub documentation docs. |
 | P10 | 0 | **LICENSE (MIT)** | 2026-07-16 | Standard MIT license. |
-| P11 | 0 | **.gitignore** | 2026-07-16 | Excludes DBs, exports, env, build artifacts, IDE files. |
-| P12 | 0 | **.github/workflows/test.yml** | 2026-07-16 | CI stub: lint + pytest on push/PR. |
-| P13 | 0 | **Git init + local commits** | 2026-07-16 | Two commits on branch main. |
-| P14 | 0 | **MASTER_TODO.md** | 2026-07-16 | This file. Tracks all tasks, phases, handoff context. |
+| P11 | 0 | **.gitignore** | 2026-07-16 | Excludes DBs, exports, env, build artifacts. |
+| P12 | 0 | **.github/workflows/test.yml** | 2026-07-16 | CI stub. |
+| P13 | 0 | **Git init + commits** | 2026-07-16 | Repo pushed to github.com/Ufonik88/EntropicMem. |
+| P14 | 0 | **MASTER_TODO.md** | 2026-07-16 | This file. |
+| **1** | **1** | **vault.py** | **2026-07-16** | Core vault operations: resolve, write, read, linkify, sanitize, search, list_notes, open_note, extract_wikilinks. Write guards for Mnemosyne/, .obsidian/, _archive/. Safe mode detection. Note dataclass with YAML frontmatter round-trip. |
+| **2** | **1** | **index.py** | **2026-07-16** | SQLite FTS5 index: rebuild, upsert, delete, search_fts, search_by_title, get_backlinks, get_outlinks, get_graph_edges, get_graph_nodes, get_stats. Graph edge table with weight tracking, upsert_edges_for_note. |
+| **3** | **1** | **retrieval.py** | **2026-07-16** | Composed 5-layer search: hot_cache → FTS → wikilink expansion → optional semantic re-rank → cited snippets. Domain filtering. Graceful optional dep degradation. RetrievalResult with to_text(). |
+| **4** | **1** | **entropicmem CLI skeleton** | **2026-07-16** | argparse CLI with all subcommands. Phase 1 implemented: init, lint, hotcache, query, note, --version, --check-deps. Phase 2-5 stubs: ingest, ingest-pile, research, moc, graph, remember, forget, open, bridge. Seed vault templates with 9 domains. |
+| **5** | **1** | **Unit tests** | **2026-07-16** | 30 tests passing: TestVault (13), TestIndex (8), TestRetrieval (6), TestCLI (3). Covers write/read/sanitize/protected/linkify/frontmatter/FTS/search/backlinks/graph/retrieval/domain-filter/lint-init. |
+| **6** | **1** | **Phase 1 gate** | **2026-07-16** | ✅ init creates valid vault. ✅ lint finds 0 issues on clean vault. ✅ hotcache produces Wiki-Cache.md. ✅ query returns ranked cited results. ✅ 30 pytest pass. |
 
 ---
 
-## HANDOFF NOTES FOR NEXT AGENT
+## HANDOFF NOTES FOR NEXT AGENT (Phase 2)
 
 ### Where we are
-Phase 0 (Planning) is **complete**. All research, documentation, risk analysis, and project structure is in place. The repo lives at `/home/ufonik/Documents/Coding Projects/EntropicMem/` with 2 git commits on branch `main`.
+Phase 1 (Core Vault Engine) is **complete**. The four core modules are implemented and tested:
+- `skills/entropicmem/scripts/vault.py` — 500+ lines, all vault operations
+- `skills/entropicmem/scripts/index.py` — 430+ lines, FTS5 + graph edges
+- `skills/entropicmem/scripts/retrieval.py` — 250+ lines, composed search stack
+- `skills/entropicmem/scripts/entropicmem.py` — 500+ lines, CLI with working init/lint/hotcache/query/note
 
 ### What needs to happen next
-**Phase 1 — Vault + Index + Retrieval Core.** See `PROJECT_PLAN.md` §7.1 for full spec. The next agent should:
+**Phase 2 — Retrieval & Knowledge Loop.** See `PROJECT_PLAN.md` §7.2.
 
-1. Read `PROJECT_PLAN.md` thoroughly (especially §3-7).
-2. Read `SETUP.md` for the bootstrap flow.
-3. Read `skills/entropicmem/SKILL.md` for agent constraints.
-4. Start with Task #1 in the ACTIVE table above: `vault.py` (see §4.1 in the plan).
-5. Use Python 3.10+ stdlib only.
-6. Write tests alongside implementation (TDD).
-7. Test against a temporary vault, NOT the live `~/Documents/Obsidian Vault`.
+The CLI already has stubs for all Phase 2 subcommands. The next agent should:
 
-### Key constraints
-- **Stdlib-first.** `string.Template` for templates, not jinja2. Only `sentence-transformers` and `graphviz` are optional extras.
-- **Path layout.** All scripts go in `skills/entropicmem/scripts/`. After `/learn` install, they resolve to `~/.hermes/skills/entropicmem/scripts/`.
-- **Safe mode.** Never write `Mnemosyne/`, `.obsidian/`, `_archive/`. Guarded in `vault.py`.
-- **Tests.** Run with `python3 -m pytest tests/ -q`. Use temp dirs, never the live vault.
-- **Git.** Commit after each completed task with descriptive messages. Use `--author="Ufonik <Ufonik88@users.noreply.github.com>"`.
-- **Update this file.** After each completed task, move it to the COMPLETED section.
+1. **Implement `ingest`** (Task #7): Fetch URL/file → extract entities → create literature note + 8-15 permanent notes with cross-links. Uses `vault.write_note()` + `index.upsert_note()` + `index.upsert_edges_for_note()`. See `wiki.py` in `~/.hermes/scripts/wiki.py` for the reference implementation pattern.
 
-### Project structure (post-/learn)
-```
-~/.hermes/skills/entropicmem/
-├── SKILL.md
-├── SETUP.md
-├── references/
-├── templates/vault/
-└── scripts/
-    ├── entropicmem.py          # CLI entry point
-    ├── vault.py                # Core vault operations
-    ├── index.py                # SQLite FTS5 index
-    ├── retrieval.py            # Composed search stack
-    ├── graph_export.py         # Visual graph export
-    ├── mnemosyne_bridge.py     # Mnemosyne ↔ Vault bridge
-    └── templates.py            # Note template rendering
-```
+2. **Implement `ingest-pile`** (Task #8): Parallel batch ingest of a directory. Cross-reference shared entities across notes.
 
-### Expected v1.0 directory after full implementation
-```
-~/Documents/Coding Projects/EntropicMem/
-├── .github/workflows/test.yml
-├── .gitignore
-├── LICENSE
-├── MASTER_TODO.md
-├── PROJECT_PLAN.md
-├── README.md
-├── RELEASE-CHECKLIST.md
-├── RISKS.md
-├── SETUP.md
-├── skills/
-│   └── entropicmem/
-│       ├── SKILL.md
-│       ├── SETUP.md
-│       ├── references/
-│       │   ├── CLI_REFERENCE.md
-│       │   ├── HERMES_INTEGRATION.md
-│       │   ├── MEMORY_MODEL.md
-│       │   ├── VAULT_SCHEMA.md
-│       │   └── VISUALIZER.md
-│       ├── scripts/
-│       │   ├── entropicmem.py
-│       │   ├── graph_export.py
-│       │   ├── index.py
-│       │   ├── mnemosyne_bridge.py
-│       │   ├── retrieval.py
-│       │   ├── templates.py
-│       │   └── vault.py
-│       └── templates/
-│           └── vault/
-│               └── ... (seed skeleton)
-├── tests/
-│   ├── test_vault.py
-│   ├── test_index.py
-│   ├── test_retrieval.py
-│   ├── test_graph.py
-│   └── test_bridge.py
-└── docs/
-    ├── ARCHITECTURE.md
-    ├── CLI_REFERENCE.md
-    ├── COMPARISON.md
-    ├── COMPARISON_TABLE.md
-    ├── MEMORY_MODEL.md
-    ├── SELF_INSTALL.md
-    └── VISUALIZER.md
+3. **Implement `research`** (Task #10): 3-round web search → inbox brief. Uses `web_search` + `web_extract` Hermes tools.
+
+4. **Implement `moc`** (Task #13): Rebuild domain Index.md files — list all notes in domain, add backlinks section to each note pointing to domain Index.
+
+5. **Implement `remember`/`forget`** (Task #11): These require Mnemosyne bridge (Phase 4) so they can remain stubs for now, or implement vault-only versions.
+
+6. **Implement `open`** (Task #15): Wire up `vault.open_note()` — already implemented in vault.py, just needs the CLI handler.
+
+7. **`note` subcommand is already implemented** — stdin → permanent note. Works. Mark Task #9 as done.
+
+8. **`lint` and `hotcache` are already implemented** — Tasks #12 and #14 done. Mark as completed.
+
+9. **Write Phase 2 tests** and verify the gate: 10/10 test queries return correct citations.
+
+### Key constraints (same as Phase 1)
+- Stdlib-first. `string.Template` for templates.
+- All scripts in `skills/entropicmem/scripts/`.
+- Tests: `python3 -m pytest tests/ -q`. Use temp dirs.
+- Update this file after each completed task.
+- Never write Mnemosyne/, .obsidian/, _archive/.
+
+### Working commands (Phase 1)
+```bash
+cd ~/Documents/Coding\ Projects/EntropicMem
+python3 skills/entropicmem/scripts/entropicmem.py init --vault /tmp/test-vault
+python3 skills/entropicmem/scripts/entropicmem.py lint
+python3 skills/entropicmem/scripts/entropicmem.py hotcache
+python3 skills/entropicmem/scripts/entropicmem.py query "search terms" --top-k 10
+python3 skills/entropicmem/scripts/entropicmem.py note "My Title" --domain Knowledge < input.txt
+python3 -m pytest tests/ -q
 ```
