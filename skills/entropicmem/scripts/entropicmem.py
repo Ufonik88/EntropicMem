@@ -27,6 +27,7 @@ Remaining subcommands are stubs that print "Not implemented yet — Phase 2+".
 
 import argparse
 import os
+import hashlib
 import re
 import shutil
 import sys
@@ -47,6 +48,7 @@ from vault import (
 from index import VaultIndex
 from retrieval import EMBEDDER_AVAILABLE, retrieve_composed
 from graph_export import export_json, export_dot, export_html, export_canvas
+from mnemosyne_bridge import MnemosyneBridge, MNEMOSYNE_AVAILABLE
 
 __version__ = "0.1.0"
 
@@ -773,7 +775,30 @@ def cmd_graph(args) -> int:
     return 0
 
 
-# ── subcommand: remember (vault-only, Mnemosyne bridge in Phase 4+) ────────
+# ── subcommand: bridge ────────────────────────────────────────────────────
+
+def cmd_bridge(args) -> int:
+    vault_path, index_path = _resolve_env()
+    vault = Vault(vault_path)
+    index = VaultIndex(index_path)
+    bridge = MnemosyneBridge(vault, index)
+
+    if args.bridge_command == "export":
+        since = getattr(args, "since", None)
+        r = bridge.export_to_vault(since=since, limit=500, verbose=True)
+        print(f"\nBridge export: {r.created} created, {r.updated} updated, {r.skipped} skipped")
+        if r.errors:
+            for e in r.errors:
+                print(f"  Error: {e}", file=sys.stderr)
+        index.close()
+        return 0 if not r.errors else 1
+    else:
+        print(f"Usage: entropicmem bridge export [--since DATETIME]", file=sys.stderr)
+        index.close()
+        return 1
+
+
+# ── subcommand: remember ─────────────────────────────────────────────────
 
 def cmd_remember(args) -> int:
     vault_path, index_path = _resolve_env()
@@ -956,7 +981,7 @@ def main() -> int:
         "remember": cmd_remember,
         "forget": cmd_forget,
         "open": cmd_open,
-        "bridge": lambda a: _stub("bridge"),
+        "bridge": cmd_bridge,
     }
 
     handler = routes.get(args.command)

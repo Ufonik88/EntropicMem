@@ -8,9 +8,6 @@
 
 | # | Phase | Task | Status |
 |---|-------|------|--------|
-| 22 | 4 | **mnemosyne_bridge.py** | `not_started` |
-| 23 | 4 | **bridge export/import subcommands** | `not_started` |
-| 24 | 4 | **Phase 4 gate: round-trip remember** | `not_started` |
 | 25 | 5 | **references/*.md — 5 full docs** | `not_started` |
 | 26 | 5 | **docs/*.md — 7 full docs** | `not_started` |
 | 27 | 5 | **SKILL.md final review** | `not_started` |
@@ -25,41 +22,31 @@
 | # | Phase | Task | Completed | Notes |
 |---|-------|------|-----------|-------|
 | P0-P8 | 0 | **Planning + Repo** | 2026-07-16 | PROJECT_PLAN, README, SETUP, RISKS, RELEASE-CHECKLIST, SKILL, templates, LICENSE, CI, GitHub push. |
-| 1-6 | 1 | **Core Vault Engine** | 2026-07-16 | vault.py, index.py, retrieval.py, CLI skeleton, 30 tests, Phase 1 gate. |
-| 7-17 | 2 | **Knowledge Loop** | 2026-07-16 | ingest, ingest-pile, moc, research, remember, forget, open, note, lint, hotcache, check-deps, 50 tests, Phase 2 gate. |
-| 18-21 | 3 | **Graph Visualizer** | 2026-07-16 | graph_export.py (JSON/DOT/HTML/Canvas), D3 galaxy graph.html, graph serve, 14 tests, Phase 3 gate. 64 total tests passing. |
+| 1-6 | 1 | **Core Vault Engine** | 2026-07-16 | vault.py, index.py, retrieval.py, CLI skeleton, 30 tests. |
+| 7-17 | 2 | **Knowledge Loop** | 2026-07-16 | ingest, ingest-pile, moc, research, remember, forget, open, note, lint, hotcache, check-deps, 50 tests. |
+| 18-21 | 3 | **Graph Visualizer** | 2026-07-16 | graph_export.py (JSON/DOT/HTML/Canvas), D3 galaxy graph.html, graph serve, 64 total tests. |
+| 22-24 | 4 | **Mnemosyne Bridge** | 2026-07-16 | mnemosyne_bridge.py (export 162 memories, dual remember), bridge CLI, 76 tests passing. entropic_id round-trip verified. |
 
 ---
 
-## HANDOFF NOTES FOR NEXT AGENT (Phase 4)
+## HANDOFF NOTES FOR NEXT AGENT (Phase 5)
 
 ### Where we are
-Phases 0-3 complete. **64 tests passing.** All 13 subcommands + graph export/serve are functional.
-
-### Phase 4 — Mnemosyne Bridge
-See `PROJECT_PLAN.md` §7.4.
-
-1. **`mnemosyne_bridge.py`** (#22):
-   - `export_to_vault()`: Read Mnemosyne working_memory + memories (scope=global), write as permanent notes in `Mnemosyne/` folder with `entropic_id`.
-   - `remember()`: Write to vault + Mnemosyne with same `entropic_id`.
-   - Uses public `Mnemosyne` class API from `mnemosyne.core.memory`.
-
-2. **`bridge export`/`bridge import`** (#23): Wire to CLI.
-
-3. **Phase 4 gate** (#24): Round-trip remember → vault note + Mnemosyne row with same entropic_id. Dedup works.
-
-### Key constraints
-- Bridge uses ONLY public Mnemosyne class API (no direct SQL).
-- `remember` creates both vault note + Mnemosyne memory with same entropic_id.
-- Cron recipe documented in SETUP.md, not auto-installed.
-
-### Working commands (Phases 1-3)
-```bash
-entropicmem init --vault /tmp/test
-entropicmem ingest test.md --domain Knowledge
-entropicmem query "search" --top-k 10
-entropicmem moc && entropicmem lint
-entropicmem graph export --format html
-entropicmem graph serve --port 8080
-python3 -m pytest tests/ -q
+Phases 0-4 complete. **76 tests passing.** All 15 commands implemented:
 ```
+init | ingest | ingest-pile | query | note | research | lint | moc | hotcache |
+graph export | graph serve | remember (dual) | forget | open | bridge export
+```
+
+### Phase 5 — Packaging & Polish
+1. **Fill reference docs** (#25): `skills/entropicmem/references/` — MEMORY_MODEL, VAULT_SCHEMA, HERMES_INTEGRATION, CLI_REFERENCE, VISUALIZER
+2. **Fill docs** (#26): `docs/` — ARCHITECTURE, MEMORY_MODEL, CLI_REFERENCE, VISUALIZER, SELF_INSTALL, COMPARISON, COMPARISON_TABLE
+3. **SKILL.md review** (#27): Ensure <100 lines, triggers correct, tool framing accurate
+4. **/learn dry-run** (#28): Test on fresh Hermes profile
+5. **Phase 5 gate** (#29): Clean /learn install, init works, graph renders
+6. **v1.0 release** (#30): Tag v1.0.0, changelog, announce
+
+### Key facts
+- Mnemosyne DB: ~240 memories, bridge successfully exports 162
+- remember() writes to BOTH vault + Mnemosyne with matching entropic_id
+- Bridge uses `_allow_protected=True` to write Mnemosyne/ folder

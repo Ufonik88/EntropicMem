@@ -215,6 +215,7 @@ class Vault:
         source_url: str = "",
         domain: str = "",
         agent: bool = True,
+        _allow_protected: bool = False,
     ) -> Path:
         """
         Create a new note. Returns the relative path within the vault.
@@ -225,9 +226,9 @@ class Vault:
         filename = f"{slug}.md"
         filepath = self.root / folder / filename
 
-        # ── write guard ──
+        # ── write guard (bypassed for bridge exports via _allow_protected) ──
         rel_check = Path(folder) / filename
-        if self._is_protected(rel_check):
+        if self._is_protected(rel_check) and not _allow_protected:
             raise ValueError(
                 f"Path '{rel_check}' is write-protected. "
                 f"EntropicMem never writes to {', '.join(PROTECTED_PREFIXES)}."
