@@ -21,8 +21,7 @@ Usage:
   entropicmem --check-deps
   entropicmem --version
 
-Phase 1 implements: init, lint, hotcache, query.
-Remaining subcommands are stubs that print "Not implemented yet — Phase 2+".
+Standalone memory: vault + MemoryEngine + graph.
 """
 
 import argparse
@@ -270,7 +269,7 @@ def _write_template(path: Path, ttype: str) -> None:
 {% endfor %}
 
 ## Links
-- [[Mnemosyne Dashboard]]
+- [[Wiki-Cache]]
 """,
         "moc": """# {{ domain }} — Map of Content
 
@@ -563,7 +562,7 @@ def cmd_ingest(args) -> int:
         + "\n".join(f"- {p[:200]}" for p in key_points)
         + "\n\n## Extracted Entities\n"
         + "\n".join(f"- [[{e}]]" for e in sorted(entities)[:15])
-        + "\n\n## Links\n- [[Mnemosyne Dashboard]]\n"
+        + "\n\n## Links\n- [[Wiki-Cache]]\n"
     )
     lit_path = vault.write_note(
         "inbox", f"Lit - {title}",
@@ -588,7 +587,7 @@ def cmd_ingest(args) -> int:
         body = (
             f"## Context\n{snippet}\n\n"
             f"## Source\n- [[Lit - {title}]]\n\n"
-            f"## Links\n- [[{domain}/Index]]\n- [[Mnemosyne Dashboard]]\n"
+            f"## Links\n- [[{domain}/Index]]\n- [[Wiki-Cache]]\n"
         )
         path = vault.write_note(domain, entity, body, tags=["permanent","auto-ingested"], source=source_label, domain=domain)
         note = vault.read_note(path)
@@ -710,7 +709,7 @@ def cmd_research(args) -> int:
         f"## Query\n{q}\n\n"
         f"## Sources\n_Add findings here after web_search._\n\n"
         f"## Key Findings\n_Add synthesized findings here._\n\n"
-        f"## Links\n- [[Mnemosyne Dashboard]]\n"
+        f"## Links\n- [[Wiki-Cache]]\n"
     )
     path = vault.write_note("inbox", f"Research - {q[:40]}", brief, tags=["literature","research"], note_type="literature", source="agent", domain="Knowledge")
     index = VaultIndex(index_path)
@@ -812,7 +811,7 @@ def cmd_remember(args) -> int:
     domain = args.domain or "Knowledge"
     tags = args.tags.split(",") if args.tags else ["durable", "agent"]
     title = f"Fact - {args.fact[:60]}"
-    body = (f"## Fact\n{args.fact}\n\n## Source\n- Agent (EntropicMem remember)\n\n## Links\n- [[{domain}/Index]]\n- [[Mnemosyne Dashboard]]\n")
+    body = (f"## Fact\n{args.fact}\n\n## Source\n- Agent (EntropicMem remember)\n\n## Links\n- [[{domain}/Index]]\n- [[Wiki-Cache]]\n")
     path = vault.write_note(domain, title, body, tags=tags, domain=domain)
     index = VaultIndex(index_path)
     note = vault.read_note(path)
@@ -871,7 +870,7 @@ def cmd_check_deps(args) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="entropicmem",
-        description="EntropicMem — Hermes Agent second brain",
+        description="EntropicMem — standalone agent memory system",
     )
     parser.add_argument("--version", action="store_true", help="Print version and exit")
     parser.add_argument("--check-deps", action="store_true", help="Print optional dependency status")
@@ -886,12 +885,12 @@ def main() -> int:
     p_init.add_argument("--dry-run", action="store_true", help="Print actions without writing")
 
     # ingest
-    p_ingest = sub.add_parser("ingest", help="Ingest a source (URL, file, or stdin) [Phase 2+]")
+    p_ingest = sub.add_parser("ingest", help="Ingest a source (URL, file, or stdin)")
     p_ingest.add_argument("source", nargs="?", help="URL or file path")
     p_ingest.add_argument("--domain", default="Knowledge", help="Target domain folder")
 
     # ingest-pile
-    p_pile = sub.add_parser("ingest-pile", help="Batch ingest a directory [Phase 2+]")
+    p_pile = sub.add_parser("ingest-pile", help="Batch ingest a directory")
     p_pile.add_argument("dir", help="Directory of sources")
     p_pile.add_argument("--domain", default="Knowledge", help="Target domain folder")
 
@@ -909,7 +908,7 @@ def main() -> int:
     p_note.add_argument("--tags", help="Comma-separated tags")
 
     # research
-    p_research = sub.add_parser("research", help="Multi-round web research [Phase 2+]")
+    p_research = sub.add_parser("research", help="Create research brief for agent-driven web research")
     p_research.add_argument("query", help="Research question")
     p_research.add_argument("--rounds", type=int, default=3, help="Research rounds")
 
@@ -918,14 +917,14 @@ def main() -> int:
     p_lint.add_argument("--domain", help="Filter by domain")
 
     # moc
-    p_moc = sub.add_parser("moc", help="Build/repair domain Index.md + backlinks [Phase 2+]")
+    p_moc = sub.add_parser("moc", help="Build/repair domain Index.md + backlinks")
     p_moc.add_argument("--domain", help="Target domain")
 
     # hotcache
     sub.add_parser("hotcache", help="Rebuild Wiki-Cache.md")
 
     # graph
-    p_graph = sub.add_parser("graph", help="Graph operations [Phase 3+]")
+    p_graph = sub.add_parser("graph", help="Graph export and serve")
     g_sub = p_graph.add_subparsers(dest="graph_command")
     g_export = g_sub.add_parser("export", help="Export visual graph")
     g_export.add_argument("--format", default="html", choices=["json", "dot", "html", "canvas"])
@@ -938,13 +937,13 @@ def main() -> int:
     g_serve.add_argument("--dir", default="./export")
 
     # remember
-    p_remember = sub.add_parser("remember", help="Create vault note + Mnemosyne row [Phase 4+]")
+    p_remember = sub.add_parser("remember", help="Store durable fact in memory engine + vault")
     p_remember.add_argument("fact", help="The fact to remember")
     p_remember.add_argument("--domain", default="Knowledge")
     p_remember.add_argument("--tags", help="Comma-separated tags")
 
     # forget
-    p_forget = sub.add_parser("forget", help="Delete note + Mnemosyne row [Phase 4+]")
+    p_forget = sub.add_parser("forget", help="Delete fact from memory engine and vault note")
     p_forget.add_argument("entropic_id", help="The entropic_id to forget")
 
     # memory
