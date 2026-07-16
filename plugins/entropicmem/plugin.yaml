@@ -1,0 +1,4 @@
+name: entropicmem
+version: 1.1.0
+description: "EntropicMem MemoryProvider — local facts, vault, hybrid retrieval."
+author: Ufonik

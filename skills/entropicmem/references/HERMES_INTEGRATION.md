@@ -18,3 +18,22 @@ Promote durable conclusions with `remember`. Capture sources with `ingest`. Do n
 
 ## Maintenance
 End heavy knowledge sessions with `lint` and optional `hotcache`.
+
+## Phase 6 — MemoryProvider (optional)
+
+Deep Hermes integration via `plugins/entropicmem/`:
+
+```bash
+ln -sf /path/to/EntropicMem/plugins/entropicmem ~/.hermes/plugins/entropicmem
+```
+
+`~/.hermes/config.yaml`:
+
+```yaml
+memory:
+  provider: entropicmem
+```
+
+Tools: `entropicmem_remember`, `entropicmem_recall`, `entropicmem_query`.  
+Built-in `memory` tool writes are mirrored into the memory engine.  
+See `plugins/entropicmem/README.md`.
