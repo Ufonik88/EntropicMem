@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -59,6 +60,7 @@ RECALL_SCHEMA = {
         "properties": {
             "query": {"type": "string", "description": "Search query."},
             "limit": {"type": "integer", "description": "Max results (default 8)."},
+            "domain": {"type": "string", "description": "Filter by domain (optional)."},
         },
         "required": ["query"],
     },
@@ -77,6 +79,35 @@ QUERY_SCHEMA = {
     },
 }
 
+# ── Smart Context Management Defaults ────────────────────────────────────────
+
+SMART_CONTEXT_DEFAULTS = {
+    # Relevance filtering
+    "min_relevance_score": 0.3,
+    "max_prefetch_results": 5,
+
+    # Token budget (max characters per prefetch turn)
+    "prefetch_token_budget": 1500,
+
+    # Deduplication (don't repeat facts within N turns)
+    "dedup_window": 5,
+
+    # Domain filtering (empty = all domains)
+    "enabled_domains": [],
+
+    # Progressive disclosure thresholds
+    "high_relevance_threshold": 0.7,
+    "medium_relevance_threshold": 0.4,
+
+    # Conversation context awareness
+    "context_window_turns": 3,
+    "max_context_query_length": 1000,
+
+    # Cache behavior
+    "cache_conversation_context": True,
+    "cache_ttl_seconds": 300,
+}
+
 
 def _tool_error(msg: str) -> str:
     try:
@@ -91,7 +122,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
     """Hermes MemoryProvider backed by EntropicMem MemoryEngine + vault."""
 
     def __init__(self, config: Optional[dict] = None):
-        self._config = config or {}
+        self._config = {**SMART_CONTEXT_DEFAULTS, **(config or {})}
         self._scripts_dir: Optional[Path] = None
         self._hermes_home: Optional[Path] = None
         self._vault_path: Optional[Path] = None
@@ -101,6 +132,12 @@ class EntropicMemMemoryProvider(MemoryProvider):
         self._prefetch_lock = threading.Lock()
         self._prefetch_cache: str = ""
         self._last_query: str = ""
+        self._conversation_history: List[Dict[str, Any]] = []
+
+        # Smart context tracking
+        self._recently_injected: Dict[str, int] = {}  # fact_id -> turn_count
+        self._turn_counter: int = 0
+        self._cache_timestamp: float = 0.0
 
     @property
     def name(self) -> str:
@@ -130,6 +167,62 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "key": "memory_db",
                 "description": "Memory engine SQLite path",
                 "default": "~/.hermes/entropicmem/memory.db",
+            },
+            # Smart Context Management
+            {
+                "key": "min_relevance_score",
+                "description": "Minimum FTS5 relevance score for prefetch (0.0-1.0)",
+                "default": 0.3,
+            },
+            {
+                "key": "max_prefetch_results",
+                "description": "Maximum facts to inject per turn",
+                "default": 5,
+            },
+            {
+                "key": "prefetch_token_budget",
+                "description": "Maximum characters for prefetch context per turn",
+                "default": 1500,
+            },
+            {
+                "key": "dedup_window",
+                "description": "Don't repeat facts within N turns",
+                "default": 5,
+            },
+            {
+                "key": "enabled_domains",
+                "description": "List of domains to filter (empty = all)",
+                "default": [],
+            },
+            {
+                "key": "high_relevance_threshold",
+                "description": "Threshold for high-relevance facts (progressive disclosure)",
+                "default": 0.7,
+            },
+            {
+                "key": "medium_relevance_threshold",
+                "description": "Threshold for medium-relevance facts",
+                "default": 0.4,
+            },
+            {
+                "key": "context_window_turns",
+                "description": "Number of recent turns to consider for context",
+                "default": 3,
+            },
+            {
+                "key": "max_context_query_length",
+                "description": "Maximum length of context-enhanced query",
+                "default": 1000,
+            },
+            {
+                "key": "cache_conversation_context",
+                "description": "Cache prefetch results with conversation awareness",
+                "default": True,
+            },
+            {
+                "key": "cache_ttl_seconds",
+                "description": "Cache TTL in seconds",
+                "default": 300,
             },
         ]
 
@@ -182,25 +275,56 @@ class EntropicMemMemoryProvider(MemoryProvider):
             self._last_query = query[:2000]
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
+        """Smart prefetch with relevance filtering, token budget, and deduplication."""
         q = (query or self._last_query or "").strip()
         if not q or not self._scripts_dir or not self._memory_db:
             return ""
-        with self._prefetch_lock:
-            if self._prefetch_cache and q == self._last_query:
-                return self._prefetch_cache
+
+        self._turn_counter += 1
+
+        # Check cache first (with conversation awareness)
+        if self._config.get("cache_conversation_context", True):
+            cached = self._check_cache(q)
+            if cached is not None:
+                return cached
+
         try:
             from memory_engine import MemoryEngine
 
             engine = MemoryEngine(self._memory_db)
-            rows = engine.recall(q, top_k=5)
+
+            # Phase 2.3: Build context-aware query
+            enhanced_query = self._build_context_query(q)
+
+            # Phase 1.2 & 2.2: Get candidates with relevance scoring and domain filtering
+            candidates = self._get_candidates(engine, enhanced_query)
+
+            # Phase 2.1: Apply deduplication
+            deduplicated = self._apply_deduplication(candidates)
+
+            # Phase 3.1: Apply progressive disclosure
+            selected = self._apply_progressive_disclosure(deduplicated)
+
+            # Phase 1.3: Apply token budget
+            budgeted = self._apply_token_budget(selected)
+
             engine.close()
-            if not rows:
+
+            if not budgeted:
                 return ""
-            lines = [f"- [{r.id}] {r.content[:300]}" for r in rows]
-            block = "## EntropicMem recall\n" + "\n".join(lines)
+
+            # Format and cache result
+            block = self._format_block(budgeted)
+
             with self._prefetch_lock:
                 self._prefetch_cache = block
+                self._cache_timestamp = self._get_timestamp()
+
+            # Track injected facts for deduplication
+            self._track_injected(budgeted)
+
             return block
+
         except Exception as e:
             logger.debug("EntropicMem prefetch failed: %s", e)
             return ""
@@ -213,8 +337,208 @@ class EntropicMemMemoryProvider(MemoryProvider):
         session_id: str = "",
         messages: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
-        # Explicit tools + on_memory_write mirror; no silent auto-ingest in v1.1.
-        pass
+        """Update conversation history for context-aware prefetch."""
+        if messages:
+            self._conversation_history = messages[-(self._config.get("context_window_turns", 3) * 2):]
+
+    # ── Smart Context Helpers ─────────────────────────────────────────────
+
+    def _check_cache(self, query: str) -> Optional[str]:
+        """Check cache with conversation context awareness."""
+        with self._prefetch_lock:
+            if not self._prefetch_cache:
+                return None
+
+            # Check TTL
+            ttl = self._config.get("cache_ttl_seconds", 300)
+            if self._get_timestamp() - self._cache_timestamp > ttl:
+                self._prefetch_cache = ""
+                return None
+
+            # Check if query matches (simple cache)
+            if query == self._last_query:
+                return self._prefetch_cache
+
+            # Conversation-aware cache invalidation
+            if self._conversation_changed():
+                self._prefetch_cache = ""
+                return None
+
+            return None
+
+    def _conversation_changed(self) -> bool:
+        """Detect if conversation has changed significantly."""
+        if not self._conversation_history:
+            return False
+
+        # Hash recent conversation
+        recent_content = " ".join(
+            msg.get("content", "")[:100]
+            for msg in self._conversation_history[-4:]
+        )
+        return bool(recent_content.strip())
+
+    def _build_context_query(self, query: str) -> str:
+        """Build enhanced query using conversation context."""
+        if not self._conversation_history:
+            return query
+
+        # Extract recent user messages
+        max_turns = self._config.get("context_window_turns", 3)
+        recent_user_msgs = [
+            msg.get("content", "")[:200]
+            for msg in self._conversation_history[-(max_turns * 2):]
+            if msg.get("role") == "user"
+        ]
+
+        # Combine with current query
+        context_parts = [query] + recent_user_msgs
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_parts = []
+        for part in context_parts:
+            if part not in seen:
+                seen.add(part)
+                unique_parts.append(part)
+
+        # Truncate to max length
+        max_len = self._config.get("max_context_query_length", 1000)
+        combined = " ".join(unique_parts)[:max_len]
+
+        return combined
+
+    def _get_candidates(self, engine, query: str) -> list:
+        """Get candidate facts with relevance scoring and domain filtering."""
+        min_relevance = self._config.get("min_relevance_score", 0.3)
+        max_results = self._config.get("max_prefetch_results", 5)
+        enabled_domains = self._config.get("enabled_domains", [])
+
+        # Get more candidates than needed for filtering
+        candidates = engine.recall_with_relevance(
+            query,
+            top_k=max_results * 2,
+            min_relevance=min_relevance,
+        )
+
+        # Apply domain filtering if configured
+        if enabled_domains:
+            candidates = [f for f in candidates if f.domain in enabled_domains]
+
+        return candidates[:max_results]
+
+    def _apply_deduplication(self, facts: list) -> list:
+        """Remove recently injected facts."""
+        dedup_window = self._config.get("dedup_window", 5)
+
+        fresh = [
+            f for f in facts
+            if f.id not in self._recently_injected
+            or self._turn_counter - self._recently_injected[f.id] > dedup_window
+        ]
+
+        # If all facts are duplicates, allow repeats but with penalty
+        if not fresh and facts:
+            # Sort by recency (prefer facts not seen recently)
+            facts.sort(
+                key=lambda f: self._recently_injected.get(f.id, 0)
+            )
+            return facts[:2]  # Allow max 2 repeats
+
+        return fresh
+
+    def _apply_progressive_disclosure(self, facts: list) -> list:
+        """Apply tiered relevance filtering."""
+        if not facts:
+            return []
+
+        high_threshold = self._config.get("high_relevance_threshold", 0.7)
+        medium_threshold = self._config.get("medium_relevance_threshold", 0.4)
+
+        # Tier 1: High relevance (max 2)
+        high_relevance = [f for f in facts if f.relevance_score >= high_threshold]
+        if high_relevance:
+            return high_relevance[:2]
+
+        # Tier 2: Medium relevance (max 3)
+        medium_relevance = [f for f in facts if f.relevance_score >= medium_threshold]
+        if medium_relevance:
+            return medium_relevance[:3]
+
+        # Tier 3: Low relevance (max 5)
+        return facts[:5]
+
+    def _apply_token_budget(self, facts: list) -> list:
+        """Apply token budget constraint."""
+        budget = self._config.get("prefetch_token_budget", 1500)
+
+        selected = []
+        char_count = 0
+
+        # Sort by importance to keep most important facts
+        sorted_facts = sorted(facts, key=lambda f: f.importance, reverse=True)
+
+        for fact in sorted_facts:
+            fact_chars = len(fact.content)
+
+            if char_count + fact_chars <= budget:
+                selected.append(fact)
+                char_count += fact_chars
+            else:
+                # Try truncated version
+                remaining = budget - char_count
+                if remaining >= 100:  # Minimum useful size
+                    # Create a simple object with truncated content
+                    truncated = type(fact)(
+                        id=fact.id,
+                        content=fact.content[:remaining] + "...",
+                        title=fact.title,
+                        source=fact.source,
+                        importance=fact.importance,
+                        domain=fact.domain,
+                        tags=fact.tags,
+                        created_at=fact.created_at,
+                        updated_at=fact.updated_at,
+                        relevance_score=fact.relevance_score,
+                    )
+                    selected.append(truncated)
+                break
+
+        return selected
+
+    def _track_injected(self, facts: list) -> None:
+        """Track injected facts for deduplication."""
+        for fact in facts:
+            self._recently_injected[fact.id] = self._turn_counter
+
+        # Cleanup old entries
+        dedup_window = self._config.get("dedup_window", 5)
+        cutoff = self._turn_counter - dedup_window
+        self._recently_injected = {
+            fid: turn for fid, turn in self._recently_injected.items()
+            if turn > cutoff
+        }
+
+    def _format_block(self, facts: list) -> str:
+        """Format facts into injection block."""
+        if not facts:
+            return ""
+
+        lines = ["## EntropicMem recall"]
+        for fact in facts:
+            # Include relevance score in output for debugging
+            score_str = f" [score:{fact.relevance_score:.2f}]" if fact.relevance_score > 0 else ""
+            content_preview = fact.content[:300]
+            if len(fact.content) > 300:
+                content_preview += "..."
+            lines.append(f"- [{fact.id}] {content_preview}{score_str}")
+
+        return "\n".join(lines)
+
+    def _get_timestamp(self) -> float:
+        """Get current timestamp."""
+        import time
+        return time.time()
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         return [REMEMBER_SCHEMA, RECALL_SCHEMA, QUERY_SCHEMA]

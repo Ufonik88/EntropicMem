@@ -61,6 +61,7 @@ class StoredFact:
     tags: List[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
+    relevance_score: float = 0.0  # FTS5 rank-based relevance (0-1)
 
     @staticmethod
     def make_id(content: str) -> str:
@@ -326,3 +327,121 @@ class MemoryEngine:
             created_at=row["created_at"] or "",
             updated_at=row["updated_at"] or "",
         )
+
+    def recall_with_relevance(
+        self,
+        query: str,
+        top_k: int = 10,
+        domain: Optional[str] = None,
+        min_relevance: float = 0.0,
+    ) -> List[StoredFact]:
+        """Full-text search with relevance scoring.
+
+        Returns facts ranked by relevance score. Uses FTS5 bm25() ranking
+        normalized to 0-1 scale. Filters by minimum relevance threshold.
+
+        Args:
+            query: Search query
+            top_k: Maximum results to return
+            domain: Optional domain filter
+            min_relevance: Minimum relevance score (0-1) to include
+        """
+        if not query.strip():
+            return []
+
+        # Sanitize query for FTS5
+        clean = query.replace('"', '""')
+
+        # Split query into words for better matching
+        words = clean.split()
+        if len(words) > 1:
+            # Build OR query for each word
+            word_queries = [f'content: "{w}"*' for w in words if w]
+            fts_query = " OR ".join(word_queries)
+        else:
+            fts_query = f'content: "{clean}"* OR title: "{clean}"* OR tags: "{clean}"*'
+
+        where = ""
+        params: tuple = ()
+        if domain:
+            where = "AND f.domain = ?"
+            params = (domain,)
+
+        # Get FTS5 results with bm25 rank
+        # bm25() returns negative scores (lower = more relevant)
+        # We normalize to 0-1 where 1 = most relevant
+        rows = self.db.execute(
+            f"""
+            SELECT f.*, bm25(facts_fts) as rank
+            FROM facts_fts
+            JOIN facts f ON facts_fts.rowid = f.rowid
+            WHERE facts_fts MATCH ? {where}
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (fts_query, *params, top_k * 2),  # Get extra for filtering
+        ).fetchall()
+
+        if not rows:
+            # Fallback to LIKE search
+            return self._recall_like_fallback(query, top_k, domain, min_relevance)
+
+        # Normalize bm25 scores to 0-1
+        # bm25 returns negative values; more negative = more relevant
+        ranks = [row["rank"] for row in rows]
+        min_rank = min(ranks)
+        max_rank = max(ranks)
+        rank_range = max_rank - min_rank if max_rank != min_rank else 1.0
+
+        results = []
+        for row in rows:
+            fact = self._row_to_fact(row)
+            # Normalize: 0 = least relevant, 1 = most relevant
+            if rank_range > 0:
+                fact.relevance_score = 1.0 - ((row["rank"] - min_rank) / rank_range)
+            else:
+                fact.relevance_score = 1.0
+
+            # Apply minimum relevance filter
+            if fact.relevance_score >= min_relevance:
+                results.append(fact)
+
+        # Sort by relevance score (descending)
+        results.sort(key=lambda f: f.relevance_score, reverse=True)
+        return results[:top_k]
+
+    def _recall_like_fallback(
+        self,
+        query: str,
+        top_k: int,
+        domain: Optional[str],
+        min_relevance: float,
+    ) -> List[StoredFact]:
+        """Fallback LIKE-based search when FTS5 returns no results."""
+        where = ""
+        params: tuple = ()
+        if domain:
+            where = "AND domain = ?"
+            params = (domain,)
+
+        like_params = (f"%{query}%", f"%{query}%", f"%{query}%")
+        rows = self.db.execute(
+            f"""
+            SELECT * FROM facts
+            WHERE (content LIKE ? OR title LIKE ? OR tags LIKE ?) {where}
+            ORDER BY importance DESC
+            LIMIT ?
+            """,
+            (*like_params, *params, top_k),
+        ).fetchall()
+
+        # Assign relevance scores based on importance for LIKE results
+        results = []
+        for row in rows:
+            fact = self._row_to_fact(row)
+            # Use importance as a proxy for relevance when using LIKE
+            fact.relevance_score = fact.importance * 0.8  # Scale down to differentiate from FTS5
+            if fact.relevance_score >= min_relevance:
+                results.append(fact)
+
+        return results
