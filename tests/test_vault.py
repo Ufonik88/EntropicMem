@@ -151,8 +151,8 @@ class TestVault:
         vault, _ = temp_vault
         notes = vault.list_notes()
         assert len(notes) >= 10
-        # Should include infrastructure notes (sanitized to lowercase)
-        infra = [n for n in notes if str(n).startswith("infrastructure/")]
+        # Should include infrastructure notes (preserving original case)
+        infra = [n for n in notes if str(n).lower().startswith("infrastructure/")]
         assert len(infra) >= 5
 
     def test_linkify(self, temp_vault):
