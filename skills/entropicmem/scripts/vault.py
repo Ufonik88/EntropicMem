@@ -235,7 +235,15 @@ class Vault:
                 )
         
         # Sanitize folder to prevent path traversal
-        safe_folder = self.sanitize(folder)
+        # But first check if an existing directory matches (case-insensitive)
+        # to preserve the original case (e.g., "Knowledge" not "knowledge")
+        safe_folder_raw = self.sanitize(folder)
+        safe_folder = safe_folder_raw
+        for item in self.root.iterdir():
+            if item.is_dir() and item.name.lower() == safe_folder_raw.lower():
+                safe_folder = item.name
+                break
+        
         slug = self.sanitize(title)
         filename = f"{slug}.md"
         
