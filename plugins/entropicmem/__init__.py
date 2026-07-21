@@ -153,6 +153,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         self._turn_counter: int = 0
         self._cache_timestamp: float = 0.0
         self._last_conversation_hash: str = ""
+        self._extract_lock = threading.Lock()
 
     @property
     def name(self) -> str:
@@ -415,30 +416,32 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 logger.debug("EntropicMem auto-extract failed: %s", e)
 
     def _auto_extract(self, user_content: str, assistant_content: str, session_id: str) -> None:
-        """Background auto-extraction of durable facts from conversation text."""
-        import threading
+        """Background auto-extraction of durable facts from conversation text.
+
+        Fire-and-forget: skips if an extraction is already running.
+        """
+        if not self._extract_lock.acquire(blocking=False):
+            return  # Another extraction is in progress — skip
 
         def _run():
             try:
                 ensure_scripts_on_path(self._scripts_dir)
                 from memory_engine import MemoryEngine
-                engine = MemoryEngine(self._memory_db)
-                engine.extract_and_store(
-                    user_text=user_content,
-                    assistant_text=assistant_content,
-                    session_id=session_id,
-                    source="auto_extracted",
-                    min_confidence=0.4,
-                )
-                engine.close()
+                with MemoryEngine(self._memory_db) as engine:
+                    engine.extract_and_store(
+                        user_text=user_content,
+                        assistant_text=assistant_content,
+                        session_id=session_id,
+                        source="auto_extracted",
+                        min_confidence=0.4,
+                    )
             except Exception:
                 pass  # Non-blocking; failures are silent
+            finally:
+                self._extract_lock.release()
 
-        # Run in background thread with timeout
         t = threading.Thread(target=_run, daemon=True)
-        timeout = self._config.get("extraction_timeout", 5.0)
         t.start()
-        t.join(timeout=timeout)  # Wait up to timeout, then abandon
 
     # ── Smart Context Helpers ─────────────────────────────────────────────
 
@@ -534,22 +537,23 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return candidates[:max_results]
 
     def _apply_deduplication(self, facts: list) -> list:
-        """Remove recently injected facts."""
+        """Remove recently injected facts (thread-safe)."""
         dedup_window = self._config.get("dedup_window", 5)
 
-        fresh = [
-            f for f in facts
-            if f.id not in self._recently_injected
-            or self._turn_counter - self._recently_injected[f.id] > dedup_window
-        ]
+        with self._prefetch_lock:
+            fresh = [
+                f for f in facts
+                if f.id not in self._recently_injected
+                or self._turn_counter - self._recently_injected[f.id] > dedup_window
+            ]
 
-        # If all facts are duplicates, allow repeats but with penalty
-        if not fresh and facts:
-            # Sort by recency (prefer facts not seen recently)
-            facts.sort(
-                key=lambda f: self._recently_injected.get(f.id, 0)
-            )
-            return facts[:2]  # Allow max 2 repeats
+            # If all facts are duplicates, allow repeats but with penalty
+            if not fresh and facts:
+                # Sort by recency (prefer facts not seen recently)
+                facts.sort(
+                    key=lambda f: self._recently_injected.get(f.id, 0)
+                )
+                return facts[:2]  # Allow max 2 repeats
 
         return fresh
 
@@ -613,17 +617,18 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return selected
 
     def _track_injected(self, facts: list) -> None:
-        """Track injected facts for deduplication."""
-        for fact in facts:
-            self._recently_injected[fact.id] = self._turn_counter
+        """Track injected facts for deduplication (thread-safe)."""
+        with self._prefetch_lock:
+            for fact in facts:
+                self._recently_injected[fact.id] = self._turn_counter
 
-        # Cleanup old entries
-        dedup_window = self._config.get("dedup_window", 5)
-        cutoff = self._turn_counter - dedup_window
-        self._recently_injected = {
-            fid: turn for fid, turn in self._recently_injected.items()
-            if turn > cutoff
-        }
+            # Cleanup old entries
+            dedup_window = self._config.get("dedup_window", 5)
+            cutoff = self._turn_counter - dedup_window
+            self._recently_injected = {
+                fid: turn for fid, turn in self._recently_injected.items()
+                if turn > cutoff
+            }
 
     def _format_block(self, facts: list) -> str:
         """Format facts into injection block."""
@@ -674,16 +679,15 @@ class EntropicMemMemoryProvider(MemoryProvider):
             from memory_engine import MemoryEngine
 
             domain = "People" if target == "user" else "Knowledge"
-            engine = MemoryEngine(self._memory_db)
-            engine.remember(
-                content=content,
-                title=content[:60],
-                domain=domain,
-                tags=["mirrored", target],
-                source="built_in_memory",
-                importance=0.75 if target == "user" else 0.6,
-            )
-            engine.close()
+            with MemoryEngine(self._memory_db) as engine:
+                engine.remember(
+                    content=content,
+                    title=content[:60],
+                    domain=domain,
+                    tags=["mirrored", target],
+                    source="built_in_memory",
+                    importance=0.75 if target == "user" else 0.6,
+                )
         except Exception as e:
             logger.debug("EntropicMem on_memory_write mirror failed: %s", e)
 
@@ -727,14 +731,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
             from vault import Vault
             from index import VaultIndex
 
-            engine = MemoryEngine(self._memory_db)
-            eid = engine.remember(
-                content=content,
-                title=content[:60],
-                domain=domain,
-                source="agent_tool",
-                importance=importance,
-            )
+            with MemoryEngine(self._memory_db) as engine:
+                eid = engine.remember(
+                    content=content,
+                    title=content[:60],
+                    domain=domain,
+                    source="agent_tool",
+                    importance=importance,
+                )
             vault_note = None
             if self._vault_path and self._vault_path.is_dir():
                 vault = Vault(self._vault_path)
@@ -758,7 +762,6 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     idx.upsert_note(note)
                     idx.upsert_edges_for_note(vault, note)
                     idx.close()
-            engine.close()
             return json.dumps({"ok": True, "entropic_id": eid, "vault_note": vault_note})
         except Exception as e:
             logger.exception("entropicmem_remember failed")
@@ -775,15 +778,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
             ensure_scripts_on_path(self._scripts_dir)
             from memory_engine import MemoryEngine
 
-            engine = MemoryEngine(self._memory_db)
-            rows = engine.recall_with_relevance(
-                query,
-                top_k=limit,
-                decay_enabled=self._config.get("decay_enabled", True),
-                decay_half_life_days=self._config.get("decay_half_life_days", 30.0),
-                reinforcement_boost=self._config.get("reinforcement_boost", 0.1),
-            )
-            engine.close()
+            with MemoryEngine(self._memory_db) as engine:
+                rows = engine.recall_with_relevance(
+                    query,
+                    top_k=limit,
+                    decay_enabled=self._config.get("decay_enabled", True),
+                    decay_half_life_days=self._config.get("decay_half_life_days", 30.0),
+                    reinforcement_boost=self._config.get("reinforcement_boost", 0.1),
+                )
             payload = [
                 {
                     "id": r.id,
