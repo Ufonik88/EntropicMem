@@ -8,9 +8,9 @@
 | Milestone | Label | Version | Status |
 |-----------|-------|---------|--------|
 | M1 | Correctness (A1–A5 + E1) | v1.4.0 | ✅ Merged |
-| M2 | Production Hardening | v1.5.0 | 🔨 In Progress |
-| M3 | Intelligence & Resilience | v1.6.0 | ⏳ Pending |
-| M4 | Release & CI Expansion | v2.0.0 | ⏳ Future |
+| M2 | Production Hardening | v1.5.0 | ✅ Merged |
+| M3 | Intelligence & Resilience | v1.6.0 | ✅ Merged |
+| M4 | Release & CI Expansion | v2.0.0 | ✅ Merged |
 | P2 | Vector Search (sentence-transformers) | — | Deferred (optional dep) |
 
 ---
@@ -108,6 +108,29 @@ Make EntropicMem smarter about what it stores and resilient against failure.
   Sourcery flagged this as a testing gap.
 - **Fix:** Capture `relevance_score` before and after `reinforce()`, assert
   the score increases (or at minimum doesn't decrease).
+
+---
+
+## M4 — Release & CI Expansion (v2.0.0)
+
+Make EntropicMem installable and CI-verified across Python versions.
+
+### M4.1: Packaging (`pyproject.toml`)
+- **Problem:** No packaging metadata — can't `pip install` or distribute.
+- **Fix:** Add `pyproject.toml` with project metadata, optional deps
+  (`semantic`, `graph`, `dev`), and pytest/ruff config.
+
+### M4.2: CI Expansion
+- **Problem:** CI only tests Python 3.11, no linting.
+- **Fix:** Multi-Python matrix (3.10, 3.11, 3.12) + ruff lint job.
+
+### M4.3: README Update
+- **Problem:** README doesn't mention v1.5.0/v1.6.0 features.
+- **Fix:** Add Production Hardening and Intelligence & Resilience sections.
+
+### M4.4: Plan Update
+- **Problem:** `docs/IMPROVEMENT_PLAN.md` still shows M2/M3 as pending.
+- **Fix:** Mark all milestones complete, add M4 section.
 
 ---
 

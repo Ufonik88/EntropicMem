@@ -121,6 +121,21 @@ plugins:
 
 See `skills/entropicmem/references/HERMES_INTEGRATION.md` for full documentation.
 
+## Production Hardening (v1.5.0)
+
+- **Non-blocking extraction** — `_auto_extract` runs fire-and-forget with a lock guard
+- **Thread-safe injection** — `_recently_injected` guarded with `_prefetch_lock`
+- **FTS parity** — `recall_with_relevance` multi-word queries search title/tags fields
+- **CoreMemory delegation** — CLI `patch-core` uses `CoreMemory` class (single source of truth)
+- **Context manager** — `MemoryEngine` supports `with` statements for safe cleanup
+
+## Intelligence & Resilience (v1.6.0)
+
+- **Fuzzy deduplication** — Jaccard similarity ≥ 0.8 catches near-duplicate facts
+- **DB error recovery** — automatic FTS5 index rebuild on corruption
+- **Memory consolidation** — archive old, low-access facts to `facts_archive` table
+- **Auto-backup** — timestamped SQLite backups before destructive operations
+
 ## Requirements
 
 - Python 3.10+ (stdlib only for core)
