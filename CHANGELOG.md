@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.4.0] - 2026-07-21
+
+### Fixed (M1 Correctness Phase)
+- **A1:** `recall()` multi-word FTS query now splits into per-word OR terms instead of a single quoted phrase — matches `recall_with_relevance()` strategy, resolving 4/14 verification misses
+- **A2:** `CoreMemory.injection_block()` frontmatter stripping now actually updates `persona`/`profile` variables (was a no-op loop reassignment)
+- **A3:** `extract_and_store()` uses `re.finditer` + `group(0)` instead of `re.findall` — avoids garbage facts from multi-group tuple reconstruction
+- **A4:** `_conversation_changed()` now hashes recent conversation and compares to previous hash — was returning `True` for any non-empty history, invalidating cache every turn
+- **A5:** `forget()` returns `row is not None` instead of checking `SELECT changes()` after FTS delete — was returning `False` when FTS row was already missing
+
+### Changed
+- **E1:** `entropicmem_recall` tool now uses `recall_with_relevance()` with decay/reinforcement config instead of basic `recall()` — active tool recall now matches prefetch quality
+- `entropicmem_recall` results include `relevance_score` field
+- Version 1.4.0
+
+### Verified
+- 133 tests passing
+- 14/14 verification queries return results (up from 10/14)
+
 ## [1.2.0] - 2026-07-17
 
 ### Added

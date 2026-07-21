@@ -972,6 +972,103 @@ def cmd_forget(args) -> int:
 
 # ── stub for Phase 3-4 ──────────────────────────────────────────────────────
 
+def cmd_extract(args) -> int:
+    """Extract facts from conversation text using heuristic patterns (no LLM needed)."""
+    engine = MemoryEngine(_memory_db_path())
+    # Read from stdin if no text argument
+    if args.text:
+        text = args.text
+    else:
+        text = sys.stdin.read().strip()
+    if not text:
+        print("No text provided. Pipe conversation text or pass --text.", file=sys.stderr)
+        engine.close()
+        return 1
+
+    extracted = engine.extract_and_store(
+        user_text=text,
+        assistant_text="",
+        session_id=args.session_id or "cli",
+        source=args.source or "auto_extracted",
+        min_confidence=args.min_confidence,
+    )
+    engine.close()
+
+    if not extracted:
+        print("No facts extracted.")
+        return 0
+
+    print(f"Extracted {len(extracted)} fact(s):")
+    for f in extracted:
+        print(f"  [{f['domain']}] {f['content'][:80]}... (imp={f['importance']}, id={f['id']})")
+    return 0
+
+
+def cmd_reinforce(args) -> int:
+    """Boost a fact's access count and timestamp."""
+    engine = MemoryEngine(_memory_db_path())
+    found = engine.reinforce(args.entropic_id)
+    engine.close()
+    if found:
+        print(f"Reinforced: {args.entropic_id}")
+    else:
+        print(f"Fact not found: {args.entropic_id}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_patch_core(args) -> int:
+    """Surgically update Core Memory (Persona.md or User Profile)."""
+    vault_path, _ = _resolve_env()
+    vault = Vault(vault_path)
+
+    # Ensure Core directory exists
+    core_dir = vault.root / "Core"
+    core_dir.mkdir(exist_ok=True)
+
+    persona_path = core_dir / "Persona.md"
+    profile_path = core_dir / "User_Profile.md"
+
+    # Create files if they don't exist
+    if not persona_path.exists():
+        persona_path.write_text(
+            "# Agent Persona\n\n*Core memory: operational guidelines, rules, identity.*\n\n"
+            "## Identity\nEntropicMem Agent — autonomous assistant\n\n"
+            "## Rules\n(TBD)\n",
+            encoding="utf-8",
+        )
+    if not profile_path.exists():
+        profile_path.write_text(
+            "# User Profile\n\n*Core memory: durable user facts, preferences, context.*\n\n"
+            "## Facts\n(TBD)\n\n## Preferences\n(TBD)\n",
+            encoding="utf-8",
+        )
+
+    target_file = persona_path if args.target == "persona" else profile_path
+    target_name = "Persona" if args.target == "persona" else "User_Profile"
+
+    if not args.patch:
+        # Read-only mode
+        content = target_file.read_text(encoding="utf-8")
+        print(f"=== Core/{target_name}.md ===")
+        print(content)
+        return 0
+
+    # Apply surgical patch (find + replace)
+    old_text = args.patch
+    new_text = args.replacement or ""
+
+    content = target_file.read_text(encoding="utf-8")
+    if old_text not in content:
+        print(f"Patch text not found in Core/{target_name}.md", file=sys.stderr)
+        return 1
+
+    updated = content.replace(old_text, new_text, 1) if new_text else content.replace(old_text + "\n", "", 1)
+    target_file.write_text(updated, encoding="utf-8")
+    print(f"Patched Core/{target_name}.md")
+    return 0
+
+
 def _stub(cmd: str) -> int:
     print(f"`entropicmem {cmd}` — not implemented yet. Coming in Phase 3–4.")
     return 0
@@ -1088,6 +1185,22 @@ def main() -> int:
     p_open = sub.add_parser("open", help="Open a note in system editor")
     p_open.add_argument("note_id", help="Note ID (Domain/Name or vault://Domain/Name)")
 
+    # extract (Phase 8: auto-extraction)
+    p_extract = sub.add_parser("extract", help="Extract durable facts from conversation text (regex-based, no LLM)")
+    p_extract.add_argument("--text", help="Conversation text (default: stdin)")
+    p_extract.add_argument("--session-id", help="Session ID for tracking")
+    p_extract.add_argument("--source", default="auto_extracted", help="Source tag")
+    p_extract.add_argument("--min-confidence", type=float, default=0.4, help="Minimum confidence threshold")
+
+    # reinforce (Phase 8: temporal decay)
+    p_reinforce = sub.add_parser("reinforce", help="Boost a fact's access count and timestamp")
+    p_reinforce.add_argument("entropic_id", help="The entropic_id to reinforce")
+
+    # patch-core (Phase 8: core memory)
+    p_patch_core = sub.add_parser("patch-core", help="Surgically update Core Memory (Persona/User Profile)")
+    p_patch_core.add_argument("target", choices=["persona", "user_profile"], help="Target Core Memory file")
+    p_patch_core.add_argument("--patch", help="Text to find and replace")
+    p_patch_core.add_argument("--replacement", default="", help="Replacement text (empty = delete)")
 
     # Parse
     args = parser.parse_args()
@@ -1120,6 +1233,9 @@ def main() -> int:
         "forget": cmd_forget,
         "open": cmd_open,
         "memory": cmd_memory,
+        "extract": cmd_extract,
+        "reinforce": cmd_reinforce,
+        "patch-core": cmd_patch_core,
     }
 
     handler = routes.get(args.command)

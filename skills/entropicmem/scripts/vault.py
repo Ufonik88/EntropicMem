@@ -435,6 +435,100 @@ class Vault:
 
 # ── module-level helpers ────────────────────────────────────────────────────
 
+# ── core memory ─────────────────────────────────────────────────────────────
+
+class CoreMemory:
+    """Agent-writable core memory for Persona and User Profile.
+
+    Provides low-cost surgical editing of active operational guidelines
+    and durable user facts, similar to MemGPT/Letta's core memory blocks.
+    """
+
+    def __init__(self, vault_root: Path):
+        self.core_dir = Path(vault_root) / "Core"
+        self.core_dir.mkdir(exist_ok=True)
+        self._ensure_files()
+
+    def _ensure_files(self) -> None:
+        """Create Core Memory files if they don't exist."""
+        persona = self.core_dir / "Persona.md"
+        profile = self.core_dir / "User_Profile.md"
+
+        if not persona.exists():
+            persona.write_text(
+                "# Agent Persona\n\n*Core memory: operational guidelines, rules, identity.*\n\n"
+                "## Identity\nEntropicMem Agent — autonomous assistant\n\n## Rules\n(TBD)\n\n## Defaults\n"
+                "- Communication style: direct, concise\n- Verify before reporting success\n",
+                encoding="utf-8",
+            )
+        if not profile.exists():
+            profile.write_text(
+                "# User Profile\n\n*Core memory: durable user facts, preferences, context.*\n\n"
+                "## Facts\n(TBD)\n\n## Preferences\n(TBD)\n",
+                encoding="utf-8",
+            )
+
+    @property
+    def persona(self) -> str:
+        return (self.core_dir / "Persona.md").read_text(encoding="utf-8")
+
+    @property
+    def user_profile(self) -> str:
+        return (self.core_dir / "User_Profile.md").read_text(encoding="utf-8")
+
+    def patch(self, target: str, old_text: str, new_text: str = "") -> bool:
+        """Surgically update a Core Memory block.
+
+        Args:
+            target: 'persona' or 'user_profile'
+            old_text: Exact text to find and replace
+            new_text: Replacement text (empty = delete matched text)
+
+        Returns:
+            True if patch was applied, False if text not found.
+        """
+        if target not in ("persona", "user_profile"):
+            raise ValueError(f"Invalid target: {target}. Use 'persona' or 'user_profile'.")
+
+        file_path = self.core_dir / ("Persona.md" if target == "persona" else "User_Profile.md")
+        content = file_path.read_text(encoding="utf-8")
+
+        if old_text not in content:
+            return False
+
+        if new_text:
+            updated = content.replace(old_text, new_text, 1)
+        else:
+            # Delete: remove the matched text + newline
+            updated = content.replace(old_text + "\n", "", 1)
+
+        file_path.write_text(updated, encoding="utf-8")
+        return True
+
+    def injection_block(self) -> str:
+        """Return a formatted block for system prompt injection.
+
+        Always returns Persona first, then User Profile, with clear markers.
+        """
+        persona = self.persona
+        profile = self.user_profile
+
+        # Strip YAML frontmatter if present
+        if persona.startswith("---"):
+            idx = persona.find("---", 3)
+            if idx != -1:
+                persona = persona[idx + 3:].strip()
+        if profile.startswith("---"):
+            idx = profile.find("---", 3)
+            if idx != -1:
+                profile = profile[idx + 3:].strip()
+
+        return (
+            f"## Core Memory — Persona\n\n{persona}\n\n"
+            f"## Core Memory — User Profile\n\n{profile}"
+        )
+
+
 def resolve_vault_path(explicit: Optional[str] = None) -> Path:
     """
     Resolve vault path from env vars or defaults.
