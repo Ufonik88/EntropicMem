@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.0] - 2026-07-21
+
+### Added (M4: Release & CI Expansion)
+- **M4.1**: `pyproject.toml` — project metadata, optional deps (`semantic`, `graph`, `dev`), pytest/ruff config
+- **M4.2**: CI expanded — multi-Python matrix (3.10, 3.11, 3.12) + ruff lint job
+- **M4.3**: README updated with v1.5.0/v1.6.0 feature sections
+- **M4.4**: `docs/IMPROVEMENT_PLAN.md` — all milestones (M1-M4) marked complete
+
 ## [1.6.0] - 2026-07-21
 
 ### Added (M3: Intelligence & Resilience)
