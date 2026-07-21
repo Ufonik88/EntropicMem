@@ -834,7 +834,7 @@ def cmd_graph(args) -> int:
             export_dot(index, out_dir / "graph.dot", domain=domain, min_importance=min_imp, max_nodes=max_n)
             print(f"Exported: {out_dir / 'graph.dot'}")
         elif fmt == "html":
-            export_html(index, out_dir / "graph.html", domain=domain, min_importance=min_imp, max_nodes=max_n)
+            export_html(index, out_dir / "graph.html", domain=domain, min_importance=min_imp, max_nodes=max_n, vault_root=vault_path)
             print(f"Exported: {out_dir / 'graph.html'}")
             print(f"Open with: file://{out_dir / 'graph.html'}")
         elif fmt == "canvas":

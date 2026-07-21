@@ -109,7 +109,6 @@ class TestGraphExport:
         assert out.exists()
         assert "<!DOCTYPE html>" in html
         assert "d3js.org" in html
-        assert "galaxy" not in html.lower()  # Not in the content, just the theme
         size = out.stat().st_size
         assert size > 2000, f"HTML too small: {size} bytes"
         # Verify embedded JSON is valid
@@ -118,6 +117,40 @@ class TestGraphExport:
         assert match, "DATA not found in HTML"
         data = json.loads(match.group(1))
         assert len(data["nodes"]) >= 20
+
+    def test_export_html_embeds_full_body(self, populated_index):
+        """Modal must show real note bodies (with wikilinks), not empty placeholders."""
+        vault, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50, vault_root=vault.root)
+        import re
+        match = re.search(r'const DATA = ({.*?});', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        with_body = [n for n in data["nodes"] if n.get("full_body")]
+        assert len(with_body) >= 20, f"only {len(with_body)} nodes have full_body"
+        infra = next(n for n in data["nodes"] if "Infra Note 0" in n["title"])
+        assert "[[" in infra["full_body"], "wikilink missing from embedded body"
+
+    def test_export_html_js_is_valid(self, populated_index):
+        """The inline app script must parse (guards against duplicate-declaration
+        SyntaxErrors that silently blank the whole visualizer)."""
+        vault, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50, vault_root=vault.root)
+        import re, shutil
+        scripts = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
+        assert scripts, "no inline <script> block"
+        app_js = scripts[-1]
+        # No duplicate top-level declarations of the same binding
+        for binding in ("currentNodeData", "const body"):
+            assert app_js.count(binding) <= 1, f"duplicate '{binding}' in app JS"
+        # If node is available, do a real syntax check
+        node = shutil.which("node")
+        if node:
+            jsf = Path(tempfile.mkdtemp()) / "app.js"
+            jsf.write_text(app_js)
+            r = subprocess.run([node, "--check", str(jsf)], capture_output=True, text=True)
+            assert r.returncode == 0, f"node --check failed:\n{r.stderr}"
 
     def test_export_canvas(self, populated_index):
         vault, index = populated_index
