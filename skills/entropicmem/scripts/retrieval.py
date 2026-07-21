@@ -12,7 +12,6 @@ Stdlib-only for core path. sentence-transformers is optional.
 """
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from index import SearchHit, VaultIndex
@@ -196,7 +195,6 @@ def retrieve_composed(
     fts_hits = retrieve_fts(index, query, top_k=top_k * 2, domain=domain)
 
     # 3. Wikilink expansion
-    seed_ids = {h.note_id for h in fts_hits[:5]}
     expanded = retrieve_wikilink_expansion(index, fts_hits[:5], hops=wikilink_hops)
 
     # 4. Merge & dedup (respect domain filter)

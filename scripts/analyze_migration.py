@@ -15,10 +15,10 @@ Run: python3 analyze_migration.py
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-import os
 
 LOG_DIR = Path(
     os.environ.get(

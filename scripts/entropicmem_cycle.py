@@ -62,7 +62,7 @@ def main() -> int:
         "ENTROPICMEM_INDEX_DB": index_db,
         "ENTROPICMEM_MEMORY_DB": memory_db,
     })
-    
+
     # 1. migrate
     subprocess.run(
         ["python3", str(REPO / "skills/entropicmem/scripts/entropicmem.py"),

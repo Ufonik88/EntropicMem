@@ -29,7 +29,7 @@ def run_step(name: str, script: Path, args: list[str] = None) -> bool:
     if result.returncode != 0:
         print(f"  FAILED (exit {result.returncode})")
         return False
-    print(f"  OK")
+    print("  OK")
     return True
 
 
@@ -61,7 +61,7 @@ def rebuild_fts5() -> bool:
     if before_fts != before_facts:
         print(f"  FIXED: FTS5 was misaligned ({before_fts} vs {before_facts})")
     else:
-        print(f"  OK: already aligned")
+        print("  OK: already aligned")
     return True
 
 

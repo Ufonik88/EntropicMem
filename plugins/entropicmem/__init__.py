@@ -648,7 +648,6 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     def _get_timestamp(self) -> float:
         """Get current timestamp."""
-        import time
         return time.time()
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
@@ -727,9 +726,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
         importance = float(args.get("importance") or 0.7)
         try:
             ensure_scripts_on_path(self._scripts_dir)
+            from index import VaultIndex
             from memory_engine import MemoryEngine
             from vault import Vault
-            from index import VaultIndex
 
             with MemoryEngine(self._memory_db) as engine:
                 eid = engine.remember(
@@ -809,9 +808,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
         top_k = int(args.get("top_k") or 5)
         try:
             ensure_scripts_on_path(self._scripts_dir)
-            from vault import Vault
             from index import VaultIndex
             from retrieval import retrieve
+            from vault import Vault
 
             vault = Vault(self._vault_path)
             index = VaultIndex(self._index_db)
