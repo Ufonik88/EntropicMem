@@ -140,8 +140,34 @@ class MemoryEngine:
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_facts_last_accessed ON facts(last_accessed DESC)")
         self.db.commit()
 
+    def _rebuild_fts(self) -> None:
+        """Rebuild the FTS5 index from the facts table (I2: DB error recovery)."""
+        self.db.execute("DELETE FROM facts_fts")
+        self.db.execute(
+            """INSERT INTO facts_fts (rowid, content, title, tags, domain)
+               SELECT rowid, content, title, tags, domain FROM facts"""
+        )
+        self.db.commit()
+
+    def _execute_with_retry(self, sql: str, params: tuple = (), max_retries: int = 2):
+        """Execute SQL with automatic FTS rebuild on corruption (I2: DB error recovery)."""
+        for attempt in range(max_retries + 1):
+            try:
+                return self.db.execute(sql, params)
+            except sqlite3.DatabaseError:
+                if attempt < max_retries:
+                    self._rebuild_fts()
+                else:
+                    raise
+
     def close(self) -> None:
         self.db.close()
+
+    def __enter__(self) -> "MemoryEngine":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
 
     # ── CRUD ────────────────────────────────────────────────────────────
 
@@ -176,13 +202,26 @@ class MemoryEngine:
                  domain, tags_str, session_id, now, eid),
             )
         else:
-            self.db.execute(
-                """INSERT INTO facts (id, content, title, source, importance, domain,
-                   tags, session_id, created_at, updated_at, last_accessed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (eid, content, title or self._make_title(content),
-                 source, importance, domain, tags_str, session_id, now, now, now),
-            )
+            # I1: Fuzzy deduplication — check for near-duplicate content
+            fuzzy_id = self._find_fuzzy_duplicate(content)
+            if fuzzy_id and fuzzy_id != eid:
+                # Update the existing near-duplicate instead of creating a new fact
+                self.db.execute(
+                    """UPDATE facts SET content=?, title=?, importance=?, domain=?,
+                       tags=?, session_id=?, updated_at=?
+                       WHERE id=?""",
+                    (content, title or self._make_title(content), importance,
+                     domain, tags_str, session_id, now, fuzzy_id),
+                )
+                eid = fuzzy_id  # Return the existing fact's ID
+            else:
+                self.db.execute(
+                    """INSERT INTO facts (id, content, title, source, importance, domain,
+                       tags, session_id, created_at, updated_at, last_accessed)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (eid, content, title or self._make_title(content),
+                     source, importance, domain, tags_str, session_id, now, now, now),
+                )
 
         # Upsert FTS — must use the same rowid as the facts table
         # Get the rowid of the fact we just inserted/updated
@@ -200,8 +239,24 @@ class MemoryEngine:
         self.db.commit()
         return eid
 
+    def _backup(self) -> Path:
+        """Create a timestamped backup of the memory DB (I4: auto-backup before destructive ops)."""
+        backup_dir = self.db_path.parent / "backups"
+        backup_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        backup_path = backup_dir / f"memory_{timestamp}.db"
+        # Use SQLite backup API for consistency
+        src = sqlite3.connect(str(self.db_path))
+        dst = sqlite3.connect(str(backup_path))
+        src.backup(dst)
+        dst.close()
+        src.close()
+        return backup_path
+
     def forget(self, entropic_id: str) -> bool:
         """Delete a fact by entropic_id. Returns True if found and deleted."""
+        # I4: Auto-backup before destructive operation
+        self._backup()
         # Get rowid before deleting from facts
         row = self.db.execute("SELECT rowid FROM facts WHERE id = ?", (entropic_id,)).fetchone()
         self.db.execute("DELETE FROM facts WHERE id = ?", (entropic_id,))
@@ -209,6 +264,66 @@ class MemoryEngine:
             self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (row[0],))
         self.db.commit()
         return row is not None
+
+    def consolidate(self, max_age_days: int = 90, min_access_count: int = 0) -> dict:
+        """Archive old, low-value facts (I3: memory consolidation).
+
+        Facts older than max_age_days with access_count <= min_access_count
+        are moved to an archive table. Returns stats.
+        """
+        # I4: Auto-backup before destructive operation
+        self._backup()
+
+        # Create archive table if needed
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS facts_archive (
+                id TEXT PRIMARY KEY,
+                content TEXT NOT NULL,
+                title TEXT DEFAULT '',
+                source TEXT DEFAULT 'agent',
+                importance REAL DEFAULT 0.5,
+                domain TEXT DEFAULT 'Knowledge',
+                tags TEXT DEFAULT '',
+                session_id TEXT DEFAULT '',
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP,
+                last_accessed TIMESTAMP,
+                access_count INTEGER DEFAULT 0,
+                archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cutoff = datetime.now(timezone.utc).timestamp() - (max_age_days * 86400)
+        cutoff_iso = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
+
+        # Find candidates
+        candidates = self.db.execute(
+            """SELECT id FROM facts
+               WHERE created_at < ? AND access_count <= ?""",
+            (cutoff_iso, min_access_count),
+        ).fetchall()
+
+        archived = 0
+        for (fid,) in candidates:
+            # Copy to archive
+            self.db.execute(
+                """INSERT OR REPLACE INTO facts_archive
+                   (id, content, title, source, importance, domain, tags,
+                    session_id, created_at, updated_at, last_accessed, access_count)
+                   SELECT id, content, title, source, importance, domain, tags,
+                          session_id, created_at, updated_at, last_accessed, access_count
+                   FROM facts WHERE id = ?""",
+                (fid,),
+            )
+            # Delete from facts + FTS
+            row = self.db.execute("SELECT rowid FROM facts WHERE id = ?", (fid,)).fetchone()
+            self.db.execute("DELETE FROM facts WHERE id = ?", (fid,))
+            if row:
+                self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (row[0],))
+            archived += 1
+
+        self.db.commit()
+        return {"archived": archived, "cutoff_days": max_age_days}
 
     def recall(
         self,
@@ -424,6 +539,9 @@ class MemoryEngine:
         Boost a fact: update last_accessed to now and increment access_count.
         Returns True if the fact was found and reinforced.
         """
+        row = self.db.execute("SELECT id FROM facts WHERE id = ?", (entropic_id,)).fetchone()
+        if not row:
+            return False
         now = datetime.now(timezone.utc).isoformat()
         self.db.execute(
             """UPDATE facts SET last_accessed = ?, access_count = access_count + 1
@@ -431,7 +549,7 @@ class MemoryEngine:
             (now, entropic_id),
         )
         self.db.commit()
-        return self.db.execute("SELECT changes()").fetchone()[0] > 0
+        return True
 
     def recall_with_relevance(
         self,
@@ -625,6 +743,30 @@ class MemoryEngine:
         slug = re.sub(r"[^a-z0-9\s-]", "", slug)
         slug = re.sub(r"\s+", "-", slug)
         return slug[:80] or "fact"
+
+    @staticmethod
+    def _jaccard_similarity(a: str, b: str) -> float:
+        """Jaccard similarity between two strings (word-level tokenization)."""
+        set_a = set(a.lower().split())
+        set_b = set(b.lower().split())
+        if not set_a or not set_b:
+            return 0.0
+        intersection = set_a & set_b
+        union = set_a | set_b
+        return len(intersection) / len(union)
+
+    def _find_fuzzy_duplicate(self, content: str, threshold: float = 0.8) -> Optional[str]:
+        """Find an existing fact with Jaccard similarity >= threshold.
+
+        Returns the entropic_id of the duplicate, or None.
+        """
+        rows = self.db.execute(
+            "SELECT id, content FROM facts ORDER BY updated_at DESC LIMIT 200"
+        ).fetchall()
+        for row in rows:
+            if self._jaccard_similarity(content, row[1]) >= threshold:
+                return row[0]
+        return None
 
     def _row_to_fact(self, row: sqlite3.Row) -> StoredFact:
         tags_str = row["tags"] or ""

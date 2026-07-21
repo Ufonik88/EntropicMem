@@ -260,7 +260,7 @@ class TestTemporalDecay:
             assert 0.0 <= r.relevance_score <= 1.0
 
     def test_reinforce_boosts_score(self, engine_with_facts):
-        """Reinforcing a fact increases its score."""
+        """Reinforcing a fact increases its relevance score."""
         from memory_engine import StoredFact
 
         # Get initial score
@@ -268,21 +268,27 @@ class TestTemporalDecay:
             "Python", top_k=5,
             decay_enabled=True,
             decay_half_life_days=30.0,
+            reinforcement_boost=0.1,
         )
         assert len(results1) >= 1
 
+        initial_score = results1[0].relevance_score
+        initial_access = results1[0].access_count
+
         # Reinforce the first fact
-        engine_with_facts.reinforce(results1[0].id)
+        assert engine_with_facts.reinforce(results1[0].id) is True
 
         # Get score again
         results2 = engine_with_facts.recall_with_relevance(
             "Python", top_k=5,
             decay_enabled=True,
             decay_half_life_days=30.0,
+            reinforcement_boost=0.1,
         )
-        # The reinforced fact should have a higher access_count now
+        # The reinforced fact should have a higher access_count AND score
         reinforced = next(r for r in results2 if r.id == results1[0].id)
-        assert reinforced.access_count > results1[0].access_count
+        assert reinforced.access_count > initial_access
+        assert reinforced.relevance_score >= initial_score
 
     def test_reinforce_non_existent(self, engine_with_facts):
         """Reinforcing a non-existent fact returns False."""

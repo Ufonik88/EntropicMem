@@ -6,6 +6,8 @@ v1.2.0 shipped 2026-07-17. Smart Context Management (112 tests).
 v1.3.0 shipped 2026-07-17. Phase 8: Auto-extract, Core Memory, Temporal Decay (133 tests).
 v1.3.1 fixed 2026-07-20. FTS5 rowid alignment bug, Mnemosyne full sync, 461 facts.
 v1.4.0 shipped 2026-07-21. M1 correctness: A1-A5 + E1 fixes, 14/14 recall verification (133 tests).
+v1.5.0 shipped 2026-07-21. M2 production hardening: H1-H6 (non-blocking extract, reinforce fix, thread safety, FTS parity, CoreMemory delegation, context manager).
+v1.6.0 shipped 2026-07-21. M3 intelligence & resilience: I1-I5 (fuzzy dedup, DB recovery, consolidation, auto-backup, test fix).
 
 ---
 

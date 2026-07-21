@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.6.0] - 2026-07-21
+
+### Added (M3: Intelligence & Resilience)
+- **I1**: Fuzzy deduplication — Jaccard similarity >= 0.8 catches near-duplicate facts
+- **I2**: DB error recovery — automatic FTS5 index rebuild on corruption
+- **I3**: Memory consolidation — archive old, low-access facts to `facts_archive` table
+- **I4**: Auto-backup — timestamped SQLite backups before destructive operations (forget, consolidate)
+
+### Fixed
+- **I5**: Reinforcement test now verifies `relevance_score` increases, not just `access_count`
+
+## [1.5.0] - 2026-07-21
+
+### Added (M2: Production Hardening)
+- **H6**: `MemoryEngine` context manager (`__enter__`/`__exit__`) — all plugin callers updated
+
+### Fixed
+- **H1**: `_auto_extract` is now truly non-blocking — removed `t.join()`, added `_extract_lock`
+- **H2**: `reinforce()` returns `True`/`False` based on fact existence (same class as A5)
+- **H3**: `_recently_injected` guarded with `_prefetch_lock` for thread safety
+- **H4**: `recall_with_relevance` multi-word FTS now searches title/tags fields (parity with `recall()`)
+- **H5**: `cmd_patch_core` delegates to `CoreMemory` class — single source of truth
+
 ## [1.4.0] - 2026-07-21
 
 ### Fixed (M1 Correctness Phase)

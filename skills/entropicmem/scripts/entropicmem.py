@@ -40,6 +40,7 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from vault import (
+    CoreMemory,
     DEFAULT_DOMAINS,
     Note,
     Vault,
@@ -1018,53 +1019,33 @@ def cmd_reinforce(args) -> int:
 
 
 def cmd_patch_core(args) -> int:
-    """Surgically update Core Memory (Persona.md or User Profile)."""
+    """Surgically update Core Memory (Persona.md or User Profile).
+
+    Delegates to CoreMemory (vault.py) — single source of truth for
+    Core Memory file creation, reading, and patching.
+    """
     vault_path, _ = _resolve_env()
-    vault = Vault(vault_path)
-
-    # Ensure Core directory exists
-    core_dir = vault.root / "Core"
-    core_dir.mkdir(exist_ok=True)
-
-    persona_path = core_dir / "Persona.md"
-    profile_path = core_dir / "User_Profile.md"
-
-    # Create files if they don't exist
-    if not persona_path.exists():
-        persona_path.write_text(
-            "# Agent Persona\n\n*Core memory: operational guidelines, rules, identity.*\n\n"
-            "## Identity\nEntropicMem Agent — autonomous assistant\n\n"
-            "## Rules\n(TBD)\n",
-            encoding="utf-8",
-        )
-    if not profile_path.exists():
-        profile_path.write_text(
-            "# User Profile\n\n*Core memory: durable user facts, preferences, context.*\n\n"
-            "## Facts\n(TBD)\n\n## Preferences\n(TBD)\n",
-            encoding="utf-8",
-        )
-
-    target_file = persona_path if args.target == "persona" else profile_path
-    target_name = "Persona" if args.target == "persona" else "User_Profile"
+    core = CoreMemory(vault_path)
 
     if not args.patch:
         # Read-only mode
-        content = target_file.read_text(encoding="utf-8")
+        content = core.persona if args.target == "persona" else core.user_profile
+        target_name = "Persona" if args.target == "persona" else "User_Profile"
         print(f"=== Core/{target_name}.md ===")
         print(content)
         return 0
 
-    # Apply surgical patch (find + replace)
-    old_text = args.patch
-    new_text = args.replacement or ""
-
-    content = target_file.read_text(encoding="utf-8")
-    if old_text not in content:
+    success = core.patch(
+        target=args.target,
+        old_text=args.patch,
+        new_text=args.replacement or "",
+    )
+    if not success:
+        target_name = "Persona" if args.target == "persona" else "User_Profile"
         print(f"Patch text not found in Core/{target_name}.md", file=sys.stderr)
         return 1
 
-    updated = content.replace(old_text, new_text, 1) if new_text else content.replace(old_text + "\n", "", 1)
-    target_file.write_text(updated, encoding="utf-8")
+    target_name = "Persona" if args.target == "persona" else "User_Profile"
     print(f"Patched Core/{target_name}.md")
     return 0
 
