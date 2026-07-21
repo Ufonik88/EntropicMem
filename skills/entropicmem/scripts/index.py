@@ -7,14 +7,12 @@ wikilink relationships, and feeds the graph visualizer with edges.
 Stdlib-only (sqlite3).
 """
 
-import re
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional
 
 from vault import Note, Vault
-
 
 # ── FTS schema ──────────────────────────────────────────────────────────────
 

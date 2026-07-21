@@ -13,7 +13,6 @@ Stdlib-only. No external memory dependencies.
 """
 
 import hashlib
-import json
 import math
 import re
 import sqlite3
@@ -21,7 +20,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-
 
 # ── schema ──────────────────────────────────────────────────────────────────
 

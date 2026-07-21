@@ -27,7 +27,6 @@ Standalone memory: vault + MemoryEngine + graph.
 
 import argparse
 import os
-import hashlib
 import re
 import shutil
 import sys
@@ -39,17 +38,17 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-from vault import (
-    CoreMemory,
+from index import VaultIndex  # noqa: E402
+from memory_engine import MemoryEngine  # noqa: E402
+from retrieval import EMBEDDER_AVAILABLE, retrieve_composed  # noqa: E402
+from vault import (  # noqa: E402
     DEFAULT_DOMAINS,
-    Note,
+    CoreMemory,
     Vault,
     resolve_vault_path,
 )
-from index import VaultIndex
-from retrieval import EMBEDDER_AVAILABLE, retrieve_composed
-from graph_export import export_json, export_dot, export_html, export_canvas
-from memory_engine import MemoryEngine
+
+from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 
 __version__ = "1.0.0"
 
@@ -95,8 +94,8 @@ def validate_url(url: str) -> str:
     """Validate URL scheme and block internal addresses."""
     if not url:
         return ""
-    import urllib.parse
     import ipaddress
+    import urllib.parse
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ('http', 'https'):
         raise ValueError("Only http/https URLs allowed")
@@ -207,7 +206,7 @@ agent: true
 ## Finance
 <!-- MOC: Finance/Index -->
 """,
-    "log.md": f"""# Action Log
+    "log.md": """# Action Log
 
 ## Created
 - Vault initialized by EntropicMem v1.0.0
@@ -216,7 +215,7 @@ agent: true
 ---
 *Append-only log.*
 """,
-    "Wiki-Cache.md": f"""# Wiki-Cache
+    "Wiki-Cache.md": """# Wiki-Cache
 
 > Hot orientation: recent + high-value links. Regenerate: `entropicmem hotcache`
 > Generated: 2026-07-16
@@ -287,14 +286,14 @@ def cmd_init(args) -> int:
     memory_path = Path.home() / ".hermes" / "entropicmem" / "memory.db"
     _append_env(env_file, vault_path, index_path, memory_path)
 
-    print(f"\nEntropicMem initialized.")
+    print("\nEntropicMem initialized.")
     print(f"  Vault:      {vault_path} {'(safe mode — AGENTS.md already existed)' if safe_mode else ''}")
     print(f"  Index DB:   {index_path}")
     print(f"  Created:    {', '.join(created) if created else 'none'}")
     if skipped:
         print(f"  Skipped:    {', '.join(skipped)} (use --force to overwrite)")
     print(f"  Domains:    {', '.join(DEFAULT_DOMAINS)}")
-    print(f"\nNext: entropicmem ingest <source>  or  entropicmem query \"topic\"")
+    print("\nNext: entropicmem ingest <source>  or  entropicmem query \"topic\"")
     return 0
 
 
@@ -379,7 +378,6 @@ def cmd_lint(args) -> int:
 
     issues = []
     notes = vault.list_notes(include_archive=False)
-    known_paths = {str(n) for n in notes}
     known_titles = vault.get_all_titles()
     known_ids = set()
 
@@ -393,7 +391,6 @@ def cmd_lint(args) -> int:
         note = vault.read_note(rel)
         known_ids.add(note.note_id)
         nid = note.note_id
-        title = note.title
 
         # Check for dead wikilinks
         links = vault.extract_wikilinks(note.body)
@@ -472,15 +469,14 @@ def cmd_hotcache(args) -> int:
     lines = [
         "# Wiki-Cache",
         "",
-        f"> Auto-generated hot cache. Recent (14d) + high-value notes.",
+        "> Auto-generated hot cache. Recent (14d) + high-value notes.",
         f"> Generated: {now.isoformat()}",
         "",
         "## Recent (14 days)",
         "",
     ]
     if recent:
-        for domain, title, path in recent[:30]:
-            safe_path = path.replace(" ", "%20")
+        for domain, title, _ in recent[:30]:
             lines.append(f"- [[{title}]] ({domain})")
     else:
         lines.append("*No recent notes.*")
@@ -587,33 +583,33 @@ def cmd_ingest(args) -> int:
         title = "Stdin Capture"
         source_label = "stdin"
     elif source.startswith("http://") or source.startswith("https://"):
+        import ipaddress
         import urllib.parse
         import urllib.request
-        import ipaddress
-        
+
         # Validate URL to prevent SSRF
         try:
             parsed = urllib.parse.urlparse(source)
             if parsed.scheme not in ("http", "https"):
-                print(f"Error: only http/https URLs allowed", file=sys.stderr)
+                print("Error: only http/https URLs allowed", file=sys.stderr)
                 return 1
             # Block private/internal IPs
             hostname = parsed.hostname or ""
             try:
                 ip = ipaddress.ip_address(hostname)
                 if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                    print(f"Error: private/internal IP addresses not allowed", file=sys.stderr)
+                    print("Error: private/internal IP addresses not allowed", file=sys.stderr)
                     return 1
             except ValueError:
                 # Not an IP address, that's fine - it's a hostname
                 # Additional check: block localhost and common internal hostnames
                 if hostname.lower() in ("localhost", "localhost.localdomain", "metadata", "metadata.google.internal", "169.254.169.254"):
-                    print(f"Error: internal hostname not allowed", file=sys.stderr)
+                    print("Error: internal hostname not allowed", file=sys.stderr)
                     return 1
         except Exception as e:
             print(f"Error: invalid URL: {e}", file=sys.stderr)
             return 1
-            
+
         try:
             req = urllib.request.Request(source, headers={"User-Agent": "EntropicMem/0.1"})
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -646,7 +642,7 @@ def cmd_ingest(args) -> int:
     known_titles = set(vault.get_all_titles().keys())
     entities = entities - known_titles
 
-    lines = [l.strip() for l in text.split("\n") if l.strip() and len(l.strip()) > 20]
+    lines = [line.strip() for line in text.split("\n") if line.strip() and len(line.strip()) > 20]
     key_points = lines[:15]
 
     lit_body = (
@@ -719,7 +715,7 @@ def cmd_ingest_pile(args) -> int:
         p = Path(f)
         title = vault.sanitize(p.stem)
         all_titles.append(title)
-        key_points = [l.strip() for l in text.split("\n") if l.strip() and len(l.strip()) > 20][:10]
+        key_points = [line.strip() for line in text.split("\n") if line.strip() and len(line.strip()) > 20][:10]
         lit_body = (
             f"**Source:** {f}\n\n"
             f"## Key Points\n"
@@ -761,7 +757,7 @@ def cmd_moc(args) -> int:
             '',
             f"# {domain} — Map of Content",
             "",
-            f"> Auto-generated MOC.",
+            "> Auto-generated MOC.",
             f"> Generated: {date.today().isoformat()}",
             "",
             "## Notes",
@@ -810,7 +806,7 @@ def cmd_research(args) -> int:
     index.upsert_note(note)
     index.close()
     print(f"Research brief: {path}")
-    print(f"NEXT: agent runs web_search then web_extract, appends findings.")
+    print("NEXT: agent runs web_search then web_extract, appends findings.")
     return 0
 
 
@@ -862,7 +858,6 @@ def cmd_graph(args) -> int:
         index.close()
         return 1
 
-    stats = index.get_stats()
     index.close()
     return 0
 

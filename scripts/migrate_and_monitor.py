@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import argparse
 import json
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+import os
 import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-
-# ── Paths ──────────────────────────────────────────────────────────────────────
-import os
 
 REPO_SCRIPTS = Path(os.environ.get(
     "ENTROPICMEM_REPO_SCRIPTS",
@@ -95,9 +95,9 @@ def write_to_entropicmem(fact: dict, dry_run: bool) -> dict:
         res["status"] = "dry_run"
         return res
     try:
+        from index import VaultIndex
         from memory_engine import MemoryEngine
         from vault import Vault
-        from index import VaultIndex
 
         engine = MemoryEngine(MEMORY_DB)
         # dedupe by content hash (engine does this internally too)

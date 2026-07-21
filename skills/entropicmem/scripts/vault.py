@@ -13,7 +13,7 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # ── protected prefixes (never write) ────────────────────────────────────────
 PROTECTED_PREFIXES = ("_archive/",)
@@ -233,7 +233,7 @@ class Vault:
                 raise ValueError(
                     f"Path '{normalized_folder}' is write-protected (_archive/)."
                 )
-        
+
         # Sanitize folder to prevent path traversal
         # But first check if an existing directory matches (case-insensitive)
         # to preserve the original case (e.g., "Knowledge" not "knowledge")
@@ -243,10 +243,10 @@ class Vault:
             if item.is_dir() and item.name.lower() == safe_folder_raw.lower():
                 safe_folder = item.name
                 break
-        
+
         slug = self.sanitize(title)
         filename = f"{slug}.md"
-        
+
         # Ensure the resolved path is within vault root
         filepath = (self.root / safe_folder / filename).resolve()
         if not str(filepath).startswith(str(self.root.resolve())):
@@ -325,7 +325,7 @@ class Vault:
                         folder_path = item
                         break
             base = folder_path
-        
+
         if not base.exists():
             return []
         notes = []
