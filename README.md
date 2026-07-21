@@ -75,9 +75,19 @@ EntropicMem (This Repo)
 | `memory project` | Project memory facts to vault |
 | `memory stats` | Memory engine statistics |
 
-## Visual Graph
+## Visual Graph (v2.1.0)
 
-Single-file `graph.html` — D3 force-directed, dark galaxy theme, per-domain colors, hover tooltips, click-to-open, filter panel, legend.
+Single-file `graph.html` — D3 force-directed, dark galaxy theme. Self-contained: full note bodies are embedded so it works offline via `file://` or `graph serve`.
+
+- **Per-domain colors** (Ajax brand palette) + **per-type shapes** (circle=permanent, square=literature, diamond=moc, triangle=index/log).
+- **Click a node** → modal renders the note's Markdown (tables, code, blockquotes) with frontmatter (domain, type, importance, tags).
+- **Wikilink navigation** — `[[Target]]` in a note opens the linked note; unresolved links are flagged. Tag chips filter the graph.
+- **Focus mode** — clicking a node dims everything except its direct neighbors; click empty space to release.
+- **Search** — type a title and press Enter to zoom to and focus that note.
+- **Filters** — domain checkboxes, tag filter, min-importance slider; node positions persist across re-filters.
+- **Edge encoding** — solid = wikilink, dashed = tag co-occurrence; width scales with weight.
+- **Minimap** with live viewport, **PNG export**, **Copy link** (deep-link `#note=Title`).
+- **Accessible** — keyboard-focusable nodes (Enter/Space to open), `role=dialog` modal with focus return, Escape to close.
 
 ## Smart Context Management (v1.2.0)
 

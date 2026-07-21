@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.1.0] - 2026-07-21
+
+### Fixed (Graph Visualizer — P0)
+- **GV-1**: Fixed two top-level JS `SyntaxError`s (duplicate `let currentNodeData`, duplicate `const body` in `openModal`) that blanked the entire visualizer — the `<script>` block never parsed.
+- **GV-2**: Fixed `export_html` node-body lookup — guarded on `node["id"]` (was `node_id`, which never matched), so every modal now shows real note content instead of "No content available".
+- **GV-3**: Removed an unreachable second `return html` in `export_html`.
+- **GV-4**: `export_html` now accepts `vault_root` and the CLI passes it, so full note bodies embed reliably (env-resolution fallback retained).
+
+### Added (Graph Visualizer — P1/P2/P3)
+- **GV-5**: Real per-type node shapes (circle/square/diamond/triangle) rendered from `TYPE_SHAPES` — previously all nodes drew as circles despite the legend.
+- **GV-6**: Focus mode — clicking a node dims non-neighbors to ~12% opacity; click empty canvas to release. Banner shows the focused note.
+- **GV-7**: Title search with zoom-to-node (`Enter` jumps + focuses the best match).
+- **GV-8**: Edge encoding — solid lines for wikilinks, dashed for tag co-occurrence; stroke width scales with edge weight; hover tooltip on nodes.
+- **GV-9**: Wikilink navigation — `[[Target]]` in the modal body becomes a clickable link that opens the target note; unresolved links flagged `.broken`.
+- **GV-10**: Tag chips in the modal frontmatter filter the graph on click.
+- **GV-11**: Minimap with live viewport rectangle; PNG export button; "Copy link" (deep-link `#note=Title`).
+- **GV-12**: Accessibility — nodes are focusable (`tabindex`, `role=button`), Enter/Space opens, modal is `role=dialog`/`aria-modal` with focus return on close, Escape closes.
+- **GV-13**: Performance — node positions persist across filter re-renders (no full re-scatter); single group transform for zoom.
+- **GV-14**: Typography — Space Grotesk display font for headings/panel; improved modal markdown styling (tables, code, blockquotes).
+
+### Changed
+- **GV-15**: `test_export_html` no longer asserts `"galaxy" not in html` — that was a change-detector that broke once real note bodies (which may contain the word) are embedded.
+
 ## [2.0.0] - 2026-07-21
 
 ### Added (M4: Release & CI Expansion)

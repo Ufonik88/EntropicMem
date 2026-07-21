@@ -11,6 +11,7 @@
 | M2 | Production Hardening | v1.5.0 | ✅ Merged |
 | M3 | Intelligence & Resilience | v1.6.0 | ✅ Merged |
 | M4 | Release & CI Expansion | v2.0.0 | ✅ Merged |
+| M5 | Graph Visualizer Overhaul | v2.1.0 | ✅ Merged |
 | P2 | Vector Search (sentence-transformers) | — | Deferred (optional dep) |
 
 ---
@@ -133,6 +134,30 @@ Make EntropicMem installable and CI-verified across Python versions.
 - **Fix:** Mark all milestones complete, add M4 section.
 
 ---
+
+## M5 — Graph Visualizer Overhaul (v2.1.0)
+
+> The D3 graph visualizer (`graph_export.py`) was non-functional: two top-level JS
+> `SyntaxError`s blanked the whole `<script>` block, and a `note_id`/`id` key mismatch
+> left every modal empty. M5 fixes the P0 bugs and delivers the P1–P3 UX improvements.
+
+### GV-1..4: P0 correctness fixes
+- **Fix:** Removed duplicate `let currentNodeData` and duplicate `const body` in `openModal` (renamed to `noteBody`) — these were `SyntaxError`s that prevented the script from parsing at all.
+- **Fix:** `export_html` body lookup now guards on `node["id"]` (was `node_id`, never matching); removed unreachable second `return html`; added `vault_root` param wired through the CLI so full note bodies embed reliably.
+
+### GV-5..14: P1/P2/P3 UX
+- **Add:** Real per-type node shapes (circle/square/diamond/triangle) from `TYPE_SHAPES`.
+- **Add:** Focus mode (click node → dim non-neighbors; click canvas → release).
+- **Add:** Title search with zoom-to-node; tag filter; min-importance slider.
+- **Add:** Edge encoding (solid=wikilink, dashed=tag; width ∝ weight) + node hover tooltip.
+- **Add:** Wikilink navigation in the modal (`[[Target]]` → clickable; unresolved flagged `.broken`); tag chips filter the graph.
+- **Add:** Minimap with viewport rect, PNG export, Copy-link deep-link (`#note=Title`).
+- **Add:** Accessibility — focusable nodes, `role=dialog` modal with focus return, Escape to close.
+- **Perf:** Node positions persist across filter re-renders; single group transform for zoom.
+- **Style:** Space Grotesk display font; richer modal markdown styling.
+
+### GV-15: Test hygiene
+- **Fix:** Removed the `"galaxy" not in html` change-detector assertion from `test_export_html` — it broke once real note bodies (which may contain the word) are embedded. Added `test_export_html_embeds_full_body` and `test_export_html_js_is_valid` (runs `node --check` on the generated script).
 
 ## Constraints (apply to all milestones)
 
