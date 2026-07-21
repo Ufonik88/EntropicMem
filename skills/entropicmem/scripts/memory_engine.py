@@ -227,7 +227,12 @@ class MemoryEngine:
         # Split multi-word queries into per-word OR terms (matches recall_with_relevance strategy)
         words = clean.split()
         if len(words) > 1:
-            word_queries = [f'content: "{w}"*' for w in words if w]
+            word_queries = []
+            for w in words:
+                if w:
+                    word_queries.append(f'content: "{w}"*')
+                    word_queries.append(f'title: "{w}"*')
+                    word_queries.append(f'tags: "{w}"*')
             fts_query = " OR ".join(word_queries)
         else:
             fts_query = f'content: "{clean}"* OR title: "{clean}"* OR tags: "{clean}"*'

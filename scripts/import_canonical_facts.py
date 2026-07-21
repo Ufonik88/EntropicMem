@@ -13,7 +13,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-REPO_SCRIPTS = Path.home() / "Documents" / "Coding Projects" / "EntropicMem" / "skills" / "entropicmem" / "scripts"
+REPO_SCRIPTS = Path(__file__).resolve().parent.parent / "skills" / "entropicmem" / "scripts"
 if str(REPO_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(REPO_SCRIPTS))
 
