@@ -3,6 +3,8 @@ memory_engine.py — Standalone SQLite memory engine for EntropicMem.
 
 Provides:
   - Durable fact storage with FTS5 search
+  - Unsupervised regex-based auto-extraction from conversation text
+  - Temporal decay & reinforcement scoring
   - Graph edges (wikilink relationships)
   - entropic_id-based deduplication and round-trip identity
   - Export to vault as Markdown projection (optional)
@@ -11,11 +13,15 @@ Stdlib-only. No external memory dependencies.
 """
 
 import hashlib
+import json
+import math
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
 
 # ── schema ──────────────────────────────────────────────────────────────────
 
@@ -30,7 +36,9 @@ CREATE TABLE IF NOT EXISTS facts (
     tags TEXT DEFAULT '',
     session_id TEXT DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_accessed TIMESTAMP,
+    access_count INTEGER DEFAULT 0
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
@@ -47,8 +55,43 @@ CREATE INDEX IF NOT EXISTS idx_facts_importance ON facts(importance DESC);
 CREATE INDEX IF NOT EXISTS idx_facts_created ON facts(created_at DESC);
 """
 
+# ── auto-extraction patterns ────────────────────────────────────────────────
+
+# Heuristic patterns for extracting facts from conversation text without an LLM.
+# Each pattern produces (content, domain, importance) tuples.
+
+_EXTRACTION_PATTERNS: List[Tuple[str, str, float, str]] = [
+    # Pattern                     Domain           Imp  Description
+    (r"(the|my)\s+(\w+\s+){0,4}(budget|account|salary|income|expense|financ)",
+     "Finance",        0.7, "financial"),
+    (r"(ajax|security|alarm|detector|hub|camera|sensor)\s{1,3}(systems?|app|device|migration)",
+     "Ajax Systems",   0.8, "ajax"),
+    (r"(hermes|agent|plugin|skill|tool|model|provider)\s{1,3}(config|setup|install|error|memory)",
+     "Infrastructure", 0.7, "hermes"),
+    (r"(entropicmem|memory|vault|engine|index|retrieval)",
+     "Infrastructure", 0.6, "entropicmem"),
+    (r"(obsidian|vault|note|logseq)\s{1,3}(sync|backup|cleanup|migrat)",
+     "Infrastructure", 0.6, "obsidian"),
+    (r"(prefer|want|like|need|don't want|hate|dislike)\s{1,3}(to\s+)?(\w+\s+){1,6}\.",
+     "People",         0.5, "preference"),
+    (r"(customer|partner|installer|distributor)\s{1,3}(call|meeting|demo|pitch|follow)",
+     "Projects",       0.6, "customer"),
+    (r"(roadshow|webinar|certification|training|event)\s{1,3}(2026|\d{1,2}\s*\w+\s*2026)",
+     "Projects",       0.7, "event"),
+    (r"(twitter|x\s*post|social|content|viral|growth|follow)",
+     "X-Growth",       0.6, "social"),
+    (r"(fix|bug|error|crash|fail|broken)\s{1,3}(\w+\s+){1,5}(in|on|with)",
+     "Infrastructure", 0.5, "bug"),
+    (r"(python|node|rust|golang?|typescript|bash)\s{1,3}(version|update|upgrade|install)",
+     "Infrastructure", 0.5, "dev-env"),
+    (r"(email|gmail|google\s*workspace|calendar)\s{1,3}(setup|sync|config|problem)",
+     "Workflows",      0.6, "productivity"),
+    (r"(release|shipped|launched|deployed|merged|pr\s*#?\d+)",
+     "Projects",       0.5, "release"),
+]
 
 # ── data types ──────────────────────────────────────────────────────────────
+
 
 @dataclass
 class StoredFact:
@@ -61,7 +104,10 @@ class StoredFact:
     tags: List[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
+    last_accessed: str = ""
+    access_count: int = 0
     relevance_score: float = 0.0  # FTS5 rank-based relevance (0-1)
+    decay_score: float = 1.0      # temporal decay factor (1.0 = no decay)
 
     @staticmethod
     def make_id(content: str) -> str:
@@ -70,6 +116,7 @@ class StoredFact:
 
 
 # ── engine ──────────────────────────────────────────────────────────────────
+
 
 class MemoryEngine:
     """Standalone memory engine. One SQLite database, no external deps."""
@@ -84,6 +131,13 @@ class MemoryEngine:
 
     def _init_schema(self) -> None:
         self.db.executescript(MEMORY_SCHEMA)
+        # Migrate: add temporal columns and index if they don't exist
+        existing_cols = {r[1] for r in self.db.execute("PRAGMA table_info(facts)").fetchall()}
+        if "last_accessed" not in existing_cols:
+            self.db.execute("ALTER TABLE facts ADD COLUMN last_accessed TIMESTAMP")
+        if "access_count" not in existing_cols:
+            self.db.execute("ALTER TABLE facts ADD COLUMN access_count INTEGER DEFAULT 0")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_facts_last_accessed ON facts(last_accessed DESC)")
         self.db.commit()
 
     def close(self) -> None:
@@ -99,6 +153,7 @@ class MemoryEngine:
         importance: float = 0.5,
         domain: str = "Knowledge",
         tags: Optional[List[str]] = None,
+        session_id: str = "",
     ) -> str:
         """
         Store a durable fact. Returns the entropic_id.
@@ -115,37 +170,45 @@ class MemoryEngine:
         if existing:
             self.db.execute(
                 """UPDATE facts SET content=?, title=?, importance=?, domain=?,
-                   tags=?, updated_at=?
+                   tags=?, session_id=?, updated_at=?
                    WHERE id=?""",
                 (content, title or self._make_title(content), importance,
-                 domain, tags_str, now, eid),
+                 domain, tags_str, session_id, now, eid),
             )
         else:
             self.db.execute(
                 """INSERT INTO facts (id, content, title, source, importance, domain,
-                   tags, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   tags, session_id, created_at, updated_at, last_accessed)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (eid, content, title or self._make_title(content),
-                 source, importance, domain, tags_str, now, now),
+                 source, importance, domain, tags_str, session_id, now, now, now),
             )
 
-        # Upsert FTS (FTS5 uses content-addressable rowid; delete by matching content)
-        self.db.execute("DELETE FROM facts_fts WHERE facts_fts MATCH ?", (eid,))
-        self.db.execute(
-            "INSERT INTO facts_fts (content, title, tags, domain) VALUES (?, ?, ?, ?)",
-            (content, title or "", tags_str, domain),
-        )
+        # Upsert FTS — must use the same rowid as the facts table
+        # Get the rowid of the fact we just inserted/updated
+        fact_rowid = self.db.execute(
+            "SELECT rowid FROM facts WHERE id = ?", (eid,)
+        ).fetchone()
+        if fact_rowid:
+            # Delete old FTS entry for this rowid (if any)
+            self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (fact_rowid[0],))
+            # Insert with matching rowid
+            self.db.execute(
+                "INSERT INTO facts_fts (rowid, content, title, tags, domain) VALUES (?, ?, ?, ?, ?)",
+                (fact_rowid[0], content, title or "", tags_str, domain),
+            )
         self.db.commit()
         return eid
 
     def forget(self, entropic_id: str) -> bool:
         """Delete a fact by entropic_id. Returns True if found and deleted."""
+        # Get rowid before deleting from facts
+        row = self.db.execute("SELECT rowid FROM facts WHERE id = ?", (entropic_id,)).fetchone()
         self.db.execute("DELETE FROM facts WHERE id = ?", (entropic_id,))
-        # FTS5 rowid = facts rowid; delete by matching content hash via join isn't needed
-        # since the facts_fts content matches exactly; just delete the facts row
-        pass
+        if row:
+            self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (row[0],))
         self.db.commit()
-        return self.db.execute("SELECT changes()").fetchone()[0] > 0
+        return row is not None
 
     def recall(
         self,
@@ -158,14 +221,16 @@ class MemoryEngine:
         Returns facts ranked by relevance. An EXACT content/id match is
         always surfaced first (so a fact is always self-retrievable),
         followed by FTS5 prefix matches and a LIKE fallback.
-
-        This matters for migration parity: every written fact must be
-        recallable by its own content.
         """
-        # Sanitize query for FTS5: escape double quotes only
         clean = query.replace('"', '""')
-        # Use parameterized FTS query — do NOT interpolate query into the MATCH string
-        fts_query = f'content: "{clean}"* OR title: "{clean}"* OR tags: "{clean}"*'
+
+        # Split multi-word queries into per-word OR terms (matches recall_with_relevance strategy)
+        words = clean.split()
+        if len(words) > 1:
+            word_queries = [f'content: "{w}"*' for w in words if w]
+            fts_query = " OR ".join(word_queries)
+        else:
+            fts_query = f'content: "{clean}"* OR title: "{clean}"* OR tags: "{clean}"*'
 
         where = ""
         params: tuple = ()
@@ -173,7 +238,7 @@ class MemoryEngine:
             where = "AND facts_fts.domain = ?"
             params = (domain,)
 
-        # ── Exact-match boost: content or id equals query ──────────────
+        # Exact-match boost
         exact_params = (query, StoredFact.make_id(query))
         if domain:
             exact_params = (*exact_params, domain)
@@ -187,7 +252,7 @@ class MemoryEngine:
         ).fetchall()
         exact = [self._row_to_fact(r) for r in exact_rows]
 
-        # FTS5 MATCH with parameterized query
+        # FTS5 MATCH
         rows = self.db.execute(
             f"""
             SELECT f.* FROM facts_fts
@@ -200,13 +265,11 @@ class MemoryEngine:
         ).fetchall()
         fts_hits = [self._row_to_fact(r) for r in rows]
         if fts_hits:
-            # de-dup exact from FTS results, keep exact first
             seen = {f.id for f in exact}
             combined = exact + [f for f in fts_hits if f.id not in seen]
             return combined[:top_k]
 
-        # ── LIKE fallback for non-token-aligned queries ───────────────
-        # Use parameterized LIKE, not string interpolation
+        # LIKE fallback
         like_params = (f"%{query}%", f"%{query}%", f"%{query}%")
         if domain:
             like_params = (*like_params, domain)
@@ -259,6 +322,252 @@ class MemoryEngine:
             "domains": {r["domain"]: r["cnt"] for r in domains},
         }
 
+    # ── auto-extraction ─────────────────────────────────────────────────
+
+    def extract_and_store(
+        self,
+        user_text: str,
+        assistant_text: str = "",
+        session_id: str = "",
+        source: str = "auto_extracted",
+        min_confidence: float = 0.4,
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract durable facts from conversation text using heuristic patterns.
+        Stores extracted facts via remember(). Returns list of extracted facts.
+
+        This is a regex-based extraction — no LLM required.
+        Designed for zero-cost, zero-latency background extraction.
+        """
+        combined = f"{user_text}\n{assistant_text}"
+        extracted: List[Dict[str, Any]] = []
+
+        # Pattern-based extraction
+        for pattern, domain, importance, tag in _EXTRACTION_PATTERNS:
+            for m in re.finditer(pattern, combined, re.IGNORECASE):
+                # Use full match text (group(0)) — avoids tuple reconstruction
+                # garbage from multi-group patterns
+                content = m.group(0).strip()
+
+                # Minimum quality filter
+                if len(content) < 10 or len(content) > 500:
+                    continue
+                if importance < min_confidence:
+                    continue
+
+                # Check not already stored
+                eid = StoredFact.make_id(content)
+                if self.get_fact(eid):
+                    continue
+
+                # Store — use raw content, don't transform (dedup works by hash)
+                stored_id = self.remember(
+                    content=content,
+                    source=source,
+                    importance=importance,
+                    domain=domain,
+                    tags=[tag],
+                    session_id=session_id,
+                )
+
+                extracted.append({
+                    "id": stored_id,
+                    "content": content,
+                    "domain": domain,
+                    "importance": importance,
+                    "tag": tag,
+                })
+
+        # Preference detection via common patterns
+        preference_patterns = [
+            (r"(?:i|we|ufonik)\s+(?:prefer|want|like|use|using|need)\s+(.+?)(?:\.\s|$)", "People", 0.5),
+            (r"(?:don't|do not|never)\s+(?:want|like|need|use)\s+(.+?)(?:\.\s|$)", "People", 0.5),
+        ]
+
+        for pattern, domain, importance in preference_patterns:
+            for m in re.finditer(pattern, combined, re.IGNORECASE):
+                content = f"Preference: {m.group(1).strip().capitalize().rstrip('.')}."
+                if len(content) < 15 or len(content) > 300:
+                    continue
+
+                eid = StoredFact.make_id(content)
+                if self.get_fact(eid):
+                    continue
+
+                stored_id = self.remember(
+                    content=content,
+                    source=source,
+                    importance=importance,
+                    domain=domain,
+                    tags=["preference"],
+                    session_id=session_id,
+                )
+                extracted.append({
+                    "id": stored_id,
+                    "content": content,
+                    "domain": domain,
+                    "importance": importance,
+                    "tag": "preference",
+                })
+
+        return extracted
+
+    # ── temporal decay & reinforcement ──────────────────────────────────
+
+    def reinforce(self, entropic_id: str) -> bool:
+        """
+        Boost a fact: update last_accessed to now and increment access_count.
+        Returns True if the fact was found and reinforced.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        self.db.execute(
+            """UPDATE facts SET last_accessed = ?, access_count = access_count + 1
+               WHERE id = ?""",
+            (now, entropic_id),
+        )
+        self.db.commit()
+        return self.db.execute("SELECT changes()").fetchone()[0] > 0
+
+    def recall_with_relevance(
+        self,
+        query: str,
+        top_k: int = 10,
+        domain: Optional[str] = None,
+        min_relevance: float = 0.0,
+        decay_enabled: bool = True,
+        decay_half_life_days: float = 30.0,
+        reinforcement_boost: float = 0.1,
+    ) -> List[StoredFact]:
+        """Full-text search with relevance scoring and temporal decay.
+
+        Returns facts ranked by combined relevance + decay score.
+        Uses FTS5 bm25() ranking normalized to 0-1 scale.
+        Applies exponential temporal decay to older, unreinforced facts.
+        Auto-reinforces returned facts.
+        """
+        if not query.strip():
+            return []
+
+        # Sanitize query for FTS5
+        clean = query.replace('"', '""')
+
+        # Split query for OR matching
+        words = clean.split()
+        if len(words) > 1:
+            word_queries = [f'content: "{w}"*' for w in words if w]
+            fts_query = " OR ".join(word_queries)
+        else:
+            fts_query = f'content: "{clean}"* OR title: "{clean}"* OR tags: "{clean}"*'
+
+        where = ""
+        params: tuple = ()
+        if domain:
+            where = "AND f.domain = ?"
+            params = (domain,)
+
+        # Get FTS5 results with bm25 rank
+        rows = self.db.execute(
+            f"""
+            SELECT f.*, bm25(facts_fts) as rank
+            FROM facts_fts
+            JOIN facts f ON facts_fts.rowid = f.rowid
+            WHERE facts_fts MATCH ? {where}
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (fts_query, *params, top_k * 2),
+        ).fetchall()
+
+        if not rows:
+            return self._recall_like_fallback(query, top_k, domain, min_relevance)
+
+        # Normalize bm25 scores to 0-1
+        ranks = [row["rank"] for row in rows]
+        min_rank = min(ranks)
+        max_rank = max(ranks)
+        rank_range = max_rank - min_rank if max_rank != min_rank else 1.0
+
+        # Compute decay factor
+        lambda_decay = math.log(2) / decay_half_life_days if decay_enabled else 0
+        now_ts = datetime.now(timezone.utc)
+
+        results = []
+        for row in rows:
+            fact = self._row_to_fact(row)
+
+            # Normalize relevance: 0 = least, 1 = most
+            if rank_range > 0:
+                fact.relevance_score = 1.0 - ((row["rank"] - min_rank) / rank_range)
+            else:
+                fact.relevance_score = 1.0
+
+            # Compute temporal decay
+            if decay_enabled and fact.last_accessed:
+                try:
+                    last = datetime.fromisoformat(fact.last_accessed)
+                    # Handle timezone-naive datetimes
+                    if last.tzinfo is None:
+                        last = last.replace(tzinfo=timezone.utc)
+                    days_since = (now_ts - last).total_seconds() / 86400.0
+                    fact.decay_score = math.exp(-lambda_decay * days_since)
+                except (ValueError, OverflowError):
+                    fact.decay_score = 1.0
+            else:
+                fact.decay_score = 1.0
+
+            # Reinforcement boost: cap at 10 accesses
+            boost = 1.0 + reinforcement_boost * min(fact.access_count, 10)
+            combined_score = fact.relevance_score * fact.decay_score * boost
+
+            # Apply min relevance filter
+            if combined_score >= min_relevance:
+                # Override relevance_score with combined for sorting
+                fact.relevance_score = combined_score
+                results.append(fact)
+
+        # Sort by combined score (descending)
+        results.sort(key=lambda f: f.relevance_score, reverse=True)
+
+        # Auto-reinforce returned facts
+        for fact in results[:top_k]:
+            self.reinforce(fact.id)
+
+        return results[:top_k]
+
+    def _recall_like_fallback(
+        self,
+        query: str,
+        top_k: int,
+        domain: Optional[str],
+        min_relevance: float,
+    ) -> List[StoredFact]:
+        """Fallback LIKE-based search when FTS5 returns no results."""
+        where = ""
+        params: tuple = ()
+        if domain:
+            where = "AND domain = ?"
+            params = (domain,)
+
+        like_params = (f"%{query}%", f"%{query}%", f"%{query}%")
+        rows = self.db.execute(
+            f"""
+            SELECT * FROM facts
+            WHERE (content LIKE ? OR title LIKE ? OR tags LIKE ?) {where}
+            ORDER BY importance DESC
+            LIMIT ?
+            """,
+            (*like_params, *params, top_k),
+        ).fetchall()
+
+        results = []
+        for row in rows:
+            fact = self._row_to_fact(row)
+            fact.relevance_score = fact.importance * 0.8
+            if fact.relevance_score >= min_relevance:
+                results.append(fact)
+
+        return results
+
     # ── export to vault ─────────────────────────────────────────────────
 
     def project_to_vault(self, vault, index, limit: int = 500) -> dict:
@@ -307,7 +616,6 @@ class MemoryEngine:
         first_line = content.split("\n")[0].strip()
         if len(first_line) > max_len:
             first_line = first_line[:max_len - 3] + "..."
-        import re
         slug = first_line.lower().strip()
         slug = re.sub(r"[^a-z0-9\s-]", "", slug)
         slug = re.sub(r"\s+", "-", slug)
@@ -326,122 +634,6 @@ class MemoryEngine:
             tags=tags,
             created_at=row["created_at"] or "",
             updated_at=row["updated_at"] or "",
+            last_accessed=row["last_accessed"] or "",
+            access_count=row["access_count"] or 0,
         )
-
-    def recall_with_relevance(
-        self,
-        query: str,
-        top_k: int = 10,
-        domain: Optional[str] = None,
-        min_relevance: float = 0.0,
-    ) -> List[StoredFact]:
-        """Full-text search with relevance scoring.
-
-        Returns facts ranked by relevance score. Uses FTS5 bm25() ranking
-        normalized to 0-1 scale. Filters by minimum relevance threshold.
-
-        Args:
-            query: Search query
-            top_k: Maximum results to return
-            domain: Optional domain filter
-            min_relevance: Minimum relevance score (0-1) to include
-        """
-        if not query.strip():
-            return []
-
-        # Sanitize query for FTS5
-        clean = query.replace('"', '""')
-
-        # Split query into words for better matching
-        words = clean.split()
-        if len(words) > 1:
-            # Build OR query for each word
-            word_queries = [f'content: "{w}"*' for w in words if w]
-            fts_query = " OR ".join(word_queries)
-        else:
-            fts_query = f'content: "{clean}"* OR title: "{clean}"* OR tags: "{clean}"*'
-
-        where = ""
-        params: tuple = ()
-        if domain:
-            where = "AND f.domain = ?"
-            params = (domain,)
-
-        # Get FTS5 results with bm25 rank
-        # bm25() returns negative scores (lower = more relevant)
-        # We normalize to 0-1 where 1 = most relevant
-        rows = self.db.execute(
-            f"""
-            SELECT f.*, bm25(facts_fts) as rank
-            FROM facts_fts
-            JOIN facts f ON facts_fts.rowid = f.rowid
-            WHERE facts_fts MATCH ? {where}
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (fts_query, *params, top_k * 2),  # Get extra for filtering
-        ).fetchall()
-
-        if not rows:
-            # Fallback to LIKE search
-            return self._recall_like_fallback(query, top_k, domain, min_relevance)
-
-        # Normalize bm25 scores to 0-1
-        # bm25 returns negative values; more negative = more relevant
-        ranks = [row["rank"] for row in rows]
-        min_rank = min(ranks)
-        max_rank = max(ranks)
-        rank_range = max_rank - min_rank if max_rank != min_rank else 1.0
-
-        results = []
-        for row in rows:
-            fact = self._row_to_fact(row)
-            # Normalize: 0 = least relevant, 1 = most relevant
-            if rank_range > 0:
-                fact.relevance_score = 1.0 - ((row["rank"] - min_rank) / rank_range)
-            else:
-                fact.relevance_score = 1.0
-
-            # Apply minimum relevance filter
-            if fact.relevance_score >= min_relevance:
-                results.append(fact)
-
-        # Sort by relevance score (descending)
-        results.sort(key=lambda f: f.relevance_score, reverse=True)
-        return results[:top_k]
-
-    def _recall_like_fallback(
-        self,
-        query: str,
-        top_k: int,
-        domain: Optional[str],
-        min_relevance: float,
-    ) -> List[StoredFact]:
-        """Fallback LIKE-based search when FTS5 returns no results."""
-        where = ""
-        params: tuple = ()
-        if domain:
-            where = "AND domain = ?"
-            params = (domain,)
-
-        like_params = (f"%{query}%", f"%{query}%", f"%{query}%")
-        rows = self.db.execute(
-            f"""
-            SELECT * FROM facts
-            WHERE (content LIKE ? OR title LIKE ? OR tags LIKE ?) {where}
-            ORDER BY importance DESC
-            LIMIT ?
-            """,
-            (*like_params, *params, top_k),
-        ).fetchall()
-
-        # Assign relevance scores based on importance for LIKE results
-        results = []
-        for row in rows:
-            fact = self._row_to_fact(row)
-            # Use importance as a proxy for relevance when using LIKE
-            fact.relevance_score = fact.importance * 0.8  # Scale down to differentiate from FTS5
-            if fact.relevance_score >= min_relevance:
-                results.append(fact)
-
-        return results

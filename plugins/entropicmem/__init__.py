@@ -79,6 +79,20 @@ QUERY_SCHEMA = {
     },
 }
 
+PATCH_CORE_SCHEMA = {
+    "name": "entropicmem_patch_core",
+    "description": "Surgically update Core Memory (Persona or User Profile). Use for permanent changes to agent guidelines or user facts.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "target": {"type": "string", "enum": ["persona", "user_profile"], "description": "Which core memory to update."},
+            "old_text": {"type": "string", "description": "Exact text to find and replace."},
+            "new_text": {"type": "string", "description": "Replacement text (empty = delete matched text)."},
+        },
+        "required": ["target", "old_text"],
+    },
+}
+
 # ── Smart Context Management Defaults ────────────────────────────────────────
 
 SMART_CONTEXT_DEFAULTS = {
@@ -138,6 +152,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         self._recently_injected: Dict[str, int] = {}  # fact_id -> turn_count
         self._turn_counter: int = 0
         self._cache_timestamp: float = 0.0
+        self._last_conversation_hash: str = ""
 
     @property
     def name(self) -> str:
@@ -224,6 +239,39 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "description": "Cache TTL in seconds",
                 "default": 300,
             },
+            # Phase 8: Auto-extraction
+            {
+                "key": "auto_extract_enabled",
+                "description": "Enable background fact extraction from conversation (regex-based, no LLM)",
+                "default": True,
+            },
+            {
+                "key": "extraction_timeout",
+                "description": "Maximum seconds for background extraction per turn",
+                "default": 5.0,
+            },
+            # Phase 8: Core Memory
+            {
+                "key": "core_memory_enabled",
+                "description": "Enable Core Memory (Persona/User Profile) injection in prefetch",
+                "default": True,
+            },
+            # Phase 8: Temporal Decay
+            {
+                "key": "decay_enabled",
+                "description": "Enable temporal decay scoring for memory recall",
+                "default": True,
+            },
+            {
+                "key": "decay_half_life_days",
+                "description": "Half-life for memory decay in days",
+                "default": 30,
+            },
+            {
+                "key": "reinforcement_boost",
+                "description": "Score boost per fact access (capped)",
+                "default": 0.1,
+            },
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
@@ -275,17 +323,33 @@ class EntropicMemMemoryProvider(MemoryProvider):
             self._last_query = query[:2000]
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        """Smart prefetch with relevance filtering, token budget, and deduplication."""
+        """Smart prefetch with relevance filtering, core memory, temporal decay, and deduplication."""
         q = (query or self._last_query or "").strip()
         if not q or not self._scripts_dir or not self._memory_db:
             return ""
 
         self._turn_counter += 1
+        blocks: List[str] = []
+
+        # Phase 8: Core Memory always injected first
+        if self._config.get("core_memory_enabled", True) and self._vault_path and self._vault_path.is_dir():
+            try:
+                ensure_scripts_on_path(self._scripts_dir)
+                from vault import CoreMemory
+                core = CoreMemory(Path(self._vault_path))
+                core_block = core.injection_block()
+                if core_block:
+                    blocks.append(core_block)
+            except Exception as e:
+                logger.debug("EntropicMem core memory failed: %s", e)
 
         # Check cache first (with conversation awareness)
-        if self._config.get("cache_conversation_context", True):
+        if self._config.get("cache_conversation_context", True) and not blocks:
             cached = self._check_cache(q)
             if cached is not None:
+                # Inject core memory above cached prefetch
+                if blocks:
+                    return "\n\n".join(blocks + [cached])
                 return cached
 
         try:
@@ -297,6 +361,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             enhanced_query = self._build_context_query(q)
 
             # Phase 1.2 & 2.2: Get candidates with relevance scoring and domain filtering
+            # Pass decay config from plugin settings
             candidates = self._get_candidates(engine, enhanced_query)
 
             # Phase 2.1: Apply deduplication
@@ -310,20 +375,21 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
             engine.close()
 
-            if not budgeted:
-                return ""
+            if budgeted:
+                block = self._format_block(budgeted)
+                blocks.append(block)
 
-            # Format and cache result
-            block = self._format_block(budgeted)
+                # Track injected facts for deduplication
+                self._track_injected(budgeted)
 
+            result = "\n\n".join(blocks) if blocks else ""
+
+            # Cache result
             with self._prefetch_lock:
-                self._prefetch_cache = block
+                self._prefetch_cache = result
                 self._cache_timestamp = self._get_timestamp()
 
-            # Track injected facts for deduplication
-            self._track_injected(budgeted)
-
-            return block
+            return result
 
         except Exception as e:
             logger.debug("EntropicMem prefetch failed: %s", e)
@@ -337,9 +403,42 @@ class EntropicMemMemoryProvider(MemoryProvider):
         session_id: str = "",
         messages: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
-        """Update conversation history for context-aware prefetch."""
+        """Update conversation history and run background auto-extraction."""
         if messages:
             self._conversation_history = messages[-(self._config.get("context_window_turns", 3) * 2):]
+
+        # Auto-extract facts from conversation (non-blocking, regex-based)
+        if self._config.get("auto_extract_enabled", True) and self._memory_db and self._scripts_dir:
+            try:
+                self._auto_extract(user_content, assistant_content, session_id or self._session_id)
+            except Exception as e:
+                logger.debug("EntropicMem auto-extract failed: %s", e)
+
+    def _auto_extract(self, user_content: str, assistant_content: str, session_id: str) -> None:
+        """Background auto-extraction of durable facts from conversation text."""
+        import threading
+
+        def _run():
+            try:
+                ensure_scripts_on_path(self._scripts_dir)
+                from memory_engine import MemoryEngine
+                engine = MemoryEngine(self._memory_db)
+                engine.extract_and_store(
+                    user_text=user_content,
+                    assistant_text=assistant_content,
+                    session_id=session_id,
+                    source="auto_extracted",
+                    min_confidence=0.4,
+                )
+                engine.close()
+            except Exception:
+                pass  # Non-blocking; failures are silent
+
+        # Run in background thread with timeout
+        t = threading.Thread(target=_run, daemon=True)
+        timeout = self._config.get("extraction_timeout", 5.0)
+        t.start()
+        t.join(timeout=timeout)  # Wait up to timeout, then abandon
 
     # ── Smart Context Helpers ─────────────────────────────────────────────
 
@@ -371,12 +470,16 @@ class EntropicMemMemoryProvider(MemoryProvider):
         if not self._conversation_history:
             return False
 
-        # Hash recent conversation
+        # Hash recent conversation and compare to previous
+        import hashlib
         recent_content = " ".join(
             msg.get("content", "")[:100]
             for msg in self._conversation_history[-4:]
         )
-        return bool(recent_content.strip())
+        current_hash = hashlib.sha256(recent_content.encode()).hexdigest()[:16]
+        changed = current_hash != self._last_conversation_hash
+        self._last_conversation_hash = current_hash
+        return changed
 
     def _build_context_query(self, query: str) -> str:
         """Build enhanced query using conversation context."""
@@ -409,7 +512,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return combined
 
     def _get_candidates(self, engine, query: str) -> list:
-        """Get candidate facts with relevance scoring and domain filtering."""
+        """Get candidate facts with relevance scoring, domain filtering, and temporal decay."""
         min_relevance = self._config.get("min_relevance_score", 0.3)
         max_results = self._config.get("max_prefetch_results", 5)
         enabled_domains = self._config.get("enabled_domains", [])
@@ -419,6 +522,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
             query,
             top_k=max_results * 2,
             min_relevance=min_relevance,
+            decay_enabled=self._config.get("decay_enabled", True),
+            decay_half_life_days=self._config.get("decay_half_life_days", 30.0),
+            reinforcement_boost=self._config.get("reinforcement_boost", 0.1),
         )
 
         # Apply domain filtering if configured
@@ -541,7 +647,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return time.time()
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        return [REMEMBER_SCHEMA, RECALL_SCHEMA, QUERY_SCHEMA]
+        return [REMEMBER_SCHEMA, RECALL_SCHEMA, QUERY_SCHEMA, PATCH_CORE_SCHEMA]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         if tool_name == "entropicmem_remember":
@@ -550,6 +656,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return self._recall(args)
         if tool_name == "entropicmem_query":
             return self._query(args)
+        if tool_name == "entropicmem_patch_core":
+            return self._patch_core(args)
         return _tool_error(f"Unknown tool: {tool_name}")
 
     def on_memory_write(
@@ -668,7 +776,13 @@ class EntropicMemMemoryProvider(MemoryProvider):
             from memory_engine import MemoryEngine
 
             engine = MemoryEngine(self._memory_db)
-            rows = engine.recall(query, top_k=limit)
+            rows = engine.recall_with_relevance(
+                query,
+                top_k=limit,
+                decay_enabled=self._config.get("decay_enabled", True),
+                decay_half_life_days=self._config.get("decay_half_life_days", 30.0),
+                reinforcement_boost=self._config.get("reinforcement_boost", 0.1),
+            )
             engine.close()
             payload = [
                 {
@@ -676,6 +790,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     "domain": r.domain,
                     "importance": r.importance,
                     "content": r.content,
+                    "relevance_score": round(r.relevance_score, 3),
                 }
                 for r in rows
             ]
@@ -702,6 +817,36 @@ class EntropicMemMemoryProvider(MemoryProvider):
             index.close()
             return json.dumps({"results": results})
         except Exception as e:
+            return _tool_error(str(e))
+
+    def _patch_core(self, args: dict) -> str:
+        """Handle entropicmem_patch_core tool call."""
+        target = args.get("target", "")
+        old_text = args.get("old_text", "")
+        new_text = args.get("new_text", "")
+
+        if not target or not old_text:
+            return _tool_error("target and old_text required")
+
+        if target not in ("persona", "user_profile"):
+            return _tool_error("target must be 'persona' or 'user_profile'")
+
+        if not self._vault_path or not self._vault_path.is_dir() or not self._scripts_dir:
+            return _tool_error("Vault not initialized — run entropicmem init")
+
+        try:
+            ensure_scripts_on_path(self._scripts_dir)
+            from vault import CoreMemory
+
+            core = CoreMemory(self._vault_path)
+            success = core.patch(target=target, old_text=old_text, new_text=new_text)
+
+            if success:
+                return json.dumps({"ok": True, "target": target, "patched": True})
+            else:
+                return _tool_error(f"Patch text not found in {target} core memory")
+        except Exception as e:
+            logger.exception("entropicmem_patch_core failed")
             return _tool_error(str(e))
 
 
