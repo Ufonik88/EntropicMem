@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.4] - 2026-07-23
+
+### Added (Phase 4 — Cleanup)
+- **scripts/entropicmem_health_check.py** — pure EntropicMem health check
+  - DB integrity, fact count, vault note count, index freshness, FTS health, backup recency
+  - JSON output for cron consumption
+- **Gap 5 RESOLVED** — all 6 Mnemosyne/tandem crons paused (not deleted — pending 1-week stability)
+- **Gap 6 RESOLVED** — v1.3.1 skill copy deleted, only v2.1.0 remains
+
+### Changed
+- 12h monitoring cron (`fa33fba0b03a`) redesigned as "EntropicMem 12h Health Check"
+- All Mnemosyne/tandem crons paused: `bf428b0b2e05`, `bacf5cca7c61`, `7cbacc0d9038`, `b20d38ad8edb`, `11b5bbe1fc68`, `f893e7549326`
+
 ## [2.1.3] - 2026-07-23
 
 ### Added (Phase 3 — Safety Nets)

@@ -222,49 +222,59 @@ rclone ls mygdrive:hermes-backups/entropicmem/ | tail -3
 ## Phase 4 — Cleanup: Retire Mnemosyne Crons + Skill Dedup (Gaps 5, 6)
 
 **Severity:** MEDIUM (Gap 5), LOW (Gap 6)
-**Depends on:** Phases 1-3 complete. **Mnemosyne removal requires explicit Ufonik approval.**
+**Status:** COMPLETE (2026-07-23) — crons paused, not deleted. Deletion after 1-week stability proof.
 
-### Task 4.1 — Skill Deduplication (Gap 6)
+### Task 4.1 — Skill Deduplication (Gap 6) ✓
 
-- [ ] **4.1.1** Compare the two skill copies:
-  - `~/.hermes/skills/entropicmem/SKILL.md` (v2.1.0 — standalone, newer)
-  - `~/.hermes/skills/memory/entropicmem/SKILL.md` (v1.3.1 — categorized, older)
-- [ ] **4.1.2** Merge any unique content from v1.3.1 into v2.1.0 (unlikely — v2.1.0 is a superset, but verify).
-- [ ] **4.1.3** Delete `~/.hermes/skills/memory/entropicmem/` (the v1.3.1 copy).
-- [ ] **4.1.4** Update cron `bf428b0b2e05` to reference `entropicmem` instead of `memory/entropicmem` (if the cron survives to Phase 4 — it may be deleted in Task 4.2).
-- [ ] **4.1.5** Verify: `hermes skills list | grep entropicmem` shows exactly ONE entry.
+- [x] **4.1.1** Compared v2.1.0 (standalone) vs v1.3.1 (categorized) — v2.1.0 is canonical.
+- [x] **4.1.2** No unique content in v1.3.1 — different wording, same features.
+- [x] **4.1.3** Deleted `~/.hermes/skills/memory/entropicmem/` (v1.3.1 copy).
+- [x] **4.1.4** Cron `bf428b0b2e05` paused (see 4.2) — no update needed.
+- [x] **4.1.5** Verified: `~/.hermes/skills/entropicmem/SKILL.md` is the only entropicmem skill.
 
-### Task 4.2 — Retire Tandem-Only Crons (Gap 5)
+### Task 4.2 — Retire Tandem-Only Crons (Gap 5) ✓
 
-**⚠️ GATE: Do NOT execute this task until Ufonik explicitly approves Mnemosyne removal.**
+**UFONIK DECISION: Pause, don't delete. Remove only after EntropicMem runs smoothly for 1+ week.**
 
-- [ ] **4.2.1** Confirm all other phases are complete and verified.
-- [ ] **4.2.2** Delete (not pause) the tandem crons:
-  - `bf428b0b2e05` (EntropicMem Mnemosyne Sync) — DELETE
-  - `bacf5cca7c61` (Mnemosyne Autonomous Memory Manager) — DELETE
-- [ ] **4.2.3** Delete the paused legacy sync crons:
-  - `7cbacc0d9038` (Mnemosyne → Logseq Sync) — DELETE
-  - `b20d38ad8edb` (Mnemosyne → Obsidian Sync) — DELETE
-- [ ] **4.2.4** Delete the paused Mnemosyne backup crons (replaced in Phase 3):
-  - `11b5bbe1fc68` (Mnemosyne → Google Drive Backup) — DELETE
-  - `f893e7549326` (Mnemosyne → Notion Backup) — DELETE (or keep if Notion backup was recreated)
-- [ ] **4.2.5** Verify: `hermes cron list | grep -i mnemosyne` returns ZERO results.
-- [ ] **4.2.6** Redesign the EntropicMem 12h monitoring cycle (`fa33fba0b03a`):
-  - Remove Mnemosyne parity checks.
-  - Convert to pure EntropicMem health check: DB integrity, fact count, vault consistency, index freshness.
-  - Update the cron prompt accordingly.
+- [x] **4.2.1** Phases 1-3 complete and verified.
+- [x] **4.2.2** Paused (not deleted) the tandem crons:
+  - `bf428b0b2e05` (EntropicMem Mnemosyne Sync) — **paused**
+  - `bacf5cca7c61` (Mnemosyne Autonomous Memory Manager) — **paused**
+- [x] **4.2.3** Legacy sync crons already paused from Phase 2-3:
+  - `7cbacc0d9038` (Mnemosyne → Logseq Sync) — paused
+  - `b20d38ad8edb` (Mnemosyne → Obsidian Sync) — paused
+- [x] **4.2.4** Backup crons already paused from Phase 3:
+  - `11b5bbe1fc68` (Mnemosyne → Google Drive Backup) — paused
+  - `f893e7549326` (Mnemosyne → Notion Backup) — paused
+- [x] **4.2.5** All 6 Mnemosyne/tandem crons confirmed paused (enabled=False).
+- [x] **4.2.6** Redesigned 12h monitoring (`fa33fba0b03a`):
+  - New script: `scripts/entropicmem_health_check.py`
+  - Checks: memory.db integrity, fact count, vault, index freshness, FTS health, backup recency
+  - Pure EntropicMem — no Mnemosyne references
+  - Cron renamed to "EntropicMem 12h Health Check"
 
 ### Definition of Done (Phase 4)
-- Exactly ONE `entropicmem` skill exists (v2.1.0).
-- ZERO Mnemosyne-related crons remain.
-- 12h monitoring cycle is a pure EntropicMem health check.
-- `hermes cron list | grep -i mnemosyne` returns nothing.
+- Exactly ONE `entropicmem` skill exists (v2.1.0). ✓
+- All Mnemosyne-related crons PAUSED (not deleted — pending 1-week stability proof). ✓
+- 12h monitoring cycle is a pure EntropicMem health check. ✓
+- Mnemosyne data on disk preserved (~/.hermes/mnemosyne/). ✓
 
-### Verification
-```bash
-hermes cron list | grep -i mnemosyne   # expect: empty
-hermes skills list | grep entropicmem   # expect: 1 entry
-```
+### Phase 4 Completion Record (2026-07-23)
+
+- **Gaps resolved:** Gap 6 (skill dedup), Gap 5 (tandem crons paused)
+- **Decision:** Pause, don't delete. Remove after 1+ week stable EntropicMem operation.
+- **Artifacts:**
+  - `scripts/entropicmem_health_check.py` — pure EntropicMem health check
+  - Cron `fa33fba0b03a` redesigned as "EntropicMem 12h Health Check"
+  - `~/.hermes/skills/memory/entropicmem/` (v1.3.1) deleted
+  - All 6 Mnemosyne/tandem crons paused
+- **Next:** Phase 5 (polish + final validation)
+
+### Deletion Gate (Future)
+After 1+ week of stable EntropicMem operation:
+- Delete all 6 paused Mnemosyne crons
+- Delete ~/.hermes/mnemosyne/ data (with backup)
+- Update this section to mark Phase 4 fully complete
 
 ---
 
