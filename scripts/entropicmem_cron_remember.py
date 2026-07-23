@@ -167,12 +167,8 @@ def main() -> int:
             r = remember(
                 content, title=title, domain=str(domain), importance=float(importance), source=args.source
             )
-        except FileNotFoundError as e:
-            print(f"ERROR: {e}", file=sys.stderr)
-            return 1
-        except ImportError as e:
-            print(f"ERROR: cannot import memory_engine — {e}", file=sys.stderr)
-            return 1
+        except (FileNotFoundError, ImportError, ValueError) as e:
+            r = {"ok": False, "error": f"{type(e).__name__}: {e}", "content": (content or "")[:80]}
         except Exception as e:
             r = {"ok": False, "error": str(e), "content": (content or "")[:80]}
         results.append(r)
