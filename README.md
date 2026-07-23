@@ -113,6 +113,20 @@ EntropicMem now includes **intelligent context management** to optimize token us
 
 **Estimated savings**: 60-80% reduction in context injection token usage.
 
+### Cron durable writes (v2.1.1)
+
+Hermes cron jobs run with `skip_memory=True` by design, so interactive `memory` /
+`entropicmem_*` tools are **not** available in scheduled jobs. Use the helper:
+
+```bash
+python3 ~/.hermes/scripts/entropicmem_cron_remember.py "durable fact" \
+  --domain Knowledge --importance 0.7 --source cron
+```
+
+Canonical script: `scripts/entropicmem_cron_remember.py`  
+Design doc: `docs/CRON_MEMORY_PATH.md`  
+Skill: `skills/memory/entropicmem-cron-writes/`
+
 ### Configuration
 
 ```yaml

@@ -164,3 +164,22 @@ Add to `plugins/entropicmem/__init__.py` `get_config_schema()` and `SMART_CONTEX
 - Extraction uses existing Hermes provider stack — no new model costs
 - Core Memory uses existing vault infrastructure — no new storage
 - Decay runs in-memory on recall — no background jobs needed
+
+---
+
+## Sole-Provider Migration — Phase 1 COMPLETE (2026-07-23)
+
+**Gap 1 (Cron memory path): RESOLVED by design.**
+
+- Hermes cron uses `skip_memory=True` intentionally — interactive `memory` / `entropicmem_*` tools unavailable in cron.
+- Official path: `scripts/entropicmem_cron_remember.py` → install to `~/.hermes/scripts/`.
+- Docs: `docs/CRON_MEMORY_PATH.md`, skill `skills/memory/entropicmem-cron-writes/`.
+- Verified: self-test + no_agent scheduler run (`PHASE1_CRON_VERIFY_OK`).
+- Version: **2.1.1**
+
+**Next (home plan `~/.hermes/MASTER_TODO.md`):**
+- Phase 2: Rewrite Notion Knowledge Sync + fix second-brain-capture-review
+- Phase 3: EntropicMem backup
+- Phase 4: Retire Mnemosyne crons (needs explicit Ufonik approval)
+- Phase 5: Polish + final validation
+

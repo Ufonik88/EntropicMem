@@ -101,3 +101,11 @@ See `references/CLI_REFERENCE.md`.
 
 ## References
 - `SETUP.md`, `references/MEMORY_MODEL.md`, `references/VAULT_SCHEMA.md`, `references/HERMES_INTEGRATION.md`
+
+### Sole provider (2026-07-22)
+`memory.provider: entropicmem`. Mnemosyne plugin **disabled** (not removed).
+Interactive: `memory` tool + `entropicmem_*` tools.
+Cron: load `entropicmem-cron-writes` → `python3 ~/.hermes/scripts/entropicmem_cron_remember.py`.
+Why cron tools fail: Hermes sets `skip_memory=True` on purpose — see `docs/CRON_MEMORY_PATH.md`.
+Rollback: `bash ~/.hermes/entropicmem/cutover-2026-07-22/rollback.sh`.
+
