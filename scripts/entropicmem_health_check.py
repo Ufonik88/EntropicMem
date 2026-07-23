@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -65,8 +64,10 @@ def check_memory_db() -> dict:
 def check_vault() -> dict:
     if not VAULT_DIR.exists():
         return {"status": "WARN", "error": "vault directory missing"}
-    notes = list(VAULT_DIR.rglob("*.md"))
-    return {"status": "OK", "note_count": len(notes)}
+    count = 0
+    for _, _, files in os.walk(VAULT_DIR):
+        count += sum(1 for f in files if f.endswith(".md"))
+    return {"status": "OK", "note_count": count}
 
 
 def check_index() -> dict:
@@ -77,7 +78,19 @@ def check_index() -> dict:
         tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
         conn.close()
         age = _file_age_hours(INDEX_DB)
-        return {"status": "OK", "tables": len(tables), "age_hours": round(age, 1) if age else None}
+        # Compare index freshness against memory.db
+        mem_age = _file_age_hours(MEMORY_DB)
+        lag_hours = None
+        stale = False
+        if age is not None and mem_age is not None:
+            lag_hours = round(age - mem_age, 1)
+            stale = lag_hours > 24  # index more than 24h behind memory
+        return {
+            "status": "WARN" if stale else "OK",
+            "tables": len(tables),
+            "age_hours": round(age, 1) if age is not None else None,
+            "lag_vs_memory_hours": lag_hours,
+        }
     except Exception as e:
         return {"status": "FAIL", "error": f"{type(e).__name__}: {e}"}
 
@@ -87,9 +100,10 @@ def check_fts() -> dict:
         return {"status": "SKIP", "error": "memory.db missing"}
     try:
         conn = sqlite3.connect(str(MEMORY_DB))
-        hits = conn.execute("SELECT COUNT(*) FROM facts_fts WHERE facts_fts MATCH 'test' LIMIT 5").fetchone()[0]
+        # Deterministic: verify FTS table exists and is queryable
+        total = conn.execute("SELECT COUNT(*) FROM facts_fts").fetchone()[0]
         conn.close()
-        return {"status": "OK", "test_query_hits": hits}
+        return {"status": "OK", "fts_entries": total}
     except Exception as e:
         return {"status": "FAIL", "error": f"{type(e).__name__}: {e}"}
 
@@ -102,9 +116,9 @@ def check_backup() -> dict:
         return {"status": "WARN", "error": "no backups found"}
     age = _file_age_hours(backups[0])
     return {
-        "status": "OK" if age and age < 48 else "WARN",
+        "status": "OK" if age is not None and age < 48 else "WARN",
         "latest": backups[0].name,
-        "age_hours": round(age, 1) if age else None,
+        "age_hours": round(age, 1) if age is not None else None,
         "total": len(backups),
     }
 
