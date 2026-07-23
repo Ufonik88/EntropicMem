@@ -347,3 +347,113 @@ Phase 5 (LOW)       → Polish + final validation
 | Mnemosyne DB (DO NOT DELETE) | `~/.hermes/mnemosyne/data/mnemosyne.db` |
 | rclone remote | `mygdrive` |
 | Backup staging | `~/.hermes/backups/` |
+
+
+---
+
+## Phase 6 — Production Hardening & Sole-Provider Readiness
+
+**Severity:** P0 blockers before sole-provider promotion
+**Depends on:** Phase 5 complete.
+**Constraint:** EntropicMem is NOT to be deployed as the sole memory tool yet. This phase is strictly analysis + patching.
+
+### P0 Blockers (must complete before sole-provider promotion)
+
+- [ ] **6.1 Fix `entropicmem_remember` tool crash**
+  - Issue: `'str' object has no attribute 'is_absolute'` when calling tool from interactive sessions
+  - Files to inspect: `~/.hermes/plugins/entropicmem/__init__.py`, `plugins/entropicmem/_backend.py`
+  - Scope: trace path handling in tool dispatch, fix type mismatch, add regression test
+  - Verification: tool call succeeds and round-trips through `memory` provider interface
+
+- [ ] **6.2 Reconcile `docs/SOLE_PROVIDER_CUTOVER.md` with actual state**
+  - Current doc overstates readiness ("sole provider") while task records say "do not deploy yet"
+  - Update doc header/status to: "Active provider, Mnemosyne preserved, pending 1-week stability gate"
+  - Add explicit "NOT YET SOLE PROVIDER" banner at top of file
+
+- [ ] **6.3 Run 1-week stability gate under current `entropicmem`-only config**
+  - Gate criteria:
+    - Zero `mnemosyne` memory writes for 7 consecutive days
+    - All EntropicMem crons healthy
+    - No `entropicmem_remember` tool failures in interactive logs
+    - Backup + health check both green daily
+  - Gate automation: add a 7-day rolling check to `entropicmem_health_check.py` or a dedicated cron
+
+### P1 — Stabilize single-provider operation
+
+- [ ] **6.4 Add DB concurrency guard for `memory.db`**
+  - Risk: simultaneous writes from cron + interactive + subagent contexts
+  - Implement advisory lock (file lock or WAL mode with timeout)
+  - Verify under load: cron helper + interactive write + subagent write concurrently
+
+- [ ] **6.5 Make rollback idempotent and validated**
+  - `rollback.sh` exists but is not idempotent and not tested against current schema
+  - Add `--dry-run`, `--verify`, and `--force` modes
+  - Validate rollback on a copy of current `memory.db` before promoting
+
+- [ ] **6.6 Verify backup restore path end-to-end**
+  - `entropicmem_backup.sh` creates archives; no verified restore exists
+  - Add `entropicmem_restore.sh` with:
+    - Restore from latest or specific archive
+    - Verify integrity after restore
+    - Test on staging copy before tagging
+
+### P2 — Operational hardening
+
+- [ ] **6.7 Validate gateway/telegram context memory behavior**
+  - Confirm `skip_memory=True` semantics hold under gateway contexts
+  - Test: cron job running through Telegram gateway still uses `entropicmem_cron_remember.py` successfully
+
+- [ ] **6.8 Define retention/GC policy**
+  - No TTL, importance-decay, or domain purge currently
+  - Design policy: importance threshold, domain TTL, max fact count
+  - Implement as optional `entropicmem gc` command with dry-run mode
+
+- [ ] **6.9 Add vector/semantic search readiness evaluation**
+  - P2 Vector Search currently deferred
+  - Assess embedding model + storage cost before implementation
+  - Document tradeoffs in `docs/VECTOR_SEARCH_EVAL.md`
+
+### P3 — Final cutover (after P0+P1+P2 complete)
+
+- [ ] **6.10 Promote to sole provider**
+  - Delete 6 paused Mnemosyne/tandem crons permanently
+  - Move `~/.hermes/mnemosyne/` to `~/.hermes/mnemosyne.archive/` (do not delete)
+  - Remove rollback script (or archive it)
+  - Update `docs/SOLE_PROVIDER_CUTOVER.md` → mark FINAL
+  - User sign-off required
+
+### Definition of Done (Phase 6)
+- [ ] `entropicmem_remember` tool works in interactive context without errors
+- [ ] Cutover doc accurately reflects staged state
+- [ ] 1-week stability gate passes with zero Mnemosyne writes
+- [ ] Backup restore tested end-to-end
+- [ ] Rollback script idempotent + verified
+- [ ] DB concurrency guard implemented and tested
+- [ ] P0 blockers resolved → ready for sole-provider promotion gate
+
+---
+
+## Execution Order Summary
+
+```
+Phase 1 (CRITICAL)  → Fix cron memory path              [blocks 2, 3, 4, 7]
+Phase 2 (HIGH)      → Rewrite Notion + second-brain      [blocks 5]
+Phase 3 (HIGH)      → EntropicMem backup + retire Mnemosyne backups
+Phase 4 (MEDIUM)    → Skill dedup + tandem cleanup       [paused crons, not deleted]
+Phase 5 (MEDIUM)    → Polish + validation                [tool contexts, docs]
+Phase 6 (P0 BLOCK)  → Production hardening               [blocks sole-provider promotion]
+```
+
+## Key Paths Reference
+
+| Artifact | Path |
+|----------|------|
+| EntropicMem data | `~/.hermes/entropicmem/{memory.db, index.db, vault/}` |
+| Cron helper script | `~/.hermes/scripts/entropicmem_cron_remember.py` |
+| Skill (standalone, v2.1.0) | `~/.hermes/skills/entropicmem/` |
+| Cutover docs + rollback | `~/.hermes/entropicmem/cutover-2026-07-22/` |
+| Gap analysis | `~/.hermes/entropicmem/ENTROPICMEM_GAP_ANALYSIS.md` |
+| EntropicMem repo | `~/Documents/Coding Projects/EntropicMem` |
+| Mnemosyne DB (DO NOT DELETE) | `~/.hermes/mnemosyne/data/mnemosyne.db` |
+| rclone remote | `mygdrive` |
+| Backup staging | `~/.hermes/backups/` |
