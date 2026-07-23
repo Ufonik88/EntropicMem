@@ -36,32 +36,18 @@ mkdir -p "$BACKUP_DIR"
 ARCHIVE="entropicmem_$TIMESTAMP.tar.gz"
 log "Creating archive: $ARCHIVE"
 
-tar_err="$(mktemp)"
-tar_exit=0
+# Build file list conditionally — avoid stderr parsing entirely
+TAR_FILES="entropicmem/memory.db"
+if [ -f "$ENTROPICMEM_DIR/index.db" ]; then
+    TAR_FILES="$TAR_FILES entropicmem/index.db"
+fi
+if [ -d "$ENTROPICMEM_DIR/vault" ]; then
+    TAR_FILES="$TAR_FILES entropicmem/vault/"
+fi
 
-tar -czf "$BACKUP_DIR/$ARCHIVE" \
-    -C "$HERMES_HOME" \
-    entropicmem/memory.db \
-    entropicmem/index.db \
-    entropicmem/vault/ \
-    2>"$tar_err" || tar_exit=$?
-
-if [ "$tar_exit" -ne 0 ]; then
-    # Only treat missing index.db or vault as expected/optional
-    if grep -q "entropicmem/index.db" "$tar_err" || grep -q "entropicmem/vault" "$tar_err"; then
-        log "WARN: partial archive (index.db or vault missing), backing up memory.db only"
-        rm -f "$tar_err"
-        tar -czf "$BACKUP_DIR/$ARCHIVE" \
-            -C "$HERMES_HOME" \
-            entropicmem/memory.db
-    else
-        log "ERROR: tar failed while creating archive: $ARCHIVE"
-        cat "$tar_err" >&2
-        rm -f "$tar_err"
-        fail "Archive creation failed (tar exit code: $tar_exit)"
-    fi
-else
-    rm -f "$tar_err"
+# shellcheck disable=SC2086
+if ! tar -czf "$BACKUP_DIR/$ARCHIVE" -C "$HERMES_HOME" $TAR_FILES; then
+    fail "Archive creation failed"
 fi
 
 ARCHIVE_SIZE=$(stat -c%s "$BACKUP_DIR/$ARCHIVE" 2>/dev/null || stat -f%z "$BACKUP_DIR/$ARCHIVE" 2>/dev/null || echo "unknown")
