@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.2] - 2026-07-23
+
+### Added (Phase 2 — Data Flow)
+- **scripts/notion_entropicmem_sync.py** — consolidated Notion → EntropicMem cron script
+  - `--mode fetch`: direct Notion API fetch + ingest
+  - `--mode json`: read existing sync JSON
+  - `--self-test`, `--dry-run` supported
+  - Blocklist + sensitive-keyword guards preserved
+- **Gap 2 RESOLVED** — Notion Knowledge Sync (`dff8a6a72447`) retargeted to EntropicMem
+- **Gap 3 RESOLVED** — second-brain-capture-review (`9483533865f1`) uses `entropicmem_cron_remember.py`
+
+### Changed
+- `docs/ENTROPICMEM_GAT_ANALYSIS.md` — Gaps 2/3 marked RESOLVED
+- `README.md` — added Notion→EntropicMem script note
+
 ## [2.1.1] - 2026-07-23
 
 ### Added (Phase 1 — Cron Memory Path)

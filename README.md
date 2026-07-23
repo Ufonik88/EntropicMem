@@ -75,7 +75,20 @@ EntropicMem (This Repo)
 | `memory project` | Project memory facts to vault |
 | `memory stats` | Memory engine statistics |
 
+## Notion → EntropicMem (v2.1.2)
+
+Cron-safe consolidated Notion sync for EntropicMem:
+
+```bash
+python3 scripts/notion_entropicmem_sync.py --mode fetch
+python3 scripts/notion_entropicmem_sync.py --mode json --input /tmp/notion.json
+python3 scripts/notion_entropicmem_sync.py --self-test
+python3 scripts/notion_entropicmem_sync.py --dry-run
+```
+
 ## Visual Graph (v2.1.0)
+
+
 
 Single-file `graph.html` — D3 force-directed, dark galaxy theme. Self-contained: full note bodies are embedded so it works offline via `file://` or `graph serve`.
 
