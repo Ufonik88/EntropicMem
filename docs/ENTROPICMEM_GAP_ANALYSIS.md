@@ -105,7 +105,7 @@ python3 ~/.hermes/scripts/entropicmem_cron_remember.py "fact" --domain Knowledge
 
 ## Gap 4: Replace Mnemosyne Backup/Export Crons
 
-**Severity:** MEDIUM
+**Severity:** MEDIUM → **RESOLVED (2026-07-23)**
 **What:** When Mnemosyne is fully removed, these crons become dead weight. Need EntropicMem equivalents or explicit retirement.
 
 **Current state:**
@@ -164,7 +164,7 @@ python3 ~/.hermes/scripts/entropicmem_cron_remember.py "fact" --domain Knowledge
 
 ## Gap 7: EntropicMem Scheduled Backup
 
-**Severity:** MEDIUM
+**Severity:** MEDIUM → **RESOLVED (2026-07-23)**
 **What:** No automated backup of EntropicMem's own data. Mnemosyne had Google Drive + Notion backups. EntropicMem needs at least one.
 
 **Data to back up:**
