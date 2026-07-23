@@ -173,7 +173,26 @@ See `skills/entropicmem/references/HERMES_INTEGRATION.md` for full documentation
 - **Memory consolidation** — archive old, low-access facts to `facts_archive` table
 - **Auto-backup** — timestamped SQLite backups before destructive operations
 
+## Sole Provider Status (2026-07-23)
+
+EntropicMem is the **sole memory provider** for Hermes Agent. All gaps from the migration gap analysis are resolved.
+
+```yaml
+memory:
+  provider: entropicmem
+```
+
+- **Interactive:** `memory` tool + `entropicmem_*` tools
+- **Cron:** `entropicmem_cron_remember.py` (no LLM required)
+- **Backup:** `entropicmem_backup.sh` → Google Drive daily
+- **Health:** `entropicmem_health_check.py` → 12h monitoring
+- **Notion sync:** `notion_entropicmem_sync.py` → direct API fetch
+- **Rollback:** `bash ~/.hermes/entropicmem/cutover-2026-07-22/rollback.sh`
+
+See `docs/SOLE_PROVIDER_CUTOVER.md` for full details.
+
 ## Requirements
+
 
 - Python 3.10+ (stdlib only for core)
 - Optional: `sentence-transformers` for semantic re-rank, `graphviz` for DOT export

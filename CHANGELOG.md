@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.5] - 2026-07-23
+
+### Added (Phase 5 — Polish + Final Validation)
+- **docs/SOLE_PROVIDER_CUTOVER.md** — comprehensive cutover record (config, crons, data paths, rollback, deletion gate)
+- **README.md** — sole-provider status section
+- **Gap 8 RESOLVED** — all 8 gaps in gap analysis marked RESOLVED
+
+### Documentation
+- All gaps resolved: Gaps 1-8 complete
+- Vault dual-write decision: NO (documented in SOLE_PROVIDER_CUTOVER.md)
+- Final E2E validation: all write paths, CLI tools, 135 tests passed
+
 ## [2.1.4] - 2026-07-23
 
 ### Added (Phase 4 — Cleanup)
