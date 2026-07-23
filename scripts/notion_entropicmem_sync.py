@@ -39,10 +39,10 @@ SENSITIVE_KW = [
     "pat", "master password", "app password",
 ]
 
-BLOCKLIST = {
+BLOCKLIST = frozenset({
     "ai stuffies", "x developer", "discord developer",
     "jira confluence hermes", "to-do list", "to-do list db", "untitled",
-}
+})
 
 TARGET_PAGES = [
     "Ajax SDK",
@@ -55,13 +55,13 @@ TARGET_PAGES = [
 ]
 
 IMPORTANCE_MAP: dict[str, float] = {
-    "Ajax SDK": 0.7,
-    "Pre-Sales (General)": 0.6,
-    "Migrate Translator": 0.6,
-    "Meeting Prep": 0.55,
-    "Deal Pipeline": 0.55,
-    "Email Digests": 0.5,
-    "Calendar & Tasks": 0.5,
+    "ajax sdk": 0.7,
+    "pre-sales (general)": 0.6,
+    "migrate translator": 0.6,
+    "meeting prep": 0.55,
+    "deal pipeline": 0.55,
+    "email digests": 0.5,
+    "calendar & tasks": 0.5,
 }
 
 DATABASE_HINTS = {
@@ -311,7 +311,7 @@ def _ingest_pages_and_dbs(data: dict, dry_run: bool) -> dict:
         if norm in seen_titles:
             continue
         seen_titles.add(norm)
-        importance = IMPORTANCE_MAP.get(title, 0.55 if "Ajax" in title else 0.5)
+        importance = IMPORTANCE_MAP.get(norm, 0.55 if "ajax" in norm else 0.5)
         facts = _extract_facts(title, page.get("content", "") or "")
         for fact in facts:
             fact["importance"] = importance
@@ -374,9 +374,12 @@ def _fetch_targets() -> dict:
             # _identify_db uses schema keys; fall back to title when schema is empty
             title_lower = info["title"].lower()
             title_schema = []
-            for keyword, hint in DATABASE_HINTS.items():
+            for keyword in DATABASE_HINTS:
                 if keyword in title_lower:
                     title_schema.append(keyword)
+            # Avoid ambiguous schema: pick the most specific (longest) match
+            if title_schema:
+                title_schema = [max(title_schema, key=len)]
             databases.append({
                 "id": info["id"],
                 "title": info["title"],
