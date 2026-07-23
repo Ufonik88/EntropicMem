@@ -170,7 +170,7 @@ def main() -> int:
         except (FileNotFoundError, ImportError, ValueError) as e:
             r = {"ok": False, "error": f"{type(e).__name__}: {e}", "content": (content or "")[:80]}
         except Exception as e:
-            r = {"ok": False, "error": str(e), "content": (content or "")[:80]}
+            r = {"ok": False, "error": f"{type(e).__name__}: {e}", "content": (content or "")[:80]}
         results.append(r)
         if not r.get("ok"):
             all_ok = False
