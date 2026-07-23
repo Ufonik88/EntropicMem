@@ -3,7 +3,7 @@
 Consolidated Notion → EntropicMem ingester for cron / no_agent contexts.
 
 Input mode:
-    --mode json    : read Notion sync JSON from stdin or --input
+    --mode json    : read Notion sync JSON from --input (or NOTION_SYNC_INPUT env var)
     --mode fetch   : fetch target pages/databases directly via Notion API then ingest
 
 Output:
@@ -108,7 +108,7 @@ def _notion(method: str, path: str, payload: dict | None = None) -> dict:
     ]
     if payload is not None:
         cmd += ["-d", json.dumps(payload)]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True)  # nosec B603 — list args, no shell
     if proc.returncode != 0:
         return {"error": proc.stderr.strip()}
     try:
@@ -220,21 +220,21 @@ def _identify_db(db: dict) -> str | None:
 
 def _extract_facts(title: str, content: str, entries: list[dict] | None = None) -> list[dict]:
     facts: list[dict] = []
-    norm = (title or "").strip()
-    if norm in BLOCKLIST or not norm or norm.lower() == "untitled":
+    norm = (title or "").strip().lower()
+    if norm in BLOCKLIST or not norm or norm == "untitled":
         return facts
 
-    if norm == "Ajax SDK" and content:
+    if norm == "ajax sdk" and content:
         sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', content) if 20 < len(s.strip()) < 700]
         for sentence in sentences[:5]:
             facts.append({"content": sentence, "importance": 0.7, "source": "notion"})
 
-    elif norm in {"Pre-Sales (General)", "Migrate Translator"} and content:
+    elif norm in {"pre-sales (general)", "migrate translator"} and content:
         sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', content) if 20 < len(s.strip()) < 700]
         for sentence in sentences[:5]:
             facts.append({"content": sentence, "importance": 0.6, "source": "notion"})
 
-    elif norm in {"Meeting Prep", "Deal Pipeline", "Email Digests", "Calendar & Tasks"} and entries:
+    elif norm in {"meeting prep", "deal pipeline", "email digests", "calendar & tasks"} and entries:
         importance = IMPORTANCE_MAP.get(norm, 0.5)
         for entry in entries[:5]:
             title_val = (entry.get("title") or entry.get("name") or "").strip()
@@ -265,7 +265,7 @@ def _extract_facts(title: str, content: str, entries: list[dict] | None = None) 
     return facts
 
 
-def _store_facts(facts: list[dict], origin_filter: str, dry_run: bool) -> tuple[int, int, list[str]]:
+def _store_facts(facts: list[dict], dry_run: bool) -> tuple[int, int, list[str]]:
     safe_facts = []
     for fact in facts:
         content = fact.get("content") or ""
@@ -282,11 +282,12 @@ def _store_facts(facts: list[dict], origin_filter: str, dry_run: bool) -> tuple[
     with engine:
         for fact in safe_facts:
             content = fact.get("content") or ""
-            eid = engine.remember(
+            source = fact.get("source") or "notion"
+            engine.remember(
                 content=content,
                 title=content[:60],
                 domain=fact.get("domain", "Projects"),
-                source="notion",
+                source=source,
                 importance=float(fact.get("importance", 0.5)),
             )
             kept += 1
@@ -338,7 +339,7 @@ def _ingest_pages_and_dbs(data: dict, dry_run: bool) -> dict:
         facts = _extract_facts(recognized, "", filtered)
         all_facts.extend(facts)
 
-    requested, kept, preview = _store_facts(all_facts, "notion", dry_run)
+    requested, kept, preview = _store_facts(all_facts, dry_run)
     return {
         "requested_facts": requested,
         "stored_facts": kept,
@@ -370,11 +371,17 @@ def _fetch_targets() -> dict:
     for info in all_pages.values():
         if info["type"] == "database":
             entries = _query_database(info["id"])[:10]
+            # _identify_db uses schema keys; fall back to title when schema is empty
+            title_lower = info["title"].lower()
+            title_schema = []
+            for keyword, hint in DATABASE_HINTS.items():
+                if keyword in title_lower:
+                    title_schema.append(keyword)
             databases.append({
                 "id": info["id"],
                 "title": info["title"],
                 "url": info["url"],
-                "schema": [],
+                "schema": title_schema or [info["title"]],
                 "entry_count": len(entries),
                 "entries": entries,
             })
@@ -386,7 +393,7 @@ def _fetch_targets() -> dict:
                 "title": info["title"],
                 "url": info["url"],
                 "content": "\n".join(lines),
-                "full_content_length": sum(len(l) for l in lines),
+                "full_content_length": sum(len(line) for line in lines),
             })
     return {"pages": pages, "databases": databases}
 
@@ -405,7 +412,6 @@ def main() -> int:
             return 0
         _, kept, preview = _store_facts(
             [{"content": "Notion→EntropicMem ingester self-test", "importance": 0.4, "source": "notion_self_test"}],
-            "notion",
             False,
         )
         print(json.dumps({"ok": True, "stored_facts": kept, "preview": preview}))

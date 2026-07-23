@@ -12,7 +12,7 @@
 - **Gap 3 RESOLVED** — second-brain-capture-review (`9483533865f1`) uses `entropicmem_cron_remember.py`
 
 ### Changed
-- `docs/ENTROPICMEM_GAT_ANALYSIS.md` — Gaps 2/3 marked RESOLVED
+- `docs/ENTROPICMEM_GAP_ANALYSIS.md` — Gaps 2/3 marked RESOLVED
 - `README.md` — added Notion→EntropicMem script note
 
 ## [2.1.1] - 2026-07-23
