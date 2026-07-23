@@ -1,4 +1,4 @@
 name: entropicmem
-version: 1.1.0
-description: "EntropicMem MemoryProvider — local facts, vault, hybrid retrieval."
+version: 2.1.1
+description: "EntropicMem MemoryProvider — local facts, vault, hybrid retrieval. Cron write path standardized (skip_memory-safe helper)."
 author: Ufonik

@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.1] - 2026-07-23
+
+### Added (Phase 1 — Cron Memory Path)
+- **docs/CRON_MEMORY_PATH.md** — root-cause analysis of Hermes cron `skip_memory=True` and the official durable-write path
+- **scripts/entropicmem_cron_remember.py** — cron-safe helper (write + verified recall); no LLM required
+- **skills/memory/entropicmem-cron-writes/** — skill for agent-driven crons that must persist facts
+- **docs/ENTROPICMEM_GAP_ANALYSIS.md** — Gap 1 marked RESOLVED (by design)
+
+### Fixed / Documented
+- Cron interactive `memory` / `entropicmem_*` tools unavailable is **Hermes intentional design**, not an EntropicMem provider bug
+- Downstream crons must use the helper (or MemoryEngine API), never interactive memory tools
+
 ## [2.1.0] - 2026-07-21
 
 ### Fixed (Graph Visualizer — P0)
