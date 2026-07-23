@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.3] - 2026-07-23
+
+### Added (Phase 3 — Safety Nets)
+- **scripts/entropicmem_backup.sh** — daily EntropicMem backup to Google Drive via rclone
+  - Tar+gzip: memory.db, index.db, vault/
+  - /tmp staging to avoid rclone .db bug
+  - 7-day local retention, HERMES_HOME-aware
+- **Gap 7 RESOLVED** — EntropicMem scheduled backup (`4ec76cbf8193`, daily 02:00)
+- **Gap 4 RESOLVED** — Mnemosyne backup crons paused (`11b5bbe1fc68`, `f893e7549326`)
+
+### Changed
+- Weekly Full Backup (`8883bbe4bab3`) now includes EntropicMem backup step
+
 ## [2.1.2] - 2026-07-23
 
 ### Added (Phase 2 — Data Flow)

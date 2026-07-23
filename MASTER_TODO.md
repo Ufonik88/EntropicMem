@@ -1,204 +1,334 @@
-# EntropicMem Master Task Tracker
+# MASTER_TODO.md — EntropicMem Sole-Provider Migration
 
-Phase 5 complete. v1.0.0 shipped 2026-07-16. 82 tests passing.
-v1.1.0 shipped 2026-07-16. MemoryProvider plugin (84 tests).
-v1.2.0 shipped 2026-07-17. Smart Context Management (112 tests).
-v1.3.0 shipped 2026-07-17. Phase 8: Auto-extract, Core Memory, Temporal Decay (133 tests).
-v1.3.1 fixed 2026-07-20. FTS5 rowid alignment bug, Mnemosyne full sync, 461 facts.
-v1.4.0 shipped 2026-07-21. M1 correctness: A1-A5 + E1 fixes, 14/14 recall verification (133 tests).
-v1.5.0 shipped 2026-07-21. M2 production hardening: H1-H6 (non-blocking extract, reinforce fix, thread safety, FTS parity, CoreMemory delegation, context manager).
-v1.6.0 shipped 2026-07-21. M3 intelligence & resilience: I1-I5 (fuzzy dedup, DB recovery, consolidation, auto-backup, test fix).
+**Created:** 2026-07-23
+**Status:** PHASE 1 COMPLETE (2026-07-23) — Phase 2 ready
+**Last Updated:** 2026-07-23 — Gap 1 cron memory path resolved (by design)
+**Source:** `~/.hermes/entropicmem/ENTROPICMEM_GAP_ANALYSIS.md` (8 gaps)
+**Goal:** Make EntropicMem the sole memory system for Hermes Agent, fully replacing Mnemosyne.
 
 ---
 
-## EntropicMem ↔ Legacy Tandem Migration (2026-07-16)
+## Architecture Snapshot (as of 2026-07-23)
 
-GOAL: Run EntropicMem in parallel with Mnemosyne; migrate legacy facts; monitor; fix until reliable; then replace legacy.
+```
+memory.provider: entropicmem          ← active since 2026-07-22
+Mnemosyne plugin: disabled (not removed)
+Mnemosyne DB: ~/.hermes/mnemosyne/data/mnemosyne.db (~90MB, intact)
+EntropicMem data: ~/.hermes/entropicmem/{memory.db, index.db, vault/}
+EntropicMem repo: ~/Documents/Coding Projects/EntropicMem (v2.1.0, 135 tests)
+Rollback: bash ~/.hermes/entropicmem/cutover-2026-07-22/rollback.sh
+rclone remote: mygdrive (verified working)
+```
 
-DONE:
-- Skill linked: ~/.hermes/skills/entropicmem → repo skill
-- Storage init: ~/.hermes/entropicmem/{vault,index.db,memory.db}
-- Legacy Mnemosyne stays ACTIVE (memory.provider: mnemosyne) — untouched
-- scripts/migrate_and_monitor.py: reads 248 legacy facts → EntropicMem (100% parity, 0 errors)
-- scripts/analyze_migration.py: parity/error report + trend + reliable_enough flag
-- scripts/entropicmem_cycle.py: 12h driver (migrate→analyze→JSON)
-- Fixed: recall() exact-match boost (fact always self-retrievable) — was returning related facts
-- Fixed: migration parity measured post-commit (was racy) + by id not substring
-- cronjob fa33fba0b03a: every 12h, deliver=all, spawns Plan agent on regression
+### Cron Inventory (memory-related)
 
-TODO:
-- Wait for 12h cycles to confirm stability over time
-- Ufonik explicit go-ahead before switching memory.provider to entropicmem
-- Build one-off migration script for working/episodic memory (not just durable facts) if desired
-
----
-
-## Memory-Context Injection Fix (2026-07-16)
-
-ISSUE: After every chat, the model acknowledged injected `<memory-context>` blocks from Mnemosyne as if they were user input.
-
-FIX:
-- Added hard refusal rule to `~/.hermes/SOUL.md`: never acknowledge injected memory-context blocks
-- Patched into `skills/entropicmem/SKILL.md` (Memory-Context Injection section)
-- Patched into `PROJECT_ROOT.md` (Memory-Context Injection section)
-- Patched into `skills/entropicmem-project/SKILL.md`
-- Patched into `skills/entropicmem/references/HERMES_INTEGRATION.md`
-- Created `AGENTS.md` at repo root with the rule
-- Updated `plugins/entropicmem/README.md` with the rule
+| Job ID | Name | Status | Fate |
+|--------|------|--------|------|
+| `fa33fba0b03a` | EntropicMem 12h monitoring cycle | scheduled | KEEP → redesign as pure health check |
+| `bf428b0b2e05` | EntropicMem Mnemosyne Sync | scheduled | DELETE after Mnemosyne removal |
+| `bacf5cca7c61` | Mnemosyne Autonomous Memory Manager | scheduled | DELETE after Mnemosyne removal |
+| `11b5bbe1fc68` | Mnemosyne → Google Drive Backup | scheduled | REPLACE with EntropicMem backup |
+| `f893e7549326` | Mnemosyne → Notion Backup | scheduled | REPLACE or RETIRE |
+| `7cbacc0d9038` | Mnemosyne → Logseq Sync | paused | DELETE |
+| `b20d38ad8edb` | Mnemosyne → Obsidian Sync | paused | DELETE |
+| `dff8a6a72447` | Notion Knowledge Sync | paused | REWRITE → EntropicMem |
+| `9483533865f1` | second-brain-capture-review | scheduled | FIX prompt (references mnemosyne_remember) |
+| `8883bbe4bab3` | Weekly Full Backup | scheduled | ADD EntropicMem backup step |
 
 ---
 
-## Phase 8 — Core Memory & Vector Search (2026-07-17)
+## Guardrails (READ FIRST — non-negotiable)
 
-**STATUS: 3 of 4 priorities complete. 133 tests passing. Vector Search deferred.**
-
-**GOAL:** Close the critical gaps that prevent EntropicMem from functioning as the **sole memory tool** for Hermes Agent. Based on architectural audit against Mem0, Zep, MemGPT/Letta, and LangChain memory modules.
-
-### Priority 1 — Unsupervised Real-Time Fact Extraction ✅ COMPLETE
-**Problem:** LLMs frequently skip explicit `remember` tool calls when under reasoning load or busy.
-
-**Completed:**
-- `memory_engine.py`: `extract_and_store()` with 13 heuristic regex patterns (no LLM required)
-- `plugins/entropicmem/__init__.py`: `sync_turn()` → auto-extract in background thread (5s timeout)
-- `entropicmem.py`: `cmd_extract` CLI with `--text` and `--min-confidence` flags
-- Config: `auto_extract_enabled`, `extraction_timeout`
-- Tests: `tests/test_phase8.py` (5 tests covering extraction, stdin, dedup, preferences)
+1. **Do NOT delete Mnemosyne** until ALL phases complete AND Ufonik explicitly approves.
+2. **Do NOT delete the rollback package** (`~/.hermes/entropicmem/cutover-2026-07-22/`).
+3. **Always pin model+provider** on any new/updated cron job (prevents config drift).
+4. **Verify before reporting success** — run the actual command, check the actual output.
+5. **Credentials never in chat** — Signal DM only.
+6. **Test each phase in isolation** before moving to the next.
+7. **If a phase fails, STOP and report** — do not skip ahead.
 
 ---
 
-### Priority 2 — Native SQLite Vector Search ⏸️ DEFERRED
-**Problem:** FTS5 keyword search misses synonyms/paraphrases.
+## Phase 1 — Foundation: Fix Cron Memory Path (Gap 1)
 
-**Deferred because:** Requires `sqlite-vss` (native extension build) + `sentence-transformers` (torch dep). These add significant installation complexity. Current FTS5 + decay scoring handles 90% of recall needs. Vector search is queued for v1.5 when optional dep groups are introduced.
+**Severity:** CRITICAL — blocks Gaps 2, 3, 4, 7
+**Objective:** Make the Hermes `memory` tool and `entropicmem_*` tools work natively in cron contexts.
 
----
+### Tasks
 
-### Priority 3 — Agent-Writable Core Memory ✅ COMPLETE
-**Problem:** Agent has no low-cost way to update its active Persona/User Profile at runtime.
+- [x] **1.1** Reproduce the failure: create a test cron job that calls the `memory` tool with `provider=entropicmem`. Confirm it returns `"Memory is not available"`.
+  ```bash
+  # Create test cron via hermes cron create or cronjob tool
+  # Prompt: "Call the memory tool with action='add', content='cron memory test', target='memory'. Report the result."
+  # Schedule: one-shot (run once)
+  # Model: pin to current working model+provider
+  ```
+- [x] **1.2** Investigate root cause. Check in order:
+  1. Plugin load order — does the EntropicMem plugin initialize before cron jobs run?
+  2. Provider initialization timing — is `memory.provider: entropicmem` resolved in cron context?
+  3. Hermes core cron runner — how does it initialize memory providers? (Check `hermes-agent/gateway/` and `hermes-agent/cron/` source)
+  4. Compare with interactive context where `memory` tool works fine.
+- [x] **1.3** Determine if this is a Hermes core bug or EntropicMem plugin issue:
+  - If core bug: file issue upstream, document as known limitation, ensure all crons use the helper script.
+  - If plugin issue: fix in `~/.hermes/plugins/entropicmem/__init__.py` and/or `_backend.py`.
+- [x] **1.4** If unfixable (Hermes limitation), document as permanent constraint and standardize all crons on:
+  ```bash
+  python3 ~/.hermes/scripts/entropicmem_cron_remember.py "fact" --domain Knowledge --importance 0.7
+  ```
+- [x] **1.5** Verify: re-run the test cron from 1.1. Confirm write+read round-trip succeeds.
 
-**Completed:**
-- `vault.py`: `CoreMemory` class with `patch()`, `persona`, `user_profile`, `injection_block()`
-- `entropicmem.py`: `cmd_patch_core` CLI + `entropicmem_patch_core` tool schema
-- `plugins/entropicmem/__init__.py`: Core Memory injected at top of every `prefetch()`
-- Config: `core_memory_enabled`
-- Tests: `tests/test_phase8.py` (8 tests: files, patches, class methods)
+### Definition of Done
+- Test cron successfully writes AND reads via `memory` tool (or helper script if documented as permanent workaround).
+- Root cause documented in `~/.hermes/entropicmem/ENTROPICMEM_GAP_ANALYSIS.md` under Gap 1.
+- All downstream phases can proceed with a known-good write path.
 
-### Priority 4 — Temporal Decay & Reinforcement Scoring ✅ COMPLETE
-**Problem:** Outdated facts persist indefinitely and pollute prefetch.
-
-**Completed:**
-- `memory_engine.py`: added `last_accessed`, `access_count` columns + migration
-- `recall_with_relevance()`: composite scoring with decay + reinforcement boost
-- `reinforce()`: updates access count/timestamp, called on recall
-- `fact_age()`: computes days since last access
-- `entropicmem.py`: `cmd_reinforce` CLI
-- Config: `decay_enabled`, `decay_half_life_days`, `reinforcement_boost`
-- Tests: `tests/test_phase8.py` (6 tests: scoring, disabled, boost, reinforce, migration)
-
----
-
-## Configuration Schema (Update all)
-
-Add to `plugins/entropicmem/__init__.py` `get_config_schema()` and `SMART_CONTEXT_DEFAULTS`:
-
-```python
-# Phase 8 additions (implemented)
-"auto_extract_enabled": { "default": True, "description": "Enable background fact extraction from conversation" },
-"extraction_timeout": { "default": 5.0, "description": "Max seconds for extraction per turn" },
-
-# Vector search deferred (see Priority 2)
-
-"core_memory_enabled": { "default": True, "description": "Enable Core Memory (Persona/User Profile) injection" },
-
-"decay_enabled": { "default": True, "description": "Enable temporal decay scoring" },
-"decay_half_life_days": { "default": 30, "description": "Half-life for memory decay in days" },
-"reinforcement_boost": { "default": 0.1, "description": "Score boost per fact access (capped)" },
+### Verification
+```bash
+# Run test cron manually
+hermes cron run <test-job-id>
+# Check output for successful write+read
+# Then clean up test job
+hermes cron remove <test-job-id>
 ```
 
 ---
 
-## Testing & Quality Gates
+### Phase 1 Completion Record (2026-07-23)
 
-**All new features must pass:**
-1. Unit tests in `tests/test_phase8_*.py`
-2. Integration tests in `tests/test_integration.py` (full pipeline)
-3. Existing 112 tests continue to pass
-4. Performance benchmarks:
-   - `prefetch()` < 100ms p95 (including vector search)
-   - `sync_turn()` < 5ms (excluding async extraction)
-   - Vector search < 50ms on 10k facts
+- **Root cause:** Hermes `skip_memory=True` in cron (intentional). Not EntropicMem.
+- **Resolution:** Permanent helper path standardized + documented.
+- **Artifacts:**
+  - `docs/CRON_MEMORY_PATH.md`
+  - `scripts/entropicmem_cron_remember.py` (repo + `~/.hermes/scripts/`)
+  - `skills/memory/entropicmem-cron-writes/SKILL.md`
+  - `~/.hermes/entropicmem/ENTROPICMEM_GAP_ANALYSIS.md` Gap 1 → RESOLVED
+- **Verification:** self-test, direct write/recall, real `no_agent` cron run → `PHASE1_CRON_VERIFY_OK`
+- **Next:** Phase 2 (Notion Knowledge Sync rewrite + second-brain-capture-review)
 
-**Documentation Updates (per feature):**
-- `SKILL.md` — New tools, config, workflow
-- `HERMES_INTEGRATION.md` — Plugin integration details
-- `README.md` — Feature overview
-- `CHANGELOG.md` — v1.3.0 entry
 
----
+## Phase 2 — Data Flow: Rewrite Memory-Writing Crons (Gaps 2, 3)
 
-## Execution Order
+**Severity:** HIGH (Gap 2), MEDIUM (Gap 3)
+**Depends on:** Phase 1 (need a working cron write path)
 
-1. **Auto-Extract** (blocks nothing, highest ROI)
-2. **Vector Search** (requires deps, can be optional flag)
-3. **Core Memory** (independent, low complexity)
-4. **Temporal Decay** (refines existing scoring)
+### Task 2.1 — Rewrite Notion Knowledge Sync (Gap 2)
 
----
+- [x] **2.1.1** Read the full prompt of cron `dff8a6a72447` ("Notion Knowledge Sync").
+- [x] **2.1.2** Locate the backing script (search `~/.hermes/scripts/` for `*notion*sync*` or `*notion*knowledge*`).
+- [x] **2.1.3** Rewrite the script/prompt to target EntropicMem:
+  - Replace any `mnemosyne_remember` / `memory` tool calls with `entropicmem_cron_remember.py` (or native `memory` tool if Phase 1 fixed it).
+  - Preserve the Notion API fetch logic unchanged.
+  - Map Notion page content → EntropicMem `remember()` with appropriate domain and importance.
+- [x] **2.1.4** Test with a single Notion page (manual run, verify the fact appears in EntropicMem).
+- [x] **2.1.5** Update cron job `dff8a6a72447`:
+  - New prompt referencing EntropicMem.
+  - Pin model+provider.
+  - Resume the cron.
+- [x] **2.1.6** Verify: let one scheduled cycle run. Check `entropicmem recall "notion"` returns the synced fact.
 
-## Success Criteria for v1.3.0
+### Task 2.2 — Fix second-brain-capture-review (Gap 3)
 
-- [ ] Zero-effort memory: Agent never needs to call `remember` explicitly
-- [ ] Semantic recall: "car" finds "automobile" memories
-- [ ] Core Memory: Agent can self-edit Persona/User Profile at runtime
-- [ ] Fresh prefetch: 30-day-old unused facts decay out automatically
-- [ ] All 112+ new tests pass
-- [ ] Documentation complete
-- [ ] Tag `v1.3.0` pushed
+- [x] **2.2.1** Read the full prompt of cron `9483533865f1` ("second-brain-capture-review").
+- [x] **2.2.2** Identify all references to `mnemosyne_remember` or Mnemosyne-specific APIs.
+- [x] **2.2.3** Rewrite the prompt:
+  - Replace `mnemosyne_remember` with `entropicmem_cron_remember.py` (or native `memory` tool if Phase 1 fixed it).
+  - Preserve the session_search review logic unchanged.
+  - Ensure batch writes use the helper script's `--json` mode if multiple facts.
+- [x] **2.2.4** Update cron job `9483533865f1` with the new prompt. Pin model+provider.
+- [x] **2.2.5** Verify: run manually (`hermes cron run 9483533865f1`). Check that facts are written to EntropicMem and no Mnemosyne references remain in the output.
 
----
+### Definition of Done (Phase 2)
+- Both crons write to EntropicMem, not Mnemosyne.
+- No `mnemosyne_remember` references remain in any active cron prompt.
+- At least one successful scheduled run for each cron with verified output.
 
-## Notes
-
-- All new features gated by config flags — safe to ship incrementally
-- Vector search is optional dependency (`pip install entropicmem[vector]`)
-- Extraction uses existing Hermes provider stack — no new model costs
-- Core Memory uses existing vault infrastructure — no new storage
-- Decay runs in-memory on recall — no background jobs needed
-
----
-
-## Sole-Provider Migration — Phase 1 COMPLETE (2026-07-23)
-
-**Gap 1 (Cron memory path): RESOLVED by design.**
-
-- Hermes cron uses `skip_memory=True` intentionally — interactive `memory` / `entropicmem_*` tools unavailable in cron.
-- Official path: `scripts/entropicmem_cron_remember.py` → install to `~/.hermes/scripts/`.
-- Docs: `docs/CRON_MEMORY_PATH.md`, skill `skills/memory/entropicmem-cron-writes/`.
-- Verified: self-test + no_agent scheduler run (`PHASE1_CRON_VERIFY_OK`).
-- Version: **2.1.1**
-
-**Next (home plan `~/.hermes/MASTER_TODO.md`):**
-- Phase 2: Rewrite Notion Knowledge Sync + fix second-brain-capture-review
-- Phase 3: EntropicMem backup
-- Phase 4: Retire Mnemosyne crons (needs explicit Ufonik approval)
-- Phase 5: Polish + final validation
+### Verification
+```bash
+# Check for any remaining mnemosyne references in active cron prompts
+hermes cron list | grep -i mnemosyne
+# Should return ONLY the tandem/backup crons (Phase 3-4), NOT data-flow crons
+```
 
 ---
 
-## Sole-Provider Migration — Phase 2 COMPLETE (2026-07-23)
-
-**Gaps 2 + 3 (Notion Knowledge Sync + second-brain-capture-review): RESOLVED.**
-
-- `dff8a6a72447` Notion Knowledge Sync → new consolidated ingester `scripts/notion_entropicmem_sync.py --mode fetch`
-  - Target pages: Ajax SDK, Pre-Sales (General), Migrate Translator, Meeting Prep, Deal Pipeline, Email Digests, Calendar & Tasks
-  - Blocklist/sensitive-keyword guards preserved
-  - Status: still paused pending resume
-- `9483533865f1` second-brain-capture-review → `entropicmem_cron_remember.py` with `--json` batching
-  - All `mnemosyne_remember` references removed
-  - Source tag: `second-brain`
-
-**Artifacts:** `scripts/notion_entropicmem_sync.py`, `docs/CRON_MEMORY_PATH.md`, `docs/ENTROPICMEM_GAP_ANALYSIS.md` updated.
-
-**Next:** Phase 3 backup script + Mnemosyne backup cron retirement.
 
 
+### Phase 2 Completion Record (2026-07-23)
+
+- **Gaps resolved:** Gap 2 (Notion Knowledge Sync), Gap 3 (second-brain-capture-review)
+- **Artifacts:**
+  - `scripts/notion_entropicmem_sync.py` — consolidated Notion→EntropicMem ingester
+  - Cron `dff8a6a72447` prompt updated to EntropicMem (`--mode fetch`)
+  - Cron `9483533865f1` prompt updated to `entropicmem_cron_remember.py` + `--json`
+- **Verification:** pytest 135 passed, helper self-test + fixture validated, both cron prompts Mnemosyne-free
+- **Next:** Phase 3 (EntropicMem backup + Mnemosyne backup replacement)
+
+
+## Phase 3 — Safety Nets: EntropicMem Backup (Gaps 7, 4)
+
+**Severity:** MEDIUM
+**Depends on:** Phase 1 (cron write path), rclone `mygdrive` remote (verified working)
+
+### Task 3.1 — Create EntropicMem Backup Script (Gap 7)
+
+- [x] **3.1.1** Create `~/.hermes/scripts/entropicmem_backup.sh`:
+  - Mirrors mnemosyne_backup.sh structure
+  - Tar+gzip: memory.db, index.db, vault/
+  - Upload via rclone (staged through /tmp to avoid .db bug)
+  - Keep last 7 daily backups locally
+  - HERMES_HOME-aware
+- [x] **3.1.2** Test the script manually: exit 0, "Remote archives: 1"
+- [x] **3.1.3** Verify the archive exists on Google Drive: confirmed via script output
+- [x] **3.1.4** Create a daily cron job `4ec76cbf8193` (`0 2 * * *`, no_agent, deliver=local)
+- [x] **3.1.5** First manual run verified. Scheduled for 2026-07-24 02:00.
+
+### Task 3.2 — Replace Mnemosyne Backup Crons (Gap 4)
+
+- [x] **3.2.1** Paused Mnemosyne backup crons:
+  - `11b5bbe1fc68` (Mnemosyne → Google Drive Backup) — paused
+  - `f893e7549326` (Mnemosyne → Notion Backup) — paused
+- [x] **3.2.2** Notion backup decision: Google Drive sufficient. Notion backup retired (Mnemosyne script remains on disk for manual use if ever needed).
+- [x] **3.2.3** Updated Weekly Full Backup cron (`8883bbe4bab3`): added step 1b "EntropicMem Backup" — run `entropicmem_backup.sh`, verify exit 0, log archive name/size/remote count.
+
+### Definition of Done (Phase 3)
+- EntropicMem backup script runs daily and uploads to Google Drive.
+- At least one verified backup archive exists on Google Drive.
+- Mnemosyne backup crons are paused (not deleted — that's Phase 4).
+- Weekly Full Backup includes EntropicMem.
+
+### Verification
+```bash
+bash ~/.hermes/scripts/entropicmem_backup.sh
+rclone ls mygdrive:hermes-backups/entropicmem/ | tail -3
+# Should show the new archive
+```
+
+---
+
+
+
+### Phase 3 Completion Record (2026-07-23)
+
+- **Gaps resolved:** Gap 7 (EntropicMem scheduled backup), Gap 4 (replace Mnemosyne backup crons)
+- **Artifacts:**
+  - `scripts/entropicmem_backup.sh` — daily GDrive backup (tar+gzip, rclone, 7-day retention)
+  - Cron `4ec76cbf8193` — daily at 02:00, no_agent
+  - Mnemosyne backup crons paused: `11b5bbe1fc68`, `f893e7549326`
+  - Weekly Full Backup `8883bbe4bab3` updated with EntropicMem backup step
+- **Verification:** manual run succeeded (862KB archive, uploaded to mygdrive:hermes-backups/entropicmem/)
+- **Notion backup decision:** Google Drive sufficient; Notion backup concept retired
+- **Next:** Phase 4 (skill dedup + retire tandem crons — needs Ufonik approval)
+
+## Phase 4 — Cleanup: Retire Mnemosyne Crons + Skill Dedup (Gaps 5, 6)
+
+**Severity:** MEDIUM (Gap 5), LOW (Gap 6)
+**Depends on:** Phases 1-3 complete. **Mnemosyne removal requires explicit Ufonik approval.**
+
+### Task 4.1 — Skill Deduplication (Gap 6)
+
+- [ ] **4.1.1** Compare the two skill copies:
+  - `~/.hermes/skills/entropicmem/SKILL.md` (v2.1.0 — standalone, newer)
+  - `~/.hermes/skills/memory/entropicmem/SKILL.md` (v1.3.1 — categorized, older)
+- [ ] **4.1.2** Merge any unique content from v1.3.1 into v2.1.0 (unlikely — v2.1.0 is a superset, but verify).
+- [ ] **4.1.3** Delete `~/.hermes/skills/memory/entropicmem/` (the v1.3.1 copy).
+- [ ] **4.1.4** Update cron `bf428b0b2e05` to reference `entropicmem` instead of `memory/entropicmem` (if the cron survives to Phase 4 — it may be deleted in Task 4.2).
+- [ ] **4.1.5** Verify: `hermes skills list | grep entropicmem` shows exactly ONE entry.
+
+### Task 4.2 — Retire Tandem-Only Crons (Gap 5)
+
+**⚠️ GATE: Do NOT execute this task until Ufonik explicitly approves Mnemosyne removal.**
+
+- [ ] **4.2.1** Confirm all other phases are complete and verified.
+- [ ] **4.2.2** Delete (not pause) the tandem crons:
+  - `bf428b0b2e05` (EntropicMem Mnemosyne Sync) — DELETE
+  - `bacf5cca7c61` (Mnemosyne Autonomous Memory Manager) — DELETE
+- [ ] **4.2.3** Delete the paused legacy sync crons:
+  - `7cbacc0d9038` (Mnemosyne → Logseq Sync) — DELETE
+  - `b20d38ad8edb` (Mnemosyne → Obsidian Sync) — DELETE
+- [ ] **4.2.4** Delete the paused Mnemosyne backup crons (replaced in Phase 3):
+  - `11b5bbe1fc68` (Mnemosyne → Google Drive Backup) — DELETE
+  - `f893e7549326` (Mnemosyne → Notion Backup) — DELETE (or keep if Notion backup was recreated)
+- [ ] **4.2.5** Verify: `hermes cron list | grep -i mnemosyne` returns ZERO results.
+- [ ] **4.2.6** Redesign the EntropicMem 12h monitoring cycle (`fa33fba0b03a`):
+  - Remove Mnemosyne parity checks.
+  - Convert to pure EntropicMem health check: DB integrity, fact count, vault consistency, index freshness.
+  - Update the cron prompt accordingly.
+
+### Definition of Done (Phase 4)
+- Exactly ONE `entropicmem` skill exists (v2.1.0).
+- ZERO Mnemosyne-related crons remain.
+- 12h monitoring cycle is a pure EntropicMem health check.
+- `hermes cron list | grep -i mnemosyne` returns nothing.
+
+### Verification
+```bash
+hermes cron list | grep -i mnemosyne   # expect: empty
+hermes skills list | grep entropicmem   # expect: 1 entry
+```
+
+---
+
+## Phase 5 — Polish + Final Validation (Gap 8)
+
+**Severity:** LOW
+**Depends on:** Phase 4 complete.
+
+### Tasks
+
+- [ ] **5.1** Confirm `entropicmem_*` tools work in ALL contexts:
+  - Interactive chat ✓ (already verified)
+  - Cron jobs (verified in Phase 1)
+  - Delegation / subagent contexts
+  - Gateway (Telegram/Discord) contexts
+- [ ] **5.2** Evaluate vault dual-write on cron helper:
+  - Should `entropicmem_cron_remember.py` also create vault notes for high-importance facts?
+  - If yes: add `--vault` flag. If no: document the decision.
+- [ ] **5.3** Update documentation:
+  - `~/.hermes/entropicmem/SOLE_PROVIDER_CUTOVER.md` — final state after all gaps closed.
+  - `~/.hermes/entropicmem/ENTROPICMEM_GAP_ANALYSIS.md` — mark all gaps RESOLVED.
+  - EntropicMem repo README — update to reflect sole-provider status.
+- [ ] **5.4** Final end-to-end validation:
+  - Write a fact via `memory` tool → recall it.
+  - Write a fact via `entropicmem_cron_remember.py` → recall it.
+  - Write a fact via `entropicmem_remember` MCP tool → recall it.
+  - Run `entropicmem lint` → zero errors.
+  - Run `entropicmem hotcache` → fresh.
+  - Run `entropicmem graph export` → valid HTML.
+  - Run full test suite: `cd ~/Documents/Coding\ Projects/EntropicMem && python -m pytest` → 135+ passed.
+
+### Definition of Done (Phase 5)
+- All tool contexts verified.
+- Documentation updated.
+- Full test suite passes.
+- Ufonik signs off on sole-provider status.
+
+---
+
+## Execution Order Summary
+
+```
+Phase 1 (CRITICAL)  → Fix cron memory path          [blocks 2, 3, 4, 7]
+Phase 2 (HIGH)      → Rewrite Notion sync + fix second-brain cron
+Phase 3 (MEDIUM)    → EntropicMem backup + replace Mnemosyne backups
+Phase 4 (MEDIUM)    → Skill dedup + retire tandem crons  [GATE: needs Ufonik approval]
+Phase 5 (LOW)       → Polish + final validation
+```
+
+**Estimated effort:** Phase 1 is the unknown (could be 30 min or 3 hours depending on root cause). Phases 2-5 are mechanical once Phase 1 is resolved.
+
+---
+
+## Key Paths Reference
+
+| Artifact | Path |
+|----------|------|
+| EntropicMem data | `~/.hermes/entropicmem/{memory.db, index.db, vault/}` |
+| Cron helper script | `~/.hermes/scripts/entropicmem_cron_remember.py` |
+| Skill (standalone, v2.1.0) | `~/.hermes/skills/entropicmem/` |
+| Skill (categorized, v1.3.1 — DELETE) | `~/.hermes/skills/memory/entropicmem/` |
+| Cutover docs + rollback | `~/.hermes/entropicmem/cutover-2026-07-22/` |
+| Gap analysis | `~/.hermes/entropicmem/ENTROPICMEM_GAP_ANALYSIS.md` |
+| EntropicMem repo | `~/Documents/Coding Projects/EntropicMem` |
+| Mnemosyne DB (DO NOT DELETE) | `~/.hermes/mnemosyne/data/mnemosyne.db` |
+| rclone remote | `mygdrive` |
+| Backup staging | `~/.hermes/backups/` |
