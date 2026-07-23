@@ -37,16 +37,15 @@ ARCHIVE="entropicmem_$TIMESTAMP.tar.gz"
 log "Creating archive: $ARCHIVE"
 
 # Build file list conditionally — avoid stderr parsing entirely
-TAR_FILES="entropicmem/memory.db"
+TAR_FILES=("entropicmem/memory.db")
 if [ -f "$ENTROPICMEM_DIR/index.db" ]; then
-    TAR_FILES="$TAR_FILES entropicmem/index.db"
+    TAR_FILES+=("entropicmem/index.db")
 fi
 if [ -d "$ENTROPICMEM_DIR/vault" ]; then
-    TAR_FILES="$TAR_FILES entropicmem/vault/"
+    TAR_FILES+=("entropicmem/vault/")
 fi
 
-# shellcheck disable=SC2086
-if ! tar -czf "$BACKUP_DIR/$ARCHIVE" -C "$HERMES_HOME" $TAR_FILES; then
+if ! tar -czf "$BACKUP_DIR/$ARCHIVE" -C "$HERMES_HOME" "${TAR_FILES[@]}"; then
     fail "Archive creation failed"
 fi
 
