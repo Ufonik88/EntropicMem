@@ -63,6 +63,7 @@ def remember(
     domain: str = "Knowledge",
     importance: float = 0.7,
     source: str = "cron",
+    title: str | None = None,
 ) -> dict:
     content = (content or "").strip()
     if not content:
@@ -99,6 +100,7 @@ def main() -> int:
     p.add_argument("--domain", default="Knowledge")
     p.add_argument("--importance", type=float, default=0.7)
     p.add_argument("--source", default="cron")
+    p.add_argument("--title", default=None, help="Explicit title (default: first 60 chars of content)")
     p.add_argument(
         "--json",
         dest="json_in",
@@ -114,14 +116,18 @@ def main() -> int:
             print(json.dumps({"ok": True, "dry_run": True, "would_store": probe}))
             return 0
         result = remember(
-            probe, domain="Knowledge", importance=0.4, source="cron_self_test"
+            probe, domain="Knowledge", importance=0.4, source="cron_self_test", title="Self-Test Probe"
         )
         print(json.dumps(result))
         return 0 if result["ok"] else 2
 
     items = []
     if args.json_in:
-        raw = json.loads(args.json_in)
+        try:
+            raw = json.loads(args.json_in)
+        except json.JSONDecodeError:
+            print("ERROR: invalid JSON passed to --json", file=sys.stderr)
+            return 1
         if not isinstance(raw, list):
             print("ERROR: --json must be a JSON array", file=sys.stderr)
             return 1
@@ -156,10 +162,17 @@ def main() -> int:
         importance = it.get("importance") if isinstance(it, dict) else None
         if importance is None:
             importance = args.importance
+        title = (it.get("title") if isinstance(it, dict) else None) or args.title
         try:
             r = remember(
-                content, domain=str(domain), importance=float(importance), source=args.source
+                content, title=title, domain=str(domain), importance=float(importance), source=args.source
             )
+        except FileNotFoundError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        except ImportError as e:
+            print(f"ERROR: cannot import memory_engine — {e}", file=sys.stderr)
+            return 1
         except Exception as e:
             r = {"ok": False, "error": str(e), "content": (content or "")[:80]}
         results.append(r)
