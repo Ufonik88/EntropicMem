@@ -183,3 +183,22 @@ Add to `plugins/entropicmem/__init__.py` `get_config_schema()` and `SMART_CONTEX
 - Phase 4: Retire Mnemosyne crons (needs explicit Ufonik approval)
 - Phase 5: Polish + final validation
 
+---
+
+## Sole-Provider Migration — Phase 2 COMPLETE (2026-07-23)
+
+**Gaps 2 + 3 (Notion Knowledge Sync + second-brain-capture-review): RESOLVED.**
+
+- `dff8a6a72447` Notion Knowledge Sync → new consolidated ingester `scripts/notion_entropicmem_sync.py --mode fetch`
+  - Target pages: Ajax SDK, Pre-Sales (General), Migrate Translator, Meeting Prep, Deal Pipeline, Email Digests, Calendar & Tasks
+  - Blocklist/sensitive-keyword guards preserved
+  - Status: still paused pending resume
+- `9483533865f1` second-brain-capture-review → `entropicmem_cron_remember.py` with `--json` batching
+  - All `mnemosyne_remember` references removed
+  - Source tag: `second-brain`
+
+**Artifacts:** `scripts/notion_entropicmem_sync.py`, `docs/CRON_MEMORY_PATH.md`, `docs/ENTROPICMEM_GAP_ANALYSIS.md` updated.
+
+**Next:** Phase 3 backup script + Mnemosyne backup cron retirement.
+
+
