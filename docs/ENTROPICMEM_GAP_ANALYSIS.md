@@ -186,7 +186,7 @@ python3 ~/.hermes/scripts/entropicmem_cron_remember.py "fact" --domain Knowledge
 
 ## Gap 8: Optional Polish
 
-**Severity:** LOW → **IN PROGRESS (Phase 5)**
+**Severity:** LOW → **RESOLVED (2026-07-23)**
 **What:** Quality-of-life improvements for production-hard status.
 
 **Items:**
