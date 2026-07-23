@@ -78,18 +78,19 @@ def check_index() -> dict:
         tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
         conn.close()
         age = _file_age_hours(INDEX_DB)
-        # Compare index freshness against memory.db
+        # Compare index freshness against memory.db; clamp to "index behind" (never negative)
         mem_age = _file_age_hours(MEMORY_DB)
-        lag_hours = None
+        index_behind_hours = None
         stale = False
         if age is not None and mem_age is not None:
-            lag_hours = round(age - mem_age, 1)
-            stale = lag_hours > 24  # index more than 24h behind memory
+            behind = max(age - mem_age, 0)
+            index_behind_hours = round(behind, 1) if behind > 0 else 0.0
+            stale = index_behind_hours > 24  # index more than 24h behind memory
         return {
             "status": "WARN" if stale else "OK",
             "tables": len(tables),
             "age_hours": round(age, 1) if age is not None else None,
-            "lag_vs_memory_hours": lag_hours,
+            "index_behind_hours": index_behind_hours,
         }
     except Exception as e:
         return {"status": "FAIL", "error": f"{type(e).__name__}: {e}"}
