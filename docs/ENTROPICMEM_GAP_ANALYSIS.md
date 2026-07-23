@@ -129,7 +129,7 @@ python3 ~/.hermes/scripts/entropicmem_cron_remember.py "fact" --domain Knowledge
 
 ## Gap 5: Retire or Redesign Tandem-Only Crons
 
-**Severity:** MEDIUM
+**Severity:** MEDIUM → **RESOLVED (2026-07-23, paused not deleted)**
 **What:** Two crons exist only because of the tandem setup. When Mnemosyne is removed, they become unnecessary.
 
 | Job ID | Name | Status | Post-Mnemosyne Fate |
@@ -146,7 +146,7 @@ python3 ~/.hermes/scripts/entropicmem_cron_remember.py "fact" --domain Knowledge
 
 ## Gap 6: Skill Deduplication
 
-**Severity:** LOW (but confusing)
+**Severity:** LOW → **RESOLVED (2026-07-23)** (but confusing)
 **What:** Two copies of the `entropicmem` skill exist:
 
 | Path | Version | Referenced By |
@@ -186,7 +186,7 @@ python3 ~/.hermes/scripts/entropicmem_cron_remember.py "fact" --domain Knowledge
 
 ## Gap 8: Optional Polish
 
-**Severity:** LOW
+**Severity:** LOW → **IN PROGRESS (Phase 5)**
 **What:** Quality-of-life improvements for production-hard status.
 
 **Items:**
