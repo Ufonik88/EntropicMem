@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
@@ -129,9 +129,9 @@ def check_stability_gate() -> dict:
     """Check 1-week stability gate criteria for sole-provider promotion.
 
     Gate criteria:
-    - 7 consecutive days of successful EntropicMem health checks
+    - 7 CONSECUTIVE days of health-checks with status OK
     - Zero Mnemosyne writes in 7 days
-    - All EntropicMem crons healthy
+    - All Mnemosyne crons paused (not active)
     - No entropicmem_remember tool failures in interactive logs
     """
     gate_log = HERMES_HOME / "entropicmem" / "stability_gate.log"
@@ -145,33 +145,78 @@ def check_stability_gate() -> dict:
         }
 
     try:
-        lines = gate_log.read_text().strip().split("\n")
+        lines = [l.strip() for l in gate_log.read_text().strip().split("\n") if l.strip()]
         # Each line: YYYY-MM-DD,status (OK/WARN/FAIL)
-        ok_days = 0
+        today = datetime.now(timezone.utc).date()
+
+        # Parse entries into dict: date -> status
+        entries = {}
         for line in lines:
-            if ",OK" in line:
-                ok_days += 1
+            parts = line.split(",")
+            if len(parts) != 2:
+                continue
+            date_str, status = parts[0].strip(), parts[1].strip()
+            try:
+                d = datetime.strptime(date_str, "%Y-%m-%d").date()
+                entries[d] = status
+            except ValueError:
+                continue
 
-        gate_passed = ok_days >= 7
+        # Check last 7 days (today back to 6 days ago) — all must be OK
+        consecutive_ok = 0
+        for offset in range(7):
+            check_date = today - timedelta(days=offset)
+            if entries.get(check_date) == "OK":
+                consecutive_ok += 1
+            else:
+                break  # break on first non-OK or missing day
 
-        # Check for Mnemosyne writes in last 7 days
-        mnemosyne_writes = 0
-        mnemosyne_crons = [
-            "bacf5cca7c61", "11b5bbe1fc68", "f893e7549326",
-            "7cbacc0d9038", "b20d38ad8edb", "bf428b0b2e05"
-        ]
+        gate_passed = consecutive_ok >= 7
+
+        # Check Mnemosyne cron state from jobs.json
+        mnemosyne_ids = {
+            "bf428b0b2e05", "bacf5cca7c61", "11b5bbe1fc68",
+            "f893e7549326", "7cbacc0d9038", "b20d38ad8edb"
+        }
+        mnemosyne_crons_active = _check_mnemosyne_crons(mnemosyne_ids)
 
         return {
             "status": "OK" if gate_passed else "PENDING",
-            "days_tracked": len(lines),
-            "consecutive_ok_days": ok_days,
+            "days_tracked": len(entries),
+            "consecutive_ok_days": consecutive_ok,
             "gate_passed": gate_passed,
-            "mnemosyne_writes_7d": mnemosyne_writes,
-            "mnemosyne_crons_active": any(True for _ in []),  # Would check cron state
-            "message": f"Gate {'PASSED' if gate_passed else 'IN PROGRESS'}: {ok_days}/7 OK days"
+            "mnemosyne_crons_active": mnemosyne_crons_active,
+            "message": (
+                f"Gate {'PASSED' if gate_passed else 'IN PROGRESS'}: "
+                f"{consecutive_ok}/7 consecutive OK days"
+            ),
         }
     except Exception as e:
         return {"status": "FAIL", "error": f"{type(e).__name__}: {e}"}
+
+
+def _check_mnemosyne_crons(mnemosyne_ids: set) -> list:
+    """Check if any Mnemosyne/tandem cron jobs are still active.
+
+    Reads ~/.hermes/cron/jobs.json. Returns list of active (non-paused) cron IDs.
+    Returns empty list on error (can't read jobs file).
+    """
+    jobs_path = HERMES_HOME / "cron" / "jobs.json"
+    if not jobs_path.exists():
+        return []  # can't determine — assume none active
+    try:
+        with open(jobs_path) as f:
+            data = json.load(f)
+        jobs = data.get("jobs", []) if isinstance(data, dict) else []
+        active = []
+        for j in jobs:
+            jid = j.get("id", "")
+            if jid in mnemosyne_ids:
+                if j.get("state") not in ("paused", "disabled"):
+                    active.append(jid)
+        return active
+    except Exception:
+        return []  # can't determine — err on safe side
 
 
 def main() -> int:
