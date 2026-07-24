@@ -745,15 +745,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     f"## Fact\n{content}\n\n## Source\n- entropicmem_remember\n\n"
                     f"## Links\n- [[{domain}/Index]]\n"
                 )
-                vault_note = str(
-                    vault.write_note(
-                        domain,
-                        f"Fact - {content[:50]}",
-                        body,
-                        tags=["durable", "agent"],
-                        domain=domain,
-                        frontmatter={"entropic_id": eid},
-                    )
+                # write_note returns Path; keep as Path for read_note
+                vault_note = vault.write_note(
+                    domain,
+                    f"Fact - {content[:50]}",
+                    body,
+                    tags=["durable", "agent"],
+                    domain=domain,
+                    frontmatter={"entropic_id": eid},
                 )
                 if self._index_db:
                     idx = VaultIndex(self._index_db)
@@ -761,6 +760,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     idx.upsert_note(note)
                     idx.upsert_edges_for_note(vault, note)
                     idx.close()
+                # Convert to string for JSON serialization
+                vault_note = str(vault_note)
             return json.dumps({"ok": True, "entropic_id": eid, "vault_note": vault_note})
         except Exception as e:
             logger.exception("entropicmem_remember failed")
