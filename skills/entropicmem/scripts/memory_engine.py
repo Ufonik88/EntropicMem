@@ -153,27 +153,31 @@ class MemoryEngine:
 
     def _init_schema(self) -> None:
         self._acquire_write_lock()
-        self.db.executescript(MEMORY_SCHEMA)
-        # Migrate: add temporal columns and index if they don't exist
-        existing_cols = {r[1] for r in self.db.execute("PRAGMA table_info(facts)").fetchall()}
-        if "last_accessed" not in existing_cols:
-            self.db.execute("ALTER TABLE facts ADD COLUMN last_accessed TIMESTAMP")
-        if "access_count" not in existing_cols:
-            self.db.execute("ALTER TABLE facts ADD COLUMN access_count INTEGER DEFAULT 0")
-        self.db.execute("CREATE INDEX IF NOT EXISTS idx_facts_last_accessed ON facts(last_accessed DESC)")
-        self.db.commit()
-        self._release_write_lock()
+        try:
+            self.db.executescript(MEMORY_SCHEMA)
+            # Migrate: add temporal columns and index if they don't exist
+            existing_cols = {r[1] for r in self.db.execute("PRAGMA table_info(facts)").fetchall()}
+            if "last_accessed" not in existing_cols:
+                self.db.execute("ALTER TABLE facts ADD COLUMN last_accessed TIMESTAMP")
+            if "access_count" not in existing_cols:
+                self.db.execute("ALTER TABLE facts ADD COLUMN access_count INTEGER DEFAULT 0")
+            self.db.execute("CREATE INDEX IF NOT EXISTS idx_facts_last_accessed ON facts(last_accessed DESC)")
+            self.db.commit()
+        finally:
+            self._release_write_lock()
 
     def _rebuild_fts(self) -> None:
         """Rebuild the FTS5 index from the facts table (I2: DB error recovery)."""
         self._acquire_write_lock()
-        self.db.execute("DELETE FROM facts_fts")
-        self.db.execute(
-            """INSERT INTO facts_fts (rowid, content, title, tags, domain)
-               SELECT rowid, content, title, tags, domain FROM facts"""
-        )
-        self.db.commit()
-        self._release_write_lock()
+        try:
+            self.db.execute("DELETE FROM facts_fts")
+            self.db.execute(
+                """INSERT INTO facts_fts (rowid, content, title, tags, domain)
+                   SELECT rowid, content, title, tags, domain FROM facts"""
+            )
+            self.db.commit()
+        finally:
+            self._release_write_lock()
 
     def _execute_with_retry(self, sql: str, params: tuple = (), max_retries: int = 2):
         """Execute SQL with automatic FTS rebuild on corruption (I2: DB error recovery)."""
@@ -278,17 +282,20 @@ class MemoryEngine:
     def _backup(self) -> Path:
         """Create a timestamped backup of the memory DB (I4: auto-backup before destructive ops)."""
         self._acquire_write_lock()
-        backup_dir = self.db_path.parent / "backups"
-        backup_dir.mkdir(exist_ok=True)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        backup_path = backup_dir / f"memory_{timestamp}.db"
-        # Use SQLite backup API for consistency
-        src = sqlite3.connect(str(self.db_path))
-        dst = sqlite3.connect(str(backup_path))
-        src.backup(dst)
-        dst.close()
-        src.close()
-        return backup_path
+        try:
+            backup_dir = self.db_path.parent / "backups"
+            backup_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            backup_path = backup_dir / f"memory_{timestamp}.db"
+            # Use SQLite backup API for consistency
+            src = sqlite3.connect(str(self.db_path))
+            dst = sqlite3.connect(str(backup_path))
+            src.backup(dst)
+            dst.close()
+            src.close()
+            return backup_path
+        finally:
+            self._release_write_lock()
 
     def forget(self, entropic_id: str) -> bool:
         """Delete a fact by entropic_id. Returns True if found and deleted."""

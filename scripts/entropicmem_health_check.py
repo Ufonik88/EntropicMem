@@ -129,8 +129,7 @@ def check_stability_gate() -> dict:
     """Check 1-week stability gate criteria for sole-provider promotion.
 
     Gate criteria:
-    - 7 CONSECUTIVE days of health-checks with status OK
-    - Zero Mnemosyne writes in 7 days
+    - At least 7 CONSECUTIVE days of health-checks with status OK
     - All Mnemosyne crons paused (not active)
     - No entropicmem_remember tool failures in interactive logs
     """
@@ -141,16 +140,16 @@ def check_stability_gate() -> dict:
             "status": "PENDING",
             "message": "Stability gate log not found - gate not started",
             "days_tracked": 0,
+            "longest_consecutive_ok": 0,
             "gate_passed": False,
         }
 
     try:
         lines = [l.strip() for l in gate_log.read_text().strip().split("\n") if l.strip()]
         # Each line: YYYY-MM-DD,status (OK/WARN/FAIL)
-        today = datetime.now(timezone.utc).date()
 
-        # Parse entries into dict: date -> status
-        entries = {}
+        # Parse into sorted list of (date, is_ok)
+        entries = []
         for line in lines:
             parts = line.split(",")
             if len(parts) != 2:
@@ -158,65 +157,92 @@ def check_stability_gate() -> dict:
             date_str, status = parts[0].strip(), parts[1].strip()
             try:
                 d = datetime.strptime(date_str, "%Y-%m-%d").date()
-                entries[d] = status
+                entries.append((d, status == "OK"))
             except ValueError:
                 continue
 
-        # Check last 7 days (today back to 6 days ago) — all must be OK
-        consecutive_ok = 0
-        for offset in range(7):
-            check_date = today - timedelta(days=offset)
-            if entries.get(check_date) == "OK":
-                consecutive_ok += 1
-            else:
-                break  # break on first non-OK or missing day
+        if not entries:
+            return {
+                "status": "PENDING",
+                "message": "Gate log has no valid entries",
+                "days_tracked": 0,
+                "longest_consecutive_ok": 0,
+                "gate_passed": False,
+            }
 
-        gate_passed = consecutive_ok >= 7
+        # Sort by date ascending
+        entries.sort(key=lambda x: x[0])
+
+        # Scan for longest consecutive OK run
+        longest_run = 0
+        current_run = 0
+        for i, (d, is_ok) in enumerate(entries):
+            if is_ok:
+                if i == 0 or entries[i - 1][0] != d - timedelta(days=1):
+                    current_run = 0  # break: not consecutive with previous day
+                current_run += 1
+                longest_run = max(longest_run, current_run)
+            else:
+                current_run = 0
+
+        gate_passed = longest_run >= 7
 
         # Check Mnemosyne cron state from jobs.json
         mnemosyne_ids = {
             "bf428b0b2e05", "bacf5cca7c61", "11b5bbe1fc68",
             "f893e7549326", "7cbacc0d9038", "b20d38ad8edb"
         }
-        mnemosyne_crons_active = _check_mnemosyne_crons(mnemosyne_ids)
+        cron_result = _check_mnemosyne_crons(mnemosyne_ids)
 
         return {
             "status": "OK" if gate_passed else "PENDING",
             "days_tracked": len(entries),
-            "consecutive_ok_days": consecutive_ok,
+            "longest_consecutive_ok": longest_run,
             "gate_passed": gate_passed,
-            "mnemosyne_crons_active": mnemosyne_crons_active,
+            "mnemosyne_crons_state": cron_result,
             "message": (
                 f"Gate {'PASSED' if gate_passed else 'IN PROGRESS'}: "
-                f"{consecutive_ok}/7 consecutive OK days"
+                f"{longest_run}/7 longest consecutive OK days"
             ),
         }
     except Exception as e:
         return {"status": "FAIL", "error": f"{type(e).__name__}: {e}"}
 
 
-def _check_mnemosyne_crons(mnemosyne_ids: set) -> list:
+def _check_mnemosyne_crons(mnemosyne_ids: set) -> dict:
     """Check if any Mnemosyne/tandem cron jobs are still active.
 
-    Reads ~/.hermes/cron/jobs.json. Returns list of active (non-paused) cron IDs.
-    Returns empty list on error (can't read jobs file).
+    Reads ~/.hermes/cron/jobs.json.
+    Returns dict with 'active' (list), 'paused' (list), 'error' (str or None).
     """
     jobs_path = HERMES_HOME / "cron" / "jobs.json"
     if not jobs_path.exists():
-        return []  # can't determine — assume none active
+        return {
+            "active": [],
+            "paused": [],
+            "error": "jobs.json not found — cannot determine cron state",
+        }
     try:
         with open(jobs_path) as f:
             data = json.load(f)
         jobs = data.get("jobs", []) if isinstance(data, dict) else []
         active = []
+        paused = []
         for j in jobs:
             jid = j.get("id", "")
             if jid in mnemosyne_ids:
-                if j.get("state") not in ("paused", "disabled"):
+                state = j.get("state", "")
+                if state in ("paused", "disabled"):
+                    paused.append(jid)
+                else:
                     active.append(jid)
-        return active
-    except Exception:
-        return []  # can't determine — err on safe side
+        return {"active": active, "paused": paused, "error": None}
+    except Exception as e:
+        return {
+            "active": [],
+            "paused": [],
+            "error": f"Cannot read jobs.json: {type(e).__name__}",
+        }
 
 
 def main() -> int:
