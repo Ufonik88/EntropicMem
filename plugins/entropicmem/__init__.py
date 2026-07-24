@@ -880,11 +880,15 @@ class EntropicMemMemoryProvider(MemoryProvider):
     def _memory_engine(self):
         """Shared helper: ensure scripts on path and open a MemoryEngine context.
 
+        Returns (engine, None) on success, or (None, error_json) on failure.
+        The caller must check the second element before using engine.
+
         Usage:
-            with self._memory_engine() as engine:
+            engine, error = self._memory_engine()
+            if error:
+                return error
+            with engine:
                 ...
-        Returns a tuple of (error_msg, None) on failure, or (None, engine) on success.
-        The caller must check error_msg before using engine.
         """
         if not self._memory_db or not self._scripts_dir:
             return None, _tool_error("EntropicMem not initialized")
@@ -910,7 +914,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
         engine, error = self._memory_engine()
         if error:
             return error
-        entropic_id = (args.get("entropic_id") or "").strip()
+        # Accept both 'entropic_id' (canonical) and 'id' (backward compat)
+        entropic_id = (args.get("entropic_id") or args.get("id") or "").strip()
         if not entropic_id:
             return _tool_error("entropic_id required")
         try:
