@@ -241,7 +241,7 @@ def _check_mnemosyne_crons(mnemosyne_ids: set) -> dict:
         return {
             "active": [],
             "paused": [],
-            "error": f"Cannot read jobs.json: {type(e).__name__}",
+            "error": f"Cannot read jobs.json: {type(e).__name__}: {e}",
         }
 
 
