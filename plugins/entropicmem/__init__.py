@@ -916,9 +916,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return error
         # Accept both 'entropic_id' (canonical) and 'id' (backward compat)
         legacy_id = (args.get("id") or "").strip()
-        if legacy_id and "entropic_id" not in args:
-            logger.warning("entropicmem_get: deprecated 'id' argument (%s), use 'entropic_id' instead", legacy_id)
-        entropic_id = (args.get("entropic_id") or legacy_id).strip()
+        canonical = (args.get("entropic_id") or "").strip()
+        # Warn whenever legacy_id is actually used (non-empty), regardless of
+        # whether entropic_id key exists but is empty/whitespace
+        if legacy_id and not canonical:
+            logger.warning(
+                "entropicmem_get: deprecated 'id' argument used, use 'entropic_id' instead"
+            )
+        entropic_id = canonical or legacy_id
         if not entropic_id:
             return _tool_error("entropic_id required")
         try:
