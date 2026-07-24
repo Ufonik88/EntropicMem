@@ -915,6 +915,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
         if error:
             return error
         # Accept both 'entropic_id' (canonical) and 'id' (backward compat)
+        if "id" in args and "entropic_id" not in args:
+            logger.warning("entropicmem_get: deprecated 'id' argument, use 'entropic_id' instead")
         entropic_id = (args.get("entropic_id") or args.get("id") or "").strip()
         if not entropic_id:
             return _tool_error("entropic_id required")
