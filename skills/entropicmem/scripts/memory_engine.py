@@ -288,9 +288,8 @@ class MemoryEngine:
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             backup_path = backup_dir / f"memory_{timestamp}.db"
             # Use SQLite backup API for consistency
-            with sqlite3.connect(str(self.db_path)) as src:
-                with sqlite3.connect(str(backup_path)) as dst:
-                    src.backup(dst)
+            with sqlite3.connect(str(self.db_path)) as src, sqlite3.connect(str(backup_path)) as dst:
+                src.backup(dst)
             return backup_path
         finally:
             self._release_write_lock()
