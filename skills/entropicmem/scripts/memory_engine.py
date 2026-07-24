@@ -126,12 +126,13 @@ class MemoryEngine:
         self.db = sqlite3.connect(str(self.db_path), timeout=30)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
-        self._init_schema()
         
         # Concurrency guard: file lock for write serialization
         lock_path = self.db_path.parent / f"{self.db_path.name}.lock"
         self._lock_fd = open(lock_path, "w")
         self._write_locked = False
+        
+        self._init_schema()
     
     def _acquire_write_lock(self) -> None:
         """Acquire exclusive file lock for write operations."""
@@ -151,6 +152,7 @@ class MemoryEngine:
             self._write_locked = False
 
     def _init_schema(self) -> None:
+        self._acquire_write_lock()
         self.db.executescript(MEMORY_SCHEMA)
         # Migrate: add temporal columns and index if they don't exist
         existing_cols = {r[1] for r in self.db.execute("PRAGMA table_info(facts)").fetchall()}
@@ -160,15 +162,18 @@ class MemoryEngine:
             self.db.execute("ALTER TABLE facts ADD COLUMN access_count INTEGER DEFAULT 0")
         self.db.execute("CREATE INDEX IF NOT EXISTS idx_facts_last_accessed ON facts(last_accessed DESC)")
         self.db.commit()
+        self._release_write_lock()
 
     def _rebuild_fts(self) -> None:
         """Rebuild the FTS5 index from the facts table (I2: DB error recovery)."""
+        self._acquire_write_lock()
         self.db.execute("DELETE FROM facts_fts")
         self.db.execute(
             """INSERT INTO facts_fts (rowid, content, title, tags, domain)
                SELECT rowid, content, title, tags, domain FROM facts"""
         )
         self.db.commit()
+        self._release_write_lock()
 
     def _execute_with_retry(self, sql: str, params: tuple = (), max_retries: int = 2):
         """Execute SQL with automatic FTS rebuild on corruption (I2: DB error recovery)."""
@@ -182,8 +187,14 @@ class MemoryEngine:
                     raise
 
     def close(self) -> None:
-        self._release_write_lock()
-        self._lock_fd.close()
+        try:
+            self._release_write_lock()
+        except (OSError, ValueError):
+            pass  # lock already released or fd closed
+        try:
+            self._lock_fd.close()
+        except (OSError, ValueError):
+            pass
         self.db.close()
 
     def __enter__(self) -> "MemoryEngine":
@@ -261,10 +272,12 @@ class MemoryEngine:
                 (fact_rowid[0], content, title or "", tags_str, domain),
             )
         self.db.commit()
+        self._release_write_lock()
         return eid
 
     def _backup(self) -> Path:
         """Create a timestamped backup of the memory DB (I4: auto-backup before destructive ops)."""
+        self._acquire_write_lock()
         backup_dir = self.db_path.parent / "backups"
         backup_dir.mkdir(exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -288,6 +301,7 @@ class MemoryEngine:
         if row:
             self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (row[0],))
         self.db.commit()
+        self._release_write_lock()
         return row is not None
 
     def consolidate(self, max_age_days: int = 90, min_access_count: int = 0) -> dict:
@@ -575,6 +589,7 @@ class MemoryEngine:
             (now, entropic_id),
         )
         self.db.commit()
+        self._release_write_lock()
         return True
 
     def recall_with_relevance(
