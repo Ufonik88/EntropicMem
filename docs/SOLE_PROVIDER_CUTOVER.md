@@ -1,7 +1,9 @@
 # EntropicMem — Sole Provider Cutover Record
 
 **Date:** 2026-07-23
-**Status:** ACTIVE — EntropicMem is the sole memory provider for Hermes Agent
+**Status:** ACTIVE PROVIDER — EntropicMem is the memory provider, Mnemosyne data preserved pending 1-week stability gate
+
+> ⚠️ **NOT YET SOLE PROVIDER** — Mnemosyne crons paused, data intact. Full sole-provider promotion requires P0 blockers resolved and 1-week stability gate passed.
 
 ## Configuration
 
@@ -14,15 +16,18 @@ memory:
 
 ## What Changed
 
-| Component | Before | After |
+| Component | Before | Current (Transition) | Target (Post-Gate) |
+|---|---|---|---|
 |-----------|--------|-------|
-| Memory provider | `mnemosyne` | `entropicmem` |
-| Cron memory writes | `mnemosyne_remember` tool | `entropicmem_cron_remember.py` script |
-| Notion sync | `notion_to_mnemosyne_cron.py` | `notion_entropicmem_sync.py` |
-| Second-brain capture | `mnemosyne_remember` in prompt | `entropicmem_cron_remember.py --json` |
-| Backup target | Mnemosyne DB → GDrive | EntropicMem DB → GDrive |
-| 12h monitoring | Mnemosyne parity checks | Pure EntropicMem health check |
-| Skill (active) | `memory/entropicmem` (v1.3.1) | `entropicmem` (v2.1.0+) |
+| Memory provider | `mnemosyne` | `entropicmem` (active) | `entropicmem` (sole) |
+| Cron memory writes | `mnemosyne_remember` tool | `entropicmem_cron_remember.py` script | `entropicmem_cron_remember.py` script |
+| Notion sync | `notion_to_mnemosyne_cron.py` | `notion_entropicmem_sync.py` (paused) | `notion_entropicmem_sync.py` (active) |
+| Second-brain capture | `mnemosyne_remember` in prompt | `entropicmem_cron_remember.py --json` | `entropicmem_cron_remember.py --json` |
+| Backup target | Mnemosyne DB → GDrive | EntropicMem DB → GDrive | EntropicMem DB → GDrive |
+| 12h monitoring | Mnemosyne parity checks | Pure EntropicMem health check | Pure EntropicMem health check |
+| Skill (active) | `memory/entropicmem` (v1.3.1) | `entropicmem` (v2.1.0+) | `entropicmem` (v2.1.0+) |
+| Mnemosyne crons | Active | **Paused (6 crons)** | **Deleted** |
+| Mnemosyne data | Live | **Preserved (~90MB)** | **Archived (not deleted)** |
 
 ## Crons
 
@@ -32,12 +37,14 @@ memory:
 | `4ec76cbf8193` EntropicMem → Google Drive Backup | **scheduled** | Daily 02:00, no_agent |
 | `dff8a6a72447` Notion Knowledge Sync | **paused** | Rewritten to EntropicMem; resume when ready |
 | `9483533865f1` second-brain-capture-review | **scheduled** | Uses `entropicmem_cron_remember.py` |
-| `bf428b0b2e05` EntropicMem Mnemosyne Sync | **paused** | Legacy — delete after 1-week stability |
-| `bacf5cca7c61` Mnemosyne Autonomous Memory Manager | **paused** | Legacy — delete after 1-week stability |
+| `bf428b0b2e05` EntropicMem Mnemosyne Sync | **paused** | Legacy — delete after 1-week stability gate |
+| `bacf5cca7c61` Mnemosyne Autonomous Memory Manager | **paused** | Legacy — delete after 1-week stability gate |
 | `11b5bbe1fc68` Mnemosyne → Google Drive Backup | **paused** | Replaced by EntropicMem backup |
 | `f893e7549326` Mnemosyne → Notion Backup | **paused** | Retired |
 | `7cbacc0d9038` Mnemosyne → Logseq Sync | **paused** | Retired |
 | `b20d38ad8edb` Mnemosyne → Obsidian Sync | **paused** | Retired |
+
+> **6 Mnemosyne crons remain paused (not deleted)** — awaiting 1-week stability gate before deletion per Phase 6 gate.
 
 ## Data Paths
 
@@ -64,6 +71,13 @@ bash ~/.hermes/entropicmem/cutover-2026-07-22/rollback.sh
 ```
 
 This restores `memory.provider: mnemosyne` and re-enables Mnemosyne crons.
+
+**Rollback validation:** After rollback, verify:
+- `hermes config get memory.provider` returns `mnemosyne`
+- `hermes plugins list` shows `mnemosyne` enabled
+- 6 paused Mnemosyne crons resume and run successfully
+
+**Rollback is NOT yet fully idempotent** — see Phase 6.5 (idempotent rollback script).
 
 ## Vault Dual-Write Decision
 

@@ -15,6 +15,7 @@ Stdlib-only. No external memory dependencies.
 import hashlib
 import math
 import re
+import fcntl
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -122,10 +123,32 @@ class MemoryEngine:
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(str(self.db_path))
+        self.db = sqlite3.connect(str(self.db_path), timeout=30)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self._init_schema()
+        
+        # Concurrency guard: file lock for write serialization
+        lock_path = self.db_path.parent / f"{self.db_path.name}.lock"
+        self._lock_fd = open(lock_path, "w")
+        self._write_locked = False
+    
+    def _acquire_write_lock(self) -> None:
+        """Acquire exclusive file lock for write operations."""
+        if not self._write_locked:
+            try:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self._write_locked = True
+            except OSError:
+                # Lock held by another process — wait briefly
+                fcntl.flock(self._lock_fd, fcntl.LOCK_EX)
+                self._write_locked = True
+    
+    def _release_write_lock(self) -> None:
+        """Release file lock after write operations."""
+        if self._write_locked:
+            fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+            self._write_locked = False
 
     def _init_schema(self) -> None:
         self.db.executescript(MEMORY_SCHEMA)
@@ -159,6 +182,8 @@ class MemoryEngine:
                     raise
 
     def close(self) -> None:
+        self._release_write_lock()
+        self._lock_fd.close()
         self.db.close()
 
     def __enter__(self) -> "MemoryEngine":
@@ -183,6 +208,7 @@ class MemoryEngine:
         Store a durable fact. Returns the entropic_id.
         Deduplicates: if a fact with the same content hash exists, updates it.
         """
+        self._acquire_write_lock()
         eid = StoredFact.make_id(content)
         tags_str = ", ".join(tags) if tags else ""
         now = datetime.now(timezone.utc).isoformat()
@@ -253,6 +279,7 @@ class MemoryEngine:
 
     def forget(self, entropic_id: str) -> bool:
         """Delete a fact by entropic_id. Returns True if found and deleted."""
+        self._acquire_write_lock()
         # I4: Auto-backup before destructive operation
         self._backup()
         # Get rowid before deleting from facts
@@ -537,6 +564,7 @@ class MemoryEngine:
         Boost a fact: update last_accessed to now and increment access_count.
         Returns True if the fact was found and reinforced.
         """
+        self._acquire_write_lock()
         row = self.db.execute("SELECT id FROM facts WHERE id = ?", (entropic_id,)).fetchone()
         if not row:
             return False
