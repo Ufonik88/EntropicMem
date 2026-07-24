@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-EntropicMem has achieved **85-90% parity** with the previous Mnemosyne-based memory stack. All 8 critical operational gaps (Gap 1-8 from the original gap analysis, plus Phase 6 hardening) have been addressed. Remaining gaps are specialized features that EntropicMem omits by design or defers to future sprints. **No blocking regressions remain that prevent sole-provider operation.**
+EntropicMem has achieved **85-90% parity** with the previous Mnemosyne-based memory stack. All 8 critical operational gaps (Gaps 1–8 from the original gap analysis, plus Phase 6 hardening) have been addressed. Remaining gaps are specialized features that EntropicMem omits by design or defers to future sprints. **No blocking regressions remain that prevent sole-provider operation.**
 
 ---
 
