@@ -93,6 +93,27 @@ PATCH_CORE_SCHEMA = {
     },
 }
 
+STATS_SCHEMA = {
+    "name": "entropicmem_stats",
+    "description": "Return EntropicMem memory statistics: fact count, domain distribution, DB path.",
+    "parameters": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+GET_SCHEMA = {
+    "name": "entropicmem_get",
+    "description": "Retrieve a single stored fact by its entropic_id.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "description": "The entropic_id of the fact to retrieve."},
+        },
+        "required": ["id"],
+    },
+}
+
 # ── Smart Context Management Defaults ────────────────────────────────────────
 
 SMART_CONTEXT_DEFAULTS = {
@@ -651,7 +672,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return time.time()
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        return [REMEMBER_SCHEMA, RECALL_SCHEMA, QUERY_SCHEMA, PATCH_CORE_SCHEMA]
+        return [REMEMBER_SCHEMA, RECALL_SCHEMA, QUERY_SCHEMA, PATCH_CORE_SCHEMA, STATS_SCHEMA, GET_SCHEMA]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         if tool_name == "entropicmem_remember":
@@ -662,6 +683,10 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return self._query(args)
         if tool_name == "entropicmem_patch_core":
             return self._patch_core(args)
+        if tool_name == "entropicmem_stats":
+            return self._stats(args)
+        if tool_name == "entropicmem_get":
+            return self._get(args)
         return _tool_error(f"Unknown tool: {tool_name}")
 
     def on_memory_write(
@@ -849,6 +874,50 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 return _tool_error(f"Patch text not found in {target} core memory")
         except Exception as e:
             logger.exception("entropicmem_patch_core failed")
+            return _tool_error(str(e))
+
+
+    def _stats(self, args: dict) -> str:
+        """Return EntropicMem memory statistics."""
+        if not self._memory_db or not self._scripts_dir:
+            return _tool_error("EntropicMem not initialized")
+        try:
+            ensure_scripts_on_path(self._scripts_dir)
+            from memory_engine import MemoryEngine
+
+            with MemoryEngine(self._memory_db) as engine:
+                s = engine.stats()
+            return json.dumps(s)
+        except Exception as e:
+            return _tool_error(str(e))
+
+    def _get(self, args: dict) -> str:
+        """Retrieve a single fact by entropic_id."""
+        if not self._memory_db or not self._scripts_dir:
+            return _tool_error("EntropicMem not initialized")
+        entropic_id = (args.get("id") or "").strip()
+        if not entropic_id:
+            return _tool_error("id required")
+        try:
+            ensure_scripts_on_path(self._scripts_dir)
+            from memory_engine import MemoryEngine
+
+            with MemoryEngine(self._memory_db) as engine:
+                fact = engine.get_fact(entropic_id)
+            if fact is None:
+                return _tool_error(f"Fact not found: {entropic_id}")
+            return json.dumps({
+                "id": fact.id,
+                "domain": fact.domain,
+                "importance": fact.importance,
+                "content": fact.content,
+                "source": fact.source,
+                "tags": fact.tags,
+                "created_at": fact.created_at,
+                "updated_at": fact.updated_at,
+                "access_count": fact.access_count,
+            })
+        except Exception as e:
             return _tool_error(str(e))
 
 
