@@ -114,6 +114,19 @@ GET_SCHEMA = {
     },
 }
 
+CONSOLIDATE_SCHEMA = {
+    "name": "entropicmem_consolidate",
+    "description": "Archive old, low-access facts to free up active memory. Returns count of archived facts.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "max_age_days": {"type": "integer", "description": "Archive facts older than this many days (default: 90)."},
+            "min_access_count": {"type": "integer", "description": "Only archive facts accessed this many times or fewer (default: 0)."},
+            "dry_run": {"type": "boolean", "description": "If true, report what would be archived without archiving."},
+        },
+    },
+}
+
 # ── Smart Context Management Defaults ────────────────────────────────────────
 
 SMART_CONTEXT_DEFAULTS = {
@@ -672,7 +685,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return time.time()
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        return [REMEMBER_SCHEMA, RECALL_SCHEMA, QUERY_SCHEMA, PATCH_CORE_SCHEMA, STATS_SCHEMA, GET_SCHEMA]
+        return [REMEMBER_SCHEMA, RECALL_SCHEMA, QUERY_SCHEMA, PATCH_CORE_SCHEMA, STATS_SCHEMA, GET_SCHEMA, CONSOLIDATE_SCHEMA]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         if tool_name == "entropicmem_remember":
@@ -687,6 +700,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return self._stats(args)
         if tool_name == "entropicmem_get":
             return self._get(args)
+        if tool_name == "entropicmem_consolidate":
+            return self._consolidate(args)
         return _tool_error(f"Unknown tool: {tool_name}")
 
     def on_memory_write(
@@ -942,6 +957,25 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "updated_at": fact.updated_at,
                 "access_count": fact.access_count,
             })
+        except Exception as e:
+            return _tool_error(str(e))
+
+    def _consolidate(self, args: dict) -> str:
+        """Archive old, low-access facts (M2: agent-triggered consolidation)."""
+        engine, error = self._memory_engine()
+        if error:
+            return error
+        max_age = args.get("max_age_days", 90)
+        min_access = args.get("min_access_count", 0)
+        dry_run = args.get("dry_run", False)
+        try:
+            with engine:
+                result = engine.consolidate(
+                    max_age_days=max_age,
+                    min_access_count=min_access,
+                    dry_run=dry_run,
+                )
+            return json.dumps(result)
         except Exception as e:
             return _tool_error(str(e))
 
