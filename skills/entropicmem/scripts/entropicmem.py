@@ -26,6 +26,7 @@ Standalone memory: vault + MemoryEngine + graph.
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -1147,44 +1148,176 @@ def cmd_timeline(args) -> int:
 # ── subcommand: security (Phase 11) ─────────────────────────────────────────
 
 def cmd_security(args) -> int:
-    """Enable or disable encryption at rest."""
+    """Enable or disable encryption at rest (Phase 11.1)."""
+    from security import CRYPTO_AVAILABLE, encrypt_db, decrypt_db, security_status
+
+    db_path = _memory_db_path()
+
+    if args.security_command == "status":
+        status = security_status(db_path)
+        if not status["crypto_available"]:
+            print("Encryption: UNAVAILABLE (install: pip install entropicmem[security])")
+            return 0
+        if status["encrypted"]:
+            print(f"Encryption: ENABLED ({status.get('encrypted_files', '?')} files encrypted)")
+        else:
+            print("Encryption: DISABLED")
+        return 0
+
+    if not CRYPTO_AVAILABLE:
+        print("Error: cryptography package not installed.", file=sys.stderr)
+        print("Install with: pip install entropicmem[security]", file=sys.stderr)
+        return 1
+
     if args.security_command == "enable":
-        print("Encryption at rest: not yet implemented (Phase 11).")
-        print("Planned: Fernet encryption of memory.db + vault directory.")
-        return 0
+        import getpass
+        passphrase = getpass.getpass("Enter encryption passphrase: ")
+        confirm = getpass.getpass("Confirm passphrase: ")
+        if passphrase != confirm:
+            print("Error: passphrases do not match.", file=sys.stderr)
+            return 1
+        if len(passphrase) < 8:
+            print("Error: passphrase must be at least 8 characters.", file=sys.stderr)
+            return 1
+        try:
+            result = encrypt_db(db_path, passphrase)
+            print(f"Encrypted {result['encrypted_files']} files. DB is now locked.")
+            print("You will need this passphrase to access your data.")
+            return 0
+        except Exception as e:
+            print(f"Encryption failed: {e}", file=sys.stderr)
+            return 1
+
     elif args.security_command == "disable":
-        print("Encryption at rest: not yet implemented (Phase 11).")
-        return 0
-    elif args.security_command == "status":
-        print("Encryption at rest: DISABLED (Phase 11 pending)")
-        return 0
+        import getpass
+        passphrase = getpass.getpass("Enter decryption passphrase: ")
+        try:
+            result = decrypt_db(db_path, passphrase)
+            print(f"Decrypted {result['decrypted_files']} files. DB is now accessible.")
+            return 0
+        except ValueError:
+            print("Error: wrong passphrase.", file=sys.stderr)
+            return 1
+        except Exception as e:
+            print(f"Decryption failed: {e}", file=sys.stderr)
+            return 1
+
     else:
         print("Usage: entropicmem security enable|disable|status", file=sys.stderr)
         return 1
 
 
-# ── subcommand: export / import (Phase 11) ───────────────────────────────────
+# ── subcommand: export / import (Phase 11.2) ────────────────────────────────
 
 def cmd_export(args) -> int:
-    """Export memory capsule (DB + vault + embeddings) as tar.gz."""
-    print("Capsule export: not yet implemented (Phase 11).")
-    print("Planned: entropicmem export capsule.tar.gz")
+    """Export memory capsule (DB + vault + config) as tar.gz."""
+    import tarfile
+    from datetime import datetime
+
+    db_path = _memory_db_path()
+    output = Path(args.output).resolve()
+
+    if not db_path.exists():
+        print(f"Error: memory DB not found at {db_path}", file=sys.stderr)
+        return 1
+
+    # Check if encrypted
+    from security import is_encrypted
+    if is_encrypted(db_path):
+        print("Error: DB is encrypted. Decrypt first with 'security disable'.", file=sys.stderr)
+        return 1
+
+    files_added = 0
+    with tarfile.open(str(output), "w:gz") as tar:
+        # Add DB
+        tar.add(str(db_path), arcname="memory.db")
+        files_added += 1
+
+        # Add vault directory
+        vault_dir = db_path.parent / "vault"
+        if vault_dir.exists():
+            tar.add(str(vault_dir), arcname="vault")
+            files_added += 1
+
+        # Add manifest
+        manifest = {
+            "version": 1,
+            "exported_at": datetime.now().isoformat(),
+            "db_path": str(db_path),
+            "has_vault": vault_dir.exists(),
+        }
+        import io
+        manifest_bytes = json.dumps(manifest, indent=2).encode()
+        info = tarfile.TarInfo(name="manifest.json")
+        info.size = len(manifest_bytes)
+        tar.addfile(info, io.BytesIO(manifest_bytes))
+        files_added += 1
+
+    print(f"Capsule exported: {output} ({files_added} items)")
     return 0
 
 
 def cmd_import(args) -> int:
     """Import a memory capsule from tar.gz."""
-    print("Capsule import: not yet implemented (Phase 11).")
-    print("Planned: entropicmem import capsule.tar.gz")
+    import tarfile
+
+    capsule_path = Path(args.input).resolve()
+    if not capsule_path.exists():
+        print(f"Error: capsule not found: {capsule_path}", file=sys.stderr)
+        return 1
+
+    db_path = _memory_db_path()
+
+    # Safety: don't overwrite existing DB without confirmation
+    if db_path.exists():
+        print(f"Warning: existing DB at {db_path} will be replaced.")
+        confirm = input("Continue? [y/N] ").strip().lower()
+        if confirm != "y":
+            print("Import cancelled.")
+            return 0
+
+    with tarfile.open(str(capsule_path), "r:gz") as tar:
+        # Validate manifest
+        try:
+            manifest_file = tar.extractfile("manifest.json")
+            manifest = json.loads(manifest_file.read())
+        except (KeyError, json.JSONDecodeError):
+            print("Error: invalid capsule (missing manifest.json)", file=sys.stderr)
+            return 1
+
+        # Extract DB
+        tar.extract("memory.db", path=str(db_path.parent))
+        extracted_db = db_path.parent / "memory.db"
+        if extracted_db != db_path:
+            extracted_db.rename(db_path)
+
+        # Extract vault
+        if manifest.get("has_vault"):
+            tar.extractall(path=str(db_path.parent), members=[m for m in tar.getmembers() if m.name.startswith("vault/")])
+
+    print(f"Capsule imported to {db_path.parent}")
+    print(f"Exported at: {manifest.get('exported_at', 'unknown')}")
     return 0
 
 
-# ── subcommand: history (Phase 11) ──────────────────────────────────────────
+# ── subcommand: history (Phase 11.3) ────────────────────────────────────────
 
 def cmd_history(args) -> int:
     """Show version history for a fact (append-only mode)."""
-    print("Fact versioning: not yet implemented (Phase 11).")
-    print("Planned: entropicmem history <entropic_id>")
+    engine = MemoryEngine(_memory_db_path())
+    versions = engine.get_versions(args.entropic_id)
+    engine.close()
+
+    if not versions:
+        print(f"No version history for {args.entropic_id}")
+        print("(Versioning requires facts stored in append-only mode)")
+        return 0
+
+    print(f"Version history for {args.entropic_id} ({len(versions)} versions):")
+    for i, v in enumerate(versions):
+        marker = " (current)" if i == 0 else ""
+        preview = v["content"].replace("\n", " ")[:80]
+        print(f"  v{len(versions) - i}: [{v['created_at'][:19]}] {preview}{marker}")
     return 0
 
 
