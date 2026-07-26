@@ -163,165 +163,87 @@ EntropicMem has achieved **85-90% parity** with the previous Mnemosyne-based mem
 
 ---
 
-## Memvid Feature Analysis & Integration Plan
+## Memvid Integration Plan (Phases 7–11)
 
-**Analyzed:** 2026-07-26 | **Source:** https://github.com/memvid/memvid (16K+ stars, Rust core, Apache 2.0)
+> **Full analysis:** `docs/MEMVID_ANALYSIS.md` — deep dive on Memvid architecture, MV2 format, feature flags, and per-feature gap rationale.
 
-### What Memvid Is
+**Gap summary (Memvid vs EntropicMem):**
+| Priority | Gap | Phase | Dependencies |
+|----------|-----|-------|--------------|
+| HIGH | Semantic/vector search (HNSW embeddings) | 7 | `semantic` extra |
+| HIGH | Hybrid search (FTS5 + vector fusion) | 7 | `semantic` extra |
+| MEDIUM | Temporal queries (NL date parsing) | 8 | None |
+| MEDIUM | PII detection & redaction | 9 | None |
+| MEDIUM | Graph/relational query over wikilinks | 10 | Phase 7 (optional) |
+| LOW | Encryption at rest + capsule export + versioning | 11 | `security` extra |
 
-Memvid is a single-file memory layer for AI agents. It packages data, embeddings, search indices, and metadata into one portable `.mv2` file. No databases, no servers. Key concepts:
-
-- **Smart Frames**: Immutable, append-only content units with checksums, timestamps, and metadata. Grouped into segments for compression and parallel reads.
-- **Embedded WAL**: Write-ahead log inside the file for crash recovery. Checkpoints at 75% occupancy or every 1,000 transactions.
-- **Feature-flag architecture**: `lex` (BM25/Tantivy FTS), `vec` (HNSW + ONNX embeddings), `clip` (visual), `whisper` (audio), `encryption`, `temporal_track`, `parallel_segments`.
-- **Graph search**: Entity pattern matching, triple extraction, hybrid graph+vector retrieval.
-- **Time-travel**: Replay engine can rewind, replay, or branch any memory state.
-- **URI scheme**: Hierarchical paths (`mv2://meetings/2024-01-15`) for structured addressing.
-
-### Gap Analysis: Memvid vs EntropicMem
-
-| # | Feature | Memvid | EntropicMem | Gap? | Priority |
-|---|---------|--------|-------------|------|----------|
-| G1 | **Semantic/vector search** | HNSW + ONNX embeddings (384-dim BGE-small), cosine similarity | FTS5 keyword only | **YES** | **HIGH** |
-| G2 | **Hybrid search** | BM25 + vector fusion ranking | FTS5 only | **YES** | **HIGH** |
-| G3 | **Temporal queries** | Natural language date parsing ("last Tuesday"), time index | `created_at` column, no NL parsing | **YES** | MEDIUM |
-| G4 | **PII detection** | Built-in PII scanner/redaction | None | **YES** | MEDIUM |
-| G5 | **Graph/relational query** | Entity patterns, triple extraction, graph-filtered search | Vault wikilinks exist but not queryable as a graph | **YES** | MEDIUM |
-| G6 | **Time-travel / replay** | Rewind, replay, branch memory states via replay engine | No temporal state queries | **YES** | LOW |
-| G7 | **Append-only immutability** | Smart Frames are immutable with SHA-256 checksums | Facts are mutable (reinforce, patch_core) | Partial | LOW |
-| G8 | **Single-file capsule** | Self-contained `.mv2` with rules, expiry, sharing | SQLite DB + vault directory (two artifacts) | Partial | LOW |
-| G9 | **Compression** | Zstd / LZ4 per-frame compression | SQLite WAL (implicit) | Minimal | LOW |
-| G10 | **Encryption at rest** | Password-based encrypted capsules (`.mv2e`) | None | **YES** | LOW |
-| G11 | **Multi-modal ingestion** | PDF, CLIP images, Whisper audio | Text only | Out of scope | SKIP |
-| G12 | **Predictive caching** | Sub-5ms recall with predictive cache | SQLite is already fast (~1ms) | Minimal | SKIP |
-
-### Phased Implementation Plan
-
-#### Phase 7: Semantic Search Foundation (HIGH)
-
-**Goal:** Add vector embeddings and hybrid search to close the biggest capability gap.
+### Phase 7: Semantic Search Foundation (HIGH) — `semantic` extra required
 
 - [ ] **7.1 — Embedding pipeline**
-  - Add optional `sentence-transformers` dependency (already in pyproject.toml as optional)
-  - Create `skills/entropicmem/scripts/embeddings.py`
-  - Generate 384-dim embeddings on `remember()` when model available
-  - Store embeddings in a new `embeddings` table (entropic_id TEXT PK, vector BLOB)
+  - Add `embeddings.py`: generate 384-dim vectors on `remember()`, store in `embeddings` table
   - Graceful fallback: if no model, skip embedding (FTS5 still works)
-  - **Acceptance:** `remember("test fact")` stores embedding; `recall("test")` uses vector similarity when available
+  - **Acceptance:** `remember("test")` stores embedding; `recall("test")` uses vector similarity when available
 
-- [ ] **7.2 — Vector search in recall**
-  - Add cosine similarity search over embeddings table
-  - Implement `recall_with_relevance()` hybrid mode: FTS5 score + vector score, weighted fusion
-  - Configurable weights (default: 0.6 FTS + 0.4 vector)
-  - **Acceptance:** `recall("what did I say about X")` returns semantically relevant results even without exact keyword match
+- [ ] **7.2 — Hybrid search in recall**
+  - `recall_with_relevance()`: FTS5 score + cosine similarity, weighted fusion (default 0.6 FTS + 0.4 vector)
+  - **Acceptance:** Semantic recall returns relevant results without exact keyword match
 
 - [ ] **7.3 — Embedding maintenance**
-  - CLI command `entropicmem embed --rebuild` to regenerate all embeddings
-  - Auto-embed on remember, lazy-embed on first recall miss
-  - Health check reports embedding coverage (% of facts with vectors)
-  - **Acceptance:** `entropicmem embed --rebuild` processes all facts; health check shows coverage
+  - CLI: `entropicmem embed --rebuild` regenerates all embeddings
+  - Health check reports embedding coverage %
+  - **Acceptance:** Full rebuild works; health check shows % coverage
 
-- **Dependencies:** `sentence-transformers` (optional), `numpy` (for cosine sim)
-- **Risk:** Model download size (~90MB for BGE-small). Mitigate: cache in `~/.hermes/entropicmem/models/`
-
-#### Phase 8: Temporal Intelligence (MEDIUM)
-
-**Goal:** Natural language date queries and time-aware recall.
+### Phase 8: Temporal Intelligence (MEDIUM) — no deps
 
 - [ ] **8.1 — Temporal query parser**
-  - Create `skills/entropicmem/scripts/temporal.py`
-  - Parse NL date expressions: "last Tuesday", "yesterday", "in March", "2 weeks ago"
-  - Convert to SQL date range filters on `created_at` / `updated_at`
+  - Parse NL dates: "last Tuesday", "in March", "2 weeks ago" → SQL range filters
   - Integrate into `recall()` and `recall_with_relevance()`
-  - **Acceptance:** `recall("meeting notes from last week")` filters by date range
+  - **Acceptance:** `recall("meeting notes from last week")` filters by date
 
 - [ ] **8.2 — Time index**
-  - Add `time_index` table for fast chronological range queries
-  - Index on (created_at, domain) for filtered time scans
+  - `time_index` table on (created_at, domain) for fast chronological scans
   - CLI: `entropicmem timeline --from 2026-01-01 --to 2026-07-01`
-  - **Acceptance:** Timeline query returns facts in chronological order with domain filter
+  - **Acceptance:** Timeline query returns facts in chronological order
 
-- **Dependencies:** None (stdlib `datetime` + `re` for parsing)
-
-#### Phase 9: PII Detection & Redaction (MEDIUM)
-
-**Goal:** Prevent sensitive data from persisting in memory.
+### Phase 9: PII Detection (MEDIUM) — no deps
 
 - [ ] **9.1 — PII scanner**
-  - Create `skills/entropicmem/scripts/pii.py`
-  - Regex-based detection: emails, phone numbers, ID numbers, API keys, passwords
-  - Optional: South African ID number pattern (13 digits), FNB account numbers
-  - Scan on `remember()` — flag or redact before storage
-  - Configurable: `warn` (log only), `redact` (replace with `[REDACTED]`), `block` (reject)
-  - **Acceptance:** `remember("my password is hunter2")` triggers redaction/warning per config
+  - Regex detection: emails, phones, ID numbers, API keys, passwords
+  - Configurable mode: `warn` / `redact` / `block`
+  - **Acceptance:** `remember("password is hunter2")` triggers redaction per config
 
 - [ ] **9.2 — PII audit**
-  - CLI: `entropicmem pii-scan` — scan all existing facts, report findings
+  - CLI: `entropicmem lint --pii` — scan all facts, report findings
   - Health check includes PII scan summary
-  - **Acceptance:** `entropicmem pii-scan` reports any facts containing detected PII patterns
+  - **Acceptance:** PII scan reports facts with detected patterns
 
-- **Dependencies:** None (stdlib `re`)
+### Phase 10: Graph Query Layer (MEDIUM) — Phase 7 optional
 
-#### Phase 10: Graph Query Layer (MEDIUM)
-
-**Goal:** Make vault wikilinks queryable as a knowledge graph.
-
-- [ ] **10.1 — Link graph extraction**
-  - Parse vault wikilinks into a `links` table (source_id, target_title, context)
-  - Build on vault projection (already extracts wikilinks)
-  - CLI: `entropicmem graph --show "Wedding"` — show connected notes
-  - **Acceptance:** `entropicmem graph --show X` returns all notes linking to/from X
+- [ ] **10.1 — Link graph**
+  - `links` table from vault wikilink extraction (source_id, target_title, context)
+  - CLI: `entropicmem graph show "Wedding"` — connected notes
+  - **Acceptance:** Graph show displays all notes linking to/from target
 
 - [ ] **10.2 — Graph-aware recall**
-  - When a recall hit has wikilinks, optionally expand to linked notes
-  - `recall("wedding venue", expand_links=True)` returns the fact + linked context
-  - **Acceptance:** Recall with link expansion returns related vault notes
+  - `recall("wedding venue", expand_links=True)` returns fact + linked notes
+  - **Acceptance:** Recall with link expansion returns related vault context
 
-- **Dependencies:** Phase 7 (vector search) for best results, but works standalone with FTS5
-
-#### Phase 11: Security & Portability (LOW)
-
-**Goal:** Encryption at rest and portable memory capsules.
+### Phase 11: Security & Portability (LOW) — `security` extra required
 
 - [ ] **11.1 — Encryption at rest**
-  - Use SQLite's built-in encryption or `cryptography` Fernet for vault files
-  - Optional passphrase stored in VaultKnox
-  - CLI: `entropicmem encrypt --enable` / `--disable`
-  - **Acceptance:** DB and vault files are encrypted; unreadable without passphrase
+  - `cryptography` Fernet or SQLite encryption extension
+  - CLI: `entropicmem security enable` / `security disable`
+  - **Acceptance:** DB/vault unreadable without passphrase
 
 - [ ] **11.2 — Memory capsule export**
-  - Single-file export: `entropicmem export capsule.mv2` (or `.tar.gz`)
-  - Bundle: SQLite DB + vault notes + embeddings + metadata
-  - Import: `entropicmem import capsule.mv2`
-  - **Acceptance:** Export/import round-trip preserves all facts, vault notes, and embeddings
+  - `entropicmem export capsule.tar.gz` — bundle DB + vault + embeddings
+  - `entropicmem import capsule.tar.gz` — restore on another host
+  - **Acceptance:** Export/import round-trip preserves all data
 
-- [ ] **11.3 — Fact immutability option**
-  - Optional append-only mode: updates create new versions, old versions retained
-  - `versions` table tracks history (entropic_id, version, content, timestamp)
-  - CLI: `entropicmem history <entropic_id>` — show version timeline
-  - **Acceptance:** In append-only mode, `reinforce()` creates new version; `history` shows all versions
-
-- **Dependencies:** `cryptography` (optional) for encryption
-
-### What We're NOT Adopting (and Why)
-
-| Memvid Feature | Why Skip |
-|---------------|----------|
-| Multi-modal (CLIP, Whisper, PDF) | EntropicMem is a text memory system for an AI agent. Multi-modal ingestion is out of scope. |
-| Predictive caching | SQLite recall is already ~1ms. Predictive caching adds complexity for negligible gain. |
-| Rust rewrite | EntropicMem's stdlib-Python approach is a feature, not a limitation. Hermes integration requires Python. |
-| `.mv2` binary format | SQLite is already a single-file, portable, battle-tested format. No need for a custom binary. |
-| Serverless architecture | EntropicMem is already serverless (embedded SQLite). No gap here. |
-
-### Priority Summary
-
-| Phase | Focus | Priority | Effort | Dependencies |
-|-------|-------|----------|--------|--------------|
-| **7** | Semantic/vector search | **HIGH** | Large | sentence-transformers (optional) |
-| **8** | Temporal queries | MEDIUM | Medium | None |
-| **9** | PII detection | MEDIUM | Small | None |
-| **10** | Graph query layer | MEDIUM | Medium | Phase 7 (optional) |
-| **11** | Security & portability | LOW | Medium | cryptography (optional) |
+- [ ] **11.3 — Fact versioning (append-only mode)**
+  - Optional `versions` table: updates create new versions, old retained
+  - CLI: `entropicmem history <entropic_id>` — version timeline
+  - **Acceptance:** In append-only mode, `reinforce()` creates new version; `history` shows all
 
 ---
 
