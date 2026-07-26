@@ -382,12 +382,27 @@ class MemoryEngine:
         self._release_write_lock()
         return row is not None
 
-    def consolidate(self, max_age_days: int = 90, min_access_count: int = 0) -> dict:
+    def consolidate(self, max_age_days: int = 90, min_access_count: int = 0, dry_run: bool = False) -> dict:
         """Archive old, low-value facts (I3: memory consolidation).
 
         Facts older than max_age_days with access_count <= min_access_count
         are moved to an archive table. Returns stats.
+
+        If dry_run=True, reports what would be archived without modifying anything.
         """
+        cutoff = datetime.now(timezone.utc).timestamp() - (max_age_days * 86400)
+        cutoff_iso = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
+
+        # Find candidates
+        candidates = self.db.execute(
+            """SELECT id FROM facts
+               WHERE created_at < ? AND access_count <= ?""",
+            (cutoff_iso, min_access_count),
+        ).fetchall()
+
+        if dry_run:
+            return {"archived": 0, "would_archive": len(candidates), "cutoff_days": max_age_days, "dry_run": True}
+
         # I4: Auto-backup before destructive operation
         self._backup()
 
@@ -409,16 +424,6 @@ class MemoryEngine:
                 archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-
-        cutoff = datetime.now(timezone.utc).timestamp() - (max_age_days * 86400)
-        cutoff_iso = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
-
-        # Find candidates
-        candidates = self.db.execute(
-            """SELECT id FROM facts
-               WHERE created_at < ? AND access_count <= ?""",
-            (cutoff_iso, min_access_count),
-        ).fetchall()
 
         archived = 0
         for (fid,) in candidates:

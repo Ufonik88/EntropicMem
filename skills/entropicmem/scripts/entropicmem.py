@@ -1321,6 +1321,27 @@ def cmd_history(args) -> int:
     return 0
 
 
+# ── subcommand: consolidate (M2) ───────────────────────────────────────────
+
+def cmd_consolidate(args) -> int:
+    """Archive old, low-access facts to free up active memory."""
+    engine = MemoryEngine(_memory_db_path())
+    result = engine.consolidate(
+        max_age_days=args.max_age_days,
+        min_access_count=args.min_access_count,
+        dry_run=args.dry_run,
+    )
+    engine.close()
+
+    if result.get("dry_run"):
+        print(f"Dry run: {result['would_archive']} facts would be archived "
+              f"(older than {result['cutoff_days']} days, accessed ≤ {args.min_access_count} times)")
+    else:
+        print(f"Consolidated: {result['archived']} facts archived "
+              f"(cutoff: {result['cutoff_days']} days)")
+    return 0
+
+
 # ── main ────────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -1470,6 +1491,12 @@ def main() -> int:
     p_history = sub.add_parser("history", help="Show fact version history")
     p_history.add_argument("entropic_id", help="Fact ID")
 
+    # consolidate (M2)
+    p_consolidate = sub.add_parser("consolidate", help="Archive old, low-access facts")
+    p_consolidate.add_argument("--max-age-days", type=int, default=90, help="Archive facts older than N days (default: 90)")
+    p_consolidate.add_argument("--min-access-count", type=int, default=0, help="Only archive facts accessed N times or fewer")
+    p_consolidate.add_argument("--dry-run", action="store_true", help="Report what would be archived without archiving")
+
     # Parse
     args = parser.parse_args()
 
@@ -1510,6 +1537,7 @@ def main() -> int:
         "export": cmd_export,
         "import": cmd_import,
         "history": cmd_history,
+        "consolidate": cmd_consolidate,
     }
 
     handler = routes.get(args.command)
