@@ -22,6 +22,41 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# ── optional embedding support (Phase 7: semantic search) ──────────────────
+
+try:
+    from embeddings import (
+        EMBEDDER_AVAILABLE as _EMB_AVAIL,
+        NUMPY_AVAILABLE as _NP_AVAIL,
+        cosine_similarity,
+        delete_embedding,
+        embed_text,
+        embedding_coverage,
+        hybrid_rank,
+        init_embeddings_schema,
+        store_embedding,
+        vector_search,
+    )
+    EMBEDDINGS_AVAILABLE = _EMB_AVAIL and _NP_AVAIL
+except ImportError:
+    EMBEDDINGS_AVAILABLE = False
+
+# ── temporal query parsing (Phase 8) ────────────────────────────────────────
+
+try:
+    from temporal import extract_temporal_filter
+    TEMPORAL_AVAILABLE = True
+except ImportError:
+    TEMPORAL_AVAILABLE = False
+
+# ── PII detection (Phase 9) ─────────────────────────────────────────────────
+
+try:
+    from pii import check_pii, scan_pii, redact_pii
+    PII_AVAILABLE = True
+except ImportError:
+    PII_AVAILABLE = False
+
 # ── schema ──────────────────────────────────────────────────────────────────
 
 MEMORY_SCHEMA = """
@@ -162,6 +197,9 @@ class MemoryEngine:
             if "access_count" not in existing_cols:
                 self.db.execute("ALTER TABLE facts ADD COLUMN access_count INTEGER DEFAULT 0")
             self.db.execute("CREATE INDEX IF NOT EXISTS idx_facts_last_accessed ON facts(last_accessed DESC)")
+            # Phase 7: embeddings table (no-op if deps missing)
+            if EMBEDDINGS_AVAILABLE:
+                init_embeddings_schema(self.db)
             self.db.commit()
         finally:
             self._release_write_lock()
@@ -222,7 +260,15 @@ class MemoryEngine:
         """
         Store a durable fact. Returns the entropic_id.
         Deduplicates: if a fact with the same content hash exists, updates it.
+
+        Phase 9: PII detection/redaction applied before storage.
         """
+        # Phase 9: PII check
+        if PII_AVAILABLE:
+            pii_result = check_pii(content, mode="redact")
+            if pii_result["has_pii"]:
+                content = pii_result["text"]  # use redacted version
+
         self._acquire_write_lock()
         eid = StoredFact.make_id(content)
         tags_str = ", ".join(tags) if tags else ""
@@ -276,6 +322,14 @@ class MemoryEngine:
                 (fact_rowid[0], content, title or "", tags_str, domain),
             )
         self.db.commit()
+        # Phase 7: generate and store embedding (best-effort, non-blocking)
+        if EMBEDDINGS_AVAILABLE:
+            try:
+                vec = embed_text(content)
+                if vec:
+                    store_embedding(self.db, eid, vec)
+            except Exception:
+                pass  # embedding failure should never block remember()
         self._release_write_lock()
         return eid
 
@@ -304,6 +358,9 @@ class MemoryEngine:
         self.db.execute("DELETE FROM facts WHERE id = ?", (entropic_id,))
         if row:
             self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (row[0],))
+        # Phase 7: remove embedding if present
+        if EMBEDDINGS_AVAILABLE:
+            delete_embedding(self.db, entropic_id)
         self.db.commit()
         self._release_write_lock()
         return row is not None
@@ -379,7 +436,14 @@ class MemoryEngine:
         Returns facts ranked by relevance. An EXACT content/id match is
         always surfaced first (so a fact is always self-retrievable),
         followed by FTS5 prefix matches and a LIKE fallback.
+
+        Phase 8: supports NL temporal queries ("last Tuesday", "2 weeks ago").
         """
+        # Phase 8: extract temporal filter from query
+        temporal_range = None
+        if TEMPORAL_AVAILABLE:
+            query, temporal_range = extract_temporal_filter(query)
+
         clean = query.replace('"', '""')
 
         # Split multi-word queries into per-word OR terms (matches recall_with_relevance strategy)
@@ -401,14 +465,25 @@ class MemoryEngine:
             where = "AND facts_fts.domain = ?"
             params = (domain,)
 
+        # Phase 8: temporal date range filter
+        date_where = ""
+        date_params: tuple = ()
+        if temporal_range:
+            date_where = "AND f.created_at >= ? AND f.created_at <= ?"
+            date_params = (temporal_range[0], temporal_range[1] + "T23:59:59")
+
         # Exact-match boost
         exact_params = (query, StoredFact.make_id(query))
+        exact_date_where = ""
         if domain:
             exact_params = (*exact_params, domain)
+        if temporal_range:
+            exact_date_where = "AND created_at >= ? AND created_at <= ?"
+            exact_params = (*exact_params, temporal_range[0], temporal_range[1] + "T23:59:59")
         exact_rows = self.db.execute(
             f"""
             SELECT * FROM facts
-            WHERE (content = ? OR id = ?) {("AND domain = ?" if domain else "")}
+            WHERE (content = ? OR id = ?) {("AND domain = ?" if domain else "")} {exact_date_where}
             ORDER BY importance DESC
             """,
             exact_params,
@@ -420,11 +495,11 @@ class MemoryEngine:
             f"""
             SELECT f.* FROM facts_fts
             JOIN facts f ON facts_fts.rowid = f.rowid
-            WHERE facts_fts MATCH ? {where}
+            WHERE facts_fts MATCH ? {where} {date_where}
             ORDER BY f.importance DESC, rank
             LIMIT ?
             """,
-            (fts_query, *params, top_k),
+            (fts_query, *params, *date_params, top_k),
         ).fetchall()
         fts_hits = [self._row_to_fact(r) for r in rows]
         if fts_hits:
@@ -701,6 +776,126 @@ class MemoryEngine:
             self.reinforce(fact.id)
 
         return results[:top_k]
+
+    def recall_hybrid(
+        self,
+        query: str,
+        top_k: int = 10,
+        domain: Optional[str] = None,
+        fts_weight: float = 0.6,
+        vec_weight: float = 0.4,
+    ) -> List[StoredFact]:
+        """Hybrid search: FTS5 BM25 + vector similarity fusion (Phase 7).
+
+        Falls back to FTS5-only recall if embeddings are unavailable.
+        """
+        if not EMBEDDINGS_AVAILABLE:
+            return self.recall_with_relevance(query, top_k=top_k, domain=domain)
+
+        # FTS5 pass (get more candidates for fusion)
+        fts_hits = self.recall_with_relevance(query, top_k=top_k * 2, domain=domain)
+        fts_scores = []
+        if fts_hits:
+            max_rel = max(f.relevance_score for f in fts_hits) or 1.0
+            fts_scores = [(f.id, f.relevance_score / max_rel) for f in fts_hits]
+
+        # Vector pass
+        vec_scores = []
+        query_vec = embed_text(query)
+        if query_vec:
+            vec_results = vector_search(self.db, query_vec, top_k=top_k * 2, domain=domain)
+            if vec_results:
+                max_sim = max(s for _, s in vec_results) or 1.0
+                vec_scores = [(fid, sim / max_sim) for fid, sim in vec_results]
+
+        # Fuse
+        fused = hybrid_rank(fts_scores, vec_scores, fts_weight, vec_weight)
+
+        # Build result list
+        fact_map = {f.id: f for f in fts_hits}
+        # Fetch any vector-only hits not in FTS results
+        for fid, _ in fused:
+            if fid not in fact_map:
+                fact = self.get_fact(fid)
+                if fact:
+                    fact_map[fid] = fact
+
+        results = []
+        for fid, score in fused[:top_k]:
+            fact = fact_map.get(fid)
+            if fact:
+                fact.relevance_score = score
+                results.append(fact)
+
+        # Auto-reinforce
+        for fact in results:
+            self.reinforce(fact.id)
+
+        return results
+
+    def rebuild_embeddings(self) -> dict:
+        """Regenerate embeddings for all facts (Phase 7.3).
+
+        Returns {total, embedded, skipped, errors}.
+        """
+        if not EMBEDDINGS_AVAILABLE:
+            return {"total": 0, "embedded": 0, "skipped": 0, "errors": 0,
+                    "message": "sentence-transformers not installed"}
+
+        facts = self.list_facts(limit=10000)
+        embedded = 0
+        errors = 0
+        for fact in facts:
+            try:
+                vec = embed_text(fact.content)
+                if vec:
+                    store_embedding(self.db, fact.id, vec)
+                    embedded += 1
+            except Exception:
+                errors += 1
+
+        return {
+            "total": len(facts),
+            "embedded": embedded,
+            "skipped": len(facts) - embedded - errors,
+            "errors": errors,
+        }
+
+    def embedding_stats(self) -> dict:
+        """Report embedding coverage and availability (Phase 7.3)."""
+        if not EMBEDDINGS_AVAILABLE:
+            return {"available": False, "message": "sentence-transformers not installed"}
+        return embedding_coverage(self.db)
+
+    def timeline(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        domain: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[StoredFact]:
+        """Return facts in chronological order within a date range (Phase 8).
+
+        Dates are ISO strings (YYYY-MM-DD). If omitted, unbounded.
+        """
+        clauses = []
+        params: list = []
+        if from_date:
+            clauses.append("created_at >= ?")
+            params.append(from_date)
+        if to_date:
+            clauses.append("created_at <= ?")
+            params.append(to_date + "T23:59:59")
+        if domain:
+            clauses.append("domain = ?")
+            params.append(domain)
+
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = self.db.execute(
+            f"SELECT * FROM facts {where} ORDER BY created_at ASC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        return [self._row_to_fact(r) for r in rows]
 
     def _recall_like_fallback(
         self,

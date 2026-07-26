@@ -423,6 +423,21 @@ def cmd_lint(args) -> int:
 
     index.close()
 
+    # Phase 9: PII scan on memory engine facts
+    if getattr(args, "pii", False):
+        from pii import scan_pii
+        engine = MemoryEngine(_memory_db_path())
+        facts = engine.list_facts(limit=9999)
+        pii_hits = []
+        for f in facts:
+            findings = scan_pii(f.content)
+            if findings:
+                types = ", ".join(set(fd.pii_type for fd in findings))
+                pii_hits.append(f"[pii] {f.id[:8]}… ({f.domain}): {types}")
+        engine.close()
+        if pii_hits:
+            issues.extend(pii_hits)
+
     if issues:
         print(f"Lint found {len(issues)} issue(s):")
         for issue in issues:
@@ -853,8 +868,34 @@ def cmd_graph(args) -> int:
                 httpd.serve_forever()
         except KeyboardInterrupt:
             print()
+    elif args.graph_command == "show":
+        # Phase 10: graph-aware note connections
+        import sqlite3 as _sqlite
+        from graph_query import init_links_schema, get_connected_notes, graph_stats
+
+        db_path = index_path  # reuse the index DB
+        conn = _sqlite.connect(str(db_path))
+        init_links_schema(conn)
+        stats = graph_stats(conn)
+        if stats["total_links"] == 0:
+            print("Link graph is empty. Run 'entropicmem graph rebuild' first (coming soon).")
+            conn.close()
+            index.close()
+            return 0
+        result = get_connected_notes(conn, args.target, depth=args.depth)
+        conn.close()
+        if result["outgoing"]:
+            print(f"Outgoing links from [[{args.target}]]:")
+            for t in sorted(result["outgoing"]):
+                print(f"  -> [[{t}]]")
+        if result["incoming"]:
+            print(f"Incoming links to [[{args.target}]]:")
+            for t in sorted(result["incoming"]):
+                print(f"  <- [[{t}]]")
+        if not result["outgoing"] and not result["incoming"]:
+            print(f"No connections found for [[{args.target}]].")
     else:
-        print("Usage: entropicmem graph export|serve", file=sys.stderr)
+        print("Usage: entropicmem graph export|serve|show", file=sys.stderr)
         index.close()
         return 1
 
@@ -1061,6 +1102,92 @@ def cmd_check_deps(args) -> int:
     return 0
 
 
+# ── subcommand: embed (Phase 7) ──────────────────────────────────────────────
+
+def cmd_embed(args) -> int:
+    """Rebuild or report embedding coverage."""
+    engine = MemoryEngine(_memory_db_path())
+    if args.rebuild:
+        result = engine.rebuild_embeddings()
+        print(f"Embedding rebuild: {result['embedded']}/{result['total']} embedded, "
+              f"{result.get('errors', 0)} errors")
+    else:
+        stats = engine.embedding_stats()
+        if not stats.get("available", False):
+            print(f"Embeddings: {stats.get('message', 'not available')}")
+        else:
+            print(f"Embeddings: {stats['embedded_facts']}/{stats['total_facts']} "
+                  f"({stats['coverage_pct']}%) — model: {stats['model']}")
+    engine.close()
+    return 0
+
+
+# ── subcommand: timeline (Phase 8) ───────────────────────────────────────────
+
+def cmd_timeline(args) -> int:
+    """Show facts in chronological order within a date range."""
+    engine = MemoryEngine(_memory_db_path())
+    facts = engine.timeline(
+        from_date=args.from_date,
+        to_date=args.to_date,
+        domain=args.domain,
+        limit=args.limit,
+    )
+    if not facts:
+        print("No facts in the specified range.")
+        engine.close()
+        return 0
+    for f in facts:
+        preview = f.content.replace("\n", " ")[:100]
+        print(f"[{f.created_at[:10]}] ({f.domain}) {preview}")
+    engine.close()
+    return 0
+
+
+# ── subcommand: security (Phase 11) ─────────────────────────────────────────
+
+def cmd_security(args) -> int:
+    """Enable or disable encryption at rest."""
+    if args.security_command == "enable":
+        print("Encryption at rest: not yet implemented (Phase 11).")
+        print("Planned: Fernet encryption of memory.db + vault directory.")
+        return 0
+    elif args.security_command == "disable":
+        print("Encryption at rest: not yet implemented (Phase 11).")
+        return 0
+    elif args.security_command == "status":
+        print("Encryption at rest: DISABLED (Phase 11 pending)")
+        return 0
+    else:
+        print("Usage: entropicmem security enable|disable|status", file=sys.stderr)
+        return 1
+
+
+# ── subcommand: export / import (Phase 11) ───────────────────────────────────
+
+def cmd_export(args) -> int:
+    """Export memory capsule (DB + vault + embeddings) as tar.gz."""
+    print("Capsule export: not yet implemented (Phase 11).")
+    print("Planned: entropicmem export capsule.tar.gz")
+    return 0
+
+
+def cmd_import(args) -> int:
+    """Import a memory capsule from tar.gz."""
+    print("Capsule import: not yet implemented (Phase 11).")
+    print("Planned: entropicmem import capsule.tar.gz")
+    return 0
+
+
+# ── subcommand: history (Phase 11) ──────────────────────────────────────────
+
+def cmd_history(args) -> int:
+    """Show version history for a fact (append-only mode)."""
+    print("Fact versioning: not yet implemented (Phase 11).")
+    print("Planned: entropicmem history <entropic_id>")
+    return 0
+
+
 # ── main ────────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -1111,6 +1238,7 @@ def main() -> int:
     # lint
     p_lint = sub.add_parser("lint", help="Check vault health")
     p_lint.add_argument("--domain", help="Filter by domain")
+    p_lint.add_argument("--pii", action="store_true", help="Scan facts for PII (Phase 9)")
 
     # moc
     p_moc = sub.add_parser("moc", help="Build/repair domain Index.md + backlinks")
@@ -1131,6 +1259,9 @@ def main() -> int:
     g_serve = g_sub.add_parser("serve", help="Serve graph export dir via HTTP")
     g_serve.add_argument("--port", type=int, default=8069)
     g_serve.add_argument("--dir", default="./export")
+    g_show = g_sub.add_parser("show", help="Show connected notes for a target (Phase 10)")
+    g_show.add_argument("target", help="Note title to find connections for")
+    g_show.add_argument("--depth", type=int, default=1, help="Traversal depth (default: 1)")
 
     # recall
     p_recall = sub.add_parser("recall", help="Search durable facts in memory engine")
@@ -1178,6 +1309,34 @@ def main() -> int:
     p_patch_core.add_argument("--patch", help="Text to find and replace")
     p_patch_core.add_argument("--replacement", default="", help="Replacement text (empty = delete)")
 
+    # embed (Phase 7)
+    p_embed = sub.add_parser("embed", help="Manage vector embeddings")
+    p_embed.add_argument("--rebuild", action="store_true", help="Rebuild all embeddings")
+
+    # timeline (Phase 8)
+    p_timeline = sub.add_parser("timeline", help="Show facts chronologically")
+    p_timeline.add_argument("--from", dest="from_date", help="Start date (YYYY-MM-DD)")
+    p_timeline.add_argument("--to", dest="to_date", help="End date (YYYY-MM-DD)")
+    p_timeline.add_argument("--domain", help="Filter by domain")
+    p_timeline.add_argument("--limit", type=int, default=50, help="Max results")
+
+    # security (Phase 11)
+    p_security = sub.add_parser("security", help="Encryption at rest")
+    s_sub = p_security.add_subparsers(dest="security_command")
+    s_sub.add_parser("enable", help="Enable encryption")
+    s_sub.add_parser("disable", help="Disable encryption")
+    s_sub.add_parser("status", help="Show encryption status")
+
+    # export / import (Phase 11)
+    p_export = sub.add_parser("export", help="Export memory capsule")
+    p_export.add_argument("output", nargs="?", default="capsule.tar.gz", help="Output path")
+    p_import = sub.add_parser("import", help="Import memory capsule")
+    p_import.add_argument("input", help="Input capsule path")
+
+    # history (Phase 11)
+    p_history = sub.add_parser("history", help="Show fact version history")
+    p_history.add_argument("entropic_id", help="Fact ID")
+
     # Parse
     args = parser.parse_args()
 
@@ -1212,6 +1371,12 @@ def main() -> int:
         "extract": cmd_extract,
         "reinforce": cmd_reinforce,
         "patch-core": cmd_patch_core,
+        "embed": cmd_embed,
+        "timeline": cmd_timeline,
+        "security": cmd_security,
+        "export": cmd_export,
+        "import": cmd_import,
+        "history": cmd_history,
     }
 
     handler = routes.get(args.command)
