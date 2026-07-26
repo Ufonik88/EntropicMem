@@ -200,6 +200,19 @@ class MemoryEngine:
             # Phase 7: embeddings table (no-op if deps missing)
             if EMBEDDINGS_AVAILABLE:
                 init_embeddings_schema(self.db)
+            # Phase 11.3: fact versioning table
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS fact_versions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fact_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    importance REAL DEFAULT 0.5,
+                    domain TEXT DEFAULT 'Knowledge',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    source TEXT DEFAULT 'version_snapshot'
+                )
+            """)
+            self.db.execute("CREATE INDEX IF NOT EXISTS idx_versions_fact ON fact_versions(fact_id, created_at DESC)")
             self.db.commit()
         finally:
             self._release_write_lock()
@@ -279,6 +292,8 @@ class MemoryEngine:
         ).fetchone()
 
         if existing:
+            # Phase 11.3: snapshot before update
+            self.snapshot_version(eid, source="dedup_update")
             self.db.execute(
                 """UPDATE facts SET content=?, title=?, importance=?, domain=?,
                    tags=?, session_id=?, updated_at=?
@@ -290,6 +305,8 @@ class MemoryEngine:
             # I1: Fuzzy deduplication — check for near-duplicate content
             fuzzy_id = self._find_fuzzy_duplicate(content)
             if fuzzy_id and fuzzy_id != eid:
+                # Phase 11.3: snapshot before fuzzy update
+                self.snapshot_version(fuzzy_id, source="fuzzy_dedup_update")
                 # Update the existing near-duplicate instead of creating a new fact
                 self.db.execute(
                     """UPDATE facts SET content=?, title=?, importance=?, domain=?,
@@ -671,6 +688,42 @@ class MemoryEngine:
         self._release_write_lock()
         return True
 
+    # ── Phase 11.3: fact versioning ─────────────────────────────────────────
+
+    def snapshot_version(self, entropic_id: str, source: str = "update") -> bool:
+        """Save the current state of a fact to the versions table before modifying it."""
+        row = self.db.execute(
+            "SELECT content, importance, domain FROM facts WHERE id = ?",
+            (entropic_id,),
+        ).fetchone()
+        if not row:
+            return False
+        self.db.execute(
+            """INSERT INTO fact_versions (fact_id, content, importance, domain, source)
+               VALUES (?, ?, ?, ?, ?)""",
+            (entropic_id, row[0], row[1], row[2], source),
+        )
+        return True
+
+    def get_versions(self, entropic_id: str) -> List[dict]:
+        """Get all version snapshots for a fact, newest first."""
+        rows = self.db.execute(
+            """SELECT content, importance, domain, created_at, source
+               FROM fact_versions WHERE fact_id = ?
+               ORDER BY created_at DESC, id DESC""",
+            (entropic_id,),
+        ).fetchall()
+        return [
+            {
+                "content": r[0],
+                "importance": r[1],
+                "domain": r[2],
+                "created_at": r[3],
+                "source": r[4],
+            }
+            for r in rows
+        ]
+
     def recall_with_relevance(
         self,
         query: str,
@@ -784,54 +837,103 @@ class MemoryEngine:
         domain: Optional[str] = None,
         fts_weight: float = 0.6,
         vec_weight: float = 0.4,
+        expand_links: bool = False,
     ) -> List[StoredFact]:
         """Hybrid search: FTS5 BM25 + vector similarity fusion (Phase 7).
 
         Falls back to FTS5-only recall if embeddings are unavailable.
+
+        Phase 10.2: when expand_links=True, traverses the wikilink graph
+        and appends connected vault notes as low-score context facts.
         """
         if not EMBEDDINGS_AVAILABLE:
-            return self.recall_with_relevance(query, top_k=top_k, domain=domain)
+            results = self.recall_with_relevance(query, top_k=top_k, domain=domain)
+        else:
+            # FTS5 pass (get more candidates for fusion)
+            fts_hits = self.recall_with_relevance(query, top_k=top_k * 2, domain=domain)
+            fts_scores = []
+            if fts_hits:
+                max_rel = max(f.relevance_score for f in fts_hits) or 1.0
+                fts_scores = [(f.id, f.relevance_score / max_rel) for f in fts_hits]
 
-        # FTS5 pass (get more candidates for fusion)
-        fts_hits = self.recall_with_relevance(query, top_k=top_k * 2, domain=domain)
-        fts_scores = []
-        if fts_hits:
-            max_rel = max(f.relevance_score for f in fts_hits) or 1.0
-            fts_scores = [(f.id, f.relevance_score / max_rel) for f in fts_hits]
+            # Vector pass
+            vec_scores = []
+            query_vec = embed_text(query)
+            if query_vec:
+                vec_results = vector_search(self.db, query_vec, top_k=top_k * 2, domain=domain)
+                if vec_results:
+                    max_sim = max(s for _, s in vec_results) or 1.0
+                    vec_scores = [(fid, sim / max_sim) for fid, sim in vec_results]
 
-        # Vector pass
-        vec_scores = []
-        query_vec = embed_text(query)
-        if query_vec:
-            vec_results = vector_search(self.db, query_vec, top_k=top_k * 2, domain=domain)
-            if vec_results:
-                max_sim = max(s for _, s in vec_results) or 1.0
-                vec_scores = [(fid, sim / max_sim) for fid, sim in vec_results]
+            # Fuse
+            fused = hybrid_rank(fts_scores, vec_scores, fts_weight, vec_weight)
 
-        # Fuse
-        fused = hybrid_rank(fts_scores, vec_scores, fts_weight, vec_weight)
+            # Build result list
+            fact_map = {f.id: f for f in fts_hits}
+            # Fetch any vector-only hits not in FTS results
+            for fid, _ in fused:
+                if fid not in fact_map:
+                    fact = self.get_fact(fid)
+                    if fact:
+                        fact_map[fid] = fact
 
-        # Build result list
-        fact_map = {f.id: f for f in fts_hits}
-        # Fetch any vector-only hits not in FTS results
-        for fid, _ in fused:
-            if fid not in fact_map:
-                fact = self.get_fact(fid)
+            results = []
+            for fid, score in fused[:top_k]:
+                fact = fact_map.get(fid)
                 if fact:
-                    fact_map[fid] = fact
+                    fact.relevance_score = score
+                    results.append(fact)
 
-        results = []
-        for fid, score in fused[:top_k]:
-            fact = fact_map.get(fid)
-            if fact:
-                fact.relevance_score = score
-                results.append(fact)
+        # Phase 10.2: graph-aware expansion
+        if expand_links and results:
+            results = self._expand_with_links(results, query, top_k)
 
         # Auto-reinforce
         for fact in results:
             self.reinforce(fact.id)
 
         return results
+
+    def _expand_with_links(
+        self,
+        results: List[StoredFact],
+        query: str,
+        top_k: int,
+    ) -> List[StoredFact]:
+        """Expand recall results with linked vault notes (Phase 10.2).
+
+        For each result whose title appears in the link graph, fetch
+        connected notes and append them as context facts with a
+        reduced relevance score.
+        """
+        try:
+            from graph_query import init_links_schema, get_connected_notes
+        except ImportError:
+            return results
+
+        conn = self.db  # reuse engine connection (links table may exist)
+        try:
+            init_links_schema(conn)
+        except Exception:
+            return results
+
+        seen_ids = {f.id for f in results}
+        expanded = list(results)
+        base_score = min(f.relevance_score for f in results) if results else 0.1
+
+        for fact in results[:5]:  # expand top 5 only
+            title = fact.title or fact.content[:60]
+            connected = get_connected_notes(conn, title, depth=1)
+            for linked_title in list(connected["all"])[:3]:
+                # Search for a fact matching the linked title
+                linked_facts = self.recall(linked_title, top_k=1)
+                for lf in linked_facts:
+                    if lf.id not in seen_ids:
+                        lf.relevance_score = base_score * 0.5  # reduced weight
+                        expanded.append(lf)
+                        seen_ids.add(lf.id)
+
+        return expanded[:top_k + 5]  # allow slight overflow for context
 
     def rebuild_embeddings(self) -> dict:
         """Regenerate embeddings for all facts (Phase 7.3).
