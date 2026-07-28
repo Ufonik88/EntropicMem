@@ -48,6 +48,7 @@
 |------|--------|
 | 2026-07-28 | Phase 1 implemented and verified |
 | 2026-07-28 | Phase 2–3 implemented; version bumped to 2.1.6; docs + vault updated |
+| 2026-07-28 | Tag+release v2.1.6 published at c145dc9; PR #37 open — main merge needs second approving review (branch protection) |
 
 ---
 
