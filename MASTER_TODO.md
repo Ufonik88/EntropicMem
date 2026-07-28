@@ -1,3 +1,59 @@
+# EntropicMem — MASTER TODO
+
+**Last updated:** 2026-07-28
+**Active track:** Security Hardening COMPLETE (v2.1.6)
+**Plan doc:** `docs/SECURITY_HARDENING_PLAN.md`
+**Release:** v2.1.6
+
+---
+
+## Security Hardening (2026-07-28 audit) — COMPLETE
+
+### Phase 1 — Immediate / Critical
+
+- [x] **1.1** Graph server bind `127.0.0.1`; require token on `POST /refresh`
+- [x] **1.2** Default HTML export omits `full_body` (opt-in `--include-bodies`)
+- [x] **1.3** Harden FS modes: DBs/backups `600`, dirs `700`; engine secure create
+- [x] **1.4** Encrypt backup archives (OpenSSL AES-256-CBC) before rclone
+- [x] **1.5** `auto_extract_enabled` default **false**
+- [x] **1.6** Gate `patch_core` via `core_memory_writable` (default false)
+- [x] **1.7** Prefetch source denylist + strip instruction markers on `remember`
+- [x] **1.8** Fix LIKE domain filter parentheses in `memory_engine.recall`
+- [x] **1.9** Verify listeners/perms; run targeted tests; update health notes
+
+### Phase 2 — Architectural
+
+- [x] Sensitivity tiers + write policy (`policy.py`)
+- [x] `audit_log` table + CLI `audit`
+- [x] Privileged-tool confirm gates (consolidate/forget)
+- [x] Pending-facts quarantine for auto-extract + CLI `pending`
+- [x] Pin plugin vault/index/memory paths (no Obsidian fallback)
+- [x] SSRF DNS resolve + private IP recheck
+- [x] Reinforce decoupling (`auto_reinforce=False` default)
+- [x] Encrypted backup standard + restore drill docs
+- [x] Runtime encryption design spike (`docs/SQLCIPHER_SPIKE.md`)
+- [x] Merge-safe `save_config`
+
+### Phase 3 — Testing & validation
+
+- [x] Security pytest pack (`test_phase1_security`, `test_security_phase2`)
+- [x] Adversarial poisoned-fact / SSRF / secret-block tests
+- [x] Health check: bind address, perms, backup ciphertext, audit_log
+- [x] Backup restore game day documented
+- [x] Full pytest suite green pre-release
+
+### Progress log
+
+| When | Change |
+|------|--------|
+| 2026-07-28 | Phase 1 implemented and verified |
+| 2026-07-28 | Phase 2–3 implemented; version bumped to 2.1.6; docs + vault updated |
+| 2026-07-28 | Tag+release v2.1.6 published at c145dc9; PR #37 open — main merge needs second approving review (branch protection) |
+
+---
+
+## Prior status (pre-security-track)
+
 # EntropicMem — Phase 6 Complete, Sole-Provider Ready
 
 **Last updated:** 2026-07-24

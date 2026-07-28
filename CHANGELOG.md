@@ -1,5 +1,36 @@
 # Changelog
 
+## [2.1.6] - 2026-07-28
+
+### Security (Phases 1–3 hardening)
+
+#### Phase 1
+- Graph export defaults to metadata-only (`include_bodies=False`; CLI `--include-bodies`)
+- Graph serve binds `127.0.0.1`; ops graph server token auth on `POST /refresh`
+- Filesystem modes: engine enforces `700`/`600` on DB paths
+- Backups: AES-256-CBC encrypt before rclone (`scripts/entropicmem_backup.sh`)
+- Plugin defaults: `auto_extract_enabled=false`, `core_memory_writable=false`
+- Prefetch source denylist; strip `<memory-context>` / instruction-hijack markers on remember
+- Fix LIKE domain filter operator precedence
+
+#### Phase 2
+- `policy.py`: sensitivity tiers (`public|internal|sensitive|secret`); secret/credential block
+- Auto-extract → `pending_facts` quarantine; CLI `pending list|promote|discard`
+- Append-only `audit_log`; CLI `audit`
+- `forget` / `consolidate` require `confirm=True`; consolidate dry-run by default
+- Plugin path pin under `{HERMES_HOME}/entropicmem` (ignores Obsidian fallback)
+- Merge-safe `save_config` (atomic, no plugins clobber)
+- SSRF: DNS resolve + block private/link-local answers
+- `recall_with_relevance` / `recall_hybrid`: `auto_reinforce=False` by default
+- Docs: `BACKUP_RESTORE.md`, `SQLCIPHER_SPIKE.md`, `SECURITY_HARDENING_PLAN.md`
+
+#### Phase 3
+- Tests: `test_phase1_security.py`, `test_security_phase2.py`
+- Health check: `security_posture` + `audit_log` sections
+
+### Changed
+- Version 2.1.5 → 2.1.6
+
 ## [2.1.5] - 2026-07-23
 
 ### Added (Phase 5 — Polish + Final Validation)

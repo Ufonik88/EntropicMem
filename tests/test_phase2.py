@@ -156,7 +156,7 @@ class TestRememberForget:
         eid_line = [l for l in r.stdout.split("\n") if "Remembered:" in l][0]
         eid = eid_line.split(":")[1].strip()
 
-        r2 = _run("forget", eid,
+        r2 = _run("forget", "--confirm", eid,
                   ENTROPICMEM_VAULT_PATH=str(vp), ENTROPICMEM_INDEX_DB=str(ip))
         assert r2.returncode == 0
         assert "Forgot" in r2.stdout

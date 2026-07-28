@@ -47,6 +47,10 @@ REMEMBER_SCHEMA = {
             "content": {"type": "string", "description": "Fact to remember."},
             "domain": {"type": "string", "description": "Vault domain (default: Knowledge)."},
             "importance": {"type": "number", "description": "0.0–1.0 (default 0.7)."},
+            "sensitivity": {
+                "type": "string",
+                "description": "public|internal|sensitive|secret (secret is rejected).",
+            },
         },
         "required": ["content"],
     },
@@ -122,7 +126,8 @@ CONSOLIDATE_SCHEMA = {
         "properties": {
             "max_age_days": {"type": "integer", "description": "Archive facts older than this many days (default: 90)."},
             "min_access_count": {"type": "integer", "description": "Only archive facts accessed this many times or fewer (default: 0)."},
-            "dry_run": {"type": "boolean", "description": "If true, report what would be archived without archiving."},
+            "dry_run": {"type": "boolean", "description": "If true (default), report only without archiving."},
+            "confirm": {"type": "boolean", "description": "Must be true with dry_run=false to archive."},
         },
     },
 }
@@ -154,6 +159,23 @@ SMART_CONTEXT_DEFAULTS = {
     # Cache behavior
     "cache_conversation_context": True,
     "cache_ttl_seconds": 300,
+
+    # Security defaults (Phase 1 hardening)
+    "auto_extract_enabled": False,
+    "core_memory_writable": False,
+    "reinforce_on_recall": False,
+    "prefetch_denied_sources": [
+        "auto_extracted",
+        "test",
+        "phase1_verify",
+        "phase1_cron_context",
+        "phase5",
+        "phase5_e2e",
+        "h2_test",
+        "cron_self_test",
+        "cron_path_test",
+        "cutover_verify",
+    ],
 }
 
 
@@ -277,8 +299,18 @@ class EntropicMemMemoryProvider(MemoryProvider):
             # Phase 8: Auto-extraction
             {
                 "key": "auto_extract_enabled",
-                "description": "Enable background fact extraction from conversation (regex-based, no LLM)",
-                "default": True,
+                "description": "Enable background fact extraction from conversation (regex-based, no LLM). Default off for security.",
+                "default": False,
+            },
+            {
+                "key": "core_memory_writable",
+                "description": "Allow entropicmem_patch_core to modify Persona/User Profile. Default off.",
+                "default": False,
+            },
+            {
+                "key": "prefetch_denied_sources",
+                "description": "Fact sources excluded from prefetch injection",
+                "default": ["auto_extracted", "test"],
             },
             {
                 "key": "extraction_timeout",
@@ -310,6 +342,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
+        """Merge-only update of plugins.entropicmem — never clobber other plugins."""
         config_path = Path(hermes_home) / "config.yaml"
         try:
             import yaml
@@ -318,10 +351,20 @@ class EntropicMemMemoryProvider(MemoryProvider):
             if config_path.exists():
                 with open(config_path, encoding="utf-8-sig") as f:
                     existing = yaml.safe_load(f) or {}
-            existing.setdefault("plugins", {})
-            existing["plugins"]["entropicmem"] = values
-            with open(config_path, "w", encoding="utf-8") as f:
-                yaml.dump(existing, f, default_flow_style=False)
+            if not isinstance(existing, dict):
+                existing = {}
+            plugins = existing.setdefault("plugins", {})
+            if not isinstance(plugins, dict):
+                plugins = {}
+                existing["plugins"] = plugins
+            current = dict(plugins.get("entropicmem") or {})
+            current.update(values or {})
+            plugins["entropicmem"] = current
+            # atomic write
+            tmp = config_path.with_suffix(".yaml.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                yaml.safe_dump(existing, f, default_flow_style=False, sort_keys=False)
+            tmp.replace(config_path)
         except Exception as e:
             logger.debug("entropicmem save_config failed: %s", e)
 
@@ -443,7 +486,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             self._conversation_history = messages[-(self._config.get("context_window_turns", 3) * 2):]
 
         # Auto-extract facts from conversation (non-blocking, regex-based)
-        if self._config.get("auto_extract_enabled", True) and self._memory_db and self._scripts_dir:
+        if self._config.get("auto_extract_enabled", False) and self._memory_db and self._scripts_dir:
             try:
                 self._auto_extract(user_content, assistant_content, session_id or self._session_id)
             except Exception as e:
@@ -562,11 +605,17 @@ class EntropicMemMemoryProvider(MemoryProvider):
             decay_enabled=self._config.get("decay_enabled", True),
             decay_half_life_days=self._config.get("decay_half_life_days", 30.0),
             reinforcement_boost=self._config.get("reinforcement_boost", 0.1),
+            auto_reinforce=self._config.get("reinforce_on_recall", False),
         )
 
         # Apply domain filtering if configured
         if enabled_domains:
             candidates = [f for f in candidates if f.domain in enabled_domains]
+
+        # Security: drop untrusted / test sources from injection
+        denied = set(self._config.get("prefetch_denied_sources") or [])
+        if denied:
+            candidates = [f for f in candidates if getattr(f, "source", "") not in denied]
 
         return candidates[:max_results]
 
@@ -673,8 +722,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
         for fact in facts:
             # Include relevance score in output for debugging
             score_str = f" [score:{fact.relevance_score:.2f}]" if fact.relevance_score > 0 else ""
-            content_preview = fact.content[:300]
-            if len(fact.content) > 300:
+            body = fact.content
+            try:
+                from policy import redact_for_prefetch
+                body = redact_for_prefetch(body, getattr(fact, "sensitivity", "internal") or "internal")
+            except Exception:
+                pass
+            content_preview = body[:300]
+            if len(body) > 300:
                 content_preview += "..."
             lines.append(f"- [{fact.id}] {content_preview}{score_str}")
 
@@ -777,6 +832,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     domain=domain,
                     source="agent_tool",
                     importance=importance,
+                    sensitivity=args.get("sensitivity"),
+                    actor="agent_tool",
+                    session_id=self._session_id,
                 )
             vault_note = None
             if self._vault_path and self._vault_path.is_dir():
@@ -825,6 +883,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     decay_enabled=self._config.get("decay_enabled", True),
                     decay_half_life_days=self._config.get("decay_half_life_days", 30.0),
                     reinforcement_boost=self._config.get("reinforcement_boost", 0.1),
+                    auto_reinforce=self._config.get("reinforce_on_recall", False),
                 )
             payload = [
                 {
@@ -863,6 +922,10 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     def _patch_core(self, args: dict) -> str:
         """Handle entropicmem_patch_core tool call."""
+        if not self._config.get("core_memory_writable", False):
+            return _tool_error(
+                "core memory writes disabled (set plugins.entropicmem.core_memory_writable: true)"
+            )
         target = args.get("target", "")
         old_text = args.get("old_text", "")
         new_text = args.get("new_text", "")
@@ -967,13 +1030,15 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return error
         max_age = args.get("max_age_days", 90)
         min_access = args.get("min_access_count", 0)
-        dry_run = args.get("dry_run", False)
+        dry_run = args.get("dry_run", True)
+        confirm = bool(args.get("confirm", False))
         try:
             with engine:
                 result = engine.consolidate(
                     max_age_days=max_age,
                     min_access_count=min_access,
                     dry_run=dry_run,
+                    confirm=confirm,
                 )
             return json.dumps(result)
         except Exception as e:
