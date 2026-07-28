@@ -47,6 +47,10 @@ REMEMBER_SCHEMA = {
             "content": {"type": "string", "description": "Fact to remember."},
             "domain": {"type": "string", "description": "Vault domain (default: Knowledge)."},
             "importance": {"type": "number", "description": "0.0–1.0 (default 0.7)."},
+            "sensitivity": {
+                "type": "string",
+                "description": "public|internal|sensitive|secret (secret is rejected).",
+            },
         },
         "required": ["content"],
     },
@@ -122,7 +126,8 @@ CONSOLIDATE_SCHEMA = {
         "properties": {
             "max_age_days": {"type": "integer", "description": "Archive facts older than this many days (default: 90)."},
             "min_access_count": {"type": "integer", "description": "Only archive facts accessed this many times or fewer (default: 0)."},
-            "dry_run": {"type": "boolean", "description": "If true, report what would be archived without archiving."},
+            "dry_run": {"type": "boolean", "description": "If true (default), report only without archiving."},
+            "confirm": {"type": "boolean", "description": "Must be true with dry_run=false to archive."},
         },
     },
 }
@@ -158,6 +163,7 @@ SMART_CONTEXT_DEFAULTS = {
     # Security defaults (Phase 1 hardening)
     "auto_extract_enabled": False,
     "core_memory_writable": False,
+    "reinforce_on_recall": False,
     "prefetch_denied_sources": [
         "auto_extracted",
         "test",
@@ -336,6 +342,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
+        """Merge-only update of plugins.entropicmem — never clobber other plugins."""
         config_path = Path(hermes_home) / "config.yaml"
         try:
             import yaml
@@ -344,10 +351,20 @@ class EntropicMemMemoryProvider(MemoryProvider):
             if config_path.exists():
                 with open(config_path, encoding="utf-8-sig") as f:
                     existing = yaml.safe_load(f) or {}
-            existing.setdefault("plugins", {})
-            existing["plugins"]["entropicmem"] = values
-            with open(config_path, "w", encoding="utf-8") as f:
-                yaml.dump(existing, f, default_flow_style=False)
+            if not isinstance(existing, dict):
+                existing = {}
+            plugins = existing.setdefault("plugins", {})
+            if not isinstance(plugins, dict):
+                plugins = {}
+                existing["plugins"] = plugins
+            current = dict(plugins.get("entropicmem") or {})
+            current.update(values or {})
+            plugins["entropicmem"] = current
+            # atomic write
+            tmp = config_path.with_suffix(".yaml.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                yaml.safe_dump(existing, f, default_flow_style=False, sort_keys=False)
+            tmp.replace(config_path)
         except Exception as e:
             logger.debug("entropicmem save_config failed: %s", e)
 
@@ -588,6 +605,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             decay_enabled=self._config.get("decay_enabled", True),
             decay_half_life_days=self._config.get("decay_half_life_days", 30.0),
             reinforcement_boost=self._config.get("reinforcement_boost", 0.1),
+            auto_reinforce=self._config.get("reinforce_on_recall", False),
         )
 
         # Apply domain filtering if configured
@@ -704,8 +722,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
         for fact in facts:
             # Include relevance score in output for debugging
             score_str = f" [score:{fact.relevance_score:.2f}]" if fact.relevance_score > 0 else ""
-            content_preview = fact.content[:300]
-            if len(fact.content) > 300:
+            body = fact.content
+            try:
+                from policy import redact_for_prefetch
+                body = redact_for_prefetch(body, getattr(fact, "sensitivity", "internal") or "internal")
+            except Exception:
+                pass
+            content_preview = body[:300]
+            if len(body) > 300:
                 content_preview += "..."
             lines.append(f"- [{fact.id}] {content_preview}{score_str}")
 
@@ -808,6 +832,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     domain=domain,
                     source="agent_tool",
                     importance=importance,
+                    sensitivity=args.get("sensitivity"),
+                    actor="agent_tool",
+                    session_id=self._session_id,
                 )
             vault_note = None
             if self._vault_path and self._vault_path.is_dir():
@@ -856,6 +883,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     decay_enabled=self._config.get("decay_enabled", True),
                     decay_half_life_days=self._config.get("decay_half_life_days", 30.0),
                     reinforcement_boost=self._config.get("reinforcement_boost", 0.1),
+                    auto_reinforce=self._config.get("reinforce_on_recall", False),
                 )
             payload = [
                 {
@@ -1002,13 +1030,15 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return error
         max_age = args.get("max_age_days", 90)
         min_access = args.get("min_access_count", 0)
-        dry_run = args.get("dry_run", False)
+        dry_run = args.get("dry_run", True)
+        confirm = bool(args.get("confirm", False))
         try:
             with engine:
                 result = engine.consolidate(
                     max_age_days=max_age,
                     min_access_count=min_access,
                     dry_run=dry_run,
+                    confirm=confirm,
                 )
             return json.dumps(result)
         except Exception as e:

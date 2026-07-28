@@ -245,6 +245,81 @@ def _check_mnemosyne_crons(mnemosyne_ids: set) -> dict:
         }
 
 
+
+
+def check_security_posture() -> dict:
+    """Phase 2/3: FS modes, backup ciphertext, graph bind."""
+    import stat as _stat
+    import subprocess
+    issues = []
+    details = {}
+
+    # Directory / DB modes
+    if ENTROPICMEM_DIR.exists():
+        dmode = ENTROPICMEM_DIR.stat().st_mode & 0o777
+        details["entropicmem_dir_mode"] = oct(dmode)
+        if dmode & 0o077:
+            issues.append(f"entropicmem dir world/group accessible: {oct(dmode)}")
+    for name in ("memory.db", "index.db"):
+        p = ENTROPICMEM_DIR / name
+        if p.exists():
+            m = p.stat().st_mode & 0o777
+            details[f"{name}_mode"] = oct(m)
+            if m & 0o077:
+                issues.append(f"{name} mode {oct(m)} allows group/other")
+
+    # Backup key + latest archive type
+    key = ENTROPICMEM_DIR / ".backup_key"
+    details["backup_key_present"] = key.exists()
+    enc = sorted(BACKUP_DIR.glob("entropicmem_*.tar.gz.enc")) if BACKUP_DIR.exists() else []
+    plain = sorted(BACKUP_DIR.glob("entropicmem_*.tar.gz")) if BACKUP_DIR.exists() else []
+    details["encrypted_backups"] = len(enc)
+    details["plaintext_backups"] = len(plain)
+    if plain:
+        issues.append(f"{len(plain)} plaintext backup tar(s) still present")
+    if not enc and not plain:
+        details["backup_note"] = "no local backups found"
+
+    # Graph listener bind
+    bind = "unknown"
+    try:
+        out = subprocess.check_output(["ss", "-tlnp"], text=True, stderr=subprocess.DEVNULL)
+        lines = [ln for ln in out.splitlines() if ":8075" in ln]
+        details["graph_ss"] = lines[:3]
+        if any("0.0.0.0:8075" in ln or "*:8075" in ln for ln in lines):
+            issues.append("graph server listening on all interfaces")
+            bind = "0.0.0.0"
+        elif any("127.0.0.1:8075" in ln for ln in lines):
+            bind = "127.0.0.1"
+        elif not lines:
+            bind = "down"
+    except Exception as e:
+        details["graph_ss_error"] = str(e)
+    details["graph_bind"] = bind
+
+    status = "FAIL" if any("all interfaces" in i for i in issues) else ("WARN" if issues else "OK")
+    return {"status": status, "issues": issues, "details": details}
+
+
+def check_audit_log() -> dict:
+    if not MEMORY_DB.exists():
+        return {"status": "WARN", "error": "memory.db missing"}
+    try:
+        conn = sqlite3.connect(str(MEMORY_DB))
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "audit_log" not in tables:
+            conn.close()
+            return {"status": "WARN", "error": "audit_log table missing (pre-2.1.6)"}
+        n = conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+        pending = 0
+        if "pending_facts" in tables:
+            pending = conn.execute("SELECT COUNT(*) FROM pending_facts").fetchone()[0]
+        conn.close()
+        return {"status": "OK", "audit_events": n, "pending_facts": pending}
+    except Exception as e:
+        return {"status": "FAIL", "error": f"{type(e).__name__}: {e}"}
+
+
 def main() -> int:
     checks = {
         "memory_db": check_memory_db(),
@@ -253,6 +328,8 @@ def main() -> int:
         "fts": check_fts(),
         "backup": check_backup(),
         "stability_gate": check_stability_gate(),
+        "security_posture": check_security_posture(),
+        "audit_log": check_audit_log(),
     }
 
     has_fail = any(c.get("status") == "FAIL" for c in checks.values())

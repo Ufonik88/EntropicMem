@@ -51,7 +51,7 @@ from vault import (  # noqa: E402
 
 from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 
-__version__ = "1.0.0"
+__version__ = "2.1.6"
 
 # ── input validation helpers ────────────────────────────────────────────────
 
@@ -92,26 +92,57 @@ def validate_path(path: str, max_len: int = 4096) -> str:
     return safe
 
 def validate_url(url: str) -> str:
-    """Validate URL scheme and block internal addresses."""
+    """Validate URL scheme and block internal addresses (incl. DNS rebinding)."""
     if not url:
         return ""
     import ipaddress
+    import socket
     import urllib.parse
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ('http', 'https'):
         raise ValueError("Only http/https URLs allowed")
-    hostname = parsed.hostname or ""
-    # Block private IPs and localhost
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname:
+        raise ValueError("URL hostname required")
+    blocked_hosts = {
+        'localhost', 'localhost.localdomain', 'metadata',
+        'metadata.google.internal', '169.254.169.254',
+        'metadata.google.com', 'instance-data',
+    }
+    if hostname in blocked_hosts or hostname.endswith('.local') or hostname.endswith('.internal'):
+        raise ValueError("Internal hostname not allowed")
+
+    def _bad_ip(ip: ipaddress._BaseAddress) -> bool:
+        return bool(
+            ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+        )
+
+    # Literal IP
     try:
         ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+        if _bad_ip(ip):
             raise ValueError("Private/internal IP addresses not allowed")
+        return url.strip()
     except ValueError as e:
         if "not allowed" in str(e):
             raise
-        # Not an IP, check hostname
-        if hostname.lower() in ('localhost', 'localhost.localdomain', 'metadata', 'metadata.google.internal', '169.254.169.254'):
-            raise ValueError("Internal hostname not allowed")
+
+    # Resolve DNS and re-check all answers (mitigate rebinding to RFC1918)
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as e:
+        raise ValueError(f"DNS resolution failed for {hostname}: {e}") from e
+    if not infos:
+        raise ValueError(f"DNS resolution returned no addresses for {hostname}")
+    for info in infos:
+        addr = info[4][0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            continue
+        if _bad_ip(ip):
+            raise ValueError(f"Resolved address {addr} is private/internal — blocked")
     return url.strip()
 
 # ── env resolution ──────────────────────────────────────────────────────────
@@ -991,7 +1022,7 @@ def cmd_forget(args) -> int:
     index = VaultIndex(index_path)
     engine = MemoryEngine(_memory_db_path())
     eid = args.entropic_id
-    engine.forget(eid)
+    engine.forget(eid, confirm=bool(getattr(args, "confirm", False)))
     found = None
     for rel in vault.list_notes():
         note = vault.read_note(rel)
@@ -1345,6 +1376,47 @@ def cmd_consolidate(args) -> int:
 
 # ── main ────────────────────────────────────────────────────────────────────
 
+
+def cmd_audit(args) -> int:
+    """Show recent audit log entries."""
+    from memory_engine import MemoryEngine
+    db = Path(os.environ.get("ENTROPICMEM_MEMORY_DB", str(Path.home() / ".hermes" / "entropicmem" / "memory.db")))
+    with MemoryEngine(db) as engine:
+        rows = engine.list_audit(limit=getattr(args, "limit", 50))
+    for r in rows:
+        print(f"{r.get('ts','')} {r.get('action','')} ok={r.get('ok')} id={r.get('fact_id','')} {r.get('detail','')}")
+    print(f"({len(rows)} events)")
+    return 0
+
+
+def cmd_pending(args) -> int:
+    """List or promote/discard pending (quarantined) facts."""
+    from memory_engine import MemoryEngine
+    db = Path(os.environ.get("ENTROPICMEM_MEMORY_DB", str(Path.home() / ".hermes" / "entropicmem" / "memory.db")))
+    action = getattr(args, "pending_command", "list") or "list"
+    with MemoryEngine(db) as engine:
+        if action == "list":
+            rows = engine.list_pending(limit=getattr(args, "limit", 50))
+            for r in rows:
+                print(f"{r.get('id')} [{r.get('domain')}] {r.get('reason')}: {(r.get('content') or '')[:100]}")
+            print(f"({len(rows)} pending)")
+            return 0
+        if action == "promote":
+            eid = engine.promote_pending(args.id)
+            if not eid:
+                print("not found", file=sys.stderr)
+                return 1
+            print(json.dumps({"ok": True, "entropic_id": eid}))
+            return 0
+        if action == "discard":
+            ok = engine.discard_pending(args.id)
+            print(json.dumps({"ok": ok}))
+            return 0 if ok else 1
+    print("unknown pending action", file=sys.stderr)
+    return 1
+
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="entropicmem",
@@ -1434,6 +1506,7 @@ def main() -> int:
 
     # forget
     p_forget = sub.add_parser("forget", help="Delete fact from memory engine and vault note")
+    p_forget.add_argument("--confirm", action="store_true", help="Required to delete")
     p_forget.add_argument("entropic_id", help="The entropic_id to forget")
 
     # memory
@@ -1498,9 +1571,23 @@ def main() -> int:
     p_consolidate = sub.add_parser("consolidate", help="Archive old, low-access facts")
     p_consolidate.add_argument("--max-age-days", type=int, default=90, help="Archive facts older than N days (default: 90)")
     p_consolidate.add_argument("--min-access-count", type=int, default=0, help="Only archive facts accessed N times or fewer")
+    p_consolidate.add_argument("--confirm", action="store_true", help="Required to actually archive")
     p_consolidate.add_argument("--dry-run", action="store_true", help="Report what would be archived without archiving")
 
     # Parse
+    
+    p_audit = sub.add_parser("audit", help="Show recent security audit log")
+    p_audit.add_argument("--limit", type=int, default=50)
+
+    p_pending = sub.add_parser("pending", help="Manage quarantined auto-extract facts")
+    p_pending_sub = p_pending.add_subparsers(dest="pending_command")
+    p_pl = p_pending_sub.add_parser("list", help="List pending facts")
+    p_pl.add_argument("--limit", type=int, default=50)
+    p_pp = p_pending_sub.add_parser("promote", help="Promote pending fact to durable memory")
+    p_pp.add_argument("id", help="Pending fact id")
+    p_pd = p_pending_sub.add_parser("discard", help="Discard pending fact")
+    p_pd.add_argument("id", help="Pending fact id")
+
     args = parser.parse_args()
 
     if args.version:
@@ -1540,6 +1627,8 @@ def main() -> int:
         "export": cmd_export,
         "import": cmd_import,
         "history": cmd_history,
+        "audit": cmd_audit,
+        "pending": cmd_pending,
         "consolidate": cmd_consolidate,
     }
 

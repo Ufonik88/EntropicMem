@@ -1,15 +1,13 @@
 # EntropicMem — MASTER TODO
 
 **Last updated:** 2026-07-28
-**Active track:** Security Hardening Phase 1 (critical fixes)
+**Active track:** Security Hardening COMPLETE (v2.1.6)
 **Plan doc:** `docs/SECURITY_HARDENING_PLAN.md`
-**Branch:** `security/phase1-hardening`
+**Release:** v2.1.6
 
 ---
 
-## Security Hardening (2026-07-28 audit) — ACTIVE
-
-Audit of sole-provider Hermes integration found High risks: unauth graph server on `0.0.0.0:8075` with full note bodies, plaintext DB/vault/GDrive backups with weak modes, context poisoning via prefetch/Core Memory, unrestricted `patch_core`, default-on auto-extract.
+## Security Hardening (2026-07-28 audit) — COMPLETE
 
 ### Phase 1 — Immediate / Critical
 
@@ -23,43 +21,35 @@ Audit of sole-provider Hermes integration found High risks: unauth graph server 
 - [x] **1.8** Fix LIKE domain filter parentheses in `memory_engine.recall`
 - [x] **1.9** Verify listeners/perms; run targeted tests; update health notes
 
-### Phase 2 — Architectural (queued)
+### Phase 2 — Architectural
 
-- [ ] Sensitivity tiers + write policy
-- [ ] `audit_log` table + CLI
-- [ ] Privileged-tool dry-run defaults (consolidate/forget)
-- [ ] Pending-facts quarantine for auto-extract
-- [ ] Pin plugin vault/index/memory paths (no Obsidian fallback)
-- [ ] SSRF DNS resolve + private IP recheck
-- [ ] Reinforce decoupling (no write-on-read by default)
-- [ ] Encrypted backup standard + restore drill docs
-- [ ] Runtime encryption design spike (SQLCipher)
-- [ ] Merge-safe `save_config`
+- [x] Sensitivity tiers + write policy (`policy.py`)
+- [x] `audit_log` table + CLI `audit`
+- [x] Privileged-tool confirm gates (consolidate/forget)
+- [x] Pending-facts quarantine for auto-extract + CLI `pending`
+- [x] Pin plugin vault/index/memory paths (no Obsidian fallback)
+- [x] SSRF DNS resolve + private IP recheck
+- [x] Reinforce decoupling (`auto_reinforce=False` default)
+- [x] Encrypted backup standard + restore drill docs
+- [x] Runtime encryption design spike (`docs/SQLCIPHER_SPIKE.md`)
+- [x] Merge-safe `save_config`
 
-### Phase 3 — Testing & validation (queued)
+### Phase 3 — Testing & validation
 
-- [ ] Security pytest pack (path, FTS, SSRF, fence, PII, consolidate)
-- [ ] Adversarial poisoned-fact eval
-- [ ] Health check: bind address, perms, backup ciphertext flag
-- [ ] Backup restore game day
-- [ ] CI gate + latency/token budget benchmarks
+- [x] Security pytest pack (`test_phase1_security`, `test_security_phase2`)
+- [x] Adversarial poisoned-fact / SSRF / secret-block tests
+- [x] Health check: bind address, perms, backup ciphertext, audit_log
+- [x] Backup restore game day documented
+- [x] Full pytest suite green pre-release
 
-### Phase 1 progress log
+### Progress log
 
 | When | Change |
 |------|--------|
-| 2026-07-28 | Plan saved to `docs/SECURITY_HARDENING_PLAN.md` + this file + vault dual-write |
-| 2026-07-28 | Implementation started on branch security/phase1-hardening |
-| 2026-07-28 | 1.1 graph bind 127.0.0.1 + token auth on /refresh (401/200 verified) |
-| 2026-07-28 | 1.2 export_html include_bodies default false; graph regenerated without full_body JSON |
-| 2026-07-28 | 1.3 chmod 700/600 on entropicmem dir, DBs, vault, backups |
-| 2026-07-28 | 1.4 backup script AES-256-CBC before rclone; key at ~/.hermes/entropicmem/.backup_key |
-| 2026-07-28 | 1.5-1.7 auto_extract off; core_memory_writable off; prefetch denylist; remember sanitize |
-| 2026-07-28 | 1.8 LIKE domain parentheses fixed |
-| 2026-07-28 | 1.9 listeners/perms verified; test_phase1_security + phase8/11/smart_context green |
+| 2026-07-28 | Phase 1 implemented and verified |
+| 2026-07-28 | Phase 2–3 implemented; version bumped to 2.1.6; docs + vault updated |
 
 ---
-
 
 ## Prior status (pre-security-track)
 

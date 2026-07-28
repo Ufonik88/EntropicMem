@@ -23,6 +23,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from policy import evaluate_write, normalize_sensitivity, redact_for_prefetch
+    POLICY_AVAILABLE = True
+except ImportError:
+    POLICY_AVAILABLE = False
+
 # ── optional embedding support (Phase 7: semantic search) ──────────────────
 
 try:
@@ -141,6 +147,7 @@ class StoredFact:
     updated_at: str = ""
     last_accessed: str = ""
     access_count: int = 0
+    sensitivity: str = "internal"
     relevance_score: float = 0.0  # FTS5 rank-based relevance (0-1)
     decay_score: float = 1.0      # temporal decay factor (1.0 = no decay)
 
@@ -221,6 +228,37 @@ class MemoryEngine:
                 )
             """)
             self.db.execute("CREATE INDEX IF NOT EXISTS idx_versions_fact ON fact_versions(fact_id, created_at DESC)")
+            # Phase 2 security: sensitivity + audit + pending quarantine
+            existing_cols = {r[1] for r in self.db.execute("PRAGMA table_info(facts)").fetchall()}
+            if "sensitivity" not in existing_cols:
+                self.db.execute("ALTER TABLE facts ADD COLUMN sensitivity TEXT DEFAULT 'internal'")
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    action TEXT NOT NULL,
+                    actor TEXT DEFAULT 'agent',
+                    session_id TEXT DEFAULT '',
+                    fact_id TEXT DEFAULT '',
+                    detail TEXT DEFAULT '',
+                    ok INTEGER DEFAULT 1
+                )
+            """)
+            self.db.execute("CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC)")
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS pending_facts (
+                    id TEXT PRIMARY KEY,
+                    content TEXT NOT NULL,
+                    title TEXT DEFAULT '',
+                    source TEXT DEFAULT 'auto_extracted',
+                    importance REAL DEFAULT 0.5,
+                    domain TEXT DEFAULT 'Knowledge',
+                    tags TEXT DEFAULT '',
+                    session_id TEXT DEFAULT '',
+                    reason TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             self.db.commit()
         finally:
             self._release_write_lock()
@@ -288,6 +326,107 @@ class MemoryEngine:
         out = re.sub(r"\n{3,}", "\n\n", out).strip()
         return out
 
+
+    def audit(
+        self,
+        action: str,
+        *,
+        actor: str = "agent",
+        session_id: str = "",
+        fact_id: str = "",
+        detail: str = "",
+        ok: bool = True,
+    ) -> None:
+        """Append-only audit event (best-effort)."""
+        try:
+            self.db.execute(
+                """INSERT INTO audit_log (action, actor, session_id, fact_id, detail, ok)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (action, actor, session_id, fact_id, detail[:2000], 1 if ok else 0),
+            )
+            self.db.commit()
+        except Exception:
+            pass
+
+    def list_audit(self, limit: int = 50) -> List[dict]:
+        rows = self.db.execute(
+            """SELECT id, ts, action, actor, session_id, fact_id, detail, ok
+               FROM audit_log ORDER BY id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def quarantine_fact(
+        self,
+        content: str,
+        *,
+        title: str = "",
+        source: str = "auto_extracted",
+        importance: float = 0.5,
+        domain: str = "Knowledge",
+        tags: Optional[List[str]] = None,
+        session_id: str = "",
+        reason: str = "",
+    ) -> str:
+        """Store a candidate fact in pending_facts (not durable recall)."""
+        eid = StoredFact.make_id(content)
+        tags_str = ", ".join(tags) if tags else ""
+        self._acquire_write_lock()
+        try:
+            self.db.execute(
+                """INSERT OR REPLACE INTO pending_facts
+                   (id, content, title, source, importance, domain, tags, session_id, reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (eid, content, title or content[:60], source, importance, domain, tags_str, session_id, reason),
+            )
+            self.db.commit()
+            self.audit("quarantine", session_id=session_id, fact_id=eid, detail=reason)
+        finally:
+            self._release_write_lock()
+        return eid
+
+    def list_pending(self, limit: int = 50) -> List[dict]:
+        rows = self.db.execute(
+            """SELECT id, content, domain, source, importance, reason, created_at
+               FROM pending_facts ORDER BY created_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def promote_pending(self, pending_id: str, *, actor: str = "agent") -> Optional[str]:
+        """Promote a pending fact into durable memory via remember()."""
+        row = self.db.execute(
+            "SELECT * FROM pending_facts WHERE id = ?", (pending_id,)
+        ).fetchone()
+        if not row:
+            return None
+        tags = [t.strip() for t in (row["tags"] or "").split(",") if t.strip()]
+        eid = self.remember(
+            content=row["content"],
+            title=row["title"] or "",
+            source="promoted",
+            importance=row["importance"] or 0.5,
+            domain=row["domain"] or "Knowledge",
+            tags=tags + ["promoted"],
+            session_id=row["session_id"] or "",
+            sensitivity="internal",
+            actor="promote_pending",
+        )
+        self._acquire_write_lock()
+        try:
+            self.db.execute("DELETE FROM pending_facts WHERE id = ?", (pending_id,))
+            self.db.commit()
+            self.audit("promote_pending", actor=actor, fact_id=eid, detail=pending_id)
+        finally:
+            self._release_write_lock()
+        return eid
+
+    def discard_pending(self, pending_id: str) -> bool:
+        cur = self.db.execute("DELETE FROM pending_facts WHERE id = ?", (pending_id,))
+        self.db.commit()
+        self.audit("discard_pending", fact_id=pending_id, ok=cur.rowcount > 0)
+        return cur.rowcount > 0
+
     def remember(
         self,
         content: str,
@@ -297,14 +436,43 @@ class MemoryEngine:
         domain: str = "Knowledge",
         tags: Optional[List[str]] = None,
         session_id: str = "",
+        sensitivity: Optional[str] = None,
+        actor: str = "agent",
     ) -> str:
         """
         Store a durable fact. Returns the entropic_id.
         Deduplicates: if a fact with the same content hash exists, updates it.
 
         Phase 9: PII detection/redaction applied before storage.
+        Phase 2: sensitivity tiers + write policy (block secrets, quarantine auto).
         """
         content = self._sanitize_fact_text(content)
+        if not content:
+            raise ValueError("empty content after sanitize")
+
+        # Phase 2 write policy
+        tier = "internal"
+        if POLICY_AVAILABLE:
+            tier = normalize_sensitivity(sensitivity, domain)
+            action, reason = evaluate_write(
+                content, domain=domain, sensitivity=tier, source=source
+            )
+            if action == "block":
+                self.audit("remember_blocked", actor=actor, session_id=session_id, detail=reason or "", ok=False)
+                raise ValueError(reason or "write blocked by policy")
+            if action == "quarantine":
+                return self.quarantine_fact(
+                    content,
+                    title=title,
+                    source=source,
+                    importance=importance,
+                    domain=domain,
+                    tags=tags,
+                    session_id=session_id,
+                    reason=reason or "quarantine",
+                )
+        else:
+            tier = (sensitivity or "internal").lower()
 
         # Phase 9: PII check
         if PII_AVAILABLE:
@@ -326,10 +494,10 @@ class MemoryEngine:
             self.snapshot_version(eid, source="dedup_update")
             self.db.execute(
                 """UPDATE facts SET content=?, title=?, importance=?, domain=?,
-                   tags=?, session_id=?, updated_at=?
+                   tags=?, session_id=?, updated_at=?, sensitivity=?
                    WHERE id=?""",
                 (content, title or self._make_title(content), importance,
-                 domain, tags_str, session_id, now, eid),
+                 domain, tags_str, session_id, now, tier, eid),
             )
         else:
             # I1: Fuzzy deduplication — check for near-duplicate content
@@ -340,19 +508,19 @@ class MemoryEngine:
                 # Update the existing near-duplicate instead of creating a new fact
                 self.db.execute(
                     """UPDATE facts SET content=?, title=?, importance=?, domain=?,
-                       tags=?, session_id=?, updated_at=?
+                       tags=?, session_id=?, updated_at=?, sensitivity=?
                        WHERE id=?""",
                     (content, title or self._make_title(content), importance,
-                     domain, tags_str, session_id, now, fuzzy_id),
+                     domain, tags_str, session_id, now, tier, fuzzy_id),
                 )
                 eid = fuzzy_id  # Return the existing fact's ID
             else:
                 self.db.execute(
                     """INSERT INTO facts (id, content, title, source, importance, domain,
-                       tags, session_id, created_at, updated_at, last_accessed)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       tags, session_id, created_at, updated_at, last_accessed, sensitivity)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (eid, content, title or self._make_title(content),
-                     source, importance, domain, tags_str, session_id, now, now, now),
+                     source, importance, domain, tags_str, session_id, now, now, now, tier),
                 )
 
         # Upsert FTS — must use the same rowid as the facts table
@@ -378,6 +546,7 @@ class MemoryEngine:
             except Exception:
                 pass  # embedding failure should never block remember()
         self._release_write_lock()
+        self.audit("remember", actor=actor, session_id=session_id, fact_id=eid, detail=f"domain={domain};tier={tier}")
         return eid
 
     def _backup(self) -> Path:
@@ -395,8 +564,11 @@ class MemoryEngine:
         finally:
             self._release_write_lock()
 
-    def forget(self, entropic_id: str) -> bool:
-        """Delete a fact by entropic_id. Returns True if found and deleted."""
+    def forget(self, entropic_id: str, *, confirm: bool = False) -> bool:
+        """Delete a fact by entropic_id. Requires confirm=True."""
+        if not confirm:
+            self.audit("forget_denied", fact_id=entropic_id, detail="confirm=false", ok=False)
+            raise ValueError("forget requires confirm=True")
         self._acquire_write_lock()
         # I4: Auto-backup before destructive operation
         self._backup()
@@ -410,9 +582,10 @@ class MemoryEngine:
             delete_embedding(self.db, entropic_id)
         self.db.commit()
         self._release_write_lock()
+        self.audit("forget", fact_id=entropic_id, ok=row is not None)
         return row is not None
 
-    def consolidate(self, max_age_days: int = 90, min_access_count: int = 0, dry_run: bool = False) -> dict:
+    def consolidate(self, max_age_days: int = 90, min_access_count: int = 0, dry_run: bool = True, confirm: bool = False) -> dict:
         """Archive old, low-value facts (I3: memory consolidation).
 
         Facts older than max_age_days with access_count <= min_access_count
@@ -430,8 +603,14 @@ class MemoryEngine:
             (cutoff_iso, min_access_count),
         ).fetchall()
 
-        if dry_run:
-            return {"archived": 0, "would_archive": len(candidates), "cutoff_days": max_age_days, "dry_run": True}
+        if dry_run or not confirm:
+            return {
+                "archived": 0,
+                "would_archive": len(candidates),
+                "cutoff_days": max_age_days,
+                "dry_run": True,
+                "confirm_required": not confirm,
+            }
 
         # I4: Auto-backup before destructive operation
         self._backup()
@@ -475,7 +654,8 @@ class MemoryEngine:
             archived += 1
 
         self.db.commit()
-        return {"archived": archived, "cutoff_days": max_age_days}
+        self.audit("consolidate", detail=f"archived={archived};days={max_age_days}")
+        return {"archived": archived, "cutoff_days": max_age_days, "dry_run": False}
 
     def recall(
         self,
@@ -645,19 +825,22 @@ class MemoryEngine:
                 if importance < min_confidence:
                     continue
 
-                # Check not already stored
+                # Check not already stored or pending
                 eid = StoredFact.make_id(content)
                 if self.get_fact(eid):
                     continue
+                if self.db.execute("SELECT 1 FROM pending_facts WHERE id = ?", (eid,)).fetchone():
+                    continue
 
-                # Store — use raw content, don't transform (dedup works by hash)
-                stored_id = self.remember(
+                # Quarantine — never auto-promote into durable facts
+                stored_id = self.quarantine_fact(
                     content=content,
                     source=source,
                     importance=importance,
                     domain=domain,
                     tags=[tag],
                     session_id=session_id,
+                    reason="auto_extract",
                 )
 
                 extracted.append({
@@ -666,6 +849,7 @@ class MemoryEngine:
                     "domain": domain,
                     "importance": importance,
                     "tag": tag,
+                    "pending": True,
                 })
 
         # Preference detection via common patterns
@@ -683,14 +867,17 @@ class MemoryEngine:
                 eid = StoredFact.make_id(content)
                 if self.get_fact(eid):
                     continue
+                if self.db.execute("SELECT 1 FROM pending_facts WHERE id = ?", (eid,)).fetchone():
+                    continue
 
-                stored_id = self.remember(
+                stored_id = self.quarantine_fact(
                     content=content,
                     source=source,
                     importance=importance,
                     domain=domain,
                     tags=["preference"],
                     session_id=session_id,
+                    reason="auto_extract_preference",
                 )
                 extracted.append({
                     "id": stored_id,
@@ -698,6 +885,7 @@ class MemoryEngine:
                     "domain": domain,
                     "importance": importance,
                     "tag": "preference",
+                    "pending": True,
                 })
 
         return extracted
@@ -768,13 +956,14 @@ class MemoryEngine:
         decay_enabled: bool = True,
         decay_half_life_days: float = 30.0,
         reinforcement_boost: float = 0.1,
+        auto_reinforce: bool = False,
     ) -> List[StoredFact]:
         """Full-text search with relevance scoring and temporal decay.
 
         Returns facts ranked by combined relevance + decay score.
         Uses FTS5 bm25() ranking normalized to 0-1 scale.
         Applies exponential temporal decay to older, unreinforced facts.
-        Auto-reinforces returned facts.
+        Auto-reinforce is opt-in (default False) to avoid write-on-read.
         """
         if not query.strip():
             return []
@@ -859,9 +1048,10 @@ class MemoryEngine:
         # Sort by combined score (descending)
         results.sort(key=lambda f: f.relevance_score, reverse=True)
 
-        # Auto-reinforce returned facts
-        for fact in results[:top_k]:
-            self.reinforce(fact.id)
+        # Auto-reinforce returned facts (opt-in)
+        if auto_reinforce:
+            for fact in results[:top_k]:
+                self.reinforce(fact.id)
 
         return results[:top_k]
 
@@ -873,6 +1063,7 @@ class MemoryEngine:
         fts_weight: float = 0.6,
         vec_weight: float = 0.4,
         expand_links: bool = False,
+        auto_reinforce: bool = False,
     ) -> List[StoredFact]:
         """Hybrid search: FTS5 BM25 + vector similarity fusion (Phase 7).
 
@@ -923,9 +1114,10 @@ class MemoryEngine:
         if expand_links and results:
             results = self._expand_with_links(results, query, top_k)
 
-        # Auto-reinforce
-        for fact in results:
-            self.reinforce(fact.id)
+        # Auto-reinforce (opt-in)
+        if auto_reinforce:
+            for fact in results:
+                self.reinforce(fact.id)
 
         return results
 
@@ -1148,6 +1340,11 @@ class MemoryEngine:
     def _row_to_fact(self, row: sqlite3.Row) -> StoredFact:
         tags_str = row["tags"] or ""
         tags = [t.strip() for t in tags_str.split(",") if t.strip()]
+        # sensitivity may be absent on very old rows mid-migration
+        try:
+            sens = row["sensitivity"] or "internal"
+        except (KeyError, IndexError):
+            sens = "internal"
         return StoredFact(
             id=row["id"],
             content=row["content"],
@@ -1156,6 +1353,7 @@ class MemoryEngine:
             importance=row["importance"] or 0.5,
             domain=row["domain"] or "Knowledge",
             tags=tags,
+            sensitivity=sens,
             created_at=row["created_at"] or "",
             updated_at=row["updated_at"] or "",
             last_accessed=row["last_accessed"] or "",
