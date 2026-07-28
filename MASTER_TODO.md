@@ -1,3 +1,68 @@
+# EntropicMem — MASTER TODO
+
+**Last updated:** 2026-07-28
+**Active track:** Security Hardening Phase 1 (critical fixes)
+**Plan doc:** `docs/SECURITY_HARDENING_PLAN.md`
+**Branch:** `security/phase1-hardening`
+
+---
+
+## Security Hardening (2026-07-28 audit) — ACTIVE
+
+Audit of sole-provider Hermes integration found High risks: unauth graph server on `0.0.0.0:8075` with full note bodies, plaintext DB/vault/GDrive backups with weak modes, context poisoning via prefetch/Core Memory, unrestricted `patch_core`, default-on auto-extract.
+
+### Phase 1 — Immediate / Critical
+
+- [x] **1.1** Graph server bind `127.0.0.1`; require token on `POST /refresh`
+- [x] **1.2** Default HTML export omits `full_body` (opt-in `--include-bodies`)
+- [x] **1.3** Harden FS modes: DBs/backups `600`, dirs `700`; engine secure create
+- [x] **1.4** Encrypt backup archives (OpenSSL AES-256-CBC) before rclone
+- [x] **1.5** `auto_extract_enabled` default **false**
+- [x] **1.6** Gate `patch_core` via `core_memory_writable` (default false)
+- [x] **1.7** Prefetch source denylist + strip instruction markers on `remember`
+- [x] **1.8** Fix LIKE domain filter parentheses in `memory_engine.recall`
+- [x] **1.9** Verify listeners/perms; run targeted tests; update health notes
+
+### Phase 2 — Architectural (queued)
+
+- [ ] Sensitivity tiers + write policy
+- [ ] `audit_log` table + CLI
+- [ ] Privileged-tool dry-run defaults (consolidate/forget)
+- [ ] Pending-facts quarantine for auto-extract
+- [ ] Pin plugin vault/index/memory paths (no Obsidian fallback)
+- [ ] SSRF DNS resolve + private IP recheck
+- [ ] Reinforce decoupling (no write-on-read by default)
+- [ ] Encrypted backup standard + restore drill docs
+- [ ] Runtime encryption design spike (SQLCipher)
+- [ ] Merge-safe `save_config`
+
+### Phase 3 — Testing & validation (queued)
+
+- [ ] Security pytest pack (path, FTS, SSRF, fence, PII, consolidate)
+- [ ] Adversarial poisoned-fact eval
+- [ ] Health check: bind address, perms, backup ciphertext flag
+- [ ] Backup restore game day
+- [ ] CI gate + latency/token budget benchmarks
+
+### Phase 1 progress log
+
+| When | Change |
+|------|--------|
+| 2026-07-28 | Plan saved to `docs/SECURITY_HARDENING_PLAN.md` + this file + vault dual-write |
+| 2026-07-28 | Implementation started on branch security/phase1-hardening |
+| 2026-07-28 | 1.1 graph bind 127.0.0.1 + token auth on /refresh (401/200 verified) |
+| 2026-07-28 | 1.2 export_html include_bodies default false; graph regenerated without full_body JSON |
+| 2026-07-28 | 1.3 chmod 700/600 on entropicmem dir, DBs, vault, backups |
+| 2026-07-28 | 1.4 backup script AES-256-CBC before rclone; key at ~/.hermes/entropicmem/.backup_key |
+| 2026-07-28 | 1.5-1.7 auto_extract off; core_memory_writable off; prefetch denylist; remember sanitize |
+| 2026-07-28 | 1.8 LIKE domain parentheses fixed |
+| 2026-07-28 | 1.9 listeners/perms verified; test_phase1_security + phase8/11/smart_context green |
+
+---
+
+
+## Prior status (pre-security-track)
+
 # EntropicMem — Phase 6 Complete, Sole-Provider Ready
 
 **Last updated:** 2026-07-24

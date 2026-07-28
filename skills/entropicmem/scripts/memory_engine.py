@@ -13,6 +13,7 @@ Stdlib-only. No external memory dependencies.
 """
 
 import hashlib
+import os
 import math
 import re
 import fcntl
@@ -159,6 +160,13 @@ class MemoryEngine:
         self.db_path = Path(db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(str(self.db_path), timeout=30)
+        # Restrictive modes: memory may hold finance/PII
+        try:
+            os.chmod(self.db_path.parent, 0o700)
+            if self.db_path.exists():
+                os.chmod(self.db_path, 0o600)
+        except OSError:
+            pass
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         
@@ -260,6 +268,26 @@ class MemoryEngine:
 
     # ── CRUD ────────────────────────────────────────────────────────────
 
+
+    @staticmethod
+    def _sanitize_fact_text(content: str) -> str:
+        """Strip prompt-injection markers and fence tags before durable storage."""
+        if not content:
+            return content
+        # Remove memory-context fence tags and common instruction hijacks
+        patterns = [
+            r"</?\s*memory-context\s*>",
+            r"(?im)^\s*ignore (all |any )?(previous|prior|above) instructions\s*:?\s*",
+            r"(?im)^\s*system\s*:\s*",
+            r"(?im)^\s*developer\s*:\s*",
+        ]
+        out = content
+        for pat in patterns:
+            out = re.sub(pat, "", out)
+        # Collapse excessive whitespace from stripping
+        out = re.sub(r"\n{3,}", "\n\n", out).strip()
+        return out
+
     def remember(
         self,
         content: str,
@@ -276,6 +304,8 @@ class MemoryEngine:
 
         Phase 9: PII detection/redaction applied before storage.
         """
+        content = self._sanitize_fact_text(content)
+
         # Phase 9: PII check
         if PII_AVAILABLE:
             pii_result = check_pii(content, mode="redact")
@@ -533,7 +563,7 @@ class MemoryEngine:
         like_params = (f"%{query}%", f"%{query}%", f"%{query}%")
         if domain:
             like_params = (*like_params, domain)
-            like_where = "WHERE f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ? AND f.domain = ?"
+            like_where = "WHERE (f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ?) AND f.domain = ?"
         else:
             like_where = "WHERE f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ?"
         rows = self.db.execute(

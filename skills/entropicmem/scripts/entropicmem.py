@@ -846,7 +846,7 @@ def cmd_graph(args) -> int:
             export_dot(index, out_dir / "graph.dot", domain=domain, min_importance=min_imp, max_nodes=max_n)
             print(f"Exported: {out_dir / 'graph.dot'}")
         elif fmt == "html":
-            export_html(index, out_dir / "graph.html", domain=domain, min_importance=min_imp, max_nodes=max_n, vault_root=vault_path)
+            export_html(index, out_dir / "graph.html", domain=domain, min_importance=min_imp, max_nodes=max_n, vault_root=vault_path, include_bodies=getattr(args, "include_bodies", False))
             print(f"Exported: {out_dir / 'graph.html'}")
             print(f"Open with: file://{out_dir / 'graph.html'}")
         elif fmt == "canvas":
@@ -861,11 +861,12 @@ def cmd_graph(args) -> int:
         import http.server
         import socketserver
         port = args.port
+        bind = getattr(args, "bind", "127.0.0.1") or "127.0.0.1"
         os.chdir(str(out_dir))
         handler = http.server.SimpleHTTPRequestHandler
-        print(f"Serving graph at http://localhost:{port}/graph.html" f" (Ctrl+C to stop)")
+        print(f"Serving graph at http://{bind}:{port}/graph.html (Ctrl+C to stop)")
         try:
-            with socketserver.TCPServer(("", port), handler) as httpd:
+            with socketserver.TCPServer((bind, port), handler) as httpd:
                 httpd.serve_forever()
         except KeyboardInterrupt:
             print()
@@ -1410,8 +1411,10 @@ def main() -> int:
     g_export.add_argument("--max-nodes", type=int, default=500, help="Max nodes (default: 500)")
     g_export.add_argument("--domain", help="Filter by domain")
     g_export.add_argument("--min-importance", type=float, default=0.0, help="Min importance filter")
+    g_export.add_argument("--include-bodies", action="store_true", help="Embed full note bodies (local/trusted only)")
     g_serve = g_sub.add_parser("serve", help="Serve graph export dir via HTTP")
     g_serve.add_argument("--port", type=int, default=8069)
+    g_serve.add_argument("--bind", default="127.0.0.1", help="Bind address (default 127.0.0.1)")
     g_serve.add_argument("--dir", default="./export")
     g_show = g_sub.add_parser("show", help="Show connected notes for a target (Phase 10)")
     g_show.add_argument("target", help="Note title to find connections for")

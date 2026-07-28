@@ -154,6 +154,22 @@ SMART_CONTEXT_DEFAULTS = {
     # Cache behavior
     "cache_conversation_context": True,
     "cache_ttl_seconds": 300,
+
+    # Security defaults (Phase 1 hardening)
+    "auto_extract_enabled": False,
+    "core_memory_writable": False,
+    "prefetch_denied_sources": [
+        "auto_extracted",
+        "test",
+        "phase1_verify",
+        "phase1_cron_context",
+        "phase5",
+        "phase5_e2e",
+        "h2_test",
+        "cron_self_test",
+        "cron_path_test",
+        "cutover_verify",
+    ],
 }
 
 
@@ -277,8 +293,18 @@ class EntropicMemMemoryProvider(MemoryProvider):
             # Phase 8: Auto-extraction
             {
                 "key": "auto_extract_enabled",
-                "description": "Enable background fact extraction from conversation (regex-based, no LLM)",
-                "default": True,
+                "description": "Enable background fact extraction from conversation (regex-based, no LLM). Default off for security.",
+                "default": False,
+            },
+            {
+                "key": "core_memory_writable",
+                "description": "Allow entropicmem_patch_core to modify Persona/User Profile. Default off.",
+                "default": False,
+            },
+            {
+                "key": "prefetch_denied_sources",
+                "description": "Fact sources excluded from prefetch injection",
+                "default": ["auto_extracted", "test"],
             },
             {
                 "key": "extraction_timeout",
@@ -443,7 +469,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             self._conversation_history = messages[-(self._config.get("context_window_turns", 3) * 2):]
 
         # Auto-extract facts from conversation (non-blocking, regex-based)
-        if self._config.get("auto_extract_enabled", True) and self._memory_db and self._scripts_dir:
+        if self._config.get("auto_extract_enabled", False) and self._memory_db and self._scripts_dir:
             try:
                 self._auto_extract(user_content, assistant_content, session_id or self._session_id)
             except Exception as e:
@@ -567,6 +593,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
         # Apply domain filtering if configured
         if enabled_domains:
             candidates = [f for f in candidates if f.domain in enabled_domains]
+
+        # Security: drop untrusted / test sources from injection
+        denied = set(self._config.get("prefetch_denied_sources") or [])
+        if denied:
+            candidates = [f for f in candidates if getattr(f, "source", "") not in denied]
 
         return candidates[:max_results]
 
@@ -863,6 +894,10 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     def _patch_core(self, args: dict) -> str:
         """Handle entropicmem_patch_core tool call."""
+        if not self._config.get("core_memory_writable", False):
+            return _tool_error(
+                "core memory writes disabled (set plugins.entropicmem.core_memory_writable: true)"
+            )
         target = args.get("target", "")
         old_text = args.get("old_text", "")
         new_text = args.get("new_text", "")
