@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.7] - 2026-07-30
+
+### Documentation & repository metadata
+
+- Version bumped to **2.1.7** across `pyproject.toml`, CLI `__version__`, and
+  `skills/entropicmem/SKILL.md` for consistency and traceability.
+- `MASTER_TODO.md` refreshed: current-state summary and verification checklist
+  updated to the actual test count (201 passing) and post-v2.1.6 status.
+- README "Sole Provider Status" date corrected; test-count references aligned.
+- Stale v1.0 `RELEASE-CHECKLIST.md` annotated as superseded by the v2.x release
+  history in this changelog.
+- No source-code behaviour changes in this release (documentation/metadata only).
+
 ## [2.1.6] - 2026-07-28
 
 ### Security (Phases 1–3 hardening)
