@@ -5,7 +5,7 @@ Checks:
 1. memory.db integrity (PRAGMA integrity_check)
 2. Fact count + domain distribution
 3. Vault directory exists + note count
-4. Index freshness (index.db mtime vs memory.db mtime)
+4. Index freshness (index.db mtime vs newest vault note mtime)
 5. FTS5 index health (simple query test)
 6. Backup recency (last backup age)
 7. 1-week stability gate for sole-provider promotion
@@ -71,6 +71,21 @@ def check_vault() -> dict:
     return {"status": "OK", "note_count": count}
 
 
+def _newest_vault_note_hours() -> float | None:
+    """Age (hours) of the newest .md under VAULT_DIR, or None if none found."""
+    newest: float | None = None
+    for root, _dirs, files in os.walk(VAULT_DIR):
+        for f in files:
+            if not f.endswith(".md"):
+                continue
+            m = os.path.getmtime(os.path.join(root, f))
+            if newest is None or m > newest:
+                newest = m
+    if newest is None:
+        return None
+    return (datetime.now(timezone.utc) - datetime.fromtimestamp(newest, tz=timezone.utc)).total_seconds() / 3600
+
+
 def check_index() -> dict:
     if not INDEX_DB.exists():
         return {"status": "WARN", "error": "index.db missing"}
@@ -79,14 +94,17 @@ def check_index() -> dict:
         tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
         conn.close()
         age = _file_age_hours(INDEX_DB)
-        # Compare index freshness against memory.db; clamp to "index behind" (never negative)
-        mem_age = _file_age_hours(MEMORY_DB)
+        # Index freshness is measured against its source (the vault), not memory.db:
+        # the index only changes when vault notes change, so comparing to memory.db
+        # (written daily by cron) would always WARN. Flag only when vault notes are
+        # newer than the last index build.
+        vault_note_age = _newest_vault_note_hours()
         index_behind_hours = None
         stale = False
-        if age is not None and mem_age is not None:
-            behind = max(age - mem_age, 0)
+        if age is not None and vault_note_age is not None:
+            behind = max(age - vault_note_age, 0)
             index_behind_hours = round(behind, 1) if behind > 0 else 0.0
-            stale = index_behind_hours > 24  # index more than 24h behind memory
+            stale = index_behind_hours > 24  # index built >24h after newest vault note
         return {
             "status": "WARN" if stale else "OK",
             "tables": len(tables),
@@ -113,16 +131,26 @@ def check_fts() -> dict:
 def check_backup() -> dict:
     if not BACKUP_DIR.exists():
         return {"status": "WARN", "error": "backup dir missing"}
-    backups = sorted(BACKUP_DIR.glob("entropicmem_*.tar.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
+    plain = sorted(BACKUP_DIR.glob("entropicmem_*.tar.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
+    enc = sorted(BACKUP_DIR.glob("entropicmem_*.tar.gz.enc"), key=lambda p: p.stat().st_mtime, reverse=True)
+    backups = plain + enc
     if not backups:
         return {"status": "WARN", "error": "no backups found"}
-    age = _file_age_hours(backups[0])
-    return {
-        "status": "OK" if age is not None and age < 48 else "WARN",
-        "latest": backups[0].name,
+    latest = backups[0]
+    age = _file_age_hours(latest)
+    status = "OK" if age is not None and age < 48 else "WARN"
+    result = {
+        "status": status,
+        "latest": latest.name,
         "age_hours": round(age, 1) if age is not None else None,
         "total": len(backups),
+        "encrypted": len(enc),
+        "plaintext": len(plain),
     }
+    if plain:
+        result["status"] = "WARN"
+        result["note"] = f"{len(plain)} plaintext backup(s) still present; encrypt them"
+    return result
 
 
 def check_stability_gate() -> dict:
@@ -282,13 +310,21 @@ def check_security_posture() -> dict:
 
     # Graph listener bind
     bind = "unknown"
+    bind_policy = ""
+    policy_file = ENTROPICMEM_DIR / "bind_policy"
+    if policy_file.exists():
+        bind_policy = policy_file.read_text().strip()
+
     try:
         out = subprocess.check_output(["ss", "-tlnp"], text=True, stderr=subprocess.DEVNULL)
         lines = [ln for ln in out.splitlines() if ":8075" in ln]
         details["graph_ss"] = lines[:3]
         if any("0.0.0.0:8075" in ln or "*:8075" in ln for ln in lines):
-            issues.append("graph server listening on all interfaces")
-            bind = "0.0.0.0"
+            if bind_policy == "tailscale+local":
+                bind = "0.0.0.0 (tailscale+local)"
+            else:
+                issues.append("graph server listening on all interfaces")
+                bind = "0.0.0.0"
         elif any("127.0.0.1:8075" in ln for ln in lines):
             bind = "127.0.0.1"
         elif not lines:
@@ -296,6 +332,8 @@ def check_security_posture() -> dict:
     except Exception as e:
         details["graph_ss_error"] = str(e)
     details["graph_bind"] = bind
+    if bind_policy:
+        details["bind_policy"] = bind_policy
 
     status = "FAIL" if any("all interfaces" in i for i in issues) else ("WARN" if issues else "OK")
     return {"status": status, "issues": issues, "details": details}
