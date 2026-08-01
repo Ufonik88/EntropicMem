@@ -397,20 +397,28 @@ class VaultIndex:
         max_nodes: int = 500,
     ) -> List[dict]:
         """Return nodes for graph visualization."""
-        where = "WHERE importance >= ?"
+        where = "WHERE m.importance >= ?"
         params: tuple = (min_importance,)
         if domain:
-            where += " AND domain = ?"
+            where += " AND m.domain = ?"
             params = (min_importance, domain)
 
         rows = self.db.execute(
-            f"""SELECT note_id, title, domain, note_type, importance, tags, path
-            FROM notes_meta {where}
-            ORDER BY importance DESC
+            f"""SELECT m.note_id, m.title, m.domain, m.note_type, m.importance,
+                       m.tags, m.body_preview, f.body AS full_body
+            FROM notes_meta m
+            LEFT JOIN notes_fts f ON f.note_id = m.note_id
+            {where}
+            ORDER BY m.importance DESC
             LIMIT ?""",
             (*params, max_nodes),
         ).fetchall()
-        return [dict(r) for r in rows]
+        results = []
+        for r in rows:
+            d = dict(r)
+            d["full_body"] = d.pop("full_body", None) or d.get("body_preview") or ""
+            results.append(d)
+        return results
 
     # ── stats ───────────────────────────────────────────────────────────
 

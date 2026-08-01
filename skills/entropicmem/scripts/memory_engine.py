@@ -1327,11 +1327,45 @@ class MemoryEngine:
     def _find_fuzzy_duplicate(self, content: str, threshold: float = 0.8) -> Optional[str]:
         """Find an existing fact with Jaccard similarity >= threshold.
 
+        Uses FTS pre-filter to avoid scanning all facts. Falls back to
+        last-200 scan if FTS returns no candidates (very short content).
+
         Returns the entropic_id of the duplicate, or None.
         """
-        rows = self.db.execute(
-            "SELECT id, content FROM facts ORDER BY updated_at DESC LIMIT 200"
-        ).fetchall()
+        # Extract tokens for FTS query (strip chars that break FTS phrase syntax)
+        tokens = [
+            re.sub(r'[^\w]', '', w)
+            for w in content.lower().split()
+        ]
+        tokens = [t for t in tokens if len(t) >= 3]
+        if not tokens:
+            # Too short for FTS; fall back to recent scan
+            rows = self.db.execute(
+                "SELECT id, content FROM facts ORDER BY updated_at DESC LIMIT 200"
+            ).fetchall()
+            for row in rows:
+                if self._jaccard_similarity(content, row[1]) >= threshold:
+                    return row[0]
+            return None
+
+        # Build FTS query: OR of token prefixes
+        fts_terms = " OR ".join(f'content:"{t}"*' for t in tokens[:10])  # Cap at 10 tokens
+        try:
+            rows = self.db.execute(
+                """
+                SELECT f.id, f.content FROM facts_fts
+                JOIN facts f ON facts_fts.rowid = f.rowid
+                WHERE facts_fts MATCH ?
+                LIMIT 50
+                """,
+                (fts_terms,),
+            ).fetchall()
+        except Exception:
+            # FTS query failed; fall back to recent scan
+            rows = self.db.execute(
+                "SELECT id, content FROM facts ORDER BY updated_at DESC LIMIT 200"
+            ).fetchall()
+
         for row in rows:
             if self._jaccard_similarity(content, row[1]) >= threshold:
                 return row[0]

@@ -57,9 +57,15 @@ def export_json(
     domain: Optional[str] = None,
     min_importance: float = 0.0,
     max_nodes: int = 500,
+    include_bodies: bool = False,
 ) -> dict:
     """
     Export nodes + edges as JSON. Primary format consumed by graph.html.
+
+    Note bodies (body_preview/full_body) are only embedded when
+    include_bodies=True. Default is off so a shared/exported graph.json
+    never leaks vault content. Pass include_bodies=True only for offline
+    modal reading on a trusted machine.
 
     Returns the dict that was written (for testing).
     """
@@ -86,6 +92,10 @@ def export_json(
             "color": get_color(n.get("domain", "")),
             "shape": get_shape(n.get("note_type", "permanent")),
         })
+        # Bodies only embedded when explicitly requested (security default: off)
+        if include_bodies:
+            node_list[-1]["body_preview"] = n.get("body_preview", "")
+            node_list[-1]["full_body"] = n.get("full_body", n.get("body_preview", ""))
 
     # Build edge list (only edges where both nodes exist in the export set)
     node_ids = {n["id"] for n in node_list}
@@ -236,7 +246,8 @@ def export_html(
     """
     data = export_json(
         index, output_path.parent / "graph.json",
-        domain=domain, min_importance=min_importance, max_nodes=max_nodes
+        domain=domain, min_importance=min_importance, max_nodes=max_nodes,
+        include_bodies=include_bodies,
     )
 
     # Attach full bodies only when explicitly requested.
@@ -259,6 +270,10 @@ def export_html(
 
         if vault is not None:
             for node in data["nodes"]:
+                # Skip nodes that already have full_body from the data source
+                # (e.g. FTS index enrichment in get_graph_nodes)
+                if node.get("full_body", ""):
+                    continue
                 meta = index.get_note(node["id"])
                 if not meta:
                     continue

@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+- **graph_export**: `export_json` no longer embeds note bodies by default. Bodies
+  (`body_preview`/`full_body`) are only written when `include_bodies=True`, and
+  `export_html` now forwards its flag through. Restores the secure default that a
+  shared/exported `graph.json` never leaks vault content (fixes regression from the
+  graph-modal content fix; `test_export_html_omits_bodies_by_default` passes again).
+
+### Performance
+- **memory_engine**: `_find_fuzzy_duplicate` now pre-filters candidates via an FTS5
+  MATCH on content tokens (LIMIT 50) instead of Jaccard-scanning the last 200 facts
+  on every write. Falls back to the recent-scan for very short content or FTS errors.
+  Tokens are sanitized (`[^\w]` stripped) so quotes/parens can't break FTS phrase syntax.
+
+### Fixed
+- **plugin**: `_apply_token_budget` now uses `dataclasses.replace` to truncate facts,
+  preserving every field. The old manual reconstruction silently dropped `sensitivity`,
+  `decay_score`, `last_accessed`, and `access_count` — a truncated `public` fact would
+  revert to `internal` and be over-redacted downstream.
+
 ## [2.1.6] - 2026-07-28
 
 ### Security (Phases 1–3 hardening)

@@ -681,19 +681,10 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 # Try truncated version
                 remaining = budget - char_count
                 if remaining >= 100:  # Minimum useful size
-                    # Create a simple object with truncated content
-                    truncated = type(fact)(
-                        id=fact.id,
-                        content=fact.content[:remaining] + "...",
-                        title=fact.title,
-                        source=fact.source,
-                        importance=fact.importance,
-                        domain=fact.domain,
-                        tags=fact.tags,
-                        created_at=fact.created_at,
-                        updated_at=fact.updated_at,
-                        relevance_score=fact.relevance_score,
-                    )
+                    # dataclasses.replace preserves every field (sensitivity,
+                    # decay_score, access_count, ...) — only content changes.
+                    from dataclasses import replace
+                    truncated = replace(fact, content=fact.content[:remaining] + "...")
                     selected.append(truncated)
                 break
 
