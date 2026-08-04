@@ -1,9 +1,9 @@
 # EntropicMem — MASTER TODO
 
-**Last updated:** 2026-07-28
-**Active track:** Security Hardening COMPLETE (v2.1.6)
+**Last updated:** 2026-07-30
+**Active track:** Documentation refresh & repo maintenance (v2.1.7)
 **Plan doc:** `docs/SECURITY_HARDENING_PLAN.md`
-**Release:** v2.1.6
+**Release:** v2.1.7 (docs/metadata); v2.1.6 (security hardening)
 
 ---
 
@@ -49,6 +49,7 @@
 | 2026-07-28 | Phase 1 implemented and verified |
 | 2026-07-28 | Phase 2–3 implemented; version bumped to 2.1.6; docs + vault updated |
 | 2026-07-28 | Tag+release v2.1.6 published at c145dc9; PR #37 open — main merge needs second approving review (branch protection) |
+| 2026-07-30 | Docs refresh + repo maintenance → v2.1.7: version refs aligned, MASTER_TODO/README/CHANGELOG updated, test count corrected to 201 |
 
 ---
 
@@ -315,7 +316,7 @@ Gap status:  8/8 resolved     (operational gaps)
 Tool parity: 10/14 matched    (4 specialized tools omitted by design)
 Phase 6:     Complete          (6.10 pending 1-week gate)
 Phases 7-11: Complete          (all Memvid-inspired features)
-Tests:       185 passing
+Tests:       201 passing
 ```
 
 ## Priority Roadmap for Full Parity
@@ -336,7 +337,7 @@ Tests:       185 passing
 
 - [x] All 8 original operational gaps resolved
 - [x] Phase 6 production hardening complete (6.1-6.9)
-- [x] 185 tests passing (135 original + 35 Memvid phases + 15 Phase 11)
+- [x] 201 tests passing (security pack added on top of 185 Memvid/Phase-11 baseline)
 - [x] Health check with stability gate functional
 - [x] Backup + restore tested end-to-end
 - [x] Rollback idempotent + validated

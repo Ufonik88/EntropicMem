@@ -51,7 +51,7 @@ from vault import (  # noqa: E402
 
 from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 
-__version__ = "2.1.6"
+__version__ = "2.1.7"
 
 # ── input validation helpers ────────────────────────────────────────────────
 

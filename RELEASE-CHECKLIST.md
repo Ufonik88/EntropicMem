@@ -1,5 +1,11 @@
 # EntropicMem v1.0 — Release Checklist (Standalone)
 
+> **⚠️ SUPERSEDED (historical).** This v1.0 readiness checklist is retained for
+> reference only. EntropicMem has long since shipped past v1.0 — see
+> `CHANGELOG.md` for the authoritative v2.x release history (current: v2.1.7).
+> The unchecked boxes below reflect the original v1.0 plan and are no longer
+> actionable.
+
 Ship only when EntropicMem is a complete, self-contained memory tool.
 
 ---
