@@ -1,25 +1,60 @@
 # Changelog
 
-## [Unreleased]
+## [2.1.8] - 2026-08-04
 
-### Security
-- **graph_export**: `export_json` no longer embeds note bodies by default. Bodies
-  (`body_preview`/`full_body`) are only written when `include_bodies=True`, and
-  `export_html` now forwards its flag through. Restores the secure default that a
-  shared/exported `graph.json` never leaks vault content (fixes regression from the
-  graph-modal content fix; `test_export_html_omits_bodies_by_default` passes again).
+### Added
+- **CLI `entropicmem index rebuild|status`** — periodic vault index refresh.
+  `VaultIndex.rebuild()` was previously only reachable via `entropicmem init`,
+  so notes written by wiki.py / Obsidian / vault auto-commit never reached the
+  index and it went permanently stale (root cause of the July/Aug WARN →
+  stability-gate error cascade). `index status` reports freshness without
+  writing anything.
+- **CLI `entropicmem memory reindex`** + public `MemoryEngine.rebuild_fts()` —
+  drops and rebuilds `facts_fts` from `facts` to repair orphan FTS rows left
+  behind when a delete path skipped its FTS cleanup (ghost recall hits).
+  Writes an `fts_rebuild` audit entry with before/after counts.
+- **`scripts/entropicmem_index_refresh.sh`** — silent 6h watchdog for cron:
+  exits 0 with no output when the index is fresh, rebuilds only when the vault
+  has notes newer than the index. Pins vault/index paths explicitly so stale
+  `ENTROPICMEM_*` env entries can't misdirect it.
+- **`scripts/graph_server/`** — canonical copy of the graph server in the repo
+  (previously lived only in `~/.hermes/entropicmem/graph_server/`).
+- **Tests:** `tests/test_v2_1_8.py` — 13 new tests (214 total).
 
-### Performance
-- **memory_engine**: `_find_fuzzy_duplicate` now pre-filters candidates via an FTS5
-  MATCH on content tokens (LIMIT 50) instead of Jaccard-scanning the last 200 facts
-  on every write. Falls back to the recent-scan for very short content or FTS errors.
-  Tokens are sanitized (`[^\w]` stripped) so quotes/parens can't break FTS phrase syntax.
+### Changed
+- **Health check (`entropicmem_health_check.py`):**
+  - `check_fts` cross-checks `facts_fts` rows against `facts` and WARNs on
+    orphan rows, with a repair hint pointing at `entropicmem memory reindex`.
+  - `check_stability_gate` switched to **current-streak** semantics: the gate
+    now requires 7 consecutive OK days *ending today*. `longest_consecutive_ok`
+    is kept as informational; new `current_consecutive_ok` field decides the
+    gate. Gaps in the log (missed days) break the streak.
+- **Stability gate (`daily_stability_gate.py`):** same current-streak fix —
+  previously it returned the longest historical streak, so an old streak would
+  keep passing the gate forever during a live degradation.
+- **Graph server:** `POST /refresh` rebuilds the vault index first, so the
+  exported graph is generated from fresh index data instead of a stale one.
+- Version bumped to **2.1.8** across `pyproject.toml`, CLI `__version__`,
+  `plugins/entropicmem/plugin.yaml`, and `skills/entropicmem/SKILL.md`.
 
 ### Fixed
-- **plugin**: `_apply_token_budget` now uses `dataclasses.replace` to truncate facts,
-  preserving every field. The old manual reconstruction silently dropped `sensitivity`,
-  `decay_score`, `last_accessed`, and `access_count` — a truncated `public` fact would
-  revert to `internal` and be over-redacted downstream.
+- Stability gate can no longer pass on a historical streak while the system is
+  currently degraded (see Changed above).
+- Index staleness is now recoverable without manual Python snippets: the CLI
+  subcommands plus the silent watchdog cron keep `index.db` aligned with the
+  vault.
+
+### Carried over (shipped on main post-v2.1.7, now part of this release line)
+- **Security:** `export_json` no longer embeds note bodies by default; bodies
+  (`body_preview`/`full_body`) only written with `include_bodies=True`, and
+  `export_html` forwards its flag through.
+- **Performance:** `_find_fuzzy_duplicate` pre-filters candidates via an FTS5
+  MATCH on content tokens (LIMIT 50) instead of Jaccard-scanning the last 200
+  facts on every write; falls back to the recent-scan for very short content
+  or FTS errors.
+- **Plugin:** `_apply_token_budget` uses `dataclasses.replace`, preserving
+  `sensitivity`, `decay_score`, `last_accessed`, and `access_count` (previously
+  dropped by manual field reconstruction).
 
 ## [2.1.7] - 2026-07-30
 

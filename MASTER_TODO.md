@@ -1,9 +1,9 @@
 # EntropicMem — MASTER TODO
 
-**Last updated:** 2026-07-30
-**Active track:** Documentation refresh & repo maintenance (v2.1.7)
+**Last updated:** 2026-08-04
+**Active track:** Index maintenance & stability-gate correctness (v2.1.8)
 **Plan doc:** `docs/SECURITY_HARDENING_PLAN.md`
-**Release:** v2.1.7 (docs/metadata); v2.1.6 (security hardening)
+**Release:** v2.1.8 (index maintenance); v2.1.7 (docs/metadata); v2.1.6 (security hardening)
 
 ---
 
@@ -50,6 +50,36 @@
 | 2026-07-28 | Phase 2–3 implemented; version bumped to 2.1.6; docs + vault updated |
 | 2026-07-28 | Tag+release v2.1.6 published at c145dc9; PR #37 open — main merge needs second approving review (branch protection) |
 | 2026-07-30 | Docs refresh + repo maintenance → v2.1.7: version refs aligned, MASTER_TODO/README/CHANGELOG updated, test count corrected to 201 |
+| 2026-08-04 | Index maintenance → v2.1.8: `index rebuild\|status` + `memory reindex` CLI, silent 6h watchdog, FTS-orphan detection in health check, current-streak stability gate in both health check and gate script, graph server `/refresh` rebuilds index first + canonical repo copy, 214 tests passing |
+
+---
+
+## Index Maintenance (2026-08-04 review) — COMPLETE (v2.1.8)
+
+Live review found a causal chain: `index.db` permanently stale (rebuild only
+reachable via `init`) → health WARN every cycle → stability gate cron in
+daily error state → gate stuck at 2/7. Plus a correctness bug (gate counted
+the longest historical streak, not the current one), an orphan `facts_fts`
+row, and stale `/tmp` env entries in `~/.hermes/.env` poisoning
+`resolve_vault_path()`.
+
+### Shipped
+
+- [x] CLI `entropicmem index rebuild|status` — periodic vault index refresh
+- [x] CLI `entropicmem memory reindex` + public `MemoryEngine.rebuild_fts()` (audit-trailed)
+- [x] Health check: FTS orphan WARN + repair hint; `current_consecutive_ok` field
+- [x] Gate semantics: current streak decides the gate (health check + gate script); log gaps break streaks
+- [x] Graph server: `/refresh` rebuilds the index first; canonical copy at `scripts/graph_server/`
+- [x] Silent watchdog `scripts/entropicmem_index_refresh.sh` (pins env paths; cron every 6h)
+- [x] 13 new tests (`tests/test_v2_1_8.py`), 214 total green
+
+### Live remediation (post-merge)
+
+- [ ] Deploy updated `entropicmem_health_check.py` + `daily_stability_gate.py` to `~/.hermes/scripts/`
+- [ ] Restart `entropicmem-graph-server.service`; live `index rebuild` + `memory reindex`
+- [ ] Remove stale `ENTROPICMEM_VAULT_PATH`/`ENTROPICMEM_INDEX_DB` `/tmp` entries from `~/.hermes/.env`
+- [ ] Watchdog cron installed (no_agent, silent when fresh)
+- [ ] Health returns to operational state
 
 ---
 
@@ -316,7 +346,7 @@ Gap status:  8/8 resolved     (operational gaps)
 Tool parity: 10/14 matched    (4 specialized tools omitted by design)
 Phase 6:     Complete          (6.10 pending 1-week gate)
 Phases 7-11: Complete          (all Memvid-inspired features)
-Tests:       201 passing
+Tests:       214 passing
 ```
 
 ## Priority Roadmap for Full Parity
@@ -337,7 +367,7 @@ Tests:       201 passing
 
 - [x] All 8 original operational gaps resolved
 - [x] Phase 6 production hardening complete (6.1-6.9)
-- [x] 201 tests passing (security pack added on top of 185 Memvid/Phase-11 baseline)
+- [x] 214 tests passing (v2.1.8 index-maintenance pack added on top of 201 security/Memvid baseline)
 - [x] Health check with stability gate functional
 - [x] Backup + restore tested end-to-end
 - [x] Rollback idempotent + validated

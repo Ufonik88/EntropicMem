@@ -122,8 +122,21 @@ def check_fts() -> dict:
         conn = sqlite3.connect(str(MEMORY_DB))
         # Deterministic: verify FTS table exists and is queryable
         total = conn.execute("SELECT COUNT(*) FROM facts_fts").fetchone()[0]
+        # v2.1.8: cross-check FTS rows against facts. An orphan FTS row
+        # (no matching fact rowid) means a delete path skipped its FTS
+        # cleanup; recall can then surface ghost hits.
+        orphans = conn.execute(
+            "SELECT COUNT(*) FROM facts_fts WHERE rowid NOT IN (SELECT rowid FROM facts)"
+        ).fetchone()[0]
         conn.close()
-        return {"status": "OK", "fts_entries": total}
+        result = {"status": "OK", "fts_entries": total}
+        if orphans:
+            result["status"] = "WARN"
+            result["fts_orphans"] = orphans
+            result["note"] = (
+                f"{orphans} orphan FTS row(s); repair with 'entropicmem memory reindex'"
+            )
+        return result
     except Exception as e:
         return {"status": "FAIL", "error": f"{type(e).__name__}: {e}"}
 
@@ -168,6 +181,7 @@ def check_stability_gate() -> dict:
             "status": "PENDING",
             "message": "Stability gate log not found - gate not started",
             "days_tracked": 0,
+            "current_consecutive_ok": 0,
             "longest_consecutive_ok": 0,
             "gate_passed": False,
         }
@@ -194,6 +208,7 @@ def check_stability_gate() -> dict:
                 "status": "PENDING",
                 "message": "Gate log has no valid entries",
                 "days_tracked": 0,
+                "current_consecutive_ok": 0,
                 "longest_consecutive_ok": 0,
                 "gate_passed": False,
             }
@@ -201,19 +216,25 @@ def check_stability_gate() -> dict:
         # Sort by date ascending
         entries.sort(key=lambda x: x[0])
 
-        # Scan for longest consecutive OK run
-        longest_run = 0
+        # v2.1.8: the gate requires 7 consecutive OK days *ending today*,
+        # not the longest historical run (an old streak must not keep
+        # passing the gate during a current degradation). Track both: the
+        # current streak decides the gate, the longest run is informational.
         current_run = 0
-        for i, (d, is_ok) in enumerate(entries):
-            if is_ok:
-                if i == 0 or entries[i - 1][0] != d - timedelta(days=1):
-                    current_run = 0  # break: not consecutive with previous day
-                current_run += 1
-                longest_run = max(longest_run, current_run)
-            else:
+        longest_run = 0
+        prev_date = None
+        for d, is_ok in entries:
+            if not is_ok:
                 current_run = 0
+            elif prev_date is None or prev_date == d - timedelta(days=1):
+                current_run += 1
+            else:
+                # gap in the log (missed day) breaks the streak too
+                current_run = 1
+            longest_run = max(longest_run, current_run)
+            prev_date = d
 
-        gate_passed = longest_run >= 7
+        gate_passed = current_run >= 7
 
         # Check Mnemosyne cron state from jobs.json
         mnemosyne_ids = {
@@ -225,12 +246,13 @@ def check_stability_gate() -> dict:
         return {
             "status": "OK" if gate_passed else "PENDING",
             "days_tracked": len(entries),
+            "current_consecutive_ok": current_run,
             "longest_consecutive_ok": longest_run,
             "gate_passed": gate_passed,
             "mnemosyne_crons_state": cron_result,
             "message": (
                 f"Gate {'PASSED' if gate_passed else 'IN PROGRESS'}: "
-                f"{longest_run}/7 longest consecutive OK days"
+                f"{current_run}/7 current consecutive OK days"
             ),
         }
     except Exception as e:

@@ -73,7 +73,12 @@ def append_gate_entry(status: str) -> None:
 
 
 def count_consecutive_ok() -> int:
-    """Count current consecutive OK days from the gate log."""
+    """Count the current consecutive OK run ending at the newest entry.
+
+    The gate wants "7 clean days in a row, ending today" — not the longest
+    run ever seen. Returning the historical longest would let an old streak
+    pass the gate forever, even while the system is degraded now.
+    """
     if not GATE_LOG.exists():
         return 0
     lines = [l.strip() for l in GATE_LOG.read_text().strip().split("\n") if l.strip()]
@@ -89,17 +94,19 @@ def count_consecutive_ok() -> int:
     entries.sort(key=lambda x: x[0])
 
     from datetime import timedelta
-    longest = 0
+
     current = 0
-    for i, (d, is_ok) in enumerate(entries):
-        if is_ok:
-            if i == 0 or entries[i - 1][0] != d - timedelta(days=1):
-                current = 0
-            current += 1
-            longest = max(longest, current)
-        else:
+    prev_date = None
+    for d, is_ok in entries:
+        if not is_ok:
             current = 0
-    return longest
+        elif prev_date is None or prev_date == d - timedelta(days=1):
+            current += 1
+        else:
+            # gap in the log (missed day) breaks the streak too
+            current = 1
+        prev_date = d
+    return current
 
 
 def main() -> int:

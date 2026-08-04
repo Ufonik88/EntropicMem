@@ -30,7 +30,9 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import sys
+import time
 from datetime import date
 from pathlib import Path
 
@@ -51,7 +53,7 @@ from vault import (  # noqa: E402
 
 from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 
-__version__ = "2.1.7"
+__version__ = "2.1.8"
 
 # ── input validation helpers ────────────────────────────────────────────────
 
@@ -545,6 +547,54 @@ def cmd_hotcache(args) -> int:
     return 0
 
 
+# ── subcommand: index ──────────────────────────────────────────────────────
+
+def cmd_index(args) -> int:
+    """Vault index maintenance: `index rebuild` reindexes every vault note,
+    `index status` reports freshness without touching anything.
+
+    The index (index.db) is only written by `init`, the remember→vault path,
+    and `project_to_vault`. Notes added by other tools (wiki.py, Obsidian,
+    vault auto-commit) never reach it, so without a periodic rebuild the
+    health check flags it stale. `index rebuild` is the safe full refresh:
+    drop and reindex every note, then rebuild the wikilink graph edges.
+    """
+    vault_path, index_path = _resolve_env()
+
+    if args.index_command == "status":
+        if not index_path.exists():
+            print(f"Index DB missing: {index_path}")
+            return 1
+
+        age_h = (time.time() - index_path.stat().st_mtime) / 3600
+        conn = sqlite3.connect(str(index_path))
+        try:
+            notes = conn.execute("SELECT COUNT(*) FROM notes_meta").fetchone()[0]
+        except sqlite3.Error:
+            notes = None
+        finally:
+            conn.close()
+        print(f"Index DB:    {index_path}")
+        print(f"Notes:       {notes if notes is not None else 'unavailable'}")
+        print(f"Age:         {age_h:.1f} h")
+        return 0
+
+    if args.index_command == "rebuild":
+        vault = Vault(vault_path)
+        index = VaultIndex(index_path)
+        try:
+            started = time.monotonic()
+            count = index.rebuild(vault, include_archive=getattr(args, "include_archive", False))
+            elapsed = time.monotonic() - started
+            print(f"Index rebuilt: {count} notes in {elapsed:.1f}s ({vault_path} → {index_path})")
+            return 0
+        finally:
+            index.close()
+
+    print("Usage: entropicmem index rebuild|status", file=sys.stderr)
+    return 1
+
+
 # ── subcommand: query ──────────────────────────────────────────────────────
 
 def cmd_query(args) -> int:
@@ -911,7 +961,7 @@ def cmd_graph(args) -> int:
         init_links_schema(conn)
         stats = graph_stats(conn)
         if stats["total_links"] == 0:
-            print("Link graph is empty. Run 'entropicmem graph rebuild' first (coming soon).")
+            print("Link graph is empty. Run 'entropicmem index rebuild' to reindex notes and edges.")
             conn.close()
             index.close()
             return 0
@@ -968,8 +1018,16 @@ def cmd_memory(args) -> int:
             print(f"{f.id}\t{f.domain}\t{preview}")
         engine.close()
         return 0
+    elif args.memory_command == "reindex":
+        r = engine.rebuild_fts()
+        print(
+            f"FTS rebuilt: {r['fts_before']} → {r['fts_after']} rows "
+            f"({r['facts']} facts)"
+        )
+        engine.close()
+        return 0
     else:
-        print("Usage: entropicmem memory project|stats|list", file=sys.stderr)
+        print("Usage: entropicmem memory project|stats|list|reindex", file=sys.stderr)
         engine.close()
         return 1
 
@@ -1474,6 +1532,13 @@ def main() -> int:
     # hotcache
     sub.add_parser("hotcache", help="Rebuild Wiki-Cache.md")
 
+    p_index = sub.add_parser("index", help="Vault index maintenance (v2.1.8)")
+    idx_sub = p_index.add_subparsers(dest="index_command")
+    idx_rebuild = idx_sub.add_parser("rebuild", help="Full rebuild: reindex every vault note + graph edges")
+    idx_rebuild.add_argument("--include-archive", action="store_true",
+                             help="Also index notes in the archive folder")
+    idx_sub.add_parser("status", help="Report index freshness without touching anything")
+
     # graph
     p_graph = sub.add_parser("graph", help="Graph export and serve")
     g_sub = p_graph.add_subparsers(dest="graph_command")
@@ -1514,6 +1579,7 @@ def main() -> int:
     m_sub = p_memory.add_subparsers(dest="memory_command")
     m_sub.add_parser("project", help="Project memory facts to vault")
     m_sub.add_parser("stats", help="Show memory engine statistics")
+    m_sub.add_parser("reindex", help="Rebuild facts_fts from facts (repair orphans)")
     m_list = m_sub.add_parser("list", help="List facts in memory engine")
     m_list.add_argument("--domain", help="Filter by domain")
     m_list.add_argument("--limit", type=int, default=50)
@@ -1618,6 +1684,7 @@ def main() -> int:
         "forget": cmd_forget,
         "open": cmd_open,
         "memory": cmd_memory,
+        "index": cmd_index,
         "extract": cmd_extract,
         "reinforce": cmd_reinforce,
         "patch-core": cmd_patch_core,

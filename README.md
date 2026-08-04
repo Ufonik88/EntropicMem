@@ -85,12 +85,32 @@ EntropicMem (This Repo)
 | `lint` | Orphans, dead links, stale, contradictions |
 | `moc` | Rebuild domain maps of content |
 | `hotcache` | Refresh cache |
+| `index rebuild \| status` | Rebuild vault index / report freshness (v2.1.8) |
 | `graph export --format html` | D3 galaxy graph |
 | `graph serve` | Serve graph via HTTP |
 | `remember "fact"` | Store in memory engine |
 | `forget <id>` | Delete from memory engine |
 | `memory project` | Project memory facts to vault |
 | `memory stats` | Memory engine statistics |
+| `memory reindex` | Rebuild facts_fts, repair orphan rows (v2.1.8) |
+
+## Index Maintenance (v2.1.8)
+
+The vault index (`index.db`) now has a first-class maintenance path — the gap
+where notes written outside `init` (wiki.py, Obsidian, vault auto-commit)
+never reached the index and it went permanently stale:
+
+```bash
+entropicmem index status     # freshness report, no writes
+entropicmem index rebuild    # full reindex of every vault note + graph edges
+entropicmem memory reindex   # repair orphan facts_fts rows
+```
+
+A silent watchdog (`scripts/entropicmem_index_refresh.sh`, cron every 6h)
+rebuilds only when the vault has notes newer than the index. The health check
+WARNs on index staleness >24h and on orphan FTS rows, and the stability gate
+now requires 7 consecutive OK days **ending today** (current streak, not the
+longest historical run).
 
 ## Notion → EntropicMem (v2.1.2)
 
@@ -190,9 +210,9 @@ See `skills/entropicmem/references/HERMES_INTEGRATION.md` for full documentation
 - **Memory consolidation** — archive old, low-access facts to `facts_archive` table
 - **Auto-backup** — timestamped SQLite backups before destructive operations
 
-## Sole Provider Status (2026-07-30)
+## Sole Provider Status (2026-08-04)
 
-EntropicMem **v2.1.7** is the **sole memory provider** for Hermes Agent. All gaps from the migration gap analysis are resolved.
+EntropicMem **v2.1.8** is the **sole memory provider** for Hermes Agent. All gaps from the migration gap analysis are resolved.
 
 ```yaml
 memory:

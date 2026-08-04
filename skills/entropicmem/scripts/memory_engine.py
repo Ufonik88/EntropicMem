@@ -276,6 +276,21 @@ class MemoryEngine:
         finally:
             self._release_write_lock()
 
+    def rebuild_fts(self) -> dict:
+        """Public FTS5 repair (v2.1.8): drop and rebuild facts_fts from facts.
+
+        Repairs orphan FTS rows left behind when a delete path skipped its
+        FTS cleanup (recall can then surface ghost hits). Safe to call at
+        any time; the health check's fts_orphans counter tells you when it
+        is needed. Returns before/after counts for verification.
+        """
+        before = self.db.execute("SELECT COUNT(*) FROM facts_fts").fetchone()[0]
+        fact_count = self.db.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+        self._rebuild_fts()
+        after = self.db.execute("SELECT COUNT(*) FROM facts_fts").fetchone()[0]
+        self.audit("fts_rebuild", detail=f"before={before};after={after};facts={fact_count}")
+        return {"fts_before": before, "fts_after": after, "facts": fact_count}
+
     def _execute_with_retry(self, sql: str, params: tuple = (), max_retries: int = 2):
         """Execute SQL with automatic FTS rebuild on corruption (I2: DB error recovery)."""
         for attempt in range(max_retries + 1):
