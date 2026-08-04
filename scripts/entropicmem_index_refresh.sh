@@ -10,15 +10,17 @@
 # last index build. Silent (no output) when the index is already fresh —
 # designed for a no_agent cron that delivers stdout verbatim.
 #
-# Paths are pinned to the plugin's canonical locations. Do NOT rely on
-# resolve_vault_path() here: ~/.hermes/.env has historically carried stale
-# ENTROPICMEM_VAULT_PATH entries pointing at dead /tmp dirs, and the CLI
-# fallback can land on the Obsidian vault, which is a different dataset
+# Paths are hard-pinned to the dataset the health check monitors
+# (~/.hermes/entropicmem/vault → index.db). Do NOT read
+# $ENTROPICMEM_VAULT_PATH/$ENTROPICMEM_INDEX_DB here: ~/.hermes/.env has
+# historically carried stale entries pointing at dead /tmp dirs, and any
+# process started before the env was cleaned still carries them in memory.
+# The CLI fallback can also land on the Obsidian vault, a different dataset
 # from the one index.db tracks.
 set -u
 
-VAULT="${ENTROPICMEM_VAULT_PATH:-$HOME/.hermes/entropicmem/vault}"
-INDEX_DB="${ENTROPICMEM_INDEX_DB:-$HOME/.hermes/entropicmem/index.db}"
+VAULT="$HOME/.hermes/entropicmem/vault"
+INDEX_DB="$HOME/.hermes/entropicmem/index.db"
 CLI="$HOME/Documents/Coding Projects/EntropicMem/skills/entropicmem/scripts/entropicmem.py"
 
 if [ ! -d "$VAULT" ]; then
