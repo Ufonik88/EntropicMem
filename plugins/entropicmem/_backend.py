@@ -33,17 +33,24 @@ def ensure_scripts_on_path(scripts_dir: Path) -> None:
 
 
 def resolve_paths(hermes_home: Path, plugin_config: dict) -> Tuple[Path, Path, Path]:
+    """Resolve vault/index/memory paths.
+
+    Defaults always under ``{hermes_home}/entropicmem/``.
+    Explicit plugin config or ENTROPICMEM_* env overrides are honored.
+    OBSIDIAN_VAULT_PATH is intentionally ignored (Phase 2 path pin).
+    """
+    base = hermes_home / "entropicmem"
     vault = Path(
         plugin_config.get("vault_path")
-        or os.environ.get("ENTROPICMEM_VAULT_PATH", str(hermes_home / "entropicmem" / "vault"))
+        or os.environ.get("ENTROPICMEM_VAULT_PATH", str(base / "vault"))
     ).expanduser()
     index_db = Path(
         plugin_config.get("index_db")
-        or os.environ.get("ENTROPICMEM_INDEX_DB", str(hermes_home / "entropicmem" / "index.db"))
+        or os.environ.get("ENTROPICMEM_INDEX_DB", str(base / "index.db"))
     ).expanduser()
     memory_db = Path(
         plugin_config.get("memory_db")
-        or os.environ.get("ENTROPICMEM_MEMORY_DB", str(hermes_home / "entropicmem" / "memory.db"))
+        or os.environ.get("ENTROPICMEM_MEMORY_DB", str(base / "memory.db"))
     ).expanduser()
     return vault, index_db, memory_db
 

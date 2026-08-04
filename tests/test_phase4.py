@@ -99,11 +99,11 @@ class TestMemoryEngine:
 
     def test_forget_removes_fact(self, engine):
         eid = engine.remember(content="Fact to be forgotten")
-        assert engine.forget(eid) is True
+        assert engine.forget(eid, confirm=True) is True
         assert engine.get_fact(eid) is None
 
     def test_forget_returns_false_for_missing(self, engine):
-        assert engine.forget("nonexistent_id_") is False
+        assert engine.forget("nonexistent_id_", confirm=True) is False
 
     def test_list_facts(self, engine):
         for i in range(5):
@@ -161,7 +161,7 @@ class TestMemoryCLI:
         eid_line = [l for l in r.stdout.split("\n") if "Remembered:" in l][0]
         eid = eid_line.split(":")[1].strip()
 
-        r2 = _run("forget", eid,
+        r2 = _run("forget", "--confirm", eid,
                   ENTROPICMEM_VAULT_PATH=str(vault.root),
                   ENTROPICMEM_INDEX_DB=str(index.db_path),
                   ENTROPICMEM_MEMORY_DB=str(mp))

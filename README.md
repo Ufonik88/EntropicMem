@@ -12,6 +12,23 @@
 
 A Hermes Agent **skill** providing a complete, standalone knowledge system — memory engine, Markdown vault, visual graph, and full ingest/query/workflow loop.
 
+
+## Security Hardening (v2.1.6)
+
+EntropicMem sole-provider stack hardened for Hermes:
+
+| Control | Behavior |
+|---------|----------|
+| Write policy | Secrets/credentials blocked; Finance auto-extract quarantined |
+| Pending facts | `entropicmem pending list\|promote\|discard` |
+| Audit log | `entropicmem audit` |
+| Destructive ops | `forget`/`consolidate` require `--confirm` |
+| Prefetch | No write-on-read; sensitive content redacted; source denylist |
+| Graph | Localhost bind + token; bodies opt-in only |
+| Backups | AES-256-CBC before cloud upload |
+
+Details: `docs/SECURITY_HARDENING_PLAN.md`, `docs/BACKUP_RESTORE.md`.
+
 ## Install via `/learn`
 
 ```bash
@@ -175,7 +192,7 @@ See `skills/entropicmem/references/HERMES_INTEGRATION.md` for full documentation
 
 ## Sole Provider Status (2026-07-23)
 
-EntropicMem is the **sole memory provider** for Hermes Agent. All gaps from the migration gap analysis are resolved.
+EntropicMem **v2.1.6** is the **sole memory provider** for Hermes Agent. All gaps from the migration gap analysis are resolved.
 
 ```yaml
 memory:

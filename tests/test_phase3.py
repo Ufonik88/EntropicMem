@@ -122,7 +122,7 @@ class TestGraphExport:
         """Modal must show real note bodies (with wikilinks), not empty placeholders."""
         vault, index = populated_index
         out = Path(tempfile.mkdtemp()) / "graph.html"
-        html = export_html(index, out, max_nodes=50, vault_root=vault.root)
+        html = export_html(index, out, max_nodes=50, vault_root=vault.root, include_bodies=True)
         import re
         match = re.search(r'const DATA = ({.*?});', html, re.DOTALL)
         data = json.loads(match.group(1))
@@ -136,7 +136,7 @@ class TestGraphExport:
         SyntaxErrors that silently blank the whole visualizer)."""
         vault, index = populated_index
         out = Path(tempfile.mkdtemp()) / "graph.html"
-        html = export_html(index, out, max_nodes=50, vault_root=vault.root)
+        html = export_html(index, out, max_nodes=50, vault_root=vault.root, include_bodies=True)
         import re, shutil
         scripts = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
         assert scripts, "no inline <script> block"

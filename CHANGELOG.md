@@ -1,5 +1,57 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+- **graph_export**: `export_json` no longer embeds note bodies by default. Bodies
+  (`body_preview`/`full_body`) are only written when `include_bodies=True`, and
+  `export_html` now forwards its flag through. Restores the secure default that a
+  shared/exported `graph.json` never leaks vault content (fixes regression from the
+  graph-modal content fix; `test_export_html_omits_bodies_by_default` passes again).
+
+### Performance
+- **memory_engine**: `_find_fuzzy_duplicate` now pre-filters candidates via an FTS5
+  MATCH on content tokens (LIMIT 50) instead of Jaccard-scanning the last 200 facts
+  on every write. Falls back to the recent-scan for very short content or FTS errors.
+  Tokens are sanitized (`[^\w]` stripped) so quotes/parens can't break FTS phrase syntax.
+
+### Fixed
+- **plugin**: `_apply_token_budget` now uses `dataclasses.replace` to truncate facts,
+  preserving every field. The old manual reconstruction silently dropped `sensitivity`,
+  `decay_score`, `last_accessed`, and `access_count` — a truncated `public` fact would
+  revert to `internal` and be over-redacted downstream.
+
+## [2.1.6] - 2026-07-28
+
+### Security (Phases 1–3 hardening)
+
+#### Phase 1
+- Graph export defaults to metadata-only (`include_bodies=False`; CLI `--include-bodies`)
+- Graph serve binds `127.0.0.1`; ops graph server token auth on `POST /refresh`
+- Filesystem modes: engine enforces `700`/`600` on DB paths
+- Backups: AES-256-CBC encrypt before rclone (`scripts/entropicmem_backup.sh`)
+- Plugin defaults: `auto_extract_enabled=false`, `core_memory_writable=false`
+- Prefetch source denylist; strip `<memory-context>` / instruction-hijack markers on remember
+- Fix LIKE domain filter operator precedence
+
+#### Phase 2
+- `policy.py`: sensitivity tiers (`public|internal|sensitive|secret`); secret/credential block
+- Auto-extract → `pending_facts` quarantine; CLI `pending list|promote|discard`
+- Append-only `audit_log`; CLI `audit`
+- `forget` / `consolidate` require `confirm=True`; consolidate dry-run by default
+- Plugin path pin under `{HERMES_HOME}/entropicmem` (ignores Obsidian fallback)
+- Merge-safe `save_config` (atomic, no plugins clobber)
+- SSRF: DNS resolve + block private/link-local answers
+- `recall_with_relevance` / `recall_hybrid`: `auto_reinforce=False` by default
+- Docs: `BACKUP_RESTORE.md`, `SQLCIPHER_SPIKE.md`, `SECURITY_HARDENING_PLAN.md`
+
+#### Phase 3
+- Tests: `test_phase1_security.py`, `test_security_phase2.py`
+- Health check: `security_posture` + `audit_log` sections
+
+### Changed
+- Version 2.1.5 → 2.1.6
+
 ## [2.1.5] - 2026-07-23
 
 ### Added (Phase 5 — Polish + Final Validation)

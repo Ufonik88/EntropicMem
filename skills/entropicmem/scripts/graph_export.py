@@ -57,9 +57,15 @@ def export_json(
     domain: Optional[str] = None,
     min_importance: float = 0.0,
     max_nodes: int = 500,
+    include_bodies: bool = False,
 ) -> dict:
     """
     Export nodes + edges as JSON. Primary format consumed by graph.html.
+
+    Note bodies (body_preview/full_body) are only embedded when
+    include_bodies=True. Default is off so a shared/exported graph.json
+    never leaks vault content. Pass include_bodies=True only for offline
+    modal reading on a trusted machine.
 
     Returns the dict that was written (for testing).
     """
@@ -86,6 +92,10 @@ def export_json(
             "color": get_color(n.get("domain", "")),
             "shape": get_shape(n.get("note_type", "permanent")),
         })
+        # Bodies only embedded when explicitly requested (security default: off)
+        if include_bodies:
+            node_list[-1]["body_preview"] = n.get("body_preview", "")
+            node_list[-1]["full_body"] = n.get("full_body", n.get("body_preview", ""))
 
     # Build edge list (only edges where both nodes exist in the export set)
     node_ids = {n["id"] for n in node_list}
@@ -220,48 +230,59 @@ def export_html(
     min_importance: float = 0.0,
     max_nodes: int = 500,
     vault_root: Optional[Path] = None,
+    include_bodies: bool = False,
 ) -> str:
     """
     Export as a single self-contained HTML file with embedded graph data.
     Works via file:// or HTTP server. D3 v7 + marked loaded from CDN, with
     automatic fallback to vendored copies placed next to the output file.
-    Includes full note bodies for modal display.
 
-    vault_root: path to the vault. When omitted it is resolved from the
-    environment (ENTROPICMEM_VAULT_PATH / OBSIDIAN_VAULT_PATH) so the modal
-    can show full note bodies. Pass it explicitly from the CLI for reliability.
+    By default note bodies are NOT embedded (security: avoids leaking vault
+    content via local HTTP/graph share). Pass include_bodies=True for offline
+    modal reading on a trusted machine only.
+
+    vault_root: path to the vault when include_bodies=True. When omitted and
+    bodies are requested, resolved from ENTROPICMEM_VAULT_PATH only (not Obsidian).
     """
     data = export_json(
         index, output_path.parent / "graph.json",
-        domain=domain, min_importance=min_importance, max_nodes=max_nodes
+        domain=domain, min_importance=min_importance, max_nodes=max_nodes,
+        include_bodies=include_bodies,
     )
 
-    # Resolve the vault once (not per-node) and attach full bodies.
-    vault = None
-    if vault_root is None:
-        try:
-            from vault import resolve_vault_path
-            vault_root = resolve_vault_path()
-        except Exception:
-            vault_root = None
-    if vault_root is not None:
-        try:
-            from vault import Vault
-            vault = Vault(Path(vault_root))
-        except Exception:
-            vault = None
-
-    if vault is not None:
-        for node in data["nodes"]:
-            meta = index.get_note(node["id"])
-            if not meta:
-                continue
-            node["full_body"] = meta.get("body_preview", "")
+    # Attach full bodies only when explicitly requested.
+    if include_bodies:
+        vault = None
+        if vault_root is None:
             try:
-                note = vault.read_note(Path(meta["path"]))
-                node["full_body"] = note.body
+                import os
+                from vault import resolve_vault_path
+                env = os.environ.get("ENTROPICMEM_VAULT_PATH")
+                vault_root = Path(env).expanduser() if env else resolve_vault_path()
             except Exception:
-                pass
+                vault_root = None
+        if vault_root is not None:
+            try:
+                from vault import Vault
+                vault = Vault(Path(vault_root))
+            except Exception:
+                vault = None
+
+        if vault is not None:
+            for node in data["nodes"]:
+                # Skip nodes that already have full_body from the data source
+                # (e.g. FTS index enrichment in get_graph_nodes)
+                if node.get("full_body", ""):
+                    continue
+                meta = index.get_note(node["id"])
+                if not meta:
+                    continue
+                node["full_body"] = meta.get("body_preview", "")
+                try:
+                    note = vault.read_note(Path(meta["path"]))
+                    node["full_body"] = note.body
+                except Exception:
+                    pass
 
     # Serialize and make it safe to embed inside a <script> tag: the only
     # sequence that can prematurely close the tag is "</", so escape it.
