@@ -50,7 +50,7 @@
 | 2026-07-28 | Phase 2–3 implemented; version bumped to 2.1.6; docs + vault updated |
 | 2026-07-28 | Tag+release v2.1.6 published at c145dc9; PR #37 open — main merge needs second approving review (branch protection) |
 | 2026-07-30 | Docs refresh + repo maintenance → v2.1.7: version refs aligned, MASTER_TODO/README/CHANGELOG updated, test count corrected to 201 |
-| 2026-08-04 | Index maintenance → v2.1.8: `index rebuild\|status` + `memory reindex` CLI, silent 6h watchdog, FTS-orphan detection in health check, current-streak stability gate in both health check and gate script, graph server `/refresh` rebuilds index first + canonical repo copy, 214 tests passing |
+| 2026-08-04 | Index maintenance → v2.1.8: `index rebuild\|status` + `memory reindex` CLI, silent 6h watchdog, FTS-orphan detection in health check, current-streak stability gate in both health check and gate script, graph server `/refresh` rebuilds index first + canonical repo copy, 214 tests passing. Live remediation complete: scripts deployed, DBs rebuilt (1001 notes, 0 FTS orphans), `.env` de-poisoned, watchdog cron live (PR #41 hard-pin fix), health back to overall OK |
 
 ---
 
@@ -73,13 +73,15 @@ row, and stale `/tmp` env entries in `~/.hermes/.env` poisoning
 - [x] Silent watchdog `scripts/entropicmem_index_refresh.sh` (pins env paths; cron every 6h)
 - [x] 13 new tests (`tests/test_v2_1_8.py`), 214 total green
 
-### Live remediation (post-merge)
+### Live remediation (post-merge) — DONE (2026-08-04)
 
-- [ ] Deploy updated `entropicmem_health_check.py` + `daily_stability_gate.py` to `~/.hermes/scripts/`
-- [ ] Restart `entropicmem-graph-server.service`; live `index rebuild` + `memory reindex`
-- [ ] Remove stale `ENTROPICMEM_VAULT_PATH`/`ENTROPICMEM_INDEX_DB` `/tmp` entries from `~/.hermes/.env`
-- [ ] Watchdog cron installed (no_agent, silent when fresh)
-- [ ] Health returns to operational state
+- [x] Deploy updated `entropicmem_health_check.py` + `daily_stability_gate.py` to `~/.hermes/scripts/` (byte-identical, verified by diff)
+- [x] Graph server canonical copy synced + unit restarted; `/health` OK on loopback and Tailscale (`tailscale+local`)
+- [x] Live `index rebuild`: 1001 notes, 0.0h age; vault `.md` count == `notes_meta` count
+- [x] Live `memory reindex`: 844 → 843 FTS rows; orphan count now 0
+- [x] Removed stale `ENTROPICMEM_VAULT_PATH`/`ENTROPICMEM_INDEX_DB` `/tmp` entries from `~/.hermes/.env` (backup: `.env.bak-20260804-v218`)
+- [x] Watchdog cron `e9365690a702` installed (`0 */6 * * *`, no_agent, silent when fresh); first run failed on poisoned env still in gateway memory → hard-pinned paths in PR #41, re-run ok
+- [x] Health check returns overall **OK**: memory_db/vault/index/fts/backup/security/audit all OK; stability gate correctly PENDING 0/7 (current-streak semantics restart the count; ~2026-08-11 to pass)
 
 ---
 
