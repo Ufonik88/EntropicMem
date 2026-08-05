@@ -128,11 +128,65 @@ class Vault:
         return resolved
 
     def sanitize(self, name: str) -> str:
-        """Sanitize a string into a safe filename stub."""
-        slug = name.lower().strip()
-        slug = re.sub(r"[^a-z0-9\s-]", "", slug)
-        slug = re.sub(r"\s+", "-", slug)
-        return slug[:80]
+        """Sanitize a string into a safe filename stub.
+
+        NAMING CONVENTION (v2.2.0+):
+        - Preserves original case (Title Case stays readable)
+        - Keeps safe punctuation: spaces, hyphens, em/en dashes, periods,
+          commas, parentheses, ampersands, apostrophes, # and +
+        - Strips filesystem-unsafe chars: / \\ : * ? " < > | and control chars
+        - Collapses whitespace, truncates at 90 chars on a word boundary
+        - Falls back to 'untitled' if nothing remains
+        Result stays human-searchable in Obsidian (the whole point: vault
+        notes must be findable by eye, not just by query).
+        """
+        # Remove control chars and filesystem-unsafe chars (Windows-reserved)
+        slug = re.sub(r"[\x00-\x1f\x7f/\\:*?\"<>|]", " ", name)
+        # Collapse whitespace
+        slug = re.sub(r"\s+", " ", slug).strip()
+        if not slug:
+            return "untitled"
+        # Truncate on a word boundary (max 90 chars)
+        if len(slug) > 90:
+            cut = slug[:90]
+            idx = max(cut.rfind(" "), cut.rfind("-"), cut.rfind("—"), cut.rfind("–"))
+            slug = cut[:idx].rstrip() if idx > 40 else cut.rstrip(" -—–")
+        # Strip trailing punctuation so filenames don't end in '..md'
+        slug = slug.rstrip(" .-—–")
+        return slug or "untitled"
+
+    def humanize(self, title: str) -> str:
+        """Alias of sanitize for readability — keeps the convention name
+        explicit at call sites. Identical behavior; see sanitize()."""
+        return self.sanitize(title)
+
+    @staticmethod
+    def make_title(content: str, max_len: int = 60) -> str:
+        """Derive a human-readable title from fact/content text.
+
+        NAMING CONVENTION (v2.2.0+):
+        - Uses the FIRST SENTENCE (not a raw [:50] slice — no mid-word cuts)
+        - Strips markdown, emoji, and the 'Fact - ' prefix that older
+          versions baked in
+        - Returns '' when nothing usable remains (caller picks a fallback)
+        """
+        if not content:
+            return ""
+        text = re.sub(r"[#*`>_~]", " ", content)
+        text = text.replace("\n", " ").replace("Fact - ", "").replace("Fact: ", "")
+        text = re.sub(r"\s+", " ", text).strip()
+        # First sentence boundary
+        for sep in (". ", "! ", "? ", " — ", ": "):
+            idx = text.find(sep)
+            if 0 < idx <= max_len:
+                text = text[:idx + 1]
+                break
+        text = text.rstrip(".!?: ") + "."
+        if len(text) > max_len:
+            cut = text[:max_len]
+            idx = max(cut.rfind(" "), cut.rfind("-"), cut.rfind("—"))
+            text = cut[:idx].rstrip(" .") + "…" if idx > 20 else cut.rstrip() + "…"
+        return text.strip()
 
     def _is_protected(self, rel: Path) -> bool:
         """Check if a relative path falls under a protected prefix."""
@@ -247,8 +301,18 @@ class Vault:
         slug = self.sanitize(title)
         filename = f"{slug}.md"
 
+        # Collision-safe: never silently overwrite an existing note.
+        # Humanized titles (e.g. two facts starting with the same sentence)
+        # make collisions realistic, so append a numeric suffix.
+        candidate = filepath = (self.root / safe_folder / filename).resolve()
+        n = 2
+        while filepath.exists():
+            filepath = (self.root / safe_folder / f"{slug}-{n}.md").resolve()
+            n += 1
+        if filepath != candidate:
+            filename = filepath.name
+
         # Ensure the resolved path is within vault root
-        filepath = (self.root / safe_folder / filename).resolve()
         if not str(filepath).startswith(str(self.root.resolve())):
             raise ValueError(f"Path traversal attempt blocked: {folder}/{filename}")
 

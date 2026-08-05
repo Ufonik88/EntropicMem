@@ -819,7 +819,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             with MemoryEngine(self._memory_db) as engine:
                 eid = engine.remember(
                     content=content,
-                    title=content[:60],
+                    title=Vault.make_title(content) or "Fact",
                     domain=domain,
                     source="agent_tool",
                     importance=importance,
@@ -828,6 +828,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     session_id=self._session_id,
                 )
             vault_note = None
+            vault = None
             if self._vault_path and self._vault_path.is_dir():
                 vault = Vault(self._vault_path)
                 body = (
@@ -837,19 +838,20 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 # write_note returns Path; keep as Path for read_note
                 vault_note = vault.write_note(
                     domain,
-                    f"Fact - {content[:50]}",
+                    Vault.make_title(content) or "Fact",
                     body,
                     tags=["durable", "agent"],
                     domain=domain,
                     frontmatter={"entropic_id": eid},
                 )
-                if self._index_db:
-                    idx = VaultIndex(self._index_db)
-                    note = vault.read_note(vault_note)
-                    idx.upsert_note(note)
-                    idx.upsert_edges_for_note(vault, note)
-                    idx.close()
-                # Convert to string for JSON serialization
+            if self._index_db and vault is not None and vault_note is not None:
+                idx = VaultIndex(self._index_db)
+                note = vault.read_note(vault_note)
+                idx.upsert_note(note)
+                idx.upsert_edges_for_note(vault, note)
+                idx.close()
+            # Convert to string for JSON serialization
+            if vault_note is not None:
                 vault_note = str(vault_note)
             return json.dumps({"ok": True, "entropic_id": eid, "vault_note": vault_note})
         except Exception as e:

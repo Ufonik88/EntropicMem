@@ -1320,13 +1320,17 @@ class MemoryEngine:
     # ── helpers ─────────────────────────────────────────────────────────
 
     def _make_title(self, content: str, max_len: int = 80) -> str:
+        """Humanized title from fact content (naming convention v2.2.0+).
+
+        Uses Vault.make_title() so DB titles and vault filenames share one
+        convention: first sentence, markdown stripped, no 'Fact - ' prefix.
+        """
+        from vault import Vault
+        title = Vault.make_title(content, max_len=max_len)
+        if title:
+            return title
         first_line = content.split("\n")[0].strip()
-        if len(first_line) > max_len:
-            first_line = first_line[:max_len - 3] + "..."
-        slug = first_line.lower().strip()
-        slug = re.sub(r"[^a-z0-9\s-]", "", slug)
-        slug = re.sub(r"\s+", "-", slug)
-        return slug[:80] or "fact"
+        return first_line[:max_len] or "fact"
 
     @staticmethod
     def _jaccard_similarity(a: str, b: str) -> float:
