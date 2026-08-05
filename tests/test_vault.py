@@ -141,6 +141,10 @@ class TestVault:
         assert vault.sanitize("") == "untitled"
         # emoji stripped
         assert vault.sanitize("🚀 Launch 🎉 Party") == "Launch Party"
+        # all characters stripped → documented fallback
+        assert vault.sanitize("@@@") == "untitled"
+        assert vault.sanitize("🚀🎉😀") == "untitled"
+        assert vault.sanitize("   ") == "untitled"
 
     def test_sanitize_truncates_on_word_boundary(self, temp_vault):
         vault, _ = temp_vault
