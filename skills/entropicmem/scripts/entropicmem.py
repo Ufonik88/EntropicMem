@@ -1056,7 +1056,7 @@ def cmd_remember(args) -> int:
     vault = Vault(vault_path)
     domain = args.domain or "Knowledge"
     tags = args.tags.split(",") if args.tags else ["durable", "agent"]
-    title = f"Fact - {args.fact[:60]}"
+    title = Vault.make_title(args.fact) or "Fact"
     body = (f"## Fact\n{args.fact}\n\n## Source\n- Agent (EntropicMem remember)\n\n## Links\n- [[{domain}/Index]]\n- [[Wiki-Cache]]\n")
     engine = MemoryEngine(_memory_db_path())
     eid = engine.remember(content=args.fact, title=title, domain=domain, tags=tags, source="agent")
