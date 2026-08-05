@@ -131,10 +131,43 @@ class TestVault:
         assert len(note.entropic_id) == 16
 
     def test_sanitize(self, temp_vault):
+        """Naming convention v2.2.0+: human-readable, case-preserving."""
         vault, _ = temp_vault
-        assert vault.sanitize("Hello World!") == "hello-world"
-        assert vault.sanitize("  Spaces  Test  ") == "spaces-test"
-        assert vault.sanitize("Special@Chars#$%") == "specialchars"
+        assert vault.sanitize("Hello World!") == "Hello World!"
+        assert vault.sanitize("  Spaces  Test  ") == "Spaces Test"
+        assert vault.sanitize("Special@Chars#$%") == "Special@Chars#$%"
+        assert vault.sanitize("a/b\\c:d*e?f\"g<h>i|j") == "a b c d e f g h i j"
+        assert vault.sanitize("") == "untitled"
+
+    def test_sanitize_truncates_on_word_boundary(self, temp_vault):
+        vault, _ = temp_vault
+        long = "This is a deliberately very long title that keeps going and going " \
+               "well past ninety characters to prove truncation works"
+        result = vault.sanitize(long)
+        assert len(result) <= 90
+        assert result.startswith("This is a deliberately very long title")
+
+    def test_make_title_first_sentence(self, temp_vault):
+        vault, _ = temp_vault
+        assert vault.make_title("Budget sprint 2026-08-05 complete. More detail here.") \
+            == "Budget sprint 2026-08-05 complete."
+        # 'Fact - ' prefix stripped (old convention)
+        assert vault.make_title("Fact - ajax july earnings submitted. Awaiting deposit.") \
+            == "ajax july earnings submitted."
+        # markdown stripped
+        assert vault.make_title("**Bold** `code` title. Body continues.") \
+            == "Bold code title."
+
+    def test_write_note_collision_safe(self, temp_vault):
+        """Two notes with the same title must not overwrite each other."""
+        vault, _ = temp_vault
+        p1 = vault.write_note("Knowledge", "Same Title", "First body", tags=[], domain="Knowledge")
+        p2 = vault.write_note("Knowledge", "Same Title", "Second body", tags=[], domain="Knowledge")
+        assert p1 != p2
+        assert (vault.root / p1).exists()
+        assert (vault.root / p2).exists()
+        assert vault.read_note(p1).body == "First body"
+        assert vault.read_note(p2).body == "Second body"
 
     def test_protected_prefixes(self, temp_vault):
         vault, _ = temp_vault

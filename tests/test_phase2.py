@@ -67,7 +67,7 @@ class TestIngest:
         vp, ip = seeded_vault
         vault = Vault(vp)
         inbox_notes = vault.list_notes(folder="inbox")
-        lit_notes = [n for n in inbox_notes if n.name.startswith("lit-")]
+        lit_notes = [n for n in inbox_notes if n.name.lower().startswith("lit - ") or n.name.lower().startswith("lit-")]
         assert len(lit_notes) >= 1, f"No literature note found in {inbox_notes}"
 
     def test_ingest_creates_atomic_notes(self, seeded_vault):
@@ -171,7 +171,7 @@ class TestResearch:
         assert "Research brief:" in r.stdout
         vault = Vault(vp)
         inbox_notes = vault.list_notes(folder="inbox")
-        research_notes = [n for n in inbox_notes if n.name.startswith("research-")]
+        research_notes = [n for n in inbox_notes if n.name.lower().startswith("research - ") or n.name.lower().startswith("research-")]
         assert len(research_notes) >= 1
 
 
