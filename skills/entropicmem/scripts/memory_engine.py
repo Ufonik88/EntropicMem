@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from vault import derive_title  # naming convention helper (stdlib-only, acyclic)
+
 try:
     from policy import evaluate_write, normalize_sensitivity, redact_for_prefetch
     POLICY_AVAILABLE = True
@@ -1322,11 +1324,12 @@ class MemoryEngine:
     def _make_title(self, content: str, max_len: int = 80) -> str:
         """Humanized title from fact content (naming convention v2.2.0+).
 
-        Uses Vault.make_title() so DB titles and vault filenames share one
-        convention: first sentence, markdown stripped, no 'Fact - ' prefix.
+        Uses the shared derive_title() helper so DB titles and vault
+        filenames share one convention (first sentence, markdown + emoji
+        stripped, no 'Fact - ' prefix). Imported at module level — no
+        per-call overhead, no hidden import cycle.
         """
-        from vault import Vault
-        title = Vault.make_title(content, max_len=max_len)
+        title = derive_title(content, max_len=max_len)
         if title:
             return title
         first_line = content.split("\n")[0].strip()

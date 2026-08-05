@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -17,6 +18,43 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # ── protected prefixes (never write) ────────────────────────────────────────
 PROTECTED_PREFIXES = ("_archive/",)
+
+
+def derive_title(content: str, max_len: int = 60) -> str:
+    """Derive a human-readable title from fact/content text.
+
+    NAMING CONVENTION (v2.2.0+):
+    - Uses the FIRST SENTENCE (not a raw [:N] slice — no mid-word cuts)
+    - Strips markdown formatting chars, emoji/symbols (unicodedata So/Sk),
+      and the legacy 'Fact - ' prefix
+    - Returns '' when nothing usable remains (caller picks a fallback)
+    """
+    if not content:
+        return ""
+    text = re.sub(r"[#*`>_~]", " ", content)
+    # Emoji + decorative symbols (stdlib-only; So/Sk + variation selectors)
+    text = "".join(
+        " " if unicodedata.category(ch) in ("So", "Sk") or ord(ch) == 0xFE0F else ch
+        for ch in text
+    )
+    text = text.replace("\n", " ").replace("Fact - ", "").replace("Fact: ", "")
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+    # First sentence boundary
+    for sep in (". ", "! ", "? ", " — ", ": "):
+        idx = text.find(sep)
+        if 0 < idx <= max_len:
+            text = text[:idx + 1]
+            break
+    text = text.rstrip(".!?: ") + "."
+    if text == ".":
+        return ""
+    if len(text) > max_len:
+        cut = text[:max_len]
+        idx = max(cut.rfind(" "), cut.rfind("-"), cut.rfind("—"))
+        text = cut[:idx].rstrip(" .") + "…" if idx > 20 else cut.rstrip() + "…"
+    return text.strip()
 
 # ── domain list (seeded at init) ────────────────────────────────────────────
 DEFAULT_DOMAINS = [
@@ -132,16 +170,18 @@ class Vault:
 
         NAMING CONVENTION (v2.2.0+):
         - Preserves original case (Title Case stays readable)
-        - Keeps safe punctuation: spaces, hyphens, em/en dashes, periods,
-          commas, parentheses, ampersands, apostrophes, # and +
-        - Strips filesystem-unsafe chars: / \\ : * ? " < > | and control chars
+        - WHITELIST: keeps word chars (letters/digits/underscore), spaces,
+          hyphens, em/en dashes, periods, commas, parentheses, ampersands,
+          apostrophes, # and +. Everything else (incl. @, %, $, emoji) is
+          replaced with a space — behavior matches this docstring exactly.
         - Collapses whitespace, truncates at 90 chars on a word boundary
         - Falls back to 'untitled' if nothing remains
         Result stays human-searchable in Obsidian (the whole point: vault
         notes must be findable by eye, not just by query).
         """
-        # Remove control chars and filesystem-unsafe chars (Windows-reserved)
-        slug = re.sub(r"[\x00-\x1f\x7f/\\:*?\"<>|]", " ", name)
+        # Whitelist: only the safe set survives (path-unsafe, control chars,
+        # @, %, $ and emoji all become spaces)
+        slug = re.sub(r"[^\w \-—–.,()&'#+]", " ", name)
         # Collapse whitespace
         slug = re.sub(r"\s+", " ", slug).strip()
         if not slug:
@@ -162,31 +202,12 @@ class Vault:
 
     @staticmethod
     def make_title(content: str, max_len: int = 60) -> str:
-        """Derive a human-readable title from fact/content text.
+        """Delegate to module-level derive_title() (naming convention).
 
-        NAMING CONVENTION (v2.2.0+):
-        - Uses the FIRST SENTENCE (not a raw [:50] slice — no mid-word cuts)
-        - Strips markdown, emoji, and the 'Fact - ' prefix that older
-          versions baked in
-        - Returns '' when nothing usable remains (caller picks a fallback)
+        Kept as a static method for backwards compatibility; new code can
+        import derive_title directly from vault to avoid the Vault import.
         """
-        if not content:
-            return ""
-        text = re.sub(r"[#*`>_~]", " ", content)
-        text = text.replace("\n", " ").replace("Fact - ", "").replace("Fact: ", "")
-        text = re.sub(r"\s+", " ", text).strip()
-        # First sentence boundary
-        for sep in (". ", "! ", "? ", " — ", ": "):
-            idx = text.find(sep)
-            if 0 < idx <= max_len:
-                text = text[:idx + 1]
-                break
-        text = text.rstrip(".!?: ") + "."
-        if len(text) > max_len:
-            cut = text[:max_len]
-            idx = max(cut.rfind(" "), cut.rfind("-"), cut.rfind("—"))
-            text = cut[:idx].rstrip(" .") + "…" if idx > 20 else cut.rstrip() + "…"
-        return text.strip()
+        return derive_title(content, max_len=max_len)
 
     def _is_protected(self, rel: Path) -> bool:
         """Check if a relative path falls under a protected prefix."""

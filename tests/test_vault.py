@@ -131,13 +131,16 @@ class TestVault:
         assert len(note.entropic_id) == 16
 
     def test_sanitize(self, temp_vault):
-        """Naming convention v2.2.0+: human-readable, case-preserving."""
+        """Naming convention v2.2.0+: human-readable, case-preserving, whitelist."""
         vault, _ = temp_vault
-        assert vault.sanitize("Hello World!") == "Hello World!"
+        assert vault.sanitize("Hello World!") == "Hello World"
         assert vault.sanitize("  Spaces  Test  ") == "Spaces Test"
-        assert vault.sanitize("Special@Chars#$%") == "Special@Chars#$%"
+        # @, %, $ are outside the whitelist → stripped; # is kept
+        assert vault.sanitize("Special@Chars#$%") == "Special Chars#"
         assert vault.sanitize("a/b\\c:d*e?f\"g<h>i|j") == "a b c d e f g h i j"
         assert vault.sanitize("") == "untitled"
+        # emoji stripped
+        assert vault.sanitize("🚀 Launch 🎉 Party") == "Launch Party"
 
     def test_sanitize_truncates_on_word_boundary(self, temp_vault):
         vault, _ = temp_vault
@@ -157,6 +160,19 @@ class TestVault:
         # markdown stripped
         assert vault.make_title("**Bold** `code` title. Body continues.") \
             == "Bold code title."
+        # emoji stripped
+        assert vault.make_title("🚀 Rocket launch scheduled. Details inside.") \
+            == "Rocket launch scheduled."
+
+    def test_make_title_never_returns_bare_period(self, temp_vault):
+        """Content that is entirely stripped must yield '' — never '.'."""
+        vault, _ = temp_vault
+        assert vault.make_title("") == ""
+        assert vault.make_title("***") == ""
+        assert vault.make_title("Fact - ") == ""
+        assert vault.make_title("🚀🎉") == ""
+        assert vault.make_title("...") == ""
+        assert vault.make_title("_~`#") == ""
 
     def test_write_note_collision_safe(self, temp_vault):
         """Two notes with the same title must not overwrite each other."""
