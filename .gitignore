@@ -50,3 +50,6 @@ htmlcov/
 
 # Skill packaging (runtime)
 skills/entropicmem/__pycache__/
+
+# Generated graph exports (regenerated daily by graph refresh cron)
+graph_export/
