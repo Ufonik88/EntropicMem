@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.9] - 2026-08-07
+
+### Fixed
+- **`_append_env` re-poisoning loop (`.env` cutover artifacts)** — the guard
+  only returned when `ENTROPICMEM_VAULT_PATH` was already present, so after a
+  cleanup removed that single stale line, the next `entropicmem init` re-appended
+  a fresh block pointing at a dead `/tmp` dir. `~/.hermes/.env` accumulated
+  duplicate/stale `ENTROPICMEM_*` entries twice (tmpzjok → tmpn2gh3ds5).
+  Now: block-level idempotency (skips when ANY of the three keys exists) and a
+  temp-dir refusal (never persists vault/index paths under `/tmp`). Live `.env`
+  cleaned to one canonical block pointing at `~/.hermes/entropicmem/…`.
+- **Tests:** `tests/test_v2_1_9.py` — 5 regression tests (219 total).
+
 ## [2.1.8] - 2026-08-04
 
 ### Added

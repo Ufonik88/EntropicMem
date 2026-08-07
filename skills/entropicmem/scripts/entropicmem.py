@@ -53,7 +53,7 @@ from vault import (  # noqa: E402
 
 from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 
-__version__ = "2.1.8"
+__version__ = "2.1.9"
 
 # ── input validation helpers ────────────────────────────────────────────────
 
@@ -386,17 +386,39 @@ def _memory_db_path() -> Path:
 
 
 def _append_env(env_file: Path, vault_path: Path, index_path: Path, memory_path: Path) -> None:
-    """Idempotently append EntropicMem env vars to ~/.hermes/.env."""
-    entry = f"""
-# EntropicMem — added by entropicmem init
-ENTROPICMEM_VAULT_PATH="{vault_path}"
-ENTROPICMEM_INDEX_DB="{index_path}"
-ENTROPICMEM_MEMORY_DB="{memory_path}"
-"""
+    """Idempotently write EntropicMem env vars to ~/.hermes/.env.
+
+    v2.1.9 fix: the old guard returned only when `ENTROPICMEM_VAULT_PATH` was
+    already present, and blindly re-appended the block when any one key was
+    missing — so a cleanup that removed the stale vault line caused the next
+    `entropicmem init` to re-poison `.env` with a fresh `/tmp` path. Now:
+
+    - Never writes when ANY of the three keys already exist (block-level
+      idempotency: re-runs and post-cleanup runs are no-ops).
+    - Refuses to persist temp-dir paths (vault/index under `/tmp`), which are
+      cutover artifacts that must not shadow the canonical runtime paths.
+    """
+    keys = ("ENTROPICMEM_VAULT_PATH", "ENTROPICMEM_INDEX_DB", "ENTROPICMEM_MEMORY_DB")
     if env_file.exists():
         text = env_file.read_text(encoding="utf-8")
-        if "ENTROPICMEM_VAULT_PATH" in text:
-            return  # already configured
+        if any(k + "=" in text for k in keys):
+            return  # already configured — never append duplicates
+
+    temp_prefixes = ("/tmp/", "/var/tmp/", "/private/tmp/")
+    if str(vault_path).startswith(temp_prefixes) or str(index_path).startswith(temp_prefixes):
+        print(
+            "  Note: vault/index under a temp dir — not writing ENTROPICMEM_* to .env "
+            "(use canonical ~/.hermes/entropicmem paths)",
+            file=sys.stderr,
+        )
+        return
+
+    entry = (
+        "\n# EntropicMem — added by entropicmem init\n"
+        'ENTROPICMEM_VAULT_PATH="' + str(vault_path) + '"\n'
+        'ENTROPICMEM_INDEX_DB="' + str(index_path) + '"\n'
+        'ENTROPICMEM_MEMORY_DB="' + str(memory_path) + '"\n'
+    )
     env_file.parent.mkdir(parents=True, exist_ok=True)
     with open(env_file, "a", encoding="utf-8") as f:
         f.write(entry)
