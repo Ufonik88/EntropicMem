@@ -428,11 +428,6 @@ svg text { fill: #aaa; font-size: 9px; pointer-events: none; font-family: var(--
       <feGaussianBlur stdDeviation="4.5" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <radialGradient id="halo-grad" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-opacity="0.4"/>
-      <stop offset="60%" stop-opacity="0.12"/>
-      <stop offset="100%" stop-opacity="0"/>
-    </radialGradient>
   </defs>
 </svg>
 
@@ -497,6 +492,29 @@ function edgeWidth(d) { return 0.6 + (d.weight || 1) * 1.1; }
 function nodeColor(d) { return d.color || PALETTE[d.domain] || "#888"; }
 function edgeDash(d) { return d.kind === "tag" ? "4,3" : null; }
 
+/* ── Tunable configuration (physics, zoom/LOD, halo, clipboard) ── */
+const CFG = {
+  physics: { linkDistance: 110, charge: -180, collisionPad: 12, alphaDecay: 0.035, alphaMin: 0.005, dragAlphaTarget: 0.15 },
+  zoom: { min: 0.05, max: 8, wheelFactor: 0.04, keyboardFactor: 1.3, focusScale: 1.8 },
+  lod: { hideBelow: 0.35, fadeBelow: 0.6, badgesAbove: 2.5 },
+  halo: { baseScale: 2.2, speedDivisor: 3, maxIntensity: 0.6, minOpacity: 0.08, restScale: 2.0, velScale: 0.5 },
+};
+
+/* ── Per-color cached halo gradients (tinted radial fade) ── */
+const haloGradCache = new Map();
+function haloGradientRef(color) {
+  if (!haloGradCache.has(color)) {
+    const id = `halo-grad-${haloGradCache.size}`;
+    const grad = svg.select("defs").append("radialGradient")
+      .attr("id", id).attr("cx", "50%").attr("cy", "50%").attr("r", "50%");
+    grad.append("stop").attr("offset", "0%").attr("stop-color", color).attr("stop-opacity", 0.35);
+    grad.append("stop").attr("offset", "60%").attr("stop-color", color).attr("stop-opacity", 0.12);
+    grad.append("stop").attr("offset", "100%").attr("stop-color", color).attr("stop-opacity", 0);
+    haloGradCache.set(color, id);
+  }
+  return `url(#${haloGradCache.get(color)})`;
+}
+
 /* ── State ── */
 let simulation, svg, rootG, linkG, nodeG, labelG;
 let mmSvg, mmNodeG, mmViewport;
@@ -506,7 +524,7 @@ let currentTransform = d3.zoomIdentity;
 let lastTrigger = null;   // element that opened the modal, for focus return
 let W = window.innerWidth, H = window.innerHeight;
 
-const zoom = d3.zoom().scaleExtent([0.05, 8]).wheelDelta(event => -event.deltaY * 0.04).on("zoom", (event) => {
+const zoom = d3.zoom().scaleExtent([CFG.zoom.min, CFG.zoom.max]).wheelDelta(event => -event.deltaY * CFG.zoom.wheelFactor).on("zoom", (event) => {
   currentTransform = event.transform;
   if (rootG) rootG.attr("transform", event.transform);
   updateMinimapViewport();
@@ -643,7 +661,7 @@ function clearFocus() {
 /* ── Search / zoom-to-node ── */
 function jumpToNode(node) {
   if (!node) return;
-  const scale = 1.8;
+  const scale = CFG.zoom.focusScale;
   const t = d3.zoomIdentity.translate(W / 2 - node.x * scale, H / 2 - node.y * scale).scale(scale);
   svg.transition().duration(650).call(zoom.transform, t);
   applyFocus(node.id);
@@ -681,7 +699,7 @@ function render() {
     .attr("class", "node-group").attr("tabindex", 0)
     .attr("role", "button").attr("aria-label", d => `${d.title || d.id}, ${d.domain || "uncategorized"}`)
     .call(d3.drag()
-      .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(0.15).restart(); d.fx = d.x; d.fy = d.y; })
+      .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(CFG.physics.dragAlphaTarget).restart(); d.fx = d.x; d.fy = d.y; })
       .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
       .on("end", (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }))
     .on("click", (event, d) => { event.stopPropagation(); openModal(d, event.currentTarget); })
@@ -704,11 +722,10 @@ function render() {
     const r = nodeRadius(d);
     const color = nodeColor(d);
 
-    // Halo ring (velocity-responsive, updated in updateNodeHalos)
-    const halo = g.append("circle").attr("class", "node-halo")
-      .attr("r", r * 2.2).attr("fill", "url(#halo-grad)")
+    // Halo ring: per-color tinted radial gradient (velocity-responsive in updateNodeHalos)
+    g.append("circle").attr("class", "node-halo")
+      .attr("r", r * CFG.halo.baseScale).attr("fill", haloGradientRef(color))
       .attr("opacity", 0.0).attr("pointer-events", "none");
-    halo.attr("fill", color); // tint the gradient via fill override
 
     // Core shape
     const path = shapePath(d.shape, r);
@@ -730,12 +747,12 @@ function render() {
     .attr("dy", d => nodeRadius(d) + 12).attr("text-anchor", "middle");
 
   simulation = d3.forceSimulation(nodes)
-    .force("link", d3.forceLink(edges).id(d => d.id).distance(110))
-    .force("charge", d3.forceManyBody().strength(-180))
+    .force("link", d3.forceLink(edges).id(d => d.id).distance(CFG.physics.linkDistance))
+    .force("charge", d3.forceManyBody().strength(CFG.physics.charge))
     .force("center", d3.forceCenter(W / 2, H / 2))
-    .force("collision", d3.forceCollide().radius(d => nodeRadius(d) + 12))
-    .alphaDecay(0.035)
-    .alphaMin(0.005);
+    .force("collision", d3.forceCollide().radius(d => nodeRadius(d) + CFG.physics.collisionPad))
+    .alphaDecay(CFG.physics.alphaDecay)
+    .alphaMin(CFG.physics.alphaMin);
 
   simulation.on("tick", () => {
     linkG.attr("x1", d => Math.round(d.source.x)).attr("y1", d => Math.round(d.source.y))
@@ -752,6 +769,9 @@ function render() {
   rootG.attr("transform", currentTransform);
   if (focusedId && nodeById.has(focusedId)) applyFocus(focusedId);
   else clearFocus();
+  // nodeG was recreated — force LOD badge re-evaluation (zoom may be > badge threshold)
+  lastBadgeZoom = null;
+  updateLOD();
 }
 
 /* ── Velocity-responsive halos ── */
@@ -762,34 +782,36 @@ function updateNodeHalos() {
     const halo = d3.select(this).select(".node-halo");
     if (halo.empty()) return;
     // Opacity scales with velocity: moving nodes show a wisp, resting nodes fade to near-zero
-    const intensity = Math.min(speed / 3, 0.6);
-    halo.attr("opacity", 0.08 + intensity);
-    // Scale halo slightly with speed
+    const intensity = Math.min(speed / CFG.halo.speedDivisor, CFG.halo.maxIntensity);
+    halo.attr("opacity", CFG.halo.minOpacity + intensity);
+    // Scale halo slightly with speed; resting scale matches the render-time base
     const r = nodeRadius(d);
-    halo.attr("r", r * (2.0 + intensity * 0.5));
+    halo.attr("r", r * (CFG.halo.baseScale + intensity * CFG.halo.velScale));
   });
 }
 
 /* ── Semantic LOD (level of detail) — hide labels at low zoom ── */
+let lastBadgeZoom = null; // true/false/null: whether badges are currently shown
 function updateLOD() {
   if (!labelG) return;
   const k = currentTransform.k;
-  const labelOpacity = k < 0.35 ? 0 : k < 0.6 ? 0.3 : 1;
+  const labelOpacity = k < CFG.lod.hideBelow ? 0 : k < CFG.lod.fadeBelow ? 0.3 : 1;
   labelG.style("opacity", labelOpacity);
-  // Show tags as badges at high zoom
-  if (nodeG) {
-    nodeG.selectAll(".node-badge").remove();
-    if (k > 2.5) {
-      nodeG.each(function(d) {
-        if (!d.tags || !d.tags.length) return;
-        const g = d3.select(this);
-        g.append("text").attr("class", "node-badge")
-          .attr("y", nodeRadius(d) + 22).attr("text-anchor", "middle")
-          .attr("font-size", "7px").attr("fill", nodeColor(d))
-          .text(`#${d.tags.length}`);
-      });
-    }
-  }
+  // Show tags as badges at high zoom; only touch the DOM when crossing the threshold
+  if (!nodeG) return;
+  const showBadges = k > CFG.lod.badgesAbove;
+  if (showBadges === lastBadgeZoom) return;
+  lastBadgeZoom = showBadges;
+  nodeG.selectAll(".node-badge").remove();
+  if (!showBadges) return;
+  nodeG.each(function(d) {
+    if (!d.tags || !d.tags.length) return;
+    const g = d3.select(this);
+    g.append("text").attr("class", "node-badge")
+      .attr("y", nodeRadius(d) + 22).attr("text-anchor", "middle")
+      .attr("font-size", "7px").attr("fill", nodeColor(d))
+      .text(`#${d.tags.length}`);
+  });
 }
 
 /* ── Tooltip ── */
@@ -948,10 +970,12 @@ function openModal(node, trigger) {
     pre.addEventListener("mouseleave", () => btn.style.opacity = "0");
     btn.addEventListener("click", () => {
       const code = pre.querySelector("code") ? pre.querySelector("code").textContent : pre.textContent;
-      navigator.clipboard.writeText(code).then(() => {
-        btn.textContent = "Copied!";
-        setTimeout(() => btn.textContent = "Copy", 1200);
-      }).catch(() => {});
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(() => {
+          btn.textContent = "Copied!";
+          setTimeout(() => btn.textContent = "Copy", 1200);
+        }).catch(() => {});
+      }
     });
     pre.appendChild(btn);
   });
@@ -972,14 +996,16 @@ function closeModal() {
 
 /* ── Copy link to note ── */
 function copyNoteLink() {
-  const title = document.getElementById("modal-title").textContent;
-  const url = `${location.origin}${location.pathname}#note=${encodeURIComponent(title)}`;
-  navigator.clipboard.writeText(url).then(() => {
-    const btn = document.getElementById("btn-copy-link");
-    const orig = btn.textContent;
-    btn.textContent = "Copied!";
-    setTimeout(() => { btn.textContent = orig; }, 1200);
-  }).catch(() => {});
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    const title = document.getElementById("modal-title").textContent;
+    const url = `${location.origin}${location.pathname}#note=${encodeURIComponent(title)}`;
+    navigator.clipboard.writeText(url).then(() => {
+      const btn = document.getElementById("btn-copy-link");
+      const orig = btn.textContent;
+      btn.textContent = "Copied!";
+      setTimeout(() => { btn.textContent = orig; }, 1200);
+    }).catch(() => {});
+  }
 }
 
 /* ── Export PNG ── */
@@ -1014,8 +1040,8 @@ document.addEventListener("keydown", (e) => {
   if ((e.key === "+" || e.key === "=" || e.key === "-" || e.key === "_") &&
       e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
     e.preventDefault();
-    const factor = (e.key === "+" || e.key === "=") ? 1.3 : 1 / 1.3;
-    const newK = Math.max(0.05, Math.min(8, currentTransform.k * factor));
+    const factor = (e.key === "+" || e.key === "=") ? CFG.zoom.keyboardFactor : 1 / CFG.zoom.keyboardFactor;
+    const newK = Math.max(CFG.zoom.min, Math.min(CFG.zoom.max, currentTransform.k * factor));
     const cx = W / 2, cy = H / 2;
     const t = d3.zoomIdentity.translate(cx - cx * newK, cy - cy * newK).scale(newK);
     svg.transition().duration(200).call(zoom.transform, t);
@@ -1024,6 +1050,7 @@ document.addEventListener("keydown", (e) => {
 
 document.addEventListener("DOMContentLoaded", () => {
   svg = d3.select("#graph").append("svg").attr("width", "100%").attr("height", "100%");
+  svg.append("defs"); // for per-color halo gradients (haloGradientRef)
   svg.call(zoom).on("click", () => clearFocus());
   initMinimap();
   buildLegend();

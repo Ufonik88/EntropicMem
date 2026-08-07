@@ -63,40 +63,51 @@ def populated_index():
 class TestPhysicsStability:
     """Phase D: physics tuning parameters present in the template."""
 
-    def test_alpha_decay_set(self, populated_index):
+    def _html(self, populated_index):
         _, index = populated_index
         out = Path(tempfile.mkdtemp()) / "graph.html"
-        html = export_html(index, out, max_nodes=50)
-        assert "alphaDecay(0.035)" in html, "alphaDecay not tuned"
+        return export_html(index, out, max_nodes=50)
+
+    def test_alpha_decay_set(self, populated_index):
+        html = self._html(populated_index)
+        assert "alphaDecay: 0.035" in html, "alphaDecay not in CFG"
+        assert "alphaDecay(CFG.physics.alphaDecay)" in html, "alphaDecay not wired to CFG"
 
     def test_alpha_min_set(self, populated_index):
-        _, index = populated_index
-        out = Path(tempfile.mkdtemp()) / "graph.html"
-        html = export_html(index, out, max_nodes=50)
-        assert "alphaMin(0.005)" in html, "alphaMin not set"
+        html = self._html(populated_index)
+        assert "alphaMin: 0.005" in html, "alphaMin not in CFG"
+        assert "alphaMin(CFG.physics.alphaMin)" in html, "alphaMin not wired to CFG"
 
     def test_charge_strength_tuned(self, populated_index):
-        _, index = populated_index
-        out = Path(tempfile.mkdtemp()) / "graph.html"
-        html = export_html(index, out, max_nodes=50)
-        assert "strength(-180)" in html, "charge strength not tuned"
+        html = self._html(populated_index)
+        assert "charge: -180" in html, "charge strength not in CFG"
+        assert "strength(CFG.physics.charge)" in html, "charge not wired to CFG"
+
+    def test_link_distance_and_collision_radius(self, populated_index):
+        """Link distance and collision padding tuning are preserved (review comment 3)."""
+        html = self._html(populated_index)
+        assert "linkDistance: 110" in html, "link distance not in CFG"
+        assert "distance(CFG.physics.linkDistance)" in html, "link distance not wired to CFG"
+        assert "collisionPad: 12" in html, "collision padding not in CFG"
+        # Allow for minor whitespace/formatting differences around the expression
+        collision_pattern = re.compile(
+            r"forceCollide\(\)\.radius\(\s*d\s*=>\s*nodeRadius\(\s*d\s*\)\s*\+\s*CFG\.physics\.collisionPad\s*\)"
+        )
+        assert collision_pattern.search(html) is not None, \
+            "collision force not wired to CFG.physics.collisionPad"
 
     def test_drag_alpha_target_reduced(self, populated_index):
-        _, index = populated_index
-        out = Path(tempfile.mkdtemp()) / "graph.html"
-        html = export_html(index, out, max_nodes=50)
-        assert "alphaTarget(0.15)" in html, "drag alphaTarget not reduced from 0.3"
+        html = self._html(populated_index)
+        assert "dragAlphaTarget: 0.15" in html, "drag alphaTarget not in CFG"
+        assert "alphaTarget(CFG.physics.dragAlphaTarget)" in html, \
+            "drag alphaTarget not wired to CFG"
 
     def test_auto_stop_on_end(self, populated_index):
-        _, index = populated_index
-        out = Path(tempfile.mkdtemp()) / "graph.html"
-        html = export_html(index, out, max_nodes=50)
+        html = self._html(populated_index)
         assert 'simulation.on("end"' in html, "auto-stop on simulation end missing"
 
     def test_rounded_coordinates(self, populated_index):
-        _, index = populated_index
-        out = Path(tempfile.mkdtemp()) / "graph.html"
-        html = export_html(index, out, max_nodes=50)
+        html = self._html(populated_index)
         assert "Math.round(d.x)" in html, "sub-pixel rounding not applied"
 
 
@@ -120,7 +131,9 @@ class TestSVGGlowDefs:
         _, index = populated_index
         out = Path(tempfile.mkdtemp()) / "graph.html"
         html = export_html(index, out, max_nodes=50)
-        assert 'id="halo-grad"' in html, "halo radial gradient not defined"
+        assert "haloGradientRef" in html, "per-color halo gradient helper missing"
+        assert "radialGradient" in html, "radial gradient creation missing"
+        assert "halo-grad-" in html, "per-color halo gradient ids missing"
 
     def test_node_halo_class_in_template(self, populated_index):
         _, index = populated_index
@@ -156,6 +169,23 @@ class TestLODSystem:
         html = export_html(index, out, max_nodes=50)
         assert "updateLOD()" in html, "updateLOD not called on zoom"
 
+    def test_lod_thresholds_and_badges(self, populated_index):
+        """LOD thresholds and tag badge behavior are encoded in the inline JS."""
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50)
+        # Threshold constants (centralized in CFG.lod)
+        assert "hideBelow: 0.35" in html, "LOD hideBelow threshold missing"
+        assert "fadeBelow: 0.6" in html, "LOD fadeBelow threshold missing"
+        assert "badgesAbove: 2.5" in html, "LOD badgesAbove threshold missing"
+        # Thresholds wired into updateLOD logic
+        assert "CFG.lod.hideBelow" in html, "hideBelow not wired into updateLOD"
+        assert "CFG.lod.fadeBelow" in html, "fadeBelow not wired into updateLOD"
+        assert "CFG.lod.badgesAbove" in html, "badgesAbove not wired into updateLOD"
+        # Badge behavior: class present and threshold-gated (no churn on every zoom)
+        assert "node-badge" in html, "node-badge class missing from inline LOD JS"
+        assert "lastBadgeZoom" in html, "badge churn guard (lastBadgeZoom) missing"
+
 
 class TestZoomEnhancements:
     """Phase E: zoom extent and keyboard zoom."""
@@ -164,13 +194,16 @@ class TestZoomEnhancements:
         _, index = populated_index
         out = Path(tempfile.mkdtemp()) / "graph.html"
         html = export_html(index, out, max_nodes=50)
-        assert "scaleExtent([0.05, 8])" in html, "zoom extent not widened"
+        assert "min: 0.05" in html and "max: 8" in html, "zoom extent not in CFG"
+        assert "scaleExtent([CFG.zoom.min, CFG.zoom.max])" in html, \
+            "zoom extent not wired to CFG"
 
     def test_wheel_damping(self, populated_index):
         _, index = populated_index
         out = Path(tempfile.mkdtemp()) / "graph.html"
         html = export_html(index, out, max_nodes=50)
         assert "wheelDelta" in html, "wheel damping not configured"
+        assert "wheelFactor: 0.04" in html, "wheel factor not in CFG"
 
     def test_keyboard_zoom(self, populated_index):
         _, index = populated_index
@@ -178,6 +211,25 @@ class TestZoomEnhancements:
         html = export_html(index, out, max_nodes=50)
         assert 'e.key === "+" || e.key === "="' in html, "keyboard zoom in missing"
         assert 'e.key === "-" || e.key === "_"' in html, "keyboard zoom out missing"
+
+    def test_keyboard_zoom_ignores_form_inputs(self, populated_index):
+        """Keyboard zoom must not trigger when focus is on input/textarea elements."""
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50)
+        assert "tagName" in html, "keyboard handler does not inspect focused element"
+        assert "INPUT" in html, "keyboard handler does not guard against INPUT"
+        assert "TEXTAREA" in html, "keyboard handler does not guard against TEXTAREA"
+
+    def test_keyboard_zoom_respects_scale_extent_and_factor(self, populated_index):
+        """Keyboard zoom honors the CFG scale extent clamp and zoom factor."""
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50)
+        assert "keyboardFactor: 1.3" in html, "keyboard zoom factor 1.3 not in CFG"
+        assert "CFG.zoom.keyboardFactor" in html, "keyboard factor not wired to CFG"
+        assert "Math.max(CFG.zoom.min, Math.min(CFG.zoom.max" in html, \
+            "scale extent clamp not applied in keyboard zoom"
 
 
 class TestMinimapNavigation:
@@ -198,6 +250,18 @@ class TestModalPolish:
         out = Path(tempfile.mkdtemp()) / "graph.html"
         html = export_html(index, out, max_nodes=50)
         assert "code-copy-btn" in html or "Copy" in html, "code copy button missing"
+
+    def test_clipboard_feature_guarded(self, populated_index):
+        """navigator.clipboard must be feature-checked before writeText (non-secure
+        contexts or older browsers throw without it)."""
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50)
+        guard = "navigator.clipboard && navigator.clipboard.writeText"
+        assert guard in html, "clipboard feature check missing in code copy"
+        # Both code-copy and copyNoteLink must be guarded
+        assert html.count(guard) >= 2, \
+            f"clipboard guard appears {html.count(guard)}x, expected >= 2 (code copy + note link)"
 
 
 class TestDesignTokens:
