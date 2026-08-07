@@ -1,9 +1,9 @@
 # EntropicMem — MASTER TODO
 
-**Last updated:** 2026-08-04
-**Active track:** Index maintenance & stability-gate correctness (v2.1.8)
+**Last updated:** 2026-08-07
+**Active track:** Index maintenance & stability-gate correctness (v2.1.8) + `.env` hygiene (v2.1.9)
 **Plan doc:** `docs/SECURITY_HARDENING_PLAN.md`
-**Release:** v2.1.8 (index maintenance); v2.1.7 (docs/metadata); v2.1.6 (security hardening)
+**Release:** v2.1.9 (`.env` re-poisoning fix); v2.1.8 (index maintenance); v2.1.7 (docs/metadata); v2.1.6 (security hardening)
 
 ---
 
@@ -50,7 +50,8 @@
 | 2026-07-28 | Phase 2–3 implemented; version bumped to 2.1.6; docs + vault updated |
 | 2026-07-28 | Tag+release v2.1.6 published at c145dc9; PR #37 open — main merge needs second approving review (branch protection) |
 | 2026-07-30 | Docs refresh + repo maintenance → v2.1.7: version refs aligned, MASTER_TODO/README/CHANGELOG updated, test count corrected to 201 |
-| 2026-08-04 | Index maintenance → v2.1.8: `index rebuild\|status` + `memory reindex` CLI, silent 6h watchdog, FTS-orphan detection in health check, current-streak stability gate in both health check and gate script, graph server `/refresh` rebuilds index first + canonical repo copy, 214 tests passing. Live remediation complete: scripts deployed, DBs rebuilt (1001 notes, 0 FTS orphans), `.env` de-poisoned, watchdog cron live (PR #41 hard-pin fix), health back to overall OK |
+| 2026-08-04 | Index maintenance → v2.1.8: `index rebuild|status` + `memory reindex` CLI, silent 6h watchdog, FTS-orphan detection in health check, current-streak stability gate in both health check and gate script, graph server `/refresh` rebuilds index first + canonical repo copy, 214 tests passing. Live remediation complete: scripts deployed, DBs rebuilt (1001 notes, 0 FTS orphans), `.env` de-poisoned, watchdog cron live (PR #41 hard-pin fix), health back to overall OK |
+| 2026-08-07 | `.env` re-poisoning fix → v2.1.9: `_append_env` guard only checked `ENTROPICMEM_VAULT_PATH`, so the next `init` after the v2.1.8 cleanup re-appended fresh `/tmp` entries (tmpzjok → tmpn2gh3ds5). Now block-level idempotent + refuses temp-dir paths. Live `.env` cleaned to one canonical block. Untracked generated `graph_export/`. 5 new tests (223 green). PR #47 merged; tag+release v2.1.9 |
 
 ---
 
@@ -82,6 +83,40 @@ row, and stale `/tmp` env entries in `~/.hermes/.env` poisoning
 - [x] Removed stale `ENTROPICMEM_VAULT_PATH`/`ENTROPICMEM_INDEX_DB` `/tmp` entries from `~/.hermes/.env` (backup: `.env.bak-20260804-v218`)
 - [x] Watchdog cron `e9365690a702` installed (`0 */6 * * *`, no_agent, silent when fresh); first run failed on poisoned env still in gateway memory → hard-pinned paths in PR #41, re-run ok
 - [x] Health check returns overall **OK**: memory_db/vault/index/fts/backup/security/audit all OK; stability gate correctly PENDING 0/7 (current-streak semantics restart the count; ~2026-08-11 to pass)
+
+---
+
+## `.env` Re-poisoning Fix (2026-08-07 verification) — COMPLETE (v2.1.9)
+
+During v2.1.8 live verification the health check was green, but the audit of
+`~/.hermes/.env` found the cutover-artifact problem had **returned**: the
+v2.1.8 cleanup removed `ENTROPICMEM_VAULT_PATH` (the one key `_append_env`
+guarded on), so the next `entropicmem init` run re-appended a fresh
+`/tmp/tmpn2gh3ds5` block — a different dead temp dir than the original
+`/tmp/tmpzjok_s0t`. The class of bug is a re-poisoning loop: single-key guard,
+blind full-block re-append.
+
+### Shipped (PR #47, tag v2.1.9)
+
+- [x] `_append_env` rewritten: block-level idempotency (skip when ANY of the
+  three `ENTROPICMEM_*` keys exists) + temp-dir refusal (never persist
+  vault/index paths under `/tmp/`, `/var/tmp/`, `/private/tmp/`)
+- [x] Live `~/.hermes/.env` cleaned to exactly one canonical block pointing at
+  `~/.hermes/entropicmem/{vault,index.db,memory.db}` (backup:
+  `.env.bak-<ts>-v219`; no duplicates, no `/tmp` references)
+- [x] Untracked generated `graph_export/` (daily cron artifact → permanently
+  dirty tree); added to `.gitignore`
+- [x] 5 regression tests (`tests/test_v2_1_9.py`), 223 total green
+- [x] Version 2.1.8 → 2.1.9 (pyproject, CLI `__version__`, SKILL.md, plugin.yaml)
+
+### Verification (2026-08-07)
+
+- [x] Full pytest suite: **223 passed**
+- [x] Health check: overall **OK** (index 0.0h behind, FTS 875=875, backups 7/7 encrypted)
+- [x] Stability gate: **PENDING 3/7 current consecutive OK days** — correct
+  current-streak semantics; ~2026-08-11 to pass (no action needed)
+- [x] Runtime symlinks pick up v2.1.9 automatically (plugin.yaml, SKILL.md, CLI)
+- [x] Watchdog cron `e9365690a702` active; graph server unit active
 
 ---
 
