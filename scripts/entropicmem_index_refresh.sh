@@ -19,9 +19,29 @@
 # from the one index.db tracks.
 set -u
 
-VAULT="$HOME/.hermes/entropicmem/vault"
-INDEX_DB="$HOME/.hermes/entropicmem/index.db"
-CLI="$HOME/Documents/Coding Projects/EntropicMem/skills/entropicmem/scripts/entropicmem.py"
+HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+# Vault + index stay hard-pinned under HERMES_HOME (v2.1.8): do not read
+# ENTROPICMEM_VAULT_PATH / ENTROPICMEM_INDEX_DB — stale ~/.hermes/.env values
+# have historically pointed at dead /tmp dirs.
+VAULT="$HERMES_HOME/entropicmem/vault"
+INDEX_DB="$HERMES_HOME/entropicmem/index.db"
+
+# CLI path is portable: env override → HERMES skills install → repo-relative
+# fallbacks. Prefer HERMES_HOME/skills (often a symlink into the checkout).
+if [ -n "${ENTROPICMEM_CLI:-}" ]; then
+  CLI="$ENTROPICMEM_CLI"
+elif [ -f "$HERMES_HOME/skills/entropicmem/scripts/entropicmem.py" ]; then
+  CLI="$HERMES_HOME/skills/entropicmem/scripts/entropicmem.py"
+else
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [ -f "$SCRIPT_DIR/../skills/entropicmem/scripts/entropicmem.py" ]; then
+    CLI="$SCRIPT_DIR/../skills/entropicmem/scripts/entropicmem.py"
+  elif [ -f "$HOME/Documents/Coding Projects/EntropicMem/skills/entropicmem/scripts/entropicmem.py" ]; then
+    CLI="$HOME/Documents/Coding Projects/EntropicMem/skills/entropicmem/scripts/entropicmem.py"
+  else
+    CLI=""
+  fi
+fi
 
 if [ ! -d "$VAULT" ]; then
   echo "index-refresh: vault missing: $VAULT"
