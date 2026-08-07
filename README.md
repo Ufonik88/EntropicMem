@@ -210,9 +210,9 @@ See `skills/entropicmem/references/HERMES_INTEGRATION.md` for full documentation
 - **Memory consolidation** — archive old, low-access facts to `facts_archive` table
 - **Auto-backup** — timestamped SQLite backups before destructive operations
 
-## Sole Provider Status (2026-08-04)
+## Sole Provider Status (2026-08-07)
 
-EntropicMem **v2.1.8** is the **sole memory provider** for Hermes Agent. All gaps from the migration gap analysis are resolved.
+EntropicMem **v2.1.9** is the **sole memory provider** for Hermes Agent. All gaps from the migration gap analysis are resolved.
 
 ```yaml
 memory:
