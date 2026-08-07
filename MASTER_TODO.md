@@ -404,12 +404,12 @@ Tests:       214 passing
 
 - [x] All 8 original operational gaps resolved
 - [x] Phase 6 production hardening complete (6.1-6.9)
-- [x] 214 tests passing (v2.1.8 index-maintenance pack added on top of 201 security/Memvid baseline)
+- [x] 223 tests passing (v2.1.9 pack: +5 `_append_env` regression; v2.1.8: +13 index-maintenance)
 - [x] Health check with stability gate functional
 - [x] Backup + restore tested end-to-end
 - [x] Rollback idempotent + validated
 - [x] DB concurrency guard implemented
 - [x] Gateway context verified (Telegram working)
 - [x] Phases 7-11 implemented (semantic, temporal, PII, graph, security, capsule, versioning)
-- [ ] 1-week stability gate PASS (pending)
-- [ ] 6.10 Sole provider promotion (pending gate)
+- [ ] 1-week stability gate PASS — **in progress: 3/7 consecutive OK days as of 2026-08-07** (gate log: OK 08-05, 08-06, 08-07 after the v2.1.8 index fix); expected pass ~2026-08-11 if health stays OK; current-streak semantics (v2.1.8) mean the count restarts on any WARN/FAIL
+- [ ] 6.10 Sole provider promotion — **blocked on the gate above**; EntropicMem is already the live sole provider (memory.provider: entropicmem), this checkbox closes out the formal Phase-6 gate record once 7 consecutive OK days accumulate
