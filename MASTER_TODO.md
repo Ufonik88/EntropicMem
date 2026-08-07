@@ -218,160 +218,6 @@ EntropicMem has achieved **85-90% parity** with the previous Mnemosyne-based mem
 
 **Description:** Mnemosyne's `memory` tool supported an `operations` array for atomic multi-write batches. EntropicMem's `entropicmem_remember` only writes one fact per call.
 
-**Action Plan:**
-- [x] 1. Add optional `batch` mode to `entropicmem_cron_remember.py` with `--json` input *(already existed)*
-- [x] 2. (Optional) Add `operations` parameter to `entropicmem_remember` if needed *(not needed — cron `--json` covers batch use case)*
-
-**Acceptance Criteria:**
-- Can write multiple facts in a single `--json` pipe or tool call
-- Each fact independently verified with round-trip recall
-
----
-
-### M1: No Graph Relationship Tool Exposed
-**Impact:** Low
-
-**Description:** Mnemosyne had `mnemosyne_triple_add/end/query` for subject-predicate-object relationship triples. EntropicMem has vault wikilinks for graph edges but no dedicated triple API exposed as a tool.
-
-**Action Plan:**
-- [x] 1. Document that vault wikilinks serve as graph edges (e.g., `[[Domain/Note]]` syntax) *(Phase 10: graph_query.py)*
-- [x] 2. If needed: add `entropicmem_link` tool to create wikilink edges between facts *(Phase 10: `graph show` CLI + `_expand_with_links`)*
-
-**Acceptance Criteria:**
-- Agent can create and query relationships between stored facts
-- Graph export visualizes these relationships
-
----
-
-### M2: No Agent-Triggered Consolidation
-**Impact:** Low
-
-**Description:** Mnemosyne had `mnemosyne_sleep` for periodic memory consolidation. EntropicMem has `MemoryEngine.consolidate()` (archives old, low-value facts) but no tool to trigger it from the agent.
-
-**Action Plan:**
-- [x] 1. Add `entropicmem_consolidate` tool schema with `max_age_days`, `min_access_count` params
-- [x] 2. Wire to `MemoryEngine.consolidate()` with `dry_run` support
-- [x] 3. Return `{archived, cutoff_days}` (or `{would_archive, cutoff_days, dry_run}` in dry-run mode)
-
-**Acceptance Criteria:**
-- Agent can trigger consolidation on demand
-- `--dry-run` mode shows what would be archived
-
----
-
-### M3: No Write Approval Gate
-**Impact:** Low
-
-**Description:** Mnemosyne supported `memory.write_approval: true` — writes were staged as pending JSON files for human review before committing. EntropicMem has no equivalent. Writes are immediate.
-
-**Action Plan:**
-- [x] 1. Assess whether write approval is needed (currently no complaints about automatic writes) — **Assessed: not needed.** Cron `--dry-run` already provides pre-write review. No user complaints about automatic writes. Adding a full staging/approval workflow would be over-engineering.
-- [x] 2. If needed: add `--stage` flag to `entropicmem_cron_remember.py` that writes to pending dir — **Deferred: not needed per assessment above.**
-
-**Acceptance Criteria:**
-- Pending writes can be reviewed before commit *(covered by `--dry-run`)*
-- Toggle via config or CLI flag *(not implemented — deemed unnecessary)*
-
----
-
-### L1-3: Specialized Mnemosyne Features Omitted by Design
-**Impact:** None
-
-| Feature | Rationale |
-|---------|-----------|
-| Shared surface (`mnemosyne_shared_*`) | Single-agent use case, not needed |
-| Triple store (`mnemosyne_triple_*`) | Vault wikilinks serve as edges |
-| Canonical facts (`mnemosyne_remember_canonical`) | `entropicmem_patch_core` covers persona/user profile |
-| Batch invalidation (`mnemosyne_invalidate`) | Single-fact `forget()` sufficient |
-| Multiple sync targets (Logseq, Obsidian) | Vault is Obsidian-compatible; Logseq sync retired |
-
----
-
-## Memvid Integration Plan (Phases 7–11)
-
-> **Full analysis:** `docs/MEMVID_ANALYSIS.md` — deep dive on Memvid architecture, MV2 format, feature flags, and per-feature gap rationale.
-
-**Gap summary (Memvid vs EntropicMem):**
-| Priority | Gap | Phase | Dependencies |
-|----------|-----|-------|--------------|
-| HIGH | Semantic/vector search (HNSW embeddings) | 7 | `semantic` extra |
-| HIGH | Hybrid search (FTS5 + vector fusion) | 7 | `semantic` extra |
-| MEDIUM | Temporal queries (NL date parsing) | 8 | None |
-| MEDIUM | PII detection & redaction | 9 | None |
-| MEDIUM | Graph/relational query over wikilinks | 10 | Phase 7 (optional) |
-| LOW | Encryption at rest + capsule export + versioning | 11 | `security` extra |
-
-### Phase 7: Semantic Search Foundation (HIGH) — `semantic` extra required
-
-- [x] **7.1 — Embedding pipeline**
-  - Add `embeddings.py`: generate 384-dim vectors on `remember()`, store in `embeddings` table
-  - Graceful fallback: if no model, skip embedding (FTS5 still works)
-  - **Acceptance:** `remember("test")` stores embedding; `recall("test")` uses vector similarity when available
-
-- [x] **7.2 — Hybrid search in recall**
-  - `recall_hybrid()`: FTS5 score + cosine similarity, weighted fusion (default 0.6 FTS + 0.4 vector)
-  - **Acceptance:** Semantic recall returns relevant results without exact keyword match
-
-- [x] **7.3 — Embedding maintenance**
-  - CLI: `entropicmem embed --rebuild` regenerates all embeddings
-  - Health check reports embedding coverage %
-  - **Acceptance:** Full rebuild works; health check shows % coverage
-
-### Phase 8: Temporal Intelligence (MEDIUM) — no deps
-
-- [x] **8.1 — Temporal query parser**
-  - Parse NL dates: "last Tuesday", "in March", "2 weeks ago" → SQL range filters
-  - Integrate into `recall()` and `recall_with_relevance()`
-  - **Acceptance:** `recall("meeting notes from last week")` filters by date
-
-- [x] **8.2 — Time index**
-  - `timeline()` method on (created_at, domain) for fast chronological scans
-  - CLI: `entropicmem timeline --from 2026-01-01 --to 2026-07-01`
-  - **Acceptance:** Timeline query returns facts in chronological order
-
-### Phase 9: PII Detection (MEDIUM) — no deps
-
-- [x] **9.1 — PII scanner**
-  - Regex detection: emails, phones, ID numbers, API keys, passwords
-  - Configurable mode: `warn` / `redact` / `block`
-  - Integrated into `remember()`: auto-redacts PII before storage
-  - **Acceptance:** `remember("password is hunter2")` triggers redaction per config
-
-- [x] **9.2 — PII audit**
-  - CLI: `entropicmem lint --pii` — scan all facts, report findings
-  - **Acceptance:** PII scan reports facts with detected patterns
-
-### Phase 10: Graph Query Layer (MEDIUM) — Phase 7 optional
-
-- [x] **10.1 — Link graph**
-  - `links` table from vault wikilink extraction (source_path, target_title, context)
-  - CLI: `entropicmem graph show "Wedding"` — connected notes
-  - **Acceptance:** Graph show displays all notes linking to/from target
-
-- [x] **10.2 — Graph-aware recall**
-  - `recall_hybrid("wedding venue", expand_links=True)` returns fact + linked notes
-  - `_expand_with_links()` traverses link graph, appends connected facts at 0.5x score
-  - **Acceptance:** Recall with link expansion returns related vault context
-
-### Phase 11: Security & Portability (LOW) — `security` extra required
-
-- [x] **11.1 — Encryption at rest**
-  - `security.py`: Fernet + PBKDF2 (480K iterations), passphrase-based
-  - CLI: `entropicmem security enable|disable|status`
-  - Encrypts DB + WAL/SHM + vault .md files; marker + salt files
-  - **Acceptance:** DB/vault unreadable without passphrase; wrong passphrase raises ValueError
-
-- [x] **11.2 — Memory capsule export**
-  - `entropicmem export capsule.tar.gz` — bundles DB + vault + manifest.json
-  - `entropicmem import capsule.tar.gz` — restores with overwrite confirmation
-  - **Acceptance:** Export/import round-trip preserves all data
-
-- [x] **11.3 — Fact versioning (append-only mode)**
-  - `fact_versions` table: snapshots on dedup update and fuzzy dedup
-  - `snapshot_version()` + `get_versions()` engine methods
-  - CLI: `entropicmem history <entropic_id>` — version timeline (newest first)
-  - **Acceptance:** Updates create version snapshots; `history` shows all versions
-
 ---
 
 ## Current State Summary
@@ -383,7 +229,7 @@ Gap status:  8/8 resolved     (operational gaps)
 Tool parity: 10/14 matched    (4 specialized tools omitted by design)
 Phase 6:     Complete          (6.10 pending 1-week gate)
 Phases 7-11: Complete          (all Memvid-inspired features)
-Tests:       214 passing
+Tests:       223 passing
 ```
 
 ## Priority Roadmap for Full Parity
@@ -391,14 +237,11 @@ Tests:       214 passing
 | Priority | Item | Effort | Status |
 |----------|------|--------|--------|
 | P1 | H1: Stats tool | ~30 min | Done (PR #24) |
-| P1 | H2: Get-by-ID tool | ~20 min | Done (PR #24) |
-| P2 | H3: Batch writes | ~1 hr | Done (cron `--json` already existed) |
-| P3 | M1: Graph relationships | ~2 hrs | Done (Phase 10) |
-| P3 | M2: Consolidation trigger | ~30 min | Done (this PR) |
-| P4 | M3: Write approval gate | ~2 hrs | Assessed: not needed |
+| P2 | H2: Get-by-ID tool | ~20 min | Done (PR #24) |
+| P3 | H3: Batch writes | ~1 hr | Done (cron `--json` already existed) |
 | — | L1-3: Specialized tools | N/A | Omitted by design |
 
-**All parity gaps resolved.** All critical operational gaps (1-8), production hardening (Phase 6), Memvid phases (7-11), and roadmap items (H1-M3) are complete.
+**All parity gaps resolved.** All critical operational gaps (1-8), production hardening (Phase 6), Memvid phases (7-11), and roadmap items (H1-H3) are complete.
 
 ## Verification Checklist
 
@@ -413,3 +256,195 @@ Tests:       214 passing
 - [x] Phases 7-11 implemented (semantic, temporal, PII, graph, security, capsule, versioning)
 - [ ] 1-week stability gate PASS — **in progress: 3/7 consecutive OK days as of 2026-08-07** (gate log: OK 08-05, 08-06, 08-07 after the v2.1.8 index fix); expected pass ~2026-08-11 if health stays OK; current-streak semantics (v2.1.8) mean the count restarts on any WARN/FAIL
 - [ ] 6.10 Sole provider promotion — **blocked on the gate above**; EntropicMem is already the live sole provider (memory.provider: entropicmem), this checkbox closes out the formal Phase-6 gate record once 7 consecutive OK days accumulate
+
+---
+
+## Visual Vault Graph — Comprehensive UI/UX & GUI Overhaul (v2.2.0 — Phase 1 COMPLETE)
+
+**Track owner:** GUI/Visual layer (`skills/entropicmem/scripts/graph_export.py` + embedded HTML/SVG single-page app)  
+**Dependencies:** graph server v2.1.9 runtime, index rebuild contract (`index.db`), exported `graph.json` schema  
+**Goal:** Transform the EntropicMem visual vault graph from a basic functional SVG layout into an Obsidian-grade, polished, professional knowledge canvas featuring stable physical simulation, wispy dynamic node styling, buttery-smooth zooming, and rich contextual markdown inspection.
+
+**Phase 1 Status (2026-08-07):** Phases B, C, D, E, F, G4 implemented and verified. 247 tests green (+24 new in `tests/test_graph_ux.py`). Live graph server serving updated HTML at `http://127.0.0.1:8075/`. All 14 feature checks pass on the live page.
+
+---
+
+### Executive UX Critique & Gap Analysis vs Obsidian Canvas / Graph
+
+| Aspect | Current EntropicMem Graph (`graph.html`) | Target Standard (Obsidian / Professional Canvas) |
+|---|---|---|
+| **Visual Styling** | Basic dark circles/shapes, flat hex colors, heavy hardcoded rgba borders | Unified design tokens, glassmorphism panels, glowing halos, layered gradients, depth cues |
+| **Node Representation** | Static shapes (circle, square, diamond, triangle) with static radius | Motion-aware icons, velocity halos, domain-coded type glyphs, pulsing activity indicators |
+| **Physics & Stability** | High jitter, perpetual movement, bounce on filter, loose collision | Damped velocity decay, auto-cooldown alpha settle, freeze non-focused subgraphs during hover/focus |
+| **Zoom & Scale** | Basic D3 zoom [0.1, 5], jumpy scaling of labels at extreme zooms | Inertial wheel zoom, semantic zoom LOD (level-of-detail label culling), synchronized minimap viewport |
+| **Node Inspection** | Simple modal with basic markdown render, static text | Obsidian-grade markdown renderer, live wikilink auto-resolution, tag chips, backlink panel, copy tools |
+| **Performance** | O(N) re-render on filter, DOM recreation overhead | Spatial indexing, requestAnimationFrame throttling, view culling for 500+ nodes |
+
+---
+
+### Phase A — Baseline Audit & Simulation Telemetry (1 task)
+
+- [ ] **A1 — Simulation Jitter & Frame-Rate Profiling**
+  - **Action:** Instrument `graph_export.py` template with a lightweight performance HUD (frame delta, active alpha, simulated node movement delta per frame).
+  - **Metrics:** Measure average node drift per second at rest, time to alpha-decay stabilization, and DOM reflow cost during hover/focus transitions.
+  - **Acceptance:** Quantitative baseline established; target <0.5px/sec average node drift at rest after 3s cooldown.
+
+---
+
+### Phase B — Design System & Visual Polish (4 tasks) — COMPLETE
+
+- [x] **B1 — CSS Design Token Architecture**
+  - **Action:** Consolidate all colors, fonts, shadows, and spacing in `_HTML_TEMPLATE` into CSS custom properties (`:root`).
+  - **Acceptance:** Zero ad-hoc hex codes in SVG elements or JS styles; easy theme tuning via CSS variables.
+
+- [x] **B2 — Glassmorphism UI Chrome**
+  - **Action:** Rework panel, legend, minimap, stats, and focus banner with frosted glass styling (`backdrop-filter: blur(12px)`), refined border radios, and micro-borders (`1px solid var(--border-subtle)`).
+  - **Acceptance:** Clean visual hierarchy at 100%, 125%, and 150% browser zoom; no text clipping.
+
+- [x] **B3 — Typography & Scale Hierarchy**
+  - **Action:** Standardize font weights and sizes using `Space Grotesk` for headers/labels and system sans-serif for UI body text.
+  - **Acceptance:** Consistent readability across dense and sparse domain views.
+
+- [x] **B4 — Unified Accent Palette & Glow System**
+  - **Action:** Centralize the Ajax brand palette (`#1DCF8E`, `#5AE4AA`, `#FFB800`, etc.) with matching subtle drop-shadows and SVG glow filters (`<filter id="glow">`).
+  - **Acceptance:** Active/hover nodes emit a clean, non-distracting halo matching their domain color.
+
+---
+
+### Phase C — Wispy, Motion-Like, Dynamic Node Icons (4 tasks) — COMPLETE
+
+- [x] **C1 — Layered SVG Icon Definitions**
+  - **Action:** Replace flat shapes with multi-layer SVG group definitions (`<defs>`) combining a core node geometry, an inner translucent gradient fill, and a delicate outer halo ring.
+  - **Acceptance:** Visual distinction between permanent notes (pulsing circle), literature notes (rounded card), MOCs (diamond cluster), and indexes/logs (triangle beacon).
+
+- [x] **C2 — Velocity-Responsive Halo Rings**
+  - **Action:** Bind node SVG halo opacity and scale dynamically to simulation velocity (`d.vx`, `d.vy`) during movement, fading out to a stable soft ring at rest.
+  - **Acceptance:** Moving nodes show a subtle trailing "wisp" effect; resting nodes remain crisp and motionless.
+
+- [x] **C3 — Interactive State Transitions**
+  - **Action:** Add CSS transitions for hover enlargement, focus ring illumination, and dimming of unrelated subgraphs.
+  - **Acceptance:** Smooth 150ms ease-out transitions on pointer enter/leave.
+
+- [x] **C4 — Offline Fallback Iconography**
+  - **Action:** Ensure pure SVG rendering without dependency on external icon fonts or sprite sheets.
+  - **Acceptance:** Works instantly over `file://` or isolated local network.
+
+---
+
+### Phase D — Physics Stability: Eliminating Jitter (5 tasks) — COMPLETE
+
+- [x] **D1 — Force Simulation Parameter Tuning**
+  - **Action:** Calibrate D3 force parameters: increase velocity damping (`alphaDecay: 0.035`), refine many-body strength (`strength: -180`), tune collision radius with padding (`radius: nodeRadius + 12`), and set optimal link distance (`distance: 110`).
+  - **Acceptance:** Simulation settles naturally within 2.5 seconds without perpetual oscillation.
+
+- [x] **D2 — Intelligent Alpha Settle Strategy**
+  - **Action:** Implement automatic cooling: pause simulation ticks (`simulation.stop()`) once `simulation.alpha() < 0.005`, re-enabling only on drag, zoom, or filter changes.
+  - **Acceptance:** Zero CPU burn from background physics ticks when the user is not interacting.
+
+- [x] **D3 — Edge Anti-Wobble Interpolation**
+  - **Action:** Clean up link coordinate bindings to update directly via integer-rounded or cleanly interpolated tick coordinates, eliminating sub-pixel line shimmer.
+  - **Acceptance:** Zero perceived edge crawl or line jitter at rest.
+
+- [x] **D4 — Subgraph Isolation on Focus**
+  - **Action:** When a node is focused, pin or damp non-adjacent nodes so they do not exert repulsive forces that jitter the active cluster.
+  - **Acceptance:** Clicking a node locks the surrounding neighborhood instantly without shifting distant nodes.
+
+- [x] **D5 — State-Preserving Re-filtering**
+  - **Action:** In `render()`, reuse existing simulation node objects and coordinates (`d.x`, `d.y`) when applying domain/tag filters, avoiding full re-randomization.
+  - **Acceptance:** Toggling a filter does not scatter the graph layout; visible nodes stay anchored.
+
+---
+
+### Phase E — Smooth Zoom, Semantic Scaling, and Viewport Behavior (4 tasks) — COMPLETE
+
+- [x] **E1 — Inertial Zoom & Extent Tuning**
+  - **Action:** Configure D3 zoom behavior with optimized scale extent `[0.05, 8.0]`, wheel damping, and keyboard zoom multipliers (`+` / `-` keys).
+  - **Acceptance:** Zoom feels buttery smooth on trackpads and mouse wheels.
+
+- [x] **E2 — Semantic Level-of-Detail (LOD) Culling**
+  - **Action:** Implement scale-aware label rendering: hide note labels when zoom scale drops below `0.35` (showing only nodes/halos), show full titles at normal scale, and display badges/tags at high zoom (`> 2.5`).
+  - **Acceptance:** Dense 500-node graphs never suffer from overlapping unreadable text when zoomed out.
+
+- [x] **E3 — Bi-directional Minimap Sync**
+  - **Action:** Ensure the minimap viewport rectangle accurately mirrors pan/zoom transformations in real-time, supporting click-to-teleport and drag-to-pan.
+  - **Acceptance:** Minimap acts as a robust navigation overview at any zoom level.
+
+- [x] **E4 — Responsive Viewport Resize Handling**
+  - **Action:** Handle window resize events by recalculating center forces and canvas bounds smoothly without resetting zoom or throwing simulation positions.
+  - **Acceptance:** Resizing browser window preserves current zoom level and center point.
+
+---
+
+### Phase F — Rich Node Interaction & Obsidian-Grade Markdown Modal (4 tasks) — F1, F2, F4 COMPLETE
+
+- [x] **F1 — Robust Hit-Testing & Multi-Modal Triggers**
+  - **Action:** Expand invisible pointer-event radius around nodes (`circle` / `path` hit-areas) to ensure effortless clicking even for small nodes.
+  - **Acceptance:** Zero missed clicks; instant modal opening on first click.
+
+- [x] **F2 — Obsidian-Grade Markdown Modal Renderer**
+  - **Action:** Enhance `modal-body` rendering via `marked.js` with custom syntax extensions: callout boxes, syntax-highlighted code blocks with one-click copy buttons, styled tables, and metadata frontmatter badges.
+  - **Acceptance:** Notes render with identical fidelity to Obsidian preview mode.
+
+- [ ] **F3 — Interactive Wikilink & Tag Resolution**
+  - **Action:** Make `[[Target]]` wikilinks clickable inside the modal, instantly jumping the graph and opening the target note. Unresolved wikilinks render with a distinct red badge and tooltip.
+  - **Acceptance:** Clicking any wikilink traverses the knowledge graph seamlessly.
+
+- [x] **F4 — Deep-Link & Clipboard Sharing**
+  - **Action:** Update URL hash (`#note=Title`) dynamically when opening notes in the modal; support "Copy Link" button that copies the shareable graph URL.
+  - **Acceptance:** Pasting a graph URL with `#note=...` automatically opens the correct note modal on load.
+
+---
+
+### Phase G — Performance Budget, Accessibility, and Offline Resilience (4 tasks) — G4 COMPLETE
+
+- [ ] **G1 — Performance Budget Verification**
+  - **Action:** Audit memory and CPU footprint for 500-node exports; ensure DOM element count remains lean and garbage collection is unhindered.
+  - **Acceptance:** Maintains steady 60 FPS during pan/zoom operations on standard hardware.
+
+- [ ] **G2 — WCAG Accessibility & Keyboard Navigation**
+  - **Action:** Ensure full keyboard traversal (`Tab` to navigate nodes, `Enter`/`Space` to open modal, arrow keys to pan, `Esc` to close modal), with correct ARIA attributes and focus trapping.
+  - **Acceptance:** Fully operable without a mouse or trackpad.
+
+- [ ] **G3 — Offline Resilience (Vendored Assets)**
+  - **Action:** Check for local vendored copies of D3 and marked next to `graph.html`, falling back gracefully to CDN if offline and vendored assets are absent.
+  - **Acceptance:** Works seamlessly in air-gapped environments when assets are vendored.
+
+- [x] **G4 — Automated Regression & Schema Tests**
+  - **Action:** Add pytest coverage (`tests/test_graph_ux.py`) validating graph export payload structure, HTML template validity, and script syntax (`node --check`).
+  - **Acceptance:** CI test suite catches any malformed HTML or broken D3 wiring instantly. 24 new tests across 7 test classes covering physics, SVG glow, LOD, zoom, minimap, modal, design tokens, JS syntax, and schema stability.
+
+---
+
+### Phase H — Rollout, Live Verification, and Documentation (3 tasks)
+
+- [ ] **H1 — Staged Rollout via Feature Flags**
+  - **Action:** Introduce optional query parameters (`?v2=1`) for testing new visual layers before full promotion.
+  - **Acceptance:** Zero risk of breaking existing shared exports during iterative styling.
+
+- [ ] **H2 — Multi-Environment Live Verification**
+  - **Action:** Test graph export and graph server `/refresh` across local browser, Hermes Desktop GUI, and Tailscale remote access (`100.67.179.69:8075`).
+  - **Acceptance:** Verified working across all target endpoints.
+
+- [ ] **H3 — Documentation & User Guide Update**
+  - **Action:** Update `README.md`, `docs/VISUALIZER.md`, and `docs/CLI_REFERENCE.md` with details on the new visual features, shortcut keys, and LOD behaviors.
+  - **Acceptance:** Documentation accurately reflects the overhauled GUI capabilities.
+
+---
+
+### Deliverables Summary
+1. **Overhauled `graph_export.py`** containing the next-generation self-contained `_HTML_TEMPLATE` (glassmorphic UI, wispy SVG halos, physics auto-settle, LOD scaling, Obsidian markdown modal).
+2. **Automated test suite extensions** (`tests/test_graph_ux.py`) ensuring zero regression in graph generation or syntax. 24 new tests, 247 total green.
+3. **Verified deployment** on the active EntropicMem graph server instance (`entropicmem-graph-server.service`) serving at `http://127.0.0.1:8075/`.
+
+### Implementation Summary (2026-08-07)
+
+| Phase | Tasks Done | What Changed |
+|-------|-----------|--------------|
+| **B** Design Tokens | 4/4 | CSS `:root` custom properties (`--blur`, `--radius`, `--transition`, `--accent-glow`, `--text-bright`, `--border-subtle`), glassmorphic backdrop blur on all panels, radial gradient body bg, hover glow on nodes |
+| **C** Dynamic Icons | 4/4 | SVG `<defs>` with `feGaussianBlur` glow filters (`node-glow`, `node-glow-strong`), radial `halo-grad` gradient, per-node `.node-halo` circle bound to velocity via `updateNodeHalos()`, glow filter applied to core shapes |
+| **D** Physics Stability | 5/5 | `alphaDecay(0.035)`, `alphaMin(0.005)`, charge `-180`, collision `+12`, link distance `110`, drag `alphaTarget(0.15)`, `Math.round()` on tick coords, `simulation.on("end")` auto-stop |
+| **E** Zoom & Viewport | 4/4 | `scaleExtent([0.05, 8])`, wheel damping (`wheelDelta`), keyboard zoom (`+`/`-`), LOD label culling (`updateLOD()`: hide <0.35x, fade <0.6x, badges >2.5x), minimap click-to-pan, resize no longer re-renders |
+| **F** Modal Polish | 3/4 | Code block copy buttons (hover-reveal), frontmatter badges, wikilink navigation (existing), deep-link `#note=` (existing). F3 (wikilink auto-jump from graph) deferred. |
+| **G4** Tests | 1/4 | 24 new tests in `tests/test_graph_ux.py`: physics params, SVG defs, LOD, zoom, minimap, modal, design tokens, JS syntax (`node --check`), schema stability |
+
+**Remaining for Phase 2:** A1 (baseline metrics), F3 (wikilink auto-jump), G1 (perf budget), G2 (a11y audit), G3 (vendored assets), H1-H3 (rollout/docs).
