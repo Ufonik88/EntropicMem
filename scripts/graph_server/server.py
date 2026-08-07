@@ -4,25 +4,91 @@ from __future__ import annotations
 # from ~/.hermes/entropicmem/graph_server/server.py under the systemd user
 # unit entropicmem-graph-server.service. Keep both copies identical; after
 # editing here, sync the deployed copy and restart the unit.
+#
+# Path resolution (portable - no hard-coded /home/ufonik/...):
+#   HERMES_HOME                 default ~/.hermes; override via env
+#   ENTROPICMEM_SCRIPTS_DIR     optional override for engine scripts
+#   ENTROPICMEM_GRAPH_EXPORT_DIR  optional override for graph.html/json dir
+# Data paths (vault/index) are pinned under HERMES_HOME/entropicmem/ so a
+# poisoned ENTROPICMEM_* env cannot point refresh at a dead /tmp dataset
+# (same hard-pin policy as the v2.1.8 index watchdog).
 
 import os
 import sys
 import json
 import hmac
 from pathlib import Path
+
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 
-sys.path.insert(0, "/home/ufonik/Documents/Coding Projects/EntropicMem/skills/entropicmem/scripts")
+HERE = Path(__file__).resolve().parent
+HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
 
-from graph_export import export_json, export_html
-from index import VaultIndex
-from vault import Vault, resolve_vault_path
 
-BASE_DIR = Path("/home/ufonik/Documents/Coding Projects/EntropicMem/graph_export")
-INDEX_DB = Path.home() / ".hermes" / "entropicmem" / "index.db"
-DEFAULT_VAULT = Path.home() / ".hermes" / "entropicmem" / "vault"
+def _resolve_scripts_dir() -> Path:
+    override = os.environ.get("ENTROPICMEM_SCRIPTS_DIR")
+    if override:
+        return Path(override)
+    candidates = [
+        HERMES_HOME / "skills" / "entropicmem" / "scripts",
+        # Repo checkout layout: <repo>/scripts/graph_server/server.py
+        HERE.parents[1] / "skills" / "entropicmem" / "scripts",
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return candidates[0]
+
+
+def _looks_like_repo_root(path: Path) -> bool:
+    """True only for an EntropicMem checkout, not HERMES_HOME.
+
+    ~/.hermes also has skills/entropicmem (often a symlink into the repo),
+    so a bare skills/ check would mis-identify HERMES_HOME as the checkout
+    and point BASE_DIR at ~/.hermes/graph_export.
+    """
+    return (
+        (path / "pyproject.toml").is_file()
+        and (path / "scripts" / "graph_server").is_dir()
+        and (path / "skills" / "entropicmem" / "scripts").is_dir()
+    )
+
+
+def _resolve_export_dir() -> Path:
+    override = os.environ.get("ENTROPICMEM_GRAPH_EXPORT_DIR")
+    if override:
+        return Path(override)
+
+    # Repo checkout: <repo>/scripts/graph_server → <repo>/graph_export
+    repo_root = HERE.parents[1]
+    if _looks_like_repo_root(repo_root):
+        return repo_root / "graph_export"
+
+    # Deployed under ~/.hermes/entropicmem/graph_server - follow the skills
+    # symlink (if present) back to the checkout's graph_export.
+    skills_scripts = HERMES_HOME / "skills" / "entropicmem" / "scripts"
+    if skills_scripts.exists():
+        # <repo>/skills/entropicmem/scripts → parents[2] = <repo>
+        repo_via_skills = skills_scripts.resolve().parent.parent.parent
+        if _looks_like_repo_root(repo_via_skills):
+            return repo_via_skills / "graph_export"
+
+    return HERMES_HOME / "entropicmem" / "graph_export"
+
+
+SCRIPTS_DIR = _resolve_scripts_dir()
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from graph_export import export_json, export_html  # noqa: E402
+from index import VaultIndex  # noqa: E402
+from vault import Vault, resolve_vault_path  # noqa: E402
+
+BASE_DIR = _resolve_export_dir()
+# Hard-pin data paths under HERMES_HOME (do not trust ENTROPICMEM_* env).
+INDEX_DB = HERMES_HOME / "entropicmem" / "index.db"
+DEFAULT_VAULT = HERMES_HOME / "entropicmem" / "vault"
 
 app = FastAPI(title="EntropicMem Graph")
 
@@ -44,7 +110,7 @@ def _require_token(x_entropicmem_token: str | None) -> None:
 
 
 def _regenerate(*, include_bodies: bool = False) -> dict:
-    vault_root = Path(os.environ.get("ENTROPICMEM_VAULT_PATH") or DEFAULT_VAULT)
+    vault_root = DEFAULT_VAULT
     if not vault_root.is_dir():
         vault_root = Path(resolve_vault_path())
     index = VaultIndex(INDEX_DB)
@@ -96,7 +162,7 @@ def refresh(
 def index():
     html_path = BASE_DIR / "graph.html"
     if not html_path.exists():
-        raise HTTPException(status_code=404, detail="graph.html missing — run authenticated refresh")
+        raise HTTPException(status_code=404, detail="graph.html missing - run authenticated refresh")
     html = html_path.read_text(encoding="utf-8")
     if "<title>EntropicMem" in html:
         html = html.replace(
@@ -115,4 +181,7 @@ def graph_json():
     return JSONResponse(json.loads(path.read_text(encoding="utf-8")))
 
 
-app.mount("/", StaticFiles(directory=str(BASE_DIR), html=False), name="static")
+# Intentionally no StaticFiles mount at "/". graph.html is self-contained
+# (D3 from CDN) and both artifacts are served by the explicit routes above.
+# Mounting StaticFiles at "/" risks catching requests that should hit the
+# API routes depending on Starlette route-matching order.
