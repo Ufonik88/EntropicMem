@@ -22,6 +22,8 @@ import json
 import os
 import sqlite3
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
@@ -38,6 +40,34 @@ TITLE_MAX = 90
 SUMMARY_MAX = 600
 DEFAULT_WINDOW_HOURS = 13  # slightly more than the 12h cron cadence
 
+# ── shared shaping helpers (single place for title/summary/timestamp logic) ─
+
+_NOISE_PREFIXES = ("[System:", "[IMPORTANT:", "[CONTEXT")
+
+
+def clean_title(raw: str) -> str:
+    """Strip system-ish prefixes and truncate a raw first-message title.
+
+    Prefix removal happens BEFORE truncation — the closing bracket can sit
+    past TITLE_MAX or be absent entirely in the stored message.
+    """
+    text = (raw or "").strip().replace("\n", " ")
+    for prefix in _NOISE_PREFIXES:
+        if text.startswith(prefix):
+            if "] " in text:
+                text = text.split("] ", 1)[-1]
+            else:
+                text = text[len(prefix):].lstrip(" ]")
+            break
+    return text[:TITLE_MAX]
+
+
+def iso_from_epoch(ts: float | None) -> str | None:
+    """Convert a unix-epoch timestamp to ISO-8601 (UTC), or None."""
+    if ts is None:
+        return None
+    return datetime.fromtimestamp(ts, timezone.utc).isoformat()
+
 
 def distill(session_id: str, rows: list) -> dict | None:
     """Build one episode dict from a session's messages. None if unusable."""
@@ -50,19 +80,7 @@ def distill(session_id: str, rows: list) -> dict | None:
     assistant_msgs = [r for r in rows if r["role"] == "assistant"]
     if not user_msgs:
         return None
-    first = user_msgs[0]
-    raw_title = (first["content"] or "").strip().replace("\n", " ")
-    # Drop leading system-ish noise from the title (model-change notes etc.)
-    # BEFORE truncation — the closing bracket can sit past TITLE_MAX or be
-    # absent entirely in the stored message.
-    for prefix in ("[System:", "[IMPORTANT:", "[CONTEXT"):
-        if raw_title.startswith(prefix):
-            if "] " in raw_title:
-                raw_title = raw_title.split("] ", 1)[-1]
-            else:
-                raw_title = raw_title[len(prefix):].lstrip(" ]")
-            break
-    title = raw_title[:TITLE_MAX]
+    title = clean_title(user_msgs[0]["content"])
     if not title:
         return None
     last_user = user_msgs[-1]["content"] or ""
@@ -74,11 +92,8 @@ def distill(session_id: str, rows: list) -> dict | None:
         summary += f"Outcome: {last_assistant[:280].strip()}"
     summary = summary[:SUMMARY_MAX]
     ts = [r["timestamp"] for r in rows if r.get("timestamp")]
-    start_ts = None
-    end_ts = None
-    if ts:
-        start_ts = __import__("datetime").datetime.fromtimestamp(min(ts), __import__("datetime").timezone.utc).isoformat()
-        end_ts = __import__("datetime").datetime.fromtimestamp(max(ts), __import__("datetime").timezone.utc).isoformat()
+    start_ts = iso_from_epoch(min(ts)) if ts else None
+    end_ts = iso_from_epoch(max(ts)) if ts else None
     return {
         "session_id": session_id,
         "title": title,
@@ -100,7 +115,7 @@ def main() -> int:
         print(f"episodic-capture: no session store found ({STATE_DB} / {LCM_DB})", file=sys.stderr)
         return 1
 
-    cutoff = __import__("time").time() - args.hours * 3600
+    cutoff = time.time() - args.hours * 3600
 
     engine = MemoryEngine(str(MEMORY_DB))
     try:
