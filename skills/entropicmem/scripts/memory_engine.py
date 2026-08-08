@@ -13,11 +13,13 @@ Stdlib-only. No external memory dependencies.
 """
 
 import hashlib
+import json
 import os
 import math
 import re
 import fcntl
 import sqlite3
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -96,6 +98,48 @@ CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
 CREATE INDEX IF NOT EXISTS idx_facts_domain ON facts(domain);
 CREATE INDEX IF NOT EXISTS idx_facts_importance ON facts(importance DESC);
 CREATE INDEX IF NOT EXISTS idx_facts_created ON facts(created_at DESC);
+
+-- v2.2.0 G1: episodic memory (session summaries / "what happened when")
+CREATE TABLE IF NOT EXISTS episodes (
+    episode_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    start_ts TEXT,
+    end_ts TEXT,
+    source_session TEXT DEFAULT '',
+    linked_fact_ids TEXT DEFAULT '[]',
+    importance REAL DEFAULT 0.5,
+    domain TEXT DEFAULT 'Knowledge',
+    source TEXT DEFAULT 'agent',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_episodes_start ON episodes(start_ts);
+CREATE INDEX IF NOT EXISTS idx_episodes_domain ON episodes(domain);
+CREATE INDEX IF NOT EXISTS idx_episodes_created ON episodes(created_at DESC);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
+    title,
+    summary,
+    tokenize='porter unicode61',
+    content_rowid='rowid'
+);
+
+-- v2.2.0 G2: knowledge triples (subject --predicate--> object)
+CREATE TABLE IF NOT EXISTS triples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    object TEXT NOT NULL,
+    valid_from TEXT,
+    valid_until TEXT,
+    source TEXT DEFAULT 'extracted',
+    confidence REAL DEFAULT 1.0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(subject, predicate, object)
+);
+CREATE INDEX IF NOT EXISTS idx_triples_subject ON triples(subject);
+CREATE INDEX IF NOT EXISTS idx_triples_object ON triples(object);
+CREATE INDEX IF NOT EXISTS idx_triples_predicate ON triples(predicate);
 """
 
 # ── auto-extraction patterns ────────────────────────────────────────────────
@@ -1212,6 +1256,246 @@ class MemoryEngine:
         if not EMBEDDINGS_AVAILABLE:
             return {"available": False, "message": "sentence-transformers not installed"}
         return embedding_coverage(self.db)
+
+    # ── v2.2.0 G1: episodic memory ──────────────────────────────────────────────
+
+    def add_episode(
+        self,
+        title: str,
+        summary: str,
+        *,
+        start_ts: Optional[str] = None,
+        end_ts: Optional[str] = None,
+        source_session: str = "",
+        linked_fact_ids: Optional[List[str]] = None,
+        importance: float = 0.5,
+        domain: str = "Knowledge",
+        source: str = "agent",
+        episode_id: Optional[str] = None,
+    ) -> str:
+        """Store a distilled episodic record (session summary / timeline entry).
+
+        Episodes answer "when did X happen" — a timestamped timeline layer
+        distinct from the semantic fact store. Returns the episode_id.
+        """
+        self._acquire_write_lock()
+        try:
+            eid = episode_id or ("ep_" + uuid.uuid4().hex[:12])
+            linked = json.dumps(linked_fact_ids or [])
+            self.db.execute(
+                "INSERT OR REPLACE INTO episodes "
+                "(episode_id, title, summary, start_ts, end_ts, source_session, "
+                " linked_fact_ids, importance, domain, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (eid, title, summary, start_ts, end_ts, source_session,
+                 linked, importance, domain, source),
+            )
+            row = self.db.execute(
+                "SELECT rowid FROM episodes WHERE episode_id = ?", (eid,)
+            ).fetchone()
+            if row:
+                self.db.execute(
+                    "DELETE FROM episodes_fts WHERE rowid = ?", (row[0],)
+                )
+                self.db.execute(
+                    "INSERT INTO episodes_fts (rowid, title, summary) VALUES (?, ?, ?)",
+                    (row[0], title, summary),
+                )
+            self.db.commit()
+        finally:
+            self._release_write_lock()
+        self.audit("episode_add", fact_id=eid, detail=f"domain={domain};source={source}")
+        return eid
+
+    def list_episodes(
+        self,
+        *,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        domain: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        """List episodes in chronological order within an optional date window."""
+        clauses: list = []
+        params: list = []
+        if from_date:
+            clauses.append("start_ts >= ?")
+            params.append(from_date)
+        if to_date:
+            clauses.append("COALESCE(start_ts, created_at) <= ?")
+            params.append(to_date + "T23:59:59")
+        if domain:
+            clauses.append("domain = ?")
+            params.append(domain)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = self.db.execute(
+            f"SELECT * FROM episodes {where} ORDER BY start_ts ASC, created_at ASC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def recall_episodes(
+        self,
+        query: str,
+        *,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[dict]:
+        """FTS timeline recall over episodes (title + summary), with window filter."""
+        clean = query.replace('"', '""')
+        where = ""
+        window_params: list = []
+        if from_date or to_date:
+            clauses = []
+            if from_date:
+                clauses.append("e.start_ts >= ?")
+                window_params.append(from_date)
+            if to_date:
+                clauses.append("COALESCE(e.start_ts, e.created_at) <= ?")
+                window_params.append(to_date + "T23:59:59")
+            where = " AND " + " AND ".join(clauses)
+        rows = self.db.execute(
+            "SELECT e.* FROM episodes_fts f JOIN episodes e ON e.rowid = f.rowid "
+            f"WHERE episodes_fts MATCH ?{where} "
+            "ORDER BY e.start_ts ASC, e.created_at ASC LIMIT ?",
+            (clean, *window_params, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def episode_stats(self) -> dict:
+        """Count episodes (total + by domain)."""
+        total = self.db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
+        by_domain = dict(
+            self.db.execute(
+                "SELECT domain, COUNT(*) FROM episodes GROUP BY domain ORDER BY 2 DESC"
+            ).fetchall()
+        )
+        return {"total": total, "by_domain": by_domain}
+
+    # ── v2.2.0 G2: knowledge triples ──────────────────────────────────────────
+
+    def upsert_triple(
+        self,
+        subject: str,
+        predicate: str,
+        object_: str,
+        *,
+        valid_from: Optional[str] = None,
+        valid_until: Optional[str] = None,
+        source: str = "extracted",
+        confidence: float = 1.0,
+    ) -> int:
+        """Insert or update a (subject, predicate, object) triple. Returns row id."""
+        self._acquire_write_lock()
+        try:
+            self.db.execute(
+                "INSERT INTO triples (subject, predicate, object, valid_from, valid_until, source, confidence) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(subject, predicate, object) DO UPDATE SET "
+                "valid_from = COALESCE(excluded.valid_from, triples.valid_from), "
+                "valid_until = excluded.valid_until, source = excluded.source, "
+                "confidence = excluded.confidence",
+                (subject, predicate, object_, valid_from, valid_until, source, confidence),
+            )
+            self.db.commit()
+            row = self.db.execute(
+                "SELECT id FROM triples WHERE subject = ? AND predicate = ? AND object = ?",
+                (subject, predicate, object_),
+            ).fetchone()
+            return row[0] if row else 0
+        finally:
+            self._release_write_lock()
+
+    def list_triples(
+        self,
+        *,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        object_: Optional[str] = None,
+        source: Optional[str] = None,
+        active_only: bool = True,
+        limit: int = 200,
+    ) -> List[dict]:
+        """Query triples with optional filters. active_only excludes expired rows."""
+        clauses: list = []
+        params: list = []
+        if subject:
+            clauses.append("subject = ?")
+            params.append(subject)
+        if predicate:
+            clauses.append("predicate = ?")
+            params.append(predicate)
+        if object_:
+            clauses.append("object = ?")
+            params.append(object_)
+        if source:
+            clauses.append("source = ?")
+            params.append(source)
+        if active_only:
+            clauses.append("(valid_until IS NULL OR valid_until = '')")
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = self.db.execute(
+            f"SELECT * FROM triples {where} ORDER BY confidence DESC, created_at DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def triple_neighbors(self, entity: str, *, limit: int = 100) -> List[dict]:
+        """All relations touching an entity (as subject or object)."""
+        rows = self.db.execute(
+            "SELECT * FROM triples WHERE (subject = ? OR object = ?) "
+            "AND (valid_until IS NULL OR valid_until = '') "
+            "ORDER BY confidence DESC LIMIT ?",
+            (entity, entity, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def triple_path(self, start: str, end: str, *, max_depth: int = 4) -> List[dict]:
+        """BFS over the triple graph from start to end. Returns the path edges."""
+        if start == end:
+            return []
+        seen: set = {start}
+        queue: list = [(start, [])]
+        while queue:
+            node, path = queue.pop(0)
+            for t in self.triple_neighbors(node, limit=500):
+                other = t["object"] if t["subject"] == node else t["subject"]
+                new_path = path + [dict(t)]
+                if other == end:
+                    return new_path
+                if other not in seen:
+                    seen.add(other)
+                    queue.append((other, new_path))
+                    if len(new_path) >= max_depth:
+                        continue
+        return []
+
+    def triple_inconsistencies(self) -> List[dict]:
+        """Conflicting relations: same subject+predicate with differing objects."""
+        rows = self.db.execute(
+            "SELECT subject, predicate, COUNT(DISTINCT object) AS n_objects, "
+            "GROUP_CONCAT(DISTINCT object) AS objects "
+            "FROM triples WHERE (valid_until IS NULL OR valid_until = '') "
+            "GROUP BY subject, predicate HAVING n_objects > 1 "
+            "ORDER BY n_objects DESC LIMIT 50"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def triple_stats(self) -> dict:
+        """Triple counts: total, distinct subjects, by source."""
+        total = self.db.execute("SELECT COUNT(*) FROM triples").fetchone()[0]
+        subjects = self.db.execute(
+            "SELECT COUNT(DISTINCT subject) FROM triples"
+        ).fetchone()[0]
+        by_source = dict(
+            self.db.execute(
+                "SELECT source, COUNT(*) FROM triples GROUP BY source ORDER BY 2 DESC"
+            ).fetchall()
+        )
+        return {"total": total, "distinct_subjects": subjects, "by_source": by_source}
+
+    # ── timeline (Phase 8) ────────────────────────────────────────────────────
 
     def timeline(
         self,

@@ -44,6 +44,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 from index import VaultIndex  # noqa: E402
 from memory_engine import MemoryEngine  # noqa: E402
 from retrieval import EMBEDDER_AVAILABLE, retrieve_composed  # noqa: E402
+from triple_extract import extract_triples_from_engine  # noqa: E402
 from vault import (  # noqa: E402
     DEFAULT_DOMAINS,
     CoreMemory,
@@ -53,7 +54,7 @@ from vault import (  # noqa: E402
 
 from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 
-__version__ = "2.1.9"
+__version__ = "2.2.0"
 
 # ── input validation helpers ────────────────────────────────────────────────
 
@@ -1059,7 +1060,26 @@ def cmd_memory(args) -> int:
 
 def cmd_recall(args) -> int:
     engine = MemoryEngine(_memory_db_path())
-    results = engine.recall(args.query, top_k=args.top_k, domain=args.domain)
+    if getattr(args, "recall_type", "fact") == "episodic":
+        episodes = engine.recall_episodes(
+            args.query,
+            from_date=getattr(args, "since", None),
+            to_date=getattr(args, "until", None),
+            limit=args.top_k,
+        )
+        if not episodes:
+            print("No matching episodes.")
+            engine.close()
+            return 0
+        for ep in episodes:
+            when = (ep.get("start_ts") or ep.get("created_at") or "?").split("T")[0]
+            print(f"[{ep['episode_id']}] ({when}) imp={ep.get('importance', 0.5):.2f} {ep['title']}")
+            summary = ep["summary"].replace("\n", " ")
+            print(f"    {summary[:160]}")
+        engine.close()
+        return 0
+
+    results = engine.recall_hybrid(args.query, top_k=args.top_k, domain=args.domain) if EMBEDDER_AVAILABLE else engine.recall(args.query, top_k=args.top_k, domain=args.domain)
     if not results:
         print("No matching facts.")
         engine.close()
@@ -1236,6 +1256,110 @@ def cmd_embed(args) -> int:
 
 
 # ── subcommand: timeline (Phase 8) ───────────────────────────────────────────
+
+def cmd_episode(args) -> int:
+    """Episodic memory: add / list / stats (v2.2.0 G1)."""
+    engine = MemoryEngine(_memory_db_path())
+    cmd = getattr(args, "episode_command", None)
+    if cmd == "add":
+        linked = [f.strip() for f in (args.linked_fact_ids or "").split(",") if f.strip()]
+        eid = engine.add_episode(
+            title=args.title,
+            summary=args.summary,
+            start_ts=args.start_ts,
+            end_ts=args.end_ts,
+            source_session=args.source_session,
+            linked_fact_ids=linked,
+            importance=args.importance,
+            domain=args.domain,
+            source=args.source,
+        )
+        print(f"Episode added: {eid}")
+        engine.close()
+        return 0
+    if cmd == "list":
+        episodes = engine.list_episodes(
+            from_date=args.from_date, to_date=args.to_date,
+            domain=args.domain, limit=args.limit,
+        )
+        if not episodes:
+            print("No episodes in range.")
+        for ep in episodes:
+            when = (ep.get("start_ts") or ep.get("created_at") or "?").split("T")[0]
+            print(f"[{ep['episode_id']}] ({when}) imp={ep.get('importance', 0.5):.2f} {ep['title']}")
+            summary = ep["summary"].replace("\n", " ")
+            print(f"    {summary[:160]}")
+        engine.close()
+        return 0
+    if cmd == "stats":
+        stats = engine.episode_stats()
+        print(f"Episodes: {stats['total']}")
+        for domain, count in stats["by_domain"].items():
+            print(f"  {domain}: {count}")
+        engine.close()
+        return 0
+    print("Usage: entropicmem episode add|list|stats", file=sys.stderr)
+    engine.close()
+    return 1
+
+
+def cmd_triple(args) -> int:
+    """Knowledge triples: extract / list / stats / neighbors / path / inconsistencies (v2.2.0 G2)."""
+    engine = MemoryEngine(_memory_db_path())
+    cmd = getattr(args, "triple_command", None)
+    if cmd == "extract":
+        count = extract_triples_from_engine(engine)
+        print(f"Triple extraction: {count} new triples written")
+        engine.close()
+        return 0
+    if cmd == "stats":
+        stats = engine.triple_stats()
+        print(f"Triples: {stats['total']} (distinct subjects: {stats['distinct_subjects']})")
+        for source, count in stats["by_source"].items():
+            print(f"  {source}: {count}")
+        engine.close()
+        return 0
+    if cmd == "neighbors":
+        triples = engine.triple_neighbors(args.entity)
+        if not triples:
+            print(f"No relations found for: {args.entity}")
+        for t in triples:
+            direction = "->" if t["subject"] == args.entity else "<-"
+            other = t["object"] if t["subject"] == args.entity else t["subject"]
+            print(f"  {args.entity} {direction} {t['predicate']} {other} (conf={t['confidence']:.2f})")
+        engine.close()
+        return 0
+    if cmd == "path":
+        path = engine.triple_path(args.start, args.end)
+        if not path:
+            print(f"No path from '{args.start}' to '{args.end}'")
+        for i, t in enumerate(path):
+            print(f"  {i + 1}. {t['subject']} --{t['predicate']}--> {t['object']}")
+        engine.close()
+        return 0
+    if cmd == "inconsistencies":
+        issues = engine.triple_inconsistencies()
+        if not issues:
+            print("No conflicting relations found.")
+        for issue in issues:
+            print(f"  {issue['subject']} --{issue['predicate']}--> {issue['objects']} ({issue['n_objects']} variants)")
+        engine.close()
+        return 0
+    if cmd == "list":
+        triples = engine.list_triples(
+            subject=args.subject, predicate=args.predicate,
+            object_=args.object, source=args.source, limit=args.limit,
+        )
+        if not triples:
+            print("No triples match.")
+        for t in triples:
+            print(f"  {t['subject']} --{t['predicate']}--> {t['object']} (src={t['source']}, conf={t['confidence']:.2f})")
+        engine.close()
+        return 0
+    print("Usage: entropicmem triple extract|list|stats|neighbors|path|inconsistencies", file=sys.stderr)
+    engine.close()
+    return 1
+
 
 def cmd_timeline(args) -> int:
     """Show facts in chronological order within a date range."""
@@ -1579,11 +1703,53 @@ def main() -> int:
     g_show.add_argument("target", help="Note title to find connections for")
     g_show.add_argument("--depth", type=int, default=1, help="Traversal depth (default: 1)")
 
+    # triple (v2.2.0 G2)
+    p_triple = sub.add_parser("triple", help="Knowledge triples (subject--predicate-->object)")
+    t_sub = p_triple.add_subparsers(dest="triple_command")
+    t_sub.add_parser("extract", help="Extract triples from facts + vault notes (rule-based)")
+    t_sub.add_parser("stats", help="Triple counts")
+    p_t_neighbors = t_sub.add_parser("neighbors", help="All relations touching an entity")
+    p_t_neighbors.add_argument("entity", help="Entity to query (e.g. 'Ajax Systems')")
+    p_t_path = t_sub.add_parser("path", help="Path between two entities")
+    p_t_path.add_argument("start", help="Start entity")
+    p_t_path.add_argument("end", help="End entity")
+    t_sub.add_parser("inconsistencies", help="Conflicting relations (same subject+predicate, different objects)")
+    p_t_list = t_sub.add_parser("list", help="List triples with optional filters")
+    p_t_list.add_argument("--subject", help="Filter by subject")
+    p_t_list.add_argument("--predicate", help="Filter by predicate")
+    p_t_list.add_argument("--object", help="Filter by object")
+    p_t_list.add_argument("--source", help="Filter by source (extracted, mnemosyne_legacy)")
+    p_t_list.add_argument("--limit", type=int, default=50)
+
     # recall
     p_recall = sub.add_parser("recall", help="Search durable facts in memory engine")
     p_recall.add_argument("query", help="Search query")
     p_recall.add_argument("--top-k", type=int, default=10)
     p_recall.add_argument("--domain", help="Filter by domain")
+    p_recall.add_argument("--type", dest="recall_type", default="fact",
+                          choices=["fact", "episodic"], help="Store to search (v2.2.0)")
+    p_recall.add_argument("--since", dest="since", help="Start date (YYYY-MM-DD), episodic only (v2.2.0)")
+    p_recall.add_argument("--until", dest="until", help="End date (YYYY-MM-DD), episodic only (v2.2.0)")
+
+    # episode (v2.2.0 G1)
+    p_episode = sub.add_parser("episode", help="Episodic memory (session summaries, timeline)")
+    ep_sub = p_episode.add_subparsers(dest="episode_command")
+    p_ep_add = ep_sub.add_parser("add", help="Add an episodic record")
+    p_ep_add.add_argument("title", help="Episode title")
+    p_ep_add.add_argument("summary", help="Episode summary (what happened and why it matters)")
+    p_ep_add.add_argument("--start", dest="start_ts", help="Start timestamp (ISO)")
+    p_ep_add.add_argument("--end", dest="end_ts", help="End timestamp (ISO)")
+    p_ep_add.add_argument("--session", dest="source_session", default="", help="Source Hermes session id")
+    p_ep_add.add_argument("--link-facts", dest="linked_fact_ids", default="", help="Comma-separated fact ids")
+    p_ep_add.add_argument("--importance", type=float, default=0.5)
+    p_ep_add.add_argument("--domain", default="Knowledge")
+    p_ep_add.add_argument("--source", default="agent", help="Origin (agent, cron, mnemosyne_legacy)")
+    p_ep_list = ep_sub.add_parser("list", help="List episodes chronologically")
+    p_ep_list.add_argument("--from", dest="from_date", help="Start date (YYYY-MM-DD)")
+    p_ep_list.add_argument("--to", dest="to_date", help="End date (YYYY-MM-DD)")
+    p_ep_list.add_argument("--domain", help="Filter by domain")
+    p_ep_list.add_argument("--limit", type=int, default=50)
+    ep_sub.add_parser("stats", help="Episode counts")
 
     # remember
     p_remember = sub.add_parser("remember", help="Store durable fact in memory engine + vault")
@@ -1702,6 +1868,8 @@ def main() -> int:
         "hotcache": cmd_hotcache,
         "graph": cmd_graph,
         "recall": cmd_recall,
+        "episode": cmd_episode,
+        "triple": cmd_triple,
         "remember": cmd_remember,
         "forget": cmd_forget,
         "open": cmd_open,

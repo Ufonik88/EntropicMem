@@ -42,6 +42,22 @@ from pathlib import Path
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
 SCRIPTS = HERMES_HOME / "skills" / "entropicmem" / "scripts"
+
+# v2.2.0 G3: prefer the Hermes venv interpreter when the current one lacks
+# sentence-transformers, so cron-written facts get embedded on insert
+# (write-path embedding) instead of accumulating as unembedded rows.
+def _reexec_with_venv_python() -> None:
+    try:
+        import sentence_transformers  # noqa: F401
+        return
+    except ImportError:
+        pass
+    venv_python = HERMES_HOME / "hermes-agent" / "venv" / "bin" / "python3"
+    if venv_python.exists():
+        os.execv(str(venv_python), [str(venv_python), *sys.argv])
+
+
+_reexec_with_venv_python()
 # Prefer explicit env, then default store under HERMES_HOME.
 MEMORY_DB = Path(
     os.environ.get("ENTROPICMEM_MEMORY_DB", str(HERMES_HOME / "entropicmem" / "memory.db"))
@@ -94,6 +110,33 @@ def remember(
     }
 
 
+def _write_vault_note(content: str, title: str | None, domain: str) -> str | None:
+    """G4: dual-write a fact as a vault note (best-effort; None on failure)."""
+    try:
+        if str(SCRIPTS) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS))
+        from vault import Vault, derive_title  # type: ignore
+        from index import VaultIndex  # type: ignore
+
+        vault = Vault(str(HERMES_HOME / "entropicmem" / "vault"))
+        note_title = title or derive_title(content) or "Fact"
+        body = (
+            f"## Fact\n{content}\n\n## Source\n- Cron helper (--write-vault)\n\n"
+            f"## Links\n- [[{domain}/Index]]\n- [[Wiki-Cache]]\n"
+        )
+        path = vault.write_note(domain, note_title, body, tags=["durable", "cron"])
+        index = VaultIndex(str(HERMES_HOME / "entropicmem" / "index.db"))
+        try:
+            note = vault.read_note(path)
+            index.upsert_note(note)
+            index.upsert_edges_for_note(vault, note)
+        finally:
+            index.close()
+        return str(path)
+    except Exception:
+        return None
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("content", nargs="?", help="Fact text to store")
@@ -108,6 +151,10 @@ def main() -> int:
     )
     p.add_argument("--self-test", action="store_true")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument(
+        "--write-vault", action="store_true",
+        help="v2.2.0 G4: also write a vault note per fact (dual-write for cron)",
+    )
     args = p.parse_args()
 
     if args.self_test:
@@ -167,6 +214,9 @@ def main() -> int:
             r = remember(
                 content, title=title, domain=str(domain), importance=float(importance), source=args.source
             )
+            if r.get("ok") and args.write_vault:
+                note_path = _write_vault_note(content, title, str(domain))
+                r["vault_note"] = note_path
         except (FileNotFoundError, ImportError, ValueError) as e:
             r = {"ok": False, "error": f"{type(e).__name__}: {e}", "content": (content or "")[:80]}
         except Exception as e:

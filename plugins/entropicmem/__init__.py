@@ -870,12 +870,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
             from memory_engine import MemoryEngine
 
             with MemoryEngine(self._memory_db) as engine:
-                rows = engine.recall_with_relevance(
+                # v2.2.0 G3: hybrid retrieval — FTS5 BM25 + vector similarity
+                # fusion when embeddings exist; graceful FTS-only fallback.
+                rows = engine.recall_hybrid(
                     query,
                     top_k=limit,
-                    decay_enabled=self._config.get("decay_enabled", True),
-                    decay_half_life_days=self._config.get("decay_half_life_days", 30.0),
-                    reinforcement_boost=self._config.get("reinforcement_boost", 0.1),
+                    fts_weight=self._config.get("hybrid_fts_weight", 0.6),
+                    vec_weight=self._config.get("hybrid_vec_weight", 0.4),
+                    expand_links=False,
                     auto_reinforce=self._config.get("reinforce_on_recall", False),
                 )
             payload = [

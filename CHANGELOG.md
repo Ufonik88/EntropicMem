@@ -1,5 +1,65 @@
 # Changelog
 
+## [2.2.0] - 2026-08-08
+
+### Added — Contextual parity (G1–G10 gap closure vs Mnemosyne)
+
+- **Episodic memory (G1)** — new `episodes` table + FTS5 in the engine;
+  `add_episode` / `list_episodes` / `recall_episodes` (time-window + FTS) /
+  `episode_stats`; CLI `entropicmem episode add|list|stats`; `entropicmem
+  recall --type episodic --since --until` returns a dated timeline.
+  Backfill: 376 legacy Mnemosyne episodic entries imported (`mne_` ids,
+  source `mnemosyne_legacy`). New 12h deterministic capture cron
+  (`entropicmem_episodic_capture.py`, reads the live `state.db` session
+  store, distills one episode per interactive session, skips cron noise).
+- **Knowledge triples (G2)** — new `triples` table (UNIQUE subject/predicate/
+  object, valid_from/until, confidence, source); engine `upsert_triple` /
+  `list_triples` / `triple_neighbors` / `triple_path` / `triple_inconsistencies`
+  / `triple_stats`; CLI `entropicmem triple extract|list|stats|neighbors|
+  path|inconsistencies`; rule-based extractor module `triple_extract.py`
+  (entity dictionary + relation patterns, negation-aware, precision-first).
+  Split-brain fix: `entropicmem_triples_sync.py` mirrors the canonical
+  triples into `graph_edges` in BOTH memory.db and index.db (health check
+  now verifies the two edge counts match). Backfill: 4,938 distinct legacy
+  triples + 2,053 legacy triple-shaped facts imported. Graph refresh cron
+  now runs extraction + edge sync before the server refresh.
+- **Embedding coverage (G3)** — full backfill: 885/885 facts embedded
+  (0 errors, run with the Hermes venv Python which carries
+  sentence-transformers); `remember()` embeds on insert; cron helper and
+  Notion sync re-exec via the venv when the embedder is missing so cron
+  writes never accumulate unembedded; plugin `_recall` and CLI `recall`
+  now use hybrid FTS5+vector fusion (`recall_hybrid`, graceful fallback);
+  health check gains `embeddings` coverage + orphan-row detection.
+- **Cron helper vault dual-write (G4)** — `entropicmem_cron_remember.py
+  --write-vault` writes a vault note + index edges alongside the fact.
+- **Obsidian export (G6)** — `entropicmem_obsidian_export.sh` mirrors the
+  engine vault into `~/Documents/Obsidian Vault/EntropicMem/` (6h cron);
+  Obsidian `AGENTS.md` rewritten for EntropicMem (0 Mnemosyne refs); stale
+  `Mnemosyne/` export folder retired to `_archive/`.
+- **Domain cleanup (G8)** — `entropicmem_domain_cleanup.py` remaps stray
+  domains to the canonical list (dry-run default); 11 stray facts remapped
+  (Test→Knowledge, Wedding→Projects, Preference/Preferences→People,
+  Operations/Security→Infrastructure).
+- **CLI on PATH (G9)** — `~/.local/bin/entropicmem` symlink; documented
+  commands now work verbatim in a fresh shell.
+- **Parity audit (G10)** — `entropicmem_parity_audit.py`: every legacy
+  Mnemosyne fact/episode/triple findable in EntropicMem by content hash or
+  store key + embedding coverage. **PASS: 0/2,053 facts, 0/376 episodes,
+  0/4,938 triples, 0/885 embeddings missing.**
+- **Health check** — new `embeddings` / `episodes` / `triples` checks with
+  coverage, legacy-import, FTS-sync and split-brain fields.
+- **Tests** — `tests/test_v2_2_0.py`: 19 tests (episodes, triples,
+  extractor, CLI routing, health-check presence). 271 total green.
+
+### Notes
+
+- Notion knowledge sync cron resumed (every 120m, `dff8a6a72447`) after a
+  verified test ingestion (11 facts → recall, security scan OK).
+- G7 (legacy Mnemosyne cron deletion + plugin entry removal) deliberately
+  left pending explicit user approval — paused jobs retained.
+- Mnemosyne data preserved at `~/.hermes/mnemosyne/data/` (94 MB) — do not
+  delete until the parity audit PASS and Ufonik explicitly approves.
+
 ## [2.1.9] - 2026-08-07
 
 ### Fixed
