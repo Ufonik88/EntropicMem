@@ -34,7 +34,7 @@ commit-then-wait-for-email loop. Load the `sourcery-local-precommit` skill
 before any commit; the gate is enforced by `.git/hooks/pre-commit` (symlink →
 `scripts/pre-commit-sourcery.sh`).
 
-- **Run first, always**: `sourcery review --check --diff "git diff --cached" --no-summary .`
+- **Run first, always**: `sourcery review --check --diff "git diff --cached -- '*.py'" --no-summary .`
 - **Fix, don't bypass**: `sourcery review --fix --diff "git diff HEAD" .` for
   mechanical issues (then `git add -u` — fixes are NOT auto-staged), manual
   triage for the rest (see `sourcery-review-remediation` skill).
