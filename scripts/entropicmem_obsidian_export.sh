@@ -30,12 +30,13 @@ mkdir -p "$DEST"
 # Mirror all .md files (and preserve relative folders). --ignore-existing is
 # NOT used: updated engine notes must overwrite stale copies. Delete nothing
 # in Obsidian (engine vault is the source; Obsidian may hold human edits).
-# Single rsync pass with --itemize-changes; grep keeps only the itemized
-# transfer lines (11-char status field + filename), excluding the
-# "sending incremental file list" header, so `changes` is non-empty exactly
-# when a note was transferred.
-changes=$(rsync -a --itemize-changes --include='*/' --include='*.md' --exclude='*' \
-  "$SRC/" "$DEST/" 2>/dev/null | grep -E '^[^ ]{11} ' || true)
+# Single rsync pass with --itemize-changes; --out-format prefixes every
+# itemized line with a fixed marker so the grep is robust across rsync
+# versions and locales (no assumption about the 11-char status field),
+# and `changes` is non-empty exactly when a note was transferred.
+changes=$(rsync -a --itemize-changes --out-format='TRANSFER %i %n%L' \
+  --include='*/' --include='*.md' --exclude='*' \
+  "$SRC/" "$DEST/" 2>/dev/null | grep '^TRANSFER ' || true)
 
 if [ -n "$changes" ]; then
   count=$(find "$DEST" -name '*.md' | wc -l)
