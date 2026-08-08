@@ -1381,11 +1381,12 @@ class MemoryEngine:
             # rowcount = rows just inserted into FTS; matches the episodes
             # count after a rebuild, avoiding a separate COUNT(*) scan.
             # Guard for drivers that report -1 (undetermined) for
-            # INSERT...SELECT and fall back to an explicit count.
+            # INSERT...SELECT and fall back to an explicit count against
+            # the canonical episodes table (FTS is a mirror of it).
             if cur.rowcount >= 0:
                 return cur.rowcount
             return self.db.execute(
-                "SELECT COUNT(*) FROM episodes_fts"
+                "SELECT COUNT(*) FROM episodes"
             ).fetchone()[0]
         finally:
             self._release_write_lock()
