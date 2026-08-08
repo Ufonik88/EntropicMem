@@ -166,6 +166,92 @@ def check_backup() -> dict:
     return result
 
 
+def check_embeddings() -> dict:
+    """G3 (v2.2.0): embedding coverage — unembedded facts must be 0."""
+    if not MEMORY_DB.exists():
+        return {"status": "SKIP", "error": "memory.db missing"}
+    try:
+        conn = sqlite3.connect(str(MEMORY_DB))
+        total = conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+        embedded = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+        orphans = conn.execute(
+            "SELECT COUNT(*) FROM embeddings WHERE fact_id NOT IN (SELECT id FROM facts)"
+        ).fetchone()[0]
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"status": "WARN", "error": f"query failed: {exc}"}
+    unembedded = max(total - embedded, 0)
+    status = "OK" if unembedded == 0 and orphans == 0 else "WARN"
+    return {
+        "status": status,
+        "facts_total": total,
+        "embedded": embedded,
+        "unembedded_count": unembedded,
+        "orphan_rows": orphans,
+        "coverage_pct": round(100.0 * embedded / total, 1) if total else 100.0,
+        "hint": "run 'entropicmem embed --rebuild' with the Hermes venv python" if unembedded else ("delete orphan embedding rows" if orphans else None),
+    }
+
+
+def check_episodes() -> dict:
+    """G1 (v2.2.0): episodic store present with entries."""
+    if not MEMORY_DB.exists():
+        return {"status": "SKIP", "error": "memory.db missing"}
+    try:
+        conn = sqlite3.connect(str(MEMORY_DB))
+        total = conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
+        fts_count = conn.execute(
+            "SELECT COUNT(*) FROM episodes_fts"
+        ).fetchone()[0]
+        legacy = conn.execute(
+            "SELECT COUNT(*) FROM episodes WHERE source = 'mnemosyne_legacy'"
+        ).fetchone()[0]
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"status": "WARN", "error": f"query failed: {exc}"}
+    status = "OK" if total > 0 else "WARN"
+    return {
+        "status": status,
+        "episode_count": total,
+        "legacy_imported": legacy,
+        "fts_synced": fts_count == total,
+    }
+
+
+def check_triples() -> dict:
+    """G2 (v2.2.0): triple store present; edges mirrored to both DBs."""
+    if not MEMORY_DB.exists():
+        return {"status": "SKIP", "error": "memory.db missing"}
+    try:
+        conn = sqlite3.connect(str(MEMORY_DB))
+        total = conn.execute("SELECT COUNT(*) FROM triples").fetchone()[0]
+        legacy = conn.execute(
+            "SELECT COUNT(*) FROM triples WHERE source = 'mnemosyne_legacy'"
+        ).fetchone()[0]
+        mem_edges = conn.execute(
+            "SELECT COUNT(*) FROM graph_edges WHERE kind LIKE 'triple%'"
+        ).fetchone()[0]
+        conn.close()
+        idx = sqlite3.connect(str(INDEX_DB))
+        idx_edges = idx.execute(
+            "SELECT COUNT(*) FROM graph_edges WHERE kind LIKE 'triple%'"
+        ).fetchone()[0]
+        idx.close()
+    except sqlite3.Error as exc:
+        return {"status": "WARN", "error": f"query failed: {exc}"}
+    synced = mem_edges == idx_edges and mem_edges > 0
+    status = "OK" if total > 0 and synced else "WARN"
+    return {
+        "status": status,
+        "triple_count": total,
+        "legacy_imported": legacy,
+        "edges_memory_db": mem_edges,
+        "edges_index_db": idx_edges,
+        "split_brain": not synced,
+        "hint": "run 'entropicmem triple extract' then 'scripts/entropicmem_triples_sync.py'" if not synced else None,
+    }
+
+
 def check_stability_gate() -> dict:
     """Check 1-week stability gate criteria for sole-provider promotion.
 
@@ -386,6 +472,9 @@ def main() -> int:
         "vault": check_vault(),
         "index": check_index(),
         "fts": check_fts(),
+        "embeddings": check_embeddings(),
+        "episodes": check_episodes(),
+        "triples": check_triples(),
         "backup": check_backup(),
         "stability_gate": check_stability_gate(),
         "security_posture": check_security_posture(),

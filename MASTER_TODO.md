@@ -1,9 +1,9 @@
 # EntropicMem — MASTER TODO
 
-**Last updated:** 2026-08-07
-**Active track:** Index maintenance & stability-gate correctness (v2.1.8) + `.env` hygiene (v2.1.9)
+**Last updated:** 2026-08-08
+**Active track:** Contextual parity — G1–G10 gap closure (v2.2.0)
 **Plan doc:** `docs/SECURITY_HARDENING_PLAN.md`
-**Release:** v2.1.9 (`.env` re-poisoning fix); v2.1.8 (index maintenance); v2.1.7 (docs/metadata); v2.1.6 (security hardening)
+**Release:** v2.2.0 (contextual parity); v2.1.9 (`.env` re-poisoning fix); v2.1.8 (index maintenance); v2.1.7 (docs/metadata); v2.1.6 (security hardening)
 
 ---
 
@@ -52,6 +52,7 @@
 | 2026-07-30 | Docs refresh + repo maintenance → v2.1.7: version refs aligned, MASTER_TODO/README/CHANGELOG updated, test count corrected to 201 |
 | 2026-08-04 | Index maintenance → v2.1.8: `index rebuild|status` + `memory reindex` CLI, silent 6h watchdog, FTS-orphan detection in health check, current-streak stability gate in both health check and gate script, graph server `/refresh` rebuilds index first + canonical repo copy, 214 tests passing. Live remediation complete: scripts deployed, DBs rebuilt (1001 notes, 0 FTS orphans), `.env` de-poisoned, watchdog cron live (PR #41 hard-pin fix), health back to overall OK |
 | 2026-08-07 | `.env` re-poisoning fix → v2.1.9: `_append_env` guard only checked `ENTROPICMEM_VAULT_PATH`, so the next `init` after the v2.1.8 cleanup re-appended fresh `/tmp` entries (tmpzjok → tmpn2gh3ds5). Now block-level idempotent + refuses temp-dir paths. Live `.env` cleaned to one canonical block. Untracked generated `graph_export/`. 5 new tests (223 green). PR #47 merged; tag+release v2.1.9 |
+| 2026-08-08 | Contextual parity → v2.2.0 (G1–G10): episodic store (376 legacy imported + 12h capture cron), knowledge triples (4,938 legacy + 2,053 fact-triples + rule-based extractor + split-brain edge sync), full embedding coverage (885/885, hybrid recall live, venv re-exec for cron/Notion writes), cron-helper vault dual-write, Obsidian export mirror + AGENTS.md fix, canonical domain cleanup (11 remapped), CLI on PATH, parity audit PASS (0 missing). Notion sync resumed. 19 new tests (271 green). G7 cron deletion pending explicit user approval |
 
 ---
 
@@ -117,6 +118,80 @@ blind full-block re-append.
   current-streak semantics; ~2026-08-11 to pass (no action needed)
 - [x] Runtime symlinks pick up v2.1.9 automatically (plugin.yaml, SKILL.md, CLI)
 - [x] Watchdog cron `e9365690a702` active; graph server unit active
+
+---
+
+## Contextual Parity (2026-08-08 gap closure) — COMPLETE (v2.2.0)
+
+Closed the six gaps from the EntropicMem vs Mnemosyne gap analysis
+(`docs/ENTROPICMEM_GAP_ANALYSIS.md`-style audit of 2026-08-08) to reach
+**contextual parity**, not just operational parity. Verified against live
+stores: 885 facts, 1,003+ vault notes, full embedding coverage, episodic
+timeline, relational triple store.
+
+### G1 — Episodic memory (CRITICAL)
+- [x] `episodes` table + `episodes_fts` in the engine (title, summary,
+  start_ts/end_ts, source_session, linked_fact_ids, importance, domain)
+- [x] Engine API: `add_episode`, `list_episodes`, `recall_episodes`, `episode_stats`
+- [x] CLI: `episode add|list|stats`; `recall --type episodic --since --until`
+- [x] Backfill: **376/376** legacy Mnemosyne episodic entries (mne_ ids)
+- [x] 12h capture cron `b2618ec5b973` (`entropicmem_episodic_capture.py`,
+  reads live `state.db`, distills interactive sessions, skips cron noise)
+
+### G2 — Knowledge triples (CRITICAL)
+- [x] `triples` table (UNIQUE subject/predicate/object, validity, confidence, source)
+- [x] Engine: `upsert_triple`, `list_triples`, `triple_neighbors`, `triple_path`,
+  `triple_inconsistencies`, `triple_stats`
+- [x] CLI: `triple extract|list|stats|neighbors|path|inconsistencies`
+- [x] Rule-based extractor `triple_extract.py` (entity dict + relation patterns)
+- [x] Split-brain fixed: `triples_sync.py` mirrors triples → `graph_edges` in
+  BOTH memory.db and index.db (health check verifies parity)
+- [x] Backfill: **4,938 distinct** legacy triples + **2,053** legacy
+  triple-shaped facts (the analysis's "12,579" was the raw row count —
+  316k rows deduplicate to 4,938 distinct)
+- [x] Graph refresh cron runs extract + sync before server refresh
+
+### G3 — Embedding coverage (HIGH)
+- [x] Backfill: **885/885 facts embedded, 0 errors** (Hermes venv python)
+- [x] Write-path: `remember()` embeds on insert; cron helper + Notion sync
+  re-exec via venv when embedder missing
+- [x] Hybrid retrieval: plugin `_recall` + CLI `recall` use `recall_hybrid`
+- [x] Health check `embeddings` (coverage + orphan rows)
+
+### G4 — Cron memory path (MEDIUM, by design)
+- [x] `entropicmem_cron_remember.py --write-vault` (vault dual-write from cron)
+
+### G5 — Notion sync (MEDIUM)
+- [x] Test ingestion verified (11 facts → recall, security OK)
+- [x] Cron `dff8a6a72447` **resumed** (every 120m)
+
+### G6 — Obsidian second-brain (MEDIUM)
+- [x] `entropicmem_obsidian_export.sh`: engine vault → `Obsidian Vault/EntropicMem/`
+  (6h cron `1ce003b785d8`), 1,004 notes mirrored
+- [x] Obsidian `AGENTS.md` rewritten (0 Mnemosyne refs)
+- [x] Stale `Mnemosyne/` export folder retired to `_archive/`
+
+### G7 — Legacy cron cleanup (LOW) — **PENDING USER APPROVAL**
+- [ ] 6 paused Mnemosyne crons + `mnemosyne` plugin entry retained (deliberate:
+  destructive op requires explicit approval; jobs are disabled so no runtime risk)
+
+### G8 — Domains (LOW)
+- [x] Canonical list defined; `domain_cleanup.py` (dry-run default);
+  **11 stray facts remapped** (Test→Knowledge, Wedding→Projects,
+  Preference/Preferences→People, Operations/Security→Infrastructure)
+
+### G9 — CLI packaging (LOW)
+- [x] `~/.local/bin/entropicmem` symlink; verified in fresh shell
+
+### G10 — Parity audit (VERIFICATION)
+- [x] `entropicmem_parity_audit.py` — **PASS**: 0/2,053 facts, 0/376 episodes,
+  0/4,938 triples, 0/885 embeddings missing
+- [ ] Mnemosyne data dir preserved (94 MB) — deletion awaits explicit approval
+
+### Release state
+- [x] 271 tests green (19 new in `tests/test_v2_2_0.py`)
+- [x] Version 2.1.9 → 2.2.0; docs + skill updated
+- [x] PR #51 (visual graph UX) merged into this release line
 
 ---
 

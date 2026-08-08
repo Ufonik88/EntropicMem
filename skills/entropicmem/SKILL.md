@@ -1,7 +1,7 @@
 ---
 name: entropicmem
 description: Standalone knowledge engine: vault, memory, graph.
-version: 2.1.9
+version: 2.2.0
 author: Hermes
 platforms: [linux, macos, windows]
 metadata:

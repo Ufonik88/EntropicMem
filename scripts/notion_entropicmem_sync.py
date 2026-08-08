@@ -21,6 +21,21 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# v2.2.0 G3: prefer the Hermes venv interpreter when the current one lacks
+# sentence-transformers, so Notion-ingested facts get embedded on insert.
+def _reexec_with_venv_python() -> None:
+    try:
+        import sentence_transformers  # noqa: F401
+        return
+    except ImportError:
+        pass
+    venv_python = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / "hermes-agent" / "venv" / "bin" / "python3"
+    if venv_python.exists():
+        os.execv(str(venv_python), [str(venv_python), *sys.argv])
+
+
+_reexec_with_venv_python()
+
 try:
     HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
     sys.path.insert(0, str(HERMES_HOME / "skills" / "entropicmem" / "scripts"))

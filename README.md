@@ -212,7 +212,7 @@ See `skills/entropicmem/references/HERMES_INTEGRATION.md` for full documentation
 
 ## Sole Provider Status (2026-08-07)
 
-EntropicMem **v2.1.9** is the **sole memory provider** for Hermes Agent. All gaps from the migration gap analysis are resolved.
+EntropicMem **v2.2.0** is the **sole memory provider** for Hermes Agent. All gaps from the migration gap analysis are resolved — contextual parity achieved (episodic memory, knowledge triples, full embedding coverage).
 
 ```yaml
 memory:
