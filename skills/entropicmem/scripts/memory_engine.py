@@ -20,6 +20,7 @@ import re
 import fcntl
 import sqlite3
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1372,16 +1373,14 @@ class MemoryEngine:
         self._acquire_write_lock()
         try:
             self.db.execute("DELETE FROM episodes_fts")
-            rows = self.db.execute(
+            self.db.execute(
+                "INSERT INTO episodes_fts (rowid, title, summary) "
                 "SELECT rowid, title, summary FROM episodes"
-            ).fetchall()
-            for rowid, title, summary in rows:
-                self.db.execute(
-                    "INSERT INTO episodes_fts (rowid, title, summary) VALUES (?, ?, ?)",
-                    (rowid, title, summary),
-                )
+            )
             self.db.commit()
-            return len(rows)
+            return self.db.execute(
+                "SELECT COUNT(*) FROM episodes_fts"
+            ).fetchone()[0]
         finally:
             self._release_write_lock()
 
@@ -1474,23 +1473,27 @@ class MemoryEngine:
         return [dict(r) for r in rows]
 
     def triple_path(self, start: str, end: str, *, max_depth: int = 4) -> List[dict]:
-        """BFS over the triple graph from start to end. Returns the path edges."""
+        """BFS over the triple graph from start to end. Returns the path edges.
+
+        Depth-bounded: neighbors whose path would exceed `max_depth` are
+        never enqueued, so the search cannot expand beyond the limit.
+        """
         if start == end:
             return []
         seen: set = {start}
-        queue: list = [(start, [])]
+        queue: deque = deque([(start, [])])
         while queue:
-            node, path = queue.pop(0)
+            node, path = queue.popleft()
             for t in self.triple_neighbors(node, limit=500):
                 other = t["object"] if t["subject"] == node else t["subject"]
                 new_path = path + [dict(t)]
+                if len(new_path) > max_depth:
+                    continue  # don't enqueue this neighbor
                 if other == end:
                     return new_path
                 if other not in seen:
                     seen.add(other)
                     queue.append((other, new_path))
-                    if len(new_path) >= max_depth:
-                        continue
         return []
 
     def triple_inconsistencies(self) -> List[dict]:

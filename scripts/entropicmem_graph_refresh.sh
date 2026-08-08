@@ -11,10 +11,9 @@ ENV_FILE="${ENTROPICMEM_GRAPH_ENV:-$HOME/.hermes/entropicmem/graph_server.env}"
 if [ -z "${ENTROPICMEM_GRAPH_TOKEN:-}" ] && [ -f "$ENV_FILE" ]; then
   ENTROPICMEM_GRAPH_TOKEN="$(grep -E '^ENTROPICMEM_GRAPH_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
 fi
-if [ -z "${ENTROPICMEM_GRAPH_TOKEN:-}" ]; then
-  echo 'token missing' >&2
-  exit 1
-fi
+# Fail fast with a clear message if the token is missing (also protects the
+# curl header expansion under `set -u`).
+ENTROPICMEM_GRAPH_TOKEN="${ENTROPICMEM_GRAPH_TOKEN:?token missing}"
 if ! curl -fsS --max-time 5 -o /dev/null "${URL%/refresh}/health"; then
   echo 'health failed' >&2
   exit 1
@@ -23,8 +22,17 @@ out="$(curl -fsS --max-time "$TIMEOUT" -X POST "$URL" -H "X-Entropicmem-Token: $
 echo "$out"
 
 # v2.2.0 G2: extract + sync triples AFTER the refresh (see header comment).
+# Failures here are NOT swallowed: the triple edges are required for the
+# health check's split-brain check, so a silent miss would degrade the graph
+# without any alert.
 CLI_PATH="$HOME/.hermes/skills/entropicmem/scripts/entropicmem.py"
 if [ -f "$CLI_PATH" ]; then
-  python3 "$CLI_PATH" triple extract >/dev/null 2>&1 || true
-  python3 "$HOME/.hermes/scripts/entropicmem_triples_sync.py" >/dev/null 2>&1 || true
+  if ! python3 "$CLI_PATH" triple extract >/dev/null 2>&1; then
+    echo 'triple extract failed' >&2
+    exit 1
+  fi
+  if ! python3 "$HOME/.hermes/scripts/entropicmem_triples_sync.py" >/dev/null 2>&1; then
+    echo 'triple sync failed' >&2
+    exit 1
+  fi
 fi

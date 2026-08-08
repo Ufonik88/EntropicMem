@@ -173,15 +173,34 @@ def test_extract_triples_from_engine(engine):
 
 
 def test_rebuild_episodes_fts_repairs_orphans(engine):
-    eid = engine.add_episode("A", "alpha", start_ts="2026-07-01T00:00:00")
-    engine.add_episode("B", "beta", start_ts="2026-07-02T00:00:00")
+    engine.add_episode("Alpha", "first episode", start_ts="2026-07-01T00:00:00")
+    engine.add_episode("Beta", "surviving episode", start_ts="2026-07-02T00:00:00")
     # simulate a delete that leaves a stale FTS row (no delete trigger)
-    engine.db.execute("DELETE FROM episodes WHERE episode_id = ?", (eid,))
+    engine.db.execute("DELETE FROM episodes WHERE title = 'Alpha'")
     engine.db.commit()
-    engine.rebuild_episodes_fts()
+    rebuilt = engine.rebuild_episodes_fts()
     n_fts = engine.db.execute("SELECT COUNT(*) FROM episodes_fts").fetchone()[0]
     n_ep = engine.db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
     assert n_fts == n_ep == 1
+    assert rebuilt == n_ep  # return value reflects the rebuilt row count
+    # the surviving FTS row must carry the surviving episode's content
+    row = engine.db.execute(
+        "SELECT title, summary FROM episodes_fts"
+    ).fetchone()
+    assert row["title"] == "Beta"
+    assert "surviving" in row["summary"]
+
+
+def test_triple_path_respects_max_depth(engine):
+    """Sourcery: depth limiting must prevent expansion beyond max_depth."""
+    # chain A->B->C->D; a depth-2 search must not reach D
+    engine.upsert_triple("A", "r", "B")
+    engine.upsert_triple("B", "r", "C")
+    engine.upsert_triple("C", "r", "D")
+    path = engine.triple_path("A", "D", max_depth=2)
+    assert path == []  # would need 3 hops > max_depth=2
+    path2 = engine.triple_path("A", "C", max_depth=2)
+    assert len(path2) == 2
 
 
 # ── health check additions ──────────────────────────────────────────────────
