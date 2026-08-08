@@ -1373,14 +1373,14 @@ class MemoryEngine:
         self._acquire_write_lock()
         try:
             self.db.execute("DELETE FROM episodes_fts")
-            self.db.execute(
+            cur = self.db.execute(
                 "INSERT INTO episodes_fts (rowid, title, summary) "
                 "SELECT rowid, title, summary FROM episodes"
             )
             self.db.commit()
-            return self.db.execute(
-                "SELECT COUNT(*) FROM episodes_fts"
-            ).fetchone()[0]
+            # rowcount = rows just inserted into FTS; matches the episodes
+            # count after a rebuild, avoiding a separate COUNT(*) scan.
+            return cur.rowcount
         finally:
             self._release_write_lock()
 

@@ -27,11 +27,29 @@ def ensure_embedder() -> None:
 
     No-op when the embedder is already importable (the common case when the
     script runs under the venv). Safe to call multiple times.
+
+    Never loops: if the venv Python is already the running interpreter (or is
+    missing entirely) and the import still fails, warn on stderr and continue
+    without embeddings rather than re-exec'ing again.
     """
     try:
         import sentence_transformers  # noqa: F401
         return
     except ImportError:
         pass
-    if _VENV_PYTHON.exists():
-        os.execv(str(_VENV_PYTHON), [str(_VENV_PYTHON), *sys.argv])
+    venv_python = str(_VENV_PYTHON)
+    if not _VENV_PYTHON.exists():
+        print(
+            f"WARN: sentence-transformers unavailable and venv Python missing: "
+            f"{venv_python}; continuing without embeddings",
+            file=sys.stderr,
+        )
+        return
+    if os.path.realpath(sys.executable) == os.path.realpath(venv_python):
+        print(
+            "WARN: sentence-transformers unavailable even under the Hermes "
+            "venv; continuing without embeddings",
+            file=sys.stderr,
+        )
+        return
+    os.execv(venv_python, [venv_python, *sys.argv])
