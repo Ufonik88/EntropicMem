@@ -1,0 +1,38 @@
+# 🪄 Sourcery project configuration — EntropicMem
+# Local pre-commit gate + GitHub bot parity.
+# Docs: https://docs.sourcery.ai/Configuration/Project-Settings/
+
+version: '1'
+
+ignore:
+- .git
+- env
+- .env
+- .tox
+- node_modules
+- vendor
+- venv
+- .venv
+- ~/.pyenv
+- ~/.rye
+- ~/.vscode
+- .vscode
+- ~/.cache
+- ~/.config
+- ~/.local
+- .mypy_cache
+- .pytest_cache
+- __pycache__
+
+rule_settings:
+  enable:
+  - default
+  disable: []  # Add rule IDs here if a rule is too noisy for this repo.
+  rule_types:
+  - refactoring
+  - suggestion
+  - comment
+  python_version: '3.10'  # Must match pyproject.toml requires-python
+
+# metrics:
+#   quality_threshold: 25.0

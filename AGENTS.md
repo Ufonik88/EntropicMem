@@ -27,6 +27,21 @@ When EntropicMem is configured as the active memory provider (`memory.provider: 
 python3 -m pytest tests/ -q
 ```
 
+## Sourcery Pre-Commit Gate (v2.3.0)
+
+Sourcery runs LOCALLY before anything reaches GitHub — no more
+commit-then-wait-for-email loop. Load the `sourcery-local-precommit` skill
+before any commit; the gate is enforced by `.git/hooks/pre-commit` (symlink →
+`scripts/pre-commit-sourcery.sh`).
+
+- **Run first, always**: `sourcery review --check --diff "git diff --cached" --no-summary .`
+- **Fix, don't bypass**: `sourcery review --fix --diff "git diff HEAD" .` for
+  mechanical issues (then `git add -u` — fixes are NOT auto-staged), manual
+  triage for the rest (see `sourcery-review-remediation` skill).
+- **Config**: `.sourcery.yaml` at repo root (python_version 3.10 — keep in
+  sync with `pyproject.toml` requires-python).
+- **Never** use `git commit --no-verify` to push findings past the gate.
+
 ## Memory Provider
 When activated via `memory.provider: entropicmem` in `~/.hermes/config.yaml`:
 - Tools: `entropicmem_remember`, `entropicmem_recall`, `entropicmem_query`
