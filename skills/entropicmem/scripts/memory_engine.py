@@ -1363,6 +1363,28 @@ class MemoryEngine:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def rebuild_episodes_fts(self) -> int:
+        """Rebuild episodes_fts from the episodes table (orphan repair).
+
+        Deletes are not FTS-triggered (no AFTER DELETE trigger on episodes),
+        so removing episodes leaves stale rows. Returns the FTS row count.
+        """
+        self._acquire_write_lock()
+        try:
+            self.db.execute("DELETE FROM episodes_fts")
+            rows = self.db.execute(
+                "SELECT rowid, title, summary FROM episodes"
+            ).fetchall()
+            for rowid, title, summary in rows:
+                self.db.execute(
+                    "INSERT INTO episodes_fts (rowid, title, summary) VALUES (?, ?, ?)",
+                    (rowid, title, summary),
+                )
+            self.db.commit()
+            return len(rows)
+        finally:
+            self._release_write_lock()
+
     def episode_stats(self) -> dict:
         """Count episodes (total + by domain)."""
         total = self.db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]

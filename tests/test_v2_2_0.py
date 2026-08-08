@@ -172,6 +172,18 @@ def test_extract_triples_from_engine(engine):
     assert engine.triple_stats()["total"] == written
 
 
+def test_rebuild_episodes_fts_repairs_orphans(engine):
+    eid = engine.add_episode("A", "alpha", start_ts="2026-07-01T00:00:00")
+    engine.add_episode("B", "beta", start_ts="2026-07-02T00:00:00")
+    # simulate a delete that leaves a stale FTS row (no delete trigger)
+    engine.db.execute("DELETE FROM episodes WHERE episode_id = ?", (eid,))
+    engine.db.commit()
+    engine.rebuild_episodes_fts()
+    n_fts = engine.db.execute("SELECT COUNT(*) FROM episodes_fts").fetchone()[0]
+    n_ep = engine.db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
+    assert n_fts == n_ep == 1
+
+
 # ── health check additions ──────────────────────────────────────────────────
 
 

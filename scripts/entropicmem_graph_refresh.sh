@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 set -u
 
-# v2.2.0 G2: run incremental triple extraction + edge sync before the
-# server refresh so the graph reflects new facts (the extractor is
-# idempotent — UNIQUE upserts — so re-runs are safe).
-CLI_PATH="$HOME/.hermes/skills/entropicmem/scripts/entropicmem.py"
-if [ -f "$CLI_PATH" ]; then
-  python3 "$CLI_PATH" triple extract >/dev/null 2>&1 || true
-  python3 "$HOME/.hermes/scripts/entropicmem_triples_sync.py" >/dev/null 2>&1 || true
-fi
-
+# v2.2.0 G2: the server refresh rebuilds index.db from the vault FIRST
+# (its rebuild() deletes graph_edges), so triple extraction + edge sync must
+# run AFTER the refresh — otherwise the rebuild wipes the synced triple edges
+# and the health check's split-brain check goes WARN.
 URL="${ENTROPICMEM_GRAPH_URL:-http://127.0.0.1:8075/refresh}"
 TIMEOUT="${ENTROPICMEM_GRAPH_TIMEOUT:-60}"
 ENV_FILE="${ENTROPICMEM_GRAPH_ENV:-$HOME/.hermes/entropicmem/graph_server.env}"
@@ -26,3 +21,10 @@ if ! curl -fsS --max-time 5 -o /dev/null "${URL%/refresh}/health"; then
 fi
 out="$(curl -fsS --max-time "$TIMEOUT" -X POST "$URL" -H "X-Entropicmem-Token: ${ENTROPICMEM_GRAPH_TOKEN}")" || exit $?
 echo "$out"
+
+# v2.2.0 G2: extract + sync triples AFTER the refresh (see header comment).
+CLI_PATH="$HOME/.hermes/skills/entropicmem/scripts/entropicmem.py"
+if [ -f "$CLI_PATH" ]; then
+  python3 "$CLI_PATH" triple extract >/dev/null 2>&1 || true
+  python3 "$HOME/.hermes/scripts/entropicmem_triples_sync.py" >/dev/null 2>&1 || true
+fi
