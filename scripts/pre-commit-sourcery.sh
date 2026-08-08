@@ -29,7 +29,9 @@ fi
 
 echo "sourcery-gate: reviewing staged Python changes..."
 
-if ! "$SOURCERY" review --check --diff "git diff --cached" --no-summary .; then
+# Diff scoped to *.py so Sourcery reviews exactly what the gate guards;
+# non-Python staged files don't leak into the review scope.
+if ! "$SOURCERY" review --check --diff "git diff --cached -- '*.py'" --no-summary .; then
   echo "" >&2
   echo "sourcery-gate: review FAILED — fix the issues above, then re-stage (git add) and commit again." >&2
   echo "sourcery-gate: auto-fix hint: sourcery review --fix --diff \"git diff HEAD\"" >&2

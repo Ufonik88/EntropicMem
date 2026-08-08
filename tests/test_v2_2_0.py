@@ -191,6 +191,36 @@ def test_rebuild_episodes_fts_repairs_orphans(engine):
     assert "surviving" in row["summary"]
 
 
+def test_rebuild_episodes_fts_falls_back_when_rowcount_unknown(engine, monkeypatch):
+    """Drivers may report rowcount=-1 for INSERT...SELECT; count explicitly."""
+    engine.add_episode("Alpha", "first episode", start_ts="2026-07-01T00:00:00")
+    engine.add_episode("Beta", "surviving episode", start_ts="2026-07-02T00:00:00")
+
+    class _FakeCursor:
+        def __init__(self, cur):
+            self._cur = cur
+            self.rowcount = -1  # driver can't determine INSERT...SELECT count
+
+        def fetchone(self):
+            return self._cur.fetchone()
+
+    class _FakeConn:
+        """Wrap every cursor with rowcount=-1 (only the INSERT reads it)."""
+
+        def __init__(self, real):
+            self._real = real
+
+        def execute(self, sql, *args):
+            return _FakeCursor(self._real.execute(sql, *args))
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    monkeypatch.setattr(engine, "db", _FakeConn(engine.db))
+    rebuilt = engine.rebuild_episodes_fts()
+    assert rebuilt == 2  # fallback COUNT(*) path, not the -1 rowcount
+
+
 def test_triple_path_respects_max_depth(engine):
     """Sourcery: depth limiting must prevent expansion beyond max_depth."""
     # chain A->B->C->D; a depth-2 search must not reach D
