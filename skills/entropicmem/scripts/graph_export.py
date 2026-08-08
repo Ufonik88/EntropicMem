@@ -308,65 +308,77 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <style>
 :root {
   --bg: #0a0a0f;
-  --panel: rgba(15,15,25,0.92);
+  --bg-grad: radial-gradient(ellipse at 50% 0%, #12121c 0%, #0a0a0f 60%);
+  --panel: rgba(15,15,25,0.88);
   --border: #2a2a3a;
+  --border-subtle: rgba(90,228,170,0.08);
   --accent: #5AE4AA;
   --accent-dim: #1DCF8E;
+  --accent-glow: rgba(90,228,170,0.15);
   --text: #ccc;
   --text-dim: #888;
+  --text-bright: #eee;
   --display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --blur: 12px;
+  --radius: 12px;
+  --radius-sm: 6px;
+  --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; }
-body { background: var(--bg); color: var(--text); font-family: var(--body); overflow: hidden; }
+body { background: var(--bg-grad); color: var(--text); font-family: var(--body); overflow: hidden; }
 #graph { position: absolute; inset: 0; width: 100vw; height: 100vh; }
 #graph svg { display: block; }
 
 /* ── Control panel ── */
-#panel { position: absolute; top: 12px; left: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; width: 260px; font-size: 13px; z-index: 10; backdrop-filter: blur(6px); max-height: calc(100vh - 24px); overflow-y: auto; }
-#panel h2 { font-family: var(--display); font-size: 16px; font-weight: 700; margin: 0 0 10px; color: var(--accent); letter-spacing: 0.3px; }
-#panel label { display: block; margin: 10px 0 3px; color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
-#panel select, #panel input[type=text] { width: 100%; padding: 6px 9px; background: #1a1a2e; border: 1px solid #333; border-radius: 5px; color: var(--text); font-size: 12px; font-family: var(--body); }
-#panel input[type=text]:focus, #panel select:focus { outline: none; border-color: var(--accent); }
+#panel { position: absolute; top: 12px; left: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; width: 264px; font-size: 13px; z-index: 10; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); max-height: calc(100vh - 24px); overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+#panel h2 { font-family: var(--display); font-size: 16px; font-weight: 700; margin: 0 0 12px; color: var(--accent); letter-spacing: 0.3px; text-shadow: 0 0 12px var(--accent-glow); }
+#panel label { display: block; margin: 12px 0 4px; color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
+#panel select, #panel input[type=text] { width: 100%; padding: 7px 10px; background: #1a1a2e; border: 1px solid #333; border-radius: var(--radius-sm); color: var(--text); font-size: 12px; font-family: var(--body); transition: border-color var(--transition); }
+#panel input[type=text]:focus, #panel select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
 #panel input[type=range] { width: 100%; accent-color: var(--accent); }
 .domain-check { display: flex; align-items: center; gap: 7px; margin: 3px 0; font-size: 12px; cursor: pointer; }
 .domain-check input { width: auto; accent-color: var(--accent); }
 .domain-check .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-.btn-row { display: flex; gap: 6px; margin-top: 12px; }
-.btn { flex: 1; padding: 6px; background: #2a2a3a; border: 1px solid #444; color: var(--text); border-radius: 5px; cursor: pointer; font-size: 11px; font-family: var(--body); transition: all 0.15s; }
-.btn:hover { background: #353548; border-color: var(--accent); color: var(--accent); }
+.btn-row { display: flex; gap: 6px; margin-top: 14px; }
+.btn { flex: 1; padding: 7px; background: #2a2a3a; border: 1px solid #444; color: var(--text); border-radius: var(--radius-sm); cursor: pointer; font-size: 11px; font-family: var(--body); transition: all var(--transition); }
+.btn:hover { background: #353548; border-color: var(--accent); color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+.btn:active { transform: scale(0.97); }
 #imp-val { color: var(--accent); font-weight: 600; }
 
 /* ── Legend ── */
-#legend { position: absolute; bottom: 12px; right: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 12px; z-index: 10; backdrop-filter: blur(6px); max-width: 220px; }
-#legend .lg-title { font-family: var(--display); font-weight: 600; margin-bottom: 5px; color: var(--text); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+#legend { position: absolute; bottom: 12px; right: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; font-size: 12px; z-index: 10; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); max-width: 220px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+#legend .lg-title { font-family: var(--display); font-weight: 600; margin-bottom: 6px; color: var(--text-bright); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
 #legend .row { display: flex; align-items: center; gap: 8px; margin: 3px 0; color: var(--text-dim); }
 #legend .swatch { width: 11px; height: 11px; border-radius: 50%; flex: none; }
 #legend .shape-glyph { width: 14px; text-align: center; flex: none; color: var(--text); }
 
 /* ── Minimap ── */
-#minimap { position: absolute; bottom: 12px; right: 244px; width: 180px; height: 130px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; z-index: 10; overflow: hidden; backdrop-filter: blur(6px); }
+#minimap { position: absolute; bottom: 12px; right: 244px; width: 180px; height: 130px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); z-index: 10; overflow: hidden; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); cursor: pointer; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
 #minimap .viewport-rect { fill: rgba(90,228,170,0.12); stroke: var(--accent); stroke-width: 1; }
 
 /* ── Tooltip ── */
-#tooltip { position: absolute; background: rgba(10,10,20,0.96); border: 1px solid #444; border-radius: 7px; padding: 10px 13px; pointer-events: none; font-size: 12px; z-index: 20; display: none; max-width: 300px; box-shadow: 0 6px 24px rgba(0,0,0,0.5); }
+#tooltip { position: absolute; background: rgba(10,10,20,0.96); border: 1px solid #444; border-radius: 8px; padding: 10px 13px; pointer-events: none; font-size: 12px; z-index: 20; display: none; max-width: 300px; box-shadow: 0 6px 24px rgba(0,0,0,0.5); }
 #tooltip .tt-title { font-family: var(--display); font-weight: 600; margin-bottom: 4px; }
 #tooltip .tt-meta { color: var(--text-dim); line-height: 1.5; }
 
 /* ── Stats / status ── */
 #stats { position: absolute; bottom: 12px; left: 12px; color: #555; font-size: 11px; z-index: 10; }
-#focus-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--accent); color: var(--accent); border-radius: 20px; padding: 6px 16px; font-size: 12px; z-index: 10; display: none; backdrop-filter: blur(6px); }
+#focus-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--accent); color: var(--accent); border-radius: 20px; padding: 6px 16px; font-size: 12px; z-index: 10; display: none; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); box-shadow: 0 0 24px var(--accent-glow); }
 #focus-banner b { font-family: var(--display); }
 
 svg text { fill: #aaa; font-size: 9px; pointer-events: none; font-family: var(--body); }
-.node-shape { cursor: pointer; transition: opacity 0.2s; }
+.node-shape { cursor: pointer; transition: opacity var(--transition); }
+.node-halo { transition: opacity 0.3s ease-out, r 0.3s ease-out; }
+.node-group { transition: filter var(--transition); }
+.node-group:hover .node-shape { filter: url(#node-glow-strong) !important; }
 .node-group:focus { outline: none; }
 .node-group:focus .node-shape { stroke: #fff; stroke-width: 2; }
 
 /* ── Modal ── */
 #modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: none; backdrop-filter: blur(4px); }
-#modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 78vw; max-width: 1000px; height: 80vh; max-height: 92vh; background: #111218; border: 1px solid var(--border); border-radius: 14px; z-index: 101; display: none; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(90,228,170,0.12); }
+#modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 78vw; max-width: 1000px; height: 80vh; max-height: 92vh; background: #111218; border: 1px solid var(--border); border-radius: 16px; z-index: 101; display: none; flex-direction: column; overflow: hidden; box-shadow: 0 24px 72px rgba(0,0,0,0.7), 0 0 0 1px rgba(90,228,170,0.12); }
 #modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); background: #0d0d14; }
 #modal-title { font-family: var(--display); font-size: 17px; font-weight: 700; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
 #modal-actions { display: flex; gap: 8px; align-items: center; }
@@ -405,6 +417,19 @@ svg text { fill: #aaa; font-size: 9px; pointer-events: none; font-family: var(--
 </head>
 <body>
 <div id="graph" role="application" aria-label="Knowledge graph of vault notes"></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <filter id="node-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="node-glow-strong" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="4.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+</svg>
 
 <div id="panel">
   <h2>EntropicMem Graph</h2>
@@ -467,6 +492,29 @@ function edgeWidth(d) { return 0.6 + (d.weight || 1) * 1.1; }
 function nodeColor(d) { return d.color || PALETTE[d.domain] || "#888"; }
 function edgeDash(d) { return d.kind === "tag" ? "4,3" : null; }
 
+/* ── Tunable configuration (physics, zoom/LOD, halo, clipboard) ── */
+const CFG = {
+  physics: { linkDistance: 110, charge: -180, collisionPad: 12, alphaDecay: 0.035, alphaMin: 0.005, dragAlphaTarget: 0.15 },
+  zoom: { min: 0.05, max: 8, wheelFactor: 0.04, keyboardFactor: 1.3, focusScale: 1.8 },
+  lod: { hideBelow: 0.35, fadeBelow: 0.6, badgesAbove: 2.5 },
+  halo: { baseScale: 2.2, speedDivisor: 3, maxIntensity: 0.6, minOpacity: 0.08, restScale: 2.0, velScale: 0.5 },
+};
+
+/* ── Per-color cached halo gradients (tinted radial fade) ── */
+const haloGradCache = new Map();
+function haloGradientRef(color) {
+  if (!haloGradCache.has(color)) {
+    const id = `halo-grad-${haloGradCache.size}`;
+    const grad = svg.select("defs").append("radialGradient")
+      .attr("id", id).attr("cx", "50%").attr("cy", "50%").attr("r", "50%");
+    grad.append("stop").attr("offset", "0%").attr("stop-color", color).attr("stop-opacity", 0.35);
+    grad.append("stop").attr("offset", "60%").attr("stop-color", color).attr("stop-opacity", 0.12);
+    grad.append("stop").attr("offset", "100%").attr("stop-color", color).attr("stop-opacity", 0);
+    haloGradCache.set(color, id);
+  }
+  return `url(#${haloGradCache.get(color)})`;
+}
+
 /* ── State ── */
 let simulation, svg, rootG, linkG, nodeG, labelG;
 let mmSvg, mmNodeG, mmViewport;
@@ -476,10 +524,11 @@ let currentTransform = d3.zoomIdentity;
 let lastTrigger = null;   // element that opened the modal, for focus return
 let W = window.innerWidth, H = window.innerHeight;
 
-const zoom = d3.zoom().scaleExtent([0.1, 5]).on("zoom", (event) => {
+const zoom = d3.zoom().scaleExtent([CFG.zoom.min, CFG.zoom.max]).wheelDelta(event => -event.deltaY * CFG.zoom.wheelFactor).on("zoom", (event) => {
   currentTransform = event.transform;
   if (rootG) rootG.attr("transform", event.transform);
   updateMinimapViewport();
+  updateLOD();
 });
 
 /* ── Shape path generator (centered on 0,0 for given radius) ── */
@@ -612,7 +661,7 @@ function clearFocus() {
 /* ── Search / zoom-to-node ── */
 function jumpToNode(node) {
   if (!node) return;
-  const scale = 1.8;
+  const scale = CFG.zoom.focusScale;
   const t = d3.zoomIdentity.translate(W / 2 - node.x * scale, H / 2 - node.y * scale).scale(scale);
   svg.transition().duration(650).call(zoom.transform, t);
   applyFocus(node.id);
@@ -650,7 +699,7 @@ function render() {
     .attr("class", "node-group").attr("tabindex", 0)
     .attr("role", "button").attr("aria-label", d => `${d.title || d.id}, ${d.domain || "uncategorized"}`)
     .call(d3.drag()
-      .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(CFG.physics.dragAlphaTarget).restart(); d.fx = d.x; d.fy = d.y; })
       .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
       .on("end", (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }))
     .on("click", (event, d) => { event.stopPropagation(); openModal(d, event.currentTarget); })
@@ -667,18 +716,29 @@ function render() {
     if (p) { d.x = p.x; d.y = p.y; d.vx = p.vx; d.vy = p.vy; }
   });
 
-  // Shape per node type (circle vs path)
+  // Shape per node type: layered halo + core shape with glow filter
   nodeG.each(function(d) {
     const g = d3.select(this);
-    const path = shapePath(d.shape, nodeRadius(d));
+    const r = nodeRadius(d);
+    const color = nodeColor(d);
+
+    // Halo ring: per-color tinted radial gradient (velocity-responsive in updateNodeHalos)
+    g.append("circle").attr("class", "node-halo")
+      .attr("r", r * CFG.halo.baseScale).attr("fill", haloGradientRef(color))
+      .attr("opacity", 0.0).attr("pointer-events", "none");
+
+    // Core shape
+    const path = shapePath(d.shape, r);
     if (path) {
       g.append("path").attr("class", "node-shape").attr("d", path)
-        .attr("fill", nodeColor(d)).attr("stroke", "#fff")
-        .attr("stroke-width", 0.6).attr("stroke-opacity", 0.25);
+        .attr("fill", color).attr("stroke", "#fff")
+        .attr("stroke-width", 0.6).attr("stroke-opacity", 0.25)
+        .attr("filter", "url(#node-glow)");
     } else {
-      g.append("circle").attr("class", "node-shape").attr("r", nodeRadius(d))
-        .attr("fill", nodeColor(d)).attr("stroke", "#fff")
-        .attr("stroke-width", 0.6).attr("stroke-opacity", 0.25);
+      g.append("circle").attr("class", "node-shape").attr("r", r)
+        .attr("fill", color).attr("stroke", "#fff")
+        .attr("stroke-width", 0.6).attr("stroke-opacity", 0.25)
+        .attr("filter", "url(#node-glow)");
     }
   });
 
@@ -687,22 +747,71 @@ function render() {
     .attr("dy", d => nodeRadius(d) + 12).attr("text-anchor", "middle");
 
   simulation = d3.forceSimulation(nodes)
-    .force("link", d3.forceLink(edges).id(d => d.id).distance(85))
-    .force("charge", d3.forceManyBody().strength(-140))
+    .force("link", d3.forceLink(edges).id(d => d.id).distance(CFG.physics.linkDistance))
+    .force("charge", d3.forceManyBody().strength(CFG.physics.charge))
     .force("center", d3.forceCenter(W / 2, H / 2))
-    .force("collision", d3.forceCollide().radius(d => nodeRadius(d) + 9));
+    .force("collision", d3.forceCollide().radius(d => nodeRadius(d) + CFG.physics.collisionPad))
+    .alphaDecay(CFG.physics.alphaDecay)
+    .alphaMin(CFG.physics.alphaMin);
 
   simulation.on("tick", () => {
-    linkG.attr("x1", d => d.source.x).attr("y1", d => d.source.y)
-         .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
-    nodeG.attr("transform", d => `translate(${d.x},${d.y})`);
-    labelG.attr("x", d => d.x).attr("y", d => d.y);
+    linkG.attr("x1", d => Math.round(d.source.x)).attr("y1", d => Math.round(d.source.y))
+         .attr("x2", d => Math.round(d.target.x)).attr("y2", d => Math.round(d.target.y));
+    nodeG.attr("transform", d => `translate(${Math.round(d.x)},${Math.round(d.y)})`);
+    labelG.attr("x", d => Math.round(d.x)).attr("y", d => Math.round(d.y));
     updateMinimap();
+    updateNodeHalos();
   });
+
+  // Auto-stop physics when energy drops to avoid perpetual jitter
+  simulation.on("end", () => { if (focusedId === null) simulation.stop(); });
 
   rootG.attr("transform", currentTransform);
   if (focusedId && nodeById.has(focusedId)) applyFocus(focusedId);
   else clearFocus();
+  // nodeG was recreated — force LOD badge re-evaluation (zoom may be > badge threshold)
+  lastBadgeZoom = null;
+  updateLOD();
+}
+
+/* ── Velocity-responsive halos ── */
+function updateNodeHalos() {
+  if (!nodeG) return;
+  nodeG.each(function(d) {
+    const speed = Math.sqrt((d.vx || 0) ** 2 + (d.vy || 0) ** 2);
+    const halo = d3.select(this).select(".node-halo");
+    if (halo.empty()) return;
+    // Opacity scales with velocity: moving nodes show a wisp, resting nodes fade to near-zero
+    const intensity = Math.min(speed / CFG.halo.speedDivisor, CFG.halo.maxIntensity);
+    halo.attr("opacity", CFG.halo.minOpacity + intensity);
+    // Scale halo slightly with speed; resting scale matches the render-time base
+    const r = nodeRadius(d);
+    halo.attr("r", r * (CFG.halo.baseScale + intensity * CFG.halo.velScale));
+  });
+}
+
+/* ── Semantic LOD (level of detail) — hide labels at low zoom ── */
+let lastBadgeZoom = null; // true/false/null: whether badges are currently shown
+function updateLOD() {
+  if (!labelG) return;
+  const k = currentTransform.k;
+  const labelOpacity = k < CFG.lod.hideBelow ? 0 : k < CFG.lod.fadeBelow ? 0.3 : 1;
+  labelG.style("opacity", labelOpacity);
+  // Show tags as badges at high zoom; only touch the DOM when crossing the threshold
+  if (!nodeG) return;
+  const showBadges = k > CFG.lod.badgesAbove;
+  if (showBadges === lastBadgeZoom) return;
+  lastBadgeZoom = showBadges;
+  nodeG.selectAll(".node-badge").remove();
+  if (!showBadges) return;
+  nodeG.each(function(d) {
+    if (!d.tags || !d.tags.length) return;
+    const g = d3.select(this);
+    g.append("text").attr("class", "node-badge")
+      .attr("y", nodeRadius(d) + 22).attr("text-anchor", "middle")
+      .attr("font-size", "7px").attr("fill", nodeColor(d))
+      .text(`#${d.tags.length}`);
+  });
 }
 
 /* ── Tooltip ── */
@@ -727,6 +836,18 @@ function initMinimap() {
   mmSvg = d3.select("#minimap").append("svg").attr("width", 180).attr("height", 130);
   mmNodeG = mmSvg.append("g");
   mmViewport = mmSvg.append("rect").attr("class", "viewport-rect");
+  // Click-to-pan: convert minimap click coords to world-space and center
+  mmSvg.on("click", (event) => {
+    if (!mmSvg || !mmSvg._mm) return;
+    const [mx, my] = d3.pointer(event, mmSvg.node());
+    const { scale, ox, oy } = mmSvg._mm;
+    const wx = (mx - ox) / scale;
+    const wy = (my - oy) / scale;
+    const newTransform = d3.zoomIdentity
+      .translate(W / 2 - wx * currentTransform.k, H / 2 - wy * currentTransform.k)
+      .scale(currentTransform.k);
+    svg.transition().duration(350).call(zoom.transform, newTransform);
+  });
 }
 function updateMinimap() {
   if (!mmSvg || !nodeG) return;
@@ -838,6 +959,27 @@ function openModal(node, trigger) {
     });
   });
 
+  // Code block copy buttons
+  bodyEl.querySelectorAll("pre").forEach(pre => {
+    pre.style.position = "relative";
+    const btn = document.createElement("button");
+    btn.className = "btn code-copy-btn";
+    btn.textContent = "Copy";
+    btn.style.cssText = "position:absolute;top:6px;right:6px;padding:3px 8px;font-size:10px;opacity:0;transition:opacity 0.15s;";
+    pre.addEventListener("mouseenter", () => btn.style.opacity = "1");
+    pre.addEventListener("mouseleave", () => btn.style.opacity = "0");
+    btn.addEventListener("click", () => {
+      const code = pre.querySelector("code") ? pre.querySelector("code").textContent : pre.textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(() => {
+          btn.textContent = "Copied!";
+          setTimeout(() => btn.textContent = "Copy", 1200);
+        }).catch(() => {});
+      }
+    });
+    pre.appendChild(btn);
+  });
+
   modal.style.display = "flex";
   overlay.style.display = "block";
   document.body.style.overflow = "hidden";
@@ -854,14 +996,16 @@ function closeModal() {
 
 /* ── Copy link to note ── */
 function copyNoteLink() {
-  const title = document.getElementById("modal-title").textContent;
-  const url = `${location.origin}${location.pathname}#note=${encodeURIComponent(title)}`;
-  navigator.clipboard.writeText(url).then(() => {
-    const btn = document.getElementById("btn-copy-link");
-    const orig = btn.textContent;
-    btn.textContent = "Copied!";
-    setTimeout(() => { btn.textContent = orig; }, 1200);
-  }).catch(() => {});
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    const title = document.getElementById("modal-title").textContent;
+    const url = `${location.origin}${location.pathname}#note=${encodeURIComponent(title)}`;
+    navigator.clipboard.writeText(url).then(() => {
+      const btn = document.getElementById("btn-copy-link");
+      const orig = btn.textContent;
+      btn.textContent = "Copied!";
+      setTimeout(() => { btn.textContent = orig; }, 1200);
+    }).catch(() => {});
+  }
 }
 
 /* ── Export PNG ── */
@@ -892,10 +1036,21 @@ function exportPNG() {
 /* ── Wiring ── */
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeModal();
+  // Keyboard zoom: + to zoom in, - to zoom out (skip if typing in an input)
+  if ((e.key === "+" || e.key === "=" || e.key === "-" || e.key === "_") &&
+      e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
+    e.preventDefault();
+    const factor = (e.key === "+" || e.key === "=") ? CFG.zoom.keyboardFactor : 1 / CFG.zoom.keyboardFactor;
+    const newK = Math.max(CFG.zoom.min, Math.min(CFG.zoom.max, currentTransform.k * factor));
+    const cx = W / 2, cy = H / 2;
+    const t = d3.zoomIdentity.translate(cx - cx * newK, cy - cy * newK).scale(newK);
+    svg.transition().duration(200).call(zoom.transform, t);
+  }
 });
 
 document.addEventListener("DOMContentLoaded", () => {
   svg = d3.select("#graph").append("svg").attr("width", "100%").attr("height", "100%");
+  svg.append("defs"); // for per-color halo gradients (haloGradientRef)
   svg.call(zoom).on("click", () => clearFocus());
   initMinimap();
   buildLegend();
@@ -912,7 +1067,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-copy-link").addEventListener("click", copyNoteLink);
 
   render();
-  window.addEventListener("resize", () => { W = window.innerWidth; H = window.innerHeight; render(); });
+  window.addEventListener("resize", () => { W = window.innerWidth; H = window.innerHeight; });
+  // Call updateLOD once after initial render
+  setTimeout(updateLOD, 100);
 
   // Deep-link: open a note from #note=Title
   const m = location.hash.match(/#note=(.+)/);
