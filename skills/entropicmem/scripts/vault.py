@@ -1,0 +1,651 @@
+"""
+vault.py — Core vault operations for EntropicMem.
+
+Reads, writes, and manages Markdown notes in the EntropicMem vault.
+Stdlib-only. All paths are Path objects.
+"""
+
+import hashlib
+import os
+import re
+import shutil
+import subprocess
+import unicodedata
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+# ── protected prefixes (never write) ────────────────────────────────────────
+PROTECTED_PREFIXES = ("_archive/",)
+
+
+def derive_title(content: str, max_len: int = 60) -> str:
+    """Derive a human-readable title from fact/content text.
+
+    NAMING CONVENTION (v2.2.0+):
+    - Uses the FIRST SENTENCE (not a raw [:N] slice — no mid-word cuts)
+    - Strips markdown formatting chars, emoji/symbols (unicodedata So/Sk),
+      and the legacy 'Fact - ' prefix
+    - Returns '' when nothing usable remains (caller picks a fallback)
+    """
+    if not content:
+        return ""
+    text = re.sub(r"[#*`>_~]", " ", content)
+    # Emoji + decorative symbols (stdlib-only; So/Sk + variation selectors)
+    text = "".join(
+        " " if unicodedata.category(ch) in ("So", "Sk") or ord(ch) == 0xFE0F else ch
+        for ch in text
+    )
+    text = text.replace("\n", " ").replace("Fact - ", "").replace("Fact: ", "")
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+    # First sentence boundary
+    for sep in (". ", "! ", "? ", " — ", ": "):
+        idx = text.find(sep)
+        if 0 < idx <= max_len:
+            text = text[:idx + 1]
+            break
+    text = text.rstrip(".!?: ") + "."
+    if text == ".":
+        return ""
+    if len(text) > max_len:
+        cut = text[:max_len]
+        idx = max(cut.rfind(" "), cut.rfind("-"), cut.rfind("—"))
+        text = cut[:idx].rstrip(" .") + "…" if idx > 20 else cut.rstrip() + "…"
+    return text.strip()
+
+# ── domain list (seeded at init) ────────────────────────────────────────────
+DEFAULT_DOMAINS = [
+    "Infrastructure",
+    "Acme Corp",
+    "Content-Growth",
+    "Finance",
+    "Workflows",
+    "People",
+    "Knowledge",
+    "Products-Research",
+    "Projects",
+]
+
+# ── data classes ────────────────────────────────────────────────────────────
+
+@dataclass
+class Note:
+    """Parsed representation of a vault note."""
+    path: Path                      # relative to vault root
+    title: str
+    body: str                       # everything after frontmatter
+    frontmatter: Dict[str, Any] = field(default_factory=dict)
+    tags: List[str] = field(default_factory=list)
+    created: str = ""
+    updated: str = ""
+    source: str = ""
+    source_url: str = ""
+    aliases: List[str] = field(default_factory=list)
+    agent: bool = False
+    entropic_id: str = ""
+    domain: str = ""
+    note_type: str = "permanent"    # literature|permanent|moc|index|log
+
+    @property
+    def note_id(self) -> str:
+        """Stable identifier: Domain/filename-without-extension."""
+        try:
+            rel = self.path.relative_to(self.path.parent.parent)
+        except ValueError:
+            rel = self.path
+        return str(rel.with_suffix(""))
+
+    @property
+    def importance(self) -> float:
+        """Heuristic importance score based on tags, links, length."""
+        score = 0.3
+        score += min(len(self.tags) * 0.05, 0.2)
+        link_count = len(re.findall(r'\[\[(.+?)\]\]', self.body))
+        score += min(link_count * 0.03, 0.3)
+        score += min(len(self.body.split()) / 500 * 0.1, 0.2)
+        return round(min(score, 1.0), 2)
+
+    def compute_entropic_id(self) -> str:
+        """Deterministic content hash for deduplication and identity."""
+        payload = self.title + "\n" + self.body
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+    def to_frontmatter_block(self) -> str:
+        """Serialize frontmatter to YAML-like block."""
+        lines = ["---"]
+        lines.append(f'title: "{self.title}"')
+        lines.append(f'type: "{self.note_type}"')
+        if self.tags:
+            tags_str = ", ".join(self.tags)
+            lines.append(f"tags: [{tags_str}]")
+        today = self.created or date.today().isoformat()
+        lines.append(f'created: "{today}"')
+        lines.append(f'updated: "{today}"')
+        if self.source:
+            lines.append(f'source: "{self.source}"')
+        if self.source_url:
+            lines.append(f'source_url: "{self.source_url}"')
+        if self.aliases:
+            aliases_str = ", ".join(self.aliases)
+            lines.append(f"aliases: [{aliases_str}]")
+        if self.agent:
+            lines.append("agent: true")
+        eid = self.entropic_id or self.compute_entropic_id()
+        lines.append(f'entropic_id: "{eid}"')
+        if self.domain:
+            lines.append(f'domain: "{self.domain}"')
+        lines.append("---")
+        return "\n".join(lines)
+
+    def to_markdown(self) -> str:
+        """Render full note as Markdown text."""
+        fm = self.to_frontmatter_block()
+        return f"{fm}\n\n{self.body}\n"
+
+
+# ── vault class ─────────────────────────────────────────────────────────────
+
+class Vault:
+    """Operations on an EntropicMem Markdown vault."""
+
+    def __init__(self, root: Path):
+        self.root = Path(root).resolve()
+
+    # ── path helpers ────────────────────────────────────────────────────
+
+    def resolve_path(self, relative: str) -> Path:
+        """Resolve a relative path within the vault. Accepts vault://Domain/Note format."""
+        clean = relative.removeprefix("vault://")
+        # Prevent path traversal: resolve and ensure it's within vault root
+        resolved = (self.root / clean).resolve()
+        if not str(resolved).startswith(str(self.root.resolve())):
+            raise ValueError(f"Path traversal attempt blocked: {relative}")
+        return resolved
+
+    def sanitize(self, name: str) -> str:
+        """Sanitize a string into a safe filename stub.
+
+        NAMING CONVENTION (v2.2.0+):
+        - Preserves original case (Title Case stays readable)
+        - WHITELIST: keeps word chars (letters/digits/underscore), spaces,
+          hyphens, em/en dashes, periods, commas, parentheses, ampersands,
+          apostrophes, # and +. Everything else (incl. @, %, $, emoji) is
+          replaced with a space — behavior matches this docstring exactly.
+        - Collapses whitespace, truncates at 90 chars on a word boundary
+        - Falls back to 'untitled' if nothing remains
+        Result stays human-searchable in Obsidian (the whole point: vault
+        notes must be findable by eye, not just by query).
+        """
+        # Whitelist: only the safe set survives (path-unsafe, control chars,
+        # @, %, $ and emoji all become spaces)
+        slug = re.sub(r"[^\w \-—–.,()&'#+]", " ", name)
+        # Collapse whitespace
+        slug = re.sub(r"\s+", " ", slug).strip()
+        if not slug:
+            return "untitled"
+        # Truncate on a word boundary (max 90 chars)
+        if len(slug) > 90:
+            cut = slug[:90]
+            idx = max(cut.rfind(" "), cut.rfind("-"), cut.rfind("—"), cut.rfind("–"))
+            slug = cut[:idx].rstrip() if idx > 40 else cut.rstrip(" -—–")
+        # Strip trailing punctuation so filenames don't end in '..md'
+        slug = slug.rstrip(" .-—–")
+        return slug or "untitled"
+
+    def humanize(self, title: str) -> str:
+        """Alias of sanitize for readability — keeps the convention name
+        explicit at call sites. Identical behavior; see sanitize()."""
+        return self.sanitize(title)
+
+    @staticmethod
+    def make_title(content: str, max_len: int = 60) -> str:
+        """Delegate to module-level derive_title() (naming convention).
+
+        Kept as a static method for backwards compatibility; new code can
+        import derive_title directly from vault to avoid the Vault import.
+        """
+        return derive_title(content, max_len=max_len)
+
+    def _is_protected(self, rel: Path) -> bool:
+        """Check if a relative path falls under a protected prefix."""
+        r = str(rel)
+        # Check both with and without trailing slash
+        for p in PROTECTED_PREFIXES:
+            if r.startswith(p) or r.startswith(p.rstrip('/') + '/') or r == p.rstrip('/'):
+                return True
+        return False
+
+    def is_safe_mode(self) -> bool:
+        """Detect safe mode: AGENTS.md already exists in the vault root."""
+        return (self.root / "AGENTS.md").exists()
+
+    # ── file operations ─────────────────────────────────────────────────
+
+    def read_frontmatter(self, path: Path) -> Dict[str, Any]:
+        """Parse YAML-like frontmatter from a note file. Stdlib-only — no PyYAML."""
+        text = path.read_text(encoding="utf-8")
+        fm: Dict[str, Any] = {}
+        if not text.startswith("---"):
+            return fm
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            return fm
+        block = parts[1]
+        for line in block.strip().split("\n"):
+            line = line.strip()
+            if ":" not in line:
+                continue
+            key, _, val = line.partition(":")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            # parse list values: [a, b, c]
+            if val.startswith("[") and val.endswith("]"):
+                val = [v.strip().strip('"').strip("'") for v in val[1:-1].split(",") if v.strip()]
+            # parse bool
+            elif val.lower() == "true":
+                val = True
+            elif val.lower() == "false":
+                val = False
+            fm[key] = val
+        return fm
+
+    def read_note(self, path: Path) -> Note:
+        """Read a note from disk and parse frontmatter + body."""
+        full = self.root / path if not path.is_absolute() else path
+        text = full.read_text(encoding="utf-8")
+        fm: Dict[str, Any] = {}
+        body = text
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            if len(parts) >= 3:
+                fm = self.read_frontmatter(full)
+                body = parts[2].strip()
+        title = fm.get("title", full.stem.replace("-", " ").title())
+        return Note(
+            path=path if not path.is_absolute() else path.relative_to(self.root),
+            title=title,
+            body=body,
+            frontmatter=fm,
+            tags=fm.get("tags", []),
+            created=fm.get("created", ""),
+            updated=fm.get("updated", ""),
+            source=fm.get("source", ""),
+            source_url=fm.get("source_url", ""),
+            aliases=fm.get("aliases", []),
+            agent=fm.get("agent", False),
+            entropic_id=fm.get("entropic_id", ""),
+            domain=fm.get("domain", ""),
+            note_type=fm.get("type", "permanent"),
+        )
+
+    def write_note(
+        self,
+        folder: str,
+        title: str,
+        body: str,
+        tags: Optional[List[str]] = None,
+        frontmatter: Optional[Dict[str, Any]] = None,
+        note_type: str = "permanent",
+        source: str = "agent",
+        source_url: str = "",
+        domain: str = "",
+        agent: bool = True,
+        _allow_protected: bool = False,
+    ) -> Path:
+        """
+        Create a new note. Returns the relative path within the vault.
+
+        Raises ValueError if the path is write-protected (_archive/).
+        """
+        # Check protected prefix BEFORE sanitizing (sanitize removes underscores)
+        # Normalize folder for protection check
+        normalized_folder = folder.strip().rstrip('/')
+        if any(normalized_folder == p.rstrip('/') or normalized_folder.startswith(p.rstrip('/') + '/') for p in PROTECTED_PREFIXES):
+            if not _allow_protected:
+                raise ValueError(
+                    f"Path '{normalized_folder}' is write-protected (_archive/)."
+                )
+
+        # Sanitize folder to prevent path traversal
+        # But first check if an existing directory matches (case-insensitive)
+        # to preserve the original case (e.g., "Knowledge" not "knowledge")
+        safe_folder_raw = self.sanitize(folder)
+        safe_folder = safe_folder_raw
+        for item in self.root.iterdir():
+            if item.is_dir() and item.name.lower() == safe_folder_raw.lower():
+                safe_folder = item.name
+                break
+
+        slug = self.sanitize(title)
+        filename = f"{slug}.md"
+
+        # Collision-safe: never silently overwrite an existing note.
+        # Humanized titles (e.g. two facts starting with the same sentence)
+        # make collisions realistic, so append a numeric suffix.
+        candidate = filepath = (self.root / safe_folder / filename).resolve()
+        n = 2
+        while filepath.exists():
+            filepath = (self.root / safe_folder / f"{slug}-{n}.md").resolve()
+            n += 1
+        if filepath != candidate:
+            filename = filepath.name
+
+        # Ensure the resolved path is within vault root
+        if not str(filepath).startswith(str(self.root.resolve())):
+            raise ValueError(f"Path traversal attempt blocked: {folder}/{filename}")
+
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+
+        note = Note(
+            path=Path(safe_folder) / filename,
+            title=title,
+            body=body,
+            tags=tags or [],
+            note_type=note_type,
+            source=source,
+            source_url=source_url,
+            domain=domain or safe_folder,
+            agent=agent,
+            created=date.today().isoformat(),
+        )
+        if frontmatter:
+            for k, v in frontmatter.items():
+                setattr(note, k, v) if hasattr(note, k) else None
+
+        filepath.write_text(note.to_markdown(), encoding="utf-8")
+        return Path(safe_folder) / filename
+
+    def append_note(self, path: Path, content: str, anchor: Optional[str] = None) -> None:
+        """Append content to an existing note, optionally after an anchor line."""
+        text = (self.root / path).read_text(encoding="utf-8")
+        if anchor and anchor in text:
+            idx = text.index(anchor) + len(anchor)
+            text = text[:idx] + "\n" + content + text[idx:]
+        else:
+            text += "\n" + content
+        (self.root / path).write_text(text, encoding="utf-8")
+
+    def patch_note(
+        self, path: Path, old_string: str, new_string: str, replace_all: bool = False
+    ) -> None:
+        """Find-and-replace inside a note body."""
+        text = (self.root / path).read_text(encoding="utf-8")
+        if replace_all:
+            text = text.replace(old_string, new_string)
+        else:
+            count = text.count(old_string)
+            if count == 0:
+                raise ValueError(f"old_string not found in {path}")
+            if count > 1:
+                raise ValueError(f"old_string appears {count} times in {path} — use replace_all=True")
+            text = text.replace(old_string, new_string, 1)
+        (self.root / path).write_text(text, encoding="utf-8")
+
+    def delete_note(self, path: Path) -> None:
+        """Delete a note. Refuses to delete protected paths."""
+        if self._is_protected(path):
+            raise ValueError(f"Cannot delete protected path: {path}")
+        full = self.root / path
+        if full.exists():
+            full.unlink()
+
+    def list_notes(
+        self,
+        folder: Optional[str] = None,
+        include_archive: bool = False,
+    ) -> List[Path]:
+        """List all Markdown files, optionally scoped to a folder. Skips protected + archive."""
+        # Find the actual folder (case-insensitive match against existing dirs)
+        base = self.root
+        if folder:
+            # Try exact match first, then case-insensitive
+            folder_path = self.root / folder
+            if not folder_path.exists():
+                # Try case-insensitive match
+                for item in self.root.iterdir():
+                    if item.is_dir() and item.name.lower() == folder.lower():
+                        folder_path = item
+                        break
+            base = folder_path
+
+        if not base.exists():
+            return []
+        notes = []
+        for md in base.rglob("*.md"):
+            rel = md.relative_to(self.root)
+            if self._is_protected(rel):
+                continue
+            if not include_archive and "_archive/" in str(rel):
+                continue
+            notes.append(rel)
+        return sorted(notes)
+
+    def search_notes(
+        self, pattern: str, folder: Optional[str] = None
+    ) -> List[Tuple[Path, int, str]]:
+        """Grep-like search inside note bodies. Returns (path, line_number, line)."""
+        results = []
+        base = self.root
+        if folder:
+            folder_path = self.root / folder
+            if not folder_path.exists():
+                for item in self.root.iterdir():
+                    if item.is_dir() and item.name.lower() == folder.lower():
+                        folder_path = item
+                        break
+            base = folder_path
+        if not base.exists():
+            return results
+        # Sanitize pattern: only use for case-insensitive substring match, no regex
+        safe_pattern = pattern.lower()
+        for md in base.rglob("*.md"):
+            rel = md.relative_to(self.root)
+            if self._is_protected(rel):
+                continue
+            try:
+                for i, line in enumerate(md.read_text(encoding="utf-8").split("\n"), 1):
+                    if safe_pattern in line.lower():
+                        results.append((rel, i, line.strip()[:200]))
+            except Exception:
+                continue
+        return results
+
+    def get_all_titles(self) -> Dict[str, Path]:
+        """Build {title: relative_path} for all notes (for linkify)."""
+        titles: Dict[str, Path] = {}
+        for rel in self.list_notes():
+            note = self.read_note(rel)
+            titles[note.title] = rel
+            for alias in note.aliases:
+                titles[alias] = rel
+        return titles
+
+    def linkify(self, text: str) -> str:
+        """Convert known note titles in text to [[wikilinks]]."""
+        titles = self.get_all_titles()
+        # Sort by length descending to match longest first (avoid partial matches)
+        for title in sorted(titles.keys(), key=len, reverse=True):
+            if title in text and f"[[{title}]]" not in text:
+                # Only replace standalone occurrences (word boundaries)
+                # Escape special regex chars in title
+                safe_title = re.escape(title)
+                text = re.sub(
+                    rf"(?<!\[\[)(?<!\w){safe_title}(?!\w)(?!\]\])",
+                    f"[[{title}]]",
+                    text,
+                )
+        return text
+
+    def extract_wikilinks(self, text: str) -> List[str]:
+        """Extract all [[wikilink]] targets from text."""
+        return re.findall(r"\[\[(.+?)\]\]", text)
+
+    def get_domains(self) -> List[str]:
+        """Return list of domain folders that have content."""
+        domains = []
+        for item in sorted(self.root.iterdir()):
+            if item.is_dir() and not item.name.startswith(".") and item.name not in ("inbox", "templates", ".raw", "_archive", "attachments"):
+                if item.name in DEFAULT_DOMAINS or any(item.iterdir()):
+                    domains.append(item.name)
+        return domains
+
+    def open_note(self, note_id: str) -> None:
+        """
+        Open a note in the system editor. Accepts 'vault://Domain/Note' or 'Domain/Note' format.
+        Falls back to $EDITOR → code → xdg-open.
+        """
+        path = self.resolve_path(note_id)
+        if not path.exists():
+            # try with .md extension
+            path = Path(str(path) + ".md")
+        if not path.exists():
+            raise FileNotFoundError(f"Note not found: {note_id}")
+
+        editors = [
+            os.environ.get("EDITOR"),
+            os.environ.get("VISUAL"),
+            "code",
+            "gedit",
+            "xdg-open",
+        ]
+        for editor in editors:
+            if editor and shutil.which(editor):
+                subprocess.run([editor, str(path)], check=False)
+                return
+        raise RuntimeError("No editor found. Set $EDITOR or install code.")
+
+
+# ── module-level helpers ────────────────────────────────────────────────────
+
+# ── core memory ─────────────────────────────────────────────────────────────
+
+class CoreMemory:
+    """Agent-writable core memory for Persona and User Profile.
+
+    Provides low-cost surgical editing of active operational guidelines
+    and durable user facts, similar to MemGPT/Letta's core memory blocks.
+    """
+
+    def __init__(self, vault_root: Path):
+        self.core_dir = Path(vault_root) / "Core"
+        self.core_dir.mkdir(exist_ok=True)
+        self._ensure_files()
+
+    def _ensure_files(self) -> None:
+        """Create Core Memory files if they don't exist."""
+        persona = self.core_dir / "Persona.md"
+        profile = self.core_dir / "User_Profile.md"
+
+        if not persona.exists():
+            persona.write_text(
+                "# Agent Persona\n\n*Core memory: operational guidelines, rules, identity.*\n\n"
+                "## Identity\nEntropicMem Agent — autonomous assistant\n\n## Rules\n(TBD)\n\n## Defaults\n"
+                "- Communication style: direct, concise\n- Verify before reporting success\n",
+                encoding="utf-8",
+            )
+        if not profile.exists():
+            profile.write_text(
+                "# User Profile\n\n*Core memory: durable user facts, preferences, context.*\n\n"
+                "## Facts\n(TBD)\n\n## Preferences\n(TBD)\n",
+                encoding="utf-8",
+            )
+
+    @property
+    def persona(self) -> str:
+        return (self.core_dir / "Persona.md").read_text(encoding="utf-8")
+
+    @property
+    def user_profile(self) -> str:
+        return (self.core_dir / "User_Profile.md").read_text(encoding="utf-8")
+
+    def patch(self, target: str, old_text: str, new_text: str = "") -> bool:
+        """Surgically update a Core Memory block.
+
+        Args:
+            target: 'persona' or 'user_profile'
+            old_text: Exact text to find and replace
+            new_text: Replacement text (empty = delete matched text)
+
+        Returns:
+            True if patch was applied, False if text not found.
+        """
+        if target not in ("persona", "user_profile"):
+            raise ValueError(f"Invalid target: {target}. Use 'persona' or 'user_profile'.")
+
+        file_path = self.core_dir / ("Persona.md" if target == "persona" else "User_Profile.md")
+        content = file_path.read_text(encoding="utf-8")
+
+        if old_text not in content:
+            return False
+
+        if new_text:
+            updated = content.replace(old_text, new_text, 1)
+        else:
+            # Delete: remove the matched text + newline
+            updated = content.replace(old_text + "\n", "", 1)
+
+        file_path.write_text(updated, encoding="utf-8")
+        return True
+
+    def injection_block(self) -> str:
+        """Return a formatted block for system prompt injection.
+
+        Always returns Persona first, then User Profile, with clear markers.
+        """
+        persona = self.persona
+        profile = self.user_profile
+
+        # Strip YAML frontmatter if present
+        if persona.startswith("---"):
+            idx = persona.find("---", 3)
+            if idx != -1:
+                persona = persona[idx + 3:].strip()
+        if profile.startswith("---"):
+            idx = profile.find("---", 3)
+            if idx != -1:
+                profile = profile[idx + 3:].strip()
+
+        return (
+            f"## Core Memory — Persona\n\n{persona}\n\n"
+            f"## Core Memory — User Profile\n\n{profile}"
+        )
+
+
+def hermes_home_path() -> Path:
+    """Resolve the Hermes home dir, honoring HERMES_HOME (profile mode)."""
+    return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")).expanduser().resolve()
+
+
+def resolve_vault_path(explicit: Optional[str] = None) -> Path:
+    """
+    Resolve vault path from env vars or defaults.
+
+    Order of precedence:
+    1. ENTROPICMEM_VAULT_PATH env var
+    2. OBSIDIAN_VAULT_PATH env var
+    3. $HERMES_HOME/entropicmem/vault (profile-aware; also the default home)
+    4. ~/Documents/Obsidian Vault (legacy fallback, only when HERMES_HOME
+       is unset AND the shared Obsidian vault exists with AGENTS.md)
+
+    Profiles (HERMES_HOME set) never fall back to the shared Obsidian
+    vault — a wife/personal profile must keep its own isolated vault.
+    """
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+
+    env_path = os.environ.get("ENTROPICMEM_VAULT_PATH") or os.environ.get("OBSIDIAN_VAULT_PATH")
+    if env_path:
+        return Path(os.path.expandvars(env_path)).expanduser().resolve()
+
+    profile_vault = hermes_home_path() / "entropicmem" / "vault"
+    if "HERMES_HOME" in os.environ:
+        return profile_vault
+
+    default_vault = Path.home() / "Documents" / "Obsidian Vault"
+    if (default_vault / "AGENTS.md").exists():
+        return default_vault
+
+    return profile_vault
