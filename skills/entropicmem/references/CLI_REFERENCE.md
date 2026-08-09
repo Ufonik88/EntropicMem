@@ -28,6 +28,5 @@ All commands: `python3 ~/.hermes/skills/entropicmem/scripts/entropicmem.py <cmd>
 
 Env: `ENTROPICMEM_VAULT_PATH`, `ENTROPICMEM_INDEX_DB`, `ENTROPICMEM_MEMORY_DB`
 
-Maintenance cron: `scripts/entropicmem_index_refresh.sh` (every 6h, silent when
-fresh) keeps `index.db` aligned with the vault; it pins the env paths above
-because stale entries in `~/.hermes/.env` can misdirect `resolve_vault_path()`.
+The index stays aligned with the vault via the CLI (`entropicmem index
+status` / `entropicmem index rebuild`).

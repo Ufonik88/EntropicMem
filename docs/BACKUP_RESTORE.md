@@ -2,7 +2,7 @@
 
 ## Backup (encrypted)
 
-Daily cron runs `scripts/entropicmem_backup.sh`:
+A scheduled backup job runs the encryption + upload routine:
 
 1. Tar `memory.db`, `index.db`, `vault/`
 2. Encrypt with OpenSSL AES-256-CBC (pbkdf2, 200k iter) using key file  

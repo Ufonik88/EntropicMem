@@ -32,7 +32,7 @@ EntropicMem sole-provider stack hardened for Hermes:
 | Graph | Localhost bind + token; bodies opt-in only |
 | Backups | AES-256-CBC before cloud upload |
 
-Details: `docs/SECURITY_HARDENING_PLAN.md`, `docs/BACKUP_RESTORE.md`.
+Details: `docs/BACKUP_RESTORE.md`.
 
 ## Install via `/learn`
 
@@ -111,22 +111,11 @@ entropicmem index rebuild    # full reindex of every vault note + graph edges
 entropicmem memory reindex   # repair orphan facts_fts rows
 ```
 
-A silent watchdog (`scripts/entropicmem_index_refresh.sh`, cron every 6h)
-rebuilds only when the vault has notes newer than the index. The health check
-WARNs on index staleness >24h and on orphan FTS rows, and the stability gate
-now requires 7 consecutive OK days **ending today** (current streak, not the
-longest historical run).
-
 ## Notion → EntropicMem (v2.1.2)
 
-Cron-safe consolidated Notion sync for EntropicMem:
-
-```bash
-python3 scripts/notion_entropicmem_sync.py --mode fetch
-python3 scripts/notion_entropicmem_sync.py --mode json --input /tmp/notion.json
-python3 scripts/notion_entropicmem_sync.py --self-test
-python3 scripts/notion_entropicmem_sync.py --dry-run
-```
+Cron-safe consolidated Notion sync for EntropicMem: fetches Notion pages and
+ingests them as vault notes + facts via the CLI. See the repo's internal
+operations docs for deployment details.
 
 ## Visual Graph (v2.1.0)
 
@@ -171,16 +160,14 @@ EntropicMem now includes **intelligent context management** to optimize token us
 ### Cron durable writes (v2.1.1)
 
 Hermes cron jobs run with `skip_memory=True` by design, so interactive `memory` /
-`entropicmem_*` tools are **not** available in scheduled jobs. Use the helper:
+`entropicmem_*` tools are **not** available in scheduled jobs. A deterministic
+helper script (`entropicmem_cron_remember.py`, shipped with the internal ops
+tooling) writes durable facts from cron without an LLM:
 
 ```bash
 python3 ~/.hermes/scripts/entropicmem_cron_remember.py "durable fact" \
   --domain Knowledge --importance 0.7 --source cron
 ```
-
-Canonical script: `scripts/entropicmem_cron_remember.py`  
-Design doc: `docs/CRON_MEMORY_PATH.md`  
-Skill: `skills/memory/entropicmem-cron-writes/`
 
 ### Configuration
 
@@ -217,7 +204,7 @@ See `skills/entropicmem/references/HERMES_INTEGRATION.md` for full documentation
 
 ## Sole Provider Status (2026-08-07)
 
-EntropicMem **v2.2.0** is the **sole memory provider** for Hermes Agent. All gaps from the migration gap analysis are resolved — contextual parity achieved (episodic memory, knowledge triples, full embedding coverage).
+EntropicMem **v2.2.0** is the **sole memory provider** for Hermes Agent — full contextual parity: durable facts, episodic memory, knowledge triples, and embedding coverage in one engine.
 
 ```yaml
 memory:
@@ -225,13 +212,10 @@ memory:
 ```
 
 - **Interactive:** `memory` tool + `entropicmem_*` tools
-- **Cron:** `entropicmem_cron_remember.py` (no LLM required)
-- **Backup:** `entropicmem_backup.sh` → Google Drive daily
-- **Health:** `entropicmem_health_check.py` → 12h monitoring
-- **Notion sync:** `notion_entropicmem_sync.py` → direct API fetch
-- **Rollback:** `bash ~/.hermes/entropicmem/cutover-2026-07-22/rollback.sh`
-
-See `docs/SOLE_PROVIDER_CUTOVER.md` for full details.
+- **Cron:** deterministic write helper (no LLM required)
+- **Backup:** encrypted, before cloud upload
+- **Health:** local monitoring + stability checks
+- **Notion sync:** direct API fetch → vault + facts
 
 ## Requirements
 

@@ -24,8 +24,22 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 _SCRIPT_DIR = REPO / "skills" / "entropicmem" / "scripts"
 _CLI = str(_SCRIPT_DIR / "entropicmem.py")
-_HEALTH = REPO / "scripts" / "entropicmem_health_check.py"
-_GATE = REPO / "scripts" / "daily_stability_gate.py"
+# Ops scripts (health check, stability gate) live in the internal ops
+# workspace, not the public repo. Path is configurable for CI/local runs.
+_INTERNAL = Path(
+    __import__("os").environ.get(
+        "ENTROPICMEM_INTERNAL_DIR",
+        str(Path.home() / "Documents" / "dev" / "EntropicMem-Internal"),
+    )
+)
+_HEALTH = _INTERNAL / "scripts" / "entropicmem_health_check.py"
+_GATE = _INTERNAL / "scripts" / "daily_stability_gate.py"
+if not _HEALTH.is_file() or not _GATE.is_file():
+    pytest.skip(
+        "health/stability-gate scripts live in the internal ops workspace "
+        "(not the public repo); set ENTROPICMEM_INTERNAL_DIR to run them",
+        allow_module_level=True,
+    )
 sys.path.insert(0, str(_SCRIPT_DIR))
 
 from index import VaultIndex

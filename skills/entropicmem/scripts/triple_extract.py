@@ -11,7 +11,7 @@ Relation patterns: explicit phrases ("works at", "replaced", "migrated to",
 
 The extractor is deliberately conservative: it only emits triples whose
 subject AND object are both known entities, or whose relation phrase is
-explicit. Precision over recall — the Mnemosyne triple backfill (12k+
+explicit. Precision over recall — the legacy triple backfill (12k+
 legacy triples) provides breadth; this module keeps the graph growing
 incrementally from new facts.
 """
