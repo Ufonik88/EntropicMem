@@ -152,8 +152,8 @@ _EXTRACTION_PATTERNS: List[Tuple[str, str, float, str]] = [
     # Pattern                     Domain           Imp  Description
     (r"(the|my)\s+(\w+\s+){0,4}(budget|account|salary|income|expense|financ)",
      "Finance",        0.7, "financial"),
-    (r"(Acme|security|alarm|detector|hub|camera|sensor)\s{1,3}(systems?|app|device|migration)",
-     "Acme Corp",   0.8, "Acme"),
+    (r"(security|alarm|detector|hub|camera|sensor)\s{1,3}(systems?|app|device|migration)",
+     "Acme Corp",   0.8, "alarm"),
     (r"(hermes|agent|plugin|skill|tool|model|provider)\s{1,3}(config|setup|install|error|memory)",
      "Infrastructure", 0.7, "hermes"),
     (r"(entropicmem|memory|vault|engine|index|retrieval)",

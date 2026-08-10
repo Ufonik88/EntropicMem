@@ -47,7 +47,7 @@ def populated_index():
         index = VaultIndex(ip)
 
         for i in range(5):
-            for domain, tag in [("Infrastructure", "infra"), ("Acme Corp", "Acme"),
+            for domain, tag in [("Infrastructure", "infra"), ("Acme Corp", "alarm"),
                                 ("Finance", "fin"), ("Knowledge", "know")]:
                 body = f"Body {i}. See [[{domain} Note {i+1}]]" if i < 4 else f"Body {i}."
                 path = vault.write_note(domain, f"{domain} Note {i}", body,

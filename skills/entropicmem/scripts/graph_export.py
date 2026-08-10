@@ -14,7 +14,7 @@ from typing import Optional
 
 from index import VaultIndex
 
-# ── per-domain color palette (from Acme brand, colorblind-safe) ─────────────
+# ── per-domain color palette (brand-inspired, colorblind-safe) ─────────────
 
 DOMAIN_PALETTE = {
     "Infrastructure": "#1DCF8E",

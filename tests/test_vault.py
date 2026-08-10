@@ -60,17 +60,17 @@ def temp_vault():
             ("Infrastructure", "Obsidian Vault Pattern",
              "Vault uses wikilinks and domain folders. See [[EntropicMem Design]] for agent adaptation.",
              ["infrastructure", "vault"]),
-            ("Acme Corp", "Hub App 2.4GHz Migration",
-             "Migration from Legacy App to New App. Requires [[Acme SDK Integration]] and [[Hub App Firmware Update]].",
-             ["Acme-systems", "migration"]),
+            ("Acme Corp", "Alarm Hub 2.4GHz Migration",
+             "Migration from RF to Mesh. Requires [[Acme SDK Integration]] and [[Alarm Hub Firmware Update]].",
+             ["alarm-systems", "migration"]),
             ("Acme Corp", "Acme SDK Integration",
-             "Acme SDK provides REST API. Used in [[Hub App 2.4GHz Migration]]. Works with [[VaultKnox Policy Engine]].",
-             ["Acme-systems", "sdk"]),
-            ("Acme Corp", "Hub App Firmware Update",
-             "Firmware v6.0 enables New App. See [[Hub App 2.4GHz Migration]].",
-             ["Acme-systems", "firmware"]),
+             "Acme SDK provides REST API. Used in [[Alarm Hub 2.4GHz Migration]]. Works with [[VaultKnox Policy Engine]].",
+             ["alarm-systems", "sdk"]),
+            ("Acme Corp", "Alarm Hub Firmware Update",
+             "Firmware v6.0 enables Mesh. See [[Alarm Hub 2.4GHz Migration]].",
+             ["alarm-systems", "firmware"]),
             ("Finance", "Document Architecture",
-             "Budget uses Bank transaction exports. Documented in [[Obsidian Vault Pattern]].",
+             "Budget uses bank transaction exports. Documented in [[Obsidian Vault Pattern]].",
              ["finance", "budget"]),
             ("Finance", "Event Budget 2026",
              "Event tracked via [[Document Architecture]]. Key items: venue, catering.",
@@ -159,8 +159,8 @@ class TestVault:
         assert vault.make_title("Budget sprint 2026-08-05 complete. More detail here.") \
             == "Budget sprint 2026-08-05 complete."
         # 'Fact - ' prefix stripped (old convention)
-        assert vault.make_title("Fact - Acme july earnings submitted. Awaiting deposit.") \
-            == "Acme july earnings submitted."
+        assert vault.make_title("Fact - report july earnings submitted. Awaiting deposit.") \
+            == "report july earnings submitted."
         # markdown stripped
         assert vault.make_title("**Bold** `code` title. Body continues.") \
             == "Bold code title."
@@ -288,7 +288,7 @@ class TestIndex:
 
     def test_fts_domain_filter(self, temp_vault_indexed):
         vault, index = temp_vault_indexed
-        hits = index.search_fts("Hub App", domain="Acme Corp", top_k=5)
+        hits = index.search_fts("Alarm Hub", domain="Acme Corp", top_k=5)
         assert len(hits) >= 2
         for h in hits:
             assert h.domain == "Acme Corp"
@@ -315,13 +315,13 @@ class TestIndex:
 
     def test_delete_note_from_index(self, temp_vault_indexed):
         vault, index = temp_vault_indexed
-        hits = index.search_fts("Event", top_k=1)
+        hits = index.search_fts("Event Budget", top_k=1)
         assert len(hits) == 1
         note_id = hits[0].note_id
         index.delete_note(note_id)
         assert index.get_note(note_id) is None
         # Re-query
-        hits2 = index.search_fts("Event", top_k=1)
+        hits2 = index.search_fts("Event Budget", top_k=1)
         assert len(hits2) == 0
 
     def test_graph_nodes(self, temp_vault_indexed):
@@ -362,7 +362,7 @@ class TestRetrieval:
     def test_retrieve_composed_domain(self, temp_vault_indexed):
         from retrieval import retrieve_composed
         vault, index = temp_vault_indexed
-        result = retrieve_composed("Hub App", vault, index, top_k=5, domain="Acme Corp")
+        result = retrieve_composed("Alarm Hub", vault, index, top_k=5, domain="Acme Corp")
         assert len(result.hits) >= 2
         for h in result.hits:
             assert h.domain == "Acme Corp"

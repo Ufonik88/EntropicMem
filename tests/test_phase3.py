@@ -49,9 +49,9 @@ def populated_index():
             notes_data.append(("Infrastructure", f"Infra Note {i}",
                 f"Body about infrastructure {i}. See [[Infra Note {i+1}]]" if i < 4 else f"Body about infra {i}.",
                 ["infrastructure", f"test{i}"]))
-            notes_data.append(("Acme Corp", f"Acme Note {i}",
-                f"Body about Acme {i}. See [[Acme Note {i+1}]]" if i < 4 else f"Body about Acme {i}.",
-                ["Acme", f"test{i}"]))
+            notes_data.append(("Acme Corp", f"Alarm Note {i}",
+                f"Body about alarm {i}. See [[Alarm Note {i+1}]]" if i < 4 else f"Body about alarm {i}.",
+                ["alarm", f"test{i}"]))
             notes_data.append(("Finance", f"Finance Note {i}",
                 f"Body about finance {i}.",
                 ["finance", f"test{i}"]))

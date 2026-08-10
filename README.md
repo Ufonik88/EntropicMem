@@ -123,7 +123,7 @@ operations docs for deployment details.
 
 Single-file `graph.html` — D3 force-directed, dark galaxy theme. Self-contained: full note bodies are embedded so it works offline via `file://` or `graph serve`.
 
-- **Per-domain colors** (Acme brand palette) + **per-type shapes** (circle=permanent, square=literature, diamond=moc, triangle=index/log).
+- **Per-domain colors** (brand palette) + **per-type shapes** (circle=permanent, square=literature, diamond=moc, triangle=index/log).
 - **Click a node** → modal renders the note's Markdown (tables, code, blockquotes) with frontmatter (domain, type, importance, tags).
 - **Wikilink navigation** — `[[Target]]` in a note opens the linked note; unresolved links are flagged. Tag chips filter the graph.
 - **Focus mode** — clicking a node dims everything except its direct neighbors; click empty space to release.

@@ -75,7 +75,7 @@ class TestAutoExtract:
             db_path = Path(td) / "dedup.db"
             engine = MemoryEngine(db_path)
 
-            # Use a very specific text that matches the "Acme" pattern
+            # Use a very specific text that matches the "alarm" pattern
             text = "Acme Corp Hub 2 is the best alarm panel on the market."
 
             # First extraction

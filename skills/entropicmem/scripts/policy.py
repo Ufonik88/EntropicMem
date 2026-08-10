@@ -11,7 +11,7 @@ SENSITIVITY_LEVELS = ("public", "internal", "sensitive", "secret")
 DOMAIN_DEFAULT_TIER = {
     "Finance": "sensitive",
     "People": "sensitive",
-    "Event": "sensitive",
+    "Events": "sensitive",
     "Infrastructure": "internal",
     "Acme Corp": "internal",
     "Projects": "internal",
