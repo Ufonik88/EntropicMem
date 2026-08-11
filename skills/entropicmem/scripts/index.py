@@ -405,7 +405,7 @@ class VaultIndex:
 
         rows = self.db.execute(
             f"""SELECT m.note_id, m.title, m.domain, m.note_type, m.importance,
-                       m.tags, m.body_preview, f.body AS full_body
+                       m.tags, m.path, m.body_preview, f.body AS full_body
             FROM notes_meta m
             LEFT JOIN notes_fts f ON f.note_id = m.note_id
             {where}

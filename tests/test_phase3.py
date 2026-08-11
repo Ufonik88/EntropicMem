@@ -131,6 +131,27 @@ class TestGraphExport:
         infra = next(n for n in data["nodes"] if "Infra Note 0" in n["title"])
         assert "[[" in infra["full_body"], "wikilink missing from embedded body"
 
+    def test_export_html_lazy_fetch_fallback(self, populated_index):
+        """When bodies are omitted, the modal JS must lazy-fetch /api/note/."""
+        vault, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50, include_bodies=False)
+        assert '"full_body"' not in html  # security default still holds
+        assert "/api/note/" in html
+        assert "Loading note content" in html
+        assert "renderModalContent" in html
+
+    def test_export_json_bodies_flag(self, populated_index):
+        vault, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.json"
+        lean = export_json(index, out, max_nodes=20, include_bodies=False)
+        assert all("full_body" not in n for n in lean["nodes"])
+        rich = export_json(index, out, max_nodes=20, include_bodies=True)
+        assert any(n.get("full_body") for n in rich["nodes"])
+        # path only with bodies
+        assert any(n.get("path") for n in rich["nodes"])
+        assert all("path" not in n for n in lean["nodes"])
+
     def test_export_html_js_is_valid(self, populated_index):
         """The inline app script must parse (guards against duplicate-declaration
         SyntaxErrors that silently blank the whole visualizer)."""

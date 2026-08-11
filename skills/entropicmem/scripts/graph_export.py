@@ -96,6 +96,9 @@ def export_json(
         if include_bodies:
             node_list[-1]["body_preview"] = n.get("body_preview", "")
             node_list[-1]["full_body"] = n.get("full_body", n.get("body_preview", ""))
+            # path helps the modal frontmatter; only with bodies (same trust plane)
+            if n.get("path"):
+                node_list[-1]["path"] = n["path"]
 
     # Build edge list (only edges where both nodes exist in the export set)
     node_ids = {n["id"] for n in node_list}
@@ -922,22 +925,17 @@ function linkifyWikilinks(container) {
   });
 }
 
-function openModal(node, trigger) {
-  lastTrigger = trigger || document.activeElement;
-  const modal = document.getElementById("modal");
-  const overlay = document.getElementById("modal-overlay");
-  const bodyEl = document.getElementById("modal-body");
-  document.getElementById("modal-title").textContent = node.title || node.id;
-
+function renderModalContent(node, bodyEl) {
   let content = '<div class="frontmatter">';
   if (node.domain) content += `<div><span class="fm-key">domain:</span> <span class="fm-value">${escapeHtml(node.domain)}</span></div>`;
   if (node.type) content += `<div><span class="fm-key">type:</span> <span class="fm-value">${escapeHtml(node.type)}</span></div>`;
-  if (node.importance != null) content += `<div><span class="fm-key">importance:</span> <span class="fm-value">${node.importance.toFixed(2)}</span></div>`;
+  if (node.importance != null) content += `<div><span class="fm-key">importance:</span> <span class="fm-value">${Number(node.importance).toFixed(2)}</span></div>`;
   if (node.tags && node.tags.length) {
     content += `<div><span class="fm-key">tags:</span> <span class="fm-value">` +
       node.tags.map(t => `<span class="fm-tag" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</span>`).join("") +
       `</span></div>`;
   }
+  if (node.path) content += `<div><span class="fm-key">path:</span> <span class="fm-value">${escapeHtml(node.path)}</span></div>`;
   content += '</div>';
 
   const noteBody = node.full_body || node.body_preview || "";
@@ -979,6 +977,46 @@ function openModal(node, trigger) {
     });
     pre.appendChild(btn);
   });
+}
+
+function openModal(node, trigger) {
+  lastTrigger = trigger || document.activeElement;
+  const modal = document.getElementById("modal");
+  const overlay = document.getElementById("modal-overlay");
+  const bodyEl = document.getElementById("modal-body");
+  document.getElementById("modal-title").textContent = node.title || node.id;
+
+  // Show shell immediately; body may arrive via lazy fetch.
+  renderModalContent(node, bodyEl);
+  if (!(node.full_body || node.body_preview)) {
+    bodyEl.innerHTML = '<p class="empty-note">Loading note content…</p>';
+    // Lazy-load from the local graph server when the export omitted bodies
+    // (security default). Same-origin only — file:// and foreign hosts skip.
+    const canFetch = location.protocol.startsWith("http") && node.id;
+    if (canFetch) {
+      fetch("/api/note/" + encodeURIComponent(node.id))
+        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(payload => {
+          // Merge into the in-memory node so re-open is instant
+          node.full_body = payload.full_body || "";
+          node.body_preview = payload.body_preview || node.body_preview || "";
+          if (payload.tags && payload.tags.length) node.tags = payload.tags;
+          if (payload.domain) node.domain = payload.domain;
+          if (payload.type) node.type = payload.type;
+          if (payload.path) node.path = payload.path;
+          if (payload.importance != null) node.importance = payload.importance;
+          document.getElementById("modal-title").textContent = payload.title || node.title || node.id;
+          renderModalContent(node, bodyEl);
+        })
+        .catch(() => {
+          bodyEl.innerHTML = '<p class="empty-note">No content available for this note. '
+            + 'Open the graph via the local server (port 8075) and run an authenticated '
+            + 'refresh with bodies enabled.</p>';
+        });
+    } else {
+      bodyEl.innerHTML = '<p class="empty-note">No content available for this note.</p>';
+    }
+  }
 
   modal.style.display = "flex";
   overlay.style.display = "block";
