@@ -945,13 +945,22 @@ def cmd_graph(args) -> int:
         max_n = args.max_nodes
 
         if fmt == "json":
-            export_json(index, out_dir / "graph.json", domain=domain, min_importance=min_imp, max_nodes=max_n)
+            export_json(
+                index, out_dir / "graph.json",
+                domain=domain, min_importance=min_imp, max_nodes=max_n,
+                include_bodies=getattr(args, "include_bodies", True),
+            )
             print(f"Exported: {out_dir / 'graph.json'}")
         elif fmt == "dot":
             export_dot(index, out_dir / "graph.dot", domain=domain, min_importance=min_imp, max_nodes=max_n)
             print(f"Exported: {out_dir / 'graph.dot'}")
         elif fmt == "html":
-            export_html(index, out_dir / "graph.html", domain=domain, min_importance=min_imp, max_nodes=max_n, vault_root=vault_path, include_bodies=getattr(args, "include_bodies", False))
+            export_html(
+                index, out_dir / "graph.html",
+                domain=domain, min_importance=min_imp, max_nodes=max_n,
+                vault_root=vault_path,
+                include_bodies=getattr(args, "include_bodies", True),
+            )
             print(f"Exported: {out_dir / 'graph.html'}")
             print(f"Open with: file://{out_dir / 'graph.html'}")
         elif fmt == "canvas":
@@ -1691,7 +1700,10 @@ def main() -> int:
     g_export.add_argument("--max-nodes", type=int, default=500, help="Max nodes (default: 500)")
     g_export.add_argument("--domain", help="Filter by domain")
     g_export.add_argument("--min-importance", type=float, default=0.0, help="Min importance filter")
-    g_export.add_argument("--include-bodies", action="store_true", help="Embed full note bodies (local/trusted only)")
+    g_export.add_argument("--include-bodies", dest="include_bodies", action="store_true", default=True,
+                          help="Embed note bodies in HTML/JSON (default: ON so modals show markdown)")
+    g_export.add_argument("--no-bodies", dest="include_bodies", action="store_false",
+                          help="Omit note bodies (shareable lean shell only)")
     g_serve = g_sub.add_parser("serve", help="Serve graph export dir via HTTP")
     g_serve.add_argument("--port", type=int, default=8069)
     g_serve.add_argument("--bind", default="127.0.0.1", help="Bind address (default 127.0.0.1)")

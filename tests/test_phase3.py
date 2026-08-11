@@ -146,11 +146,39 @@ class TestGraphExport:
         out = Path(tempfile.mkdtemp()) / "graph.json"
         lean = export_json(index, out, max_nodes=20, include_bodies=False)
         assert all("full_body" not in n for n in lean["nodes"])
+        assert lean["meta"].get("include_bodies") is False
         rich = export_json(index, out, max_nodes=20, include_bodies=True)
         assert any(n.get("full_body") for n in rich["nodes"])
+        assert rich["meta"].get("include_bodies") is True
+        assert rich["meta"]["body_coverage"]["ok"] is True
         # path only with bodies
         assert any(n.get("path") for n in rich["nodes"])
         assert all("path" not in n for n in lean["nodes"])
+
+    def test_assert_bodies_present_blocks_empty_modal_regression(self):
+        from graph_export import assert_bodies_present, body_coverage
+        empty = {
+            "nodes": [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}],
+            "meta": {"include_bodies": True},
+        }
+        assert body_coverage(empty["nodes"])["with_body"] == 0
+        try:
+            assert_bodies_present(empty, context="test")
+            raised = False
+        except RuntimeError as e:
+            raised = True
+            assert "empty-modal" in str(e) or "0/" in str(e)
+        assert raised, "body-less export must raise"
+        # lean is allowed
+        empty["meta"]["include_bodies"] = False
+        stats = assert_bodies_present(empty, context="lean")
+        assert stats["with_body"] == 0
+        # full coverage passes
+        full = {
+            "nodes": [{"id": "a", "full_body": "hi"}, {"id": "b", "body_preview": "yo"}],
+            "meta": {"include_bodies": True},
+        }
+        assert assert_bodies_present(full, context="ok")["ok"] is True
 
     def test_export_html_js_is_valid(self, populated_index):
         """The inline app script must parse (guards against duplicate-declaration

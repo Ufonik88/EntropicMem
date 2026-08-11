@@ -49,6 +49,61 @@ def get_shape(note_type: str) -> str:
     return TYPE_SHAPES.get(note_type, "circle")
 
 
+def body_coverage(nodes: list) -> dict:
+    """Return body coverage stats for a graph node list.
+
+    Used by the graph server, refresh wrapper, and health check so empty
+    modals can never go silent again.
+    """
+    total = len(nodes or [])
+    with_body = 0
+    for n in nodes or []:
+        if (n.get("full_body") or n.get("body_preview") or "").strip():
+            with_body += 1
+    empty = total - with_body
+    pct = (100.0 * with_body / total) if total else 100.0
+    return {
+        "total": total,
+        "with_body": with_body,
+        "empty": empty,
+        "coverage_pct": round(pct, 1),
+        "ok": total == 0 or empty == 0,
+    }
+
+
+def assert_bodies_present(payload: dict, *, context: str = "graph export") -> dict:
+    """Raise RuntimeError if bodies were requested but the export is body-less.
+
+    The failure mode we hit twice: include_bodies claimed True (or the local
+    viewer expects bodies) but every node lacks full_body/body_preview, so
+    every modal shows \"No content available\". A few genuinely empty notes
+    are fine; a near-total miss is not.
+    """
+    nodes = payload.get("nodes") or []
+    stats = body_coverage(nodes)
+    meta = payload.get("meta") or {}
+    if meta.get("include_bodies") is False:
+        return stats  # lean export is intentional
+    total = stats["total"]
+    if total == 0:
+        return stats
+    # Hard fail: zero bodies when nodes exist
+    if stats["with_body"] == 0:
+        raise RuntimeError(
+            f"{context}: 0/{total} nodes have body content "
+            f"(coverage {stats['coverage_pct']}%). "
+            "Refusing a body-less graph export — this is the empty-modal bug."
+        )
+    # Soft fail: large export with most bodies missing (index/FTS broken)
+    if total >= 10 and stats["coverage_pct"] < 90.0:
+        raise RuntimeError(
+            f"{context}: only {stats['with_body']}/{total} nodes have bodies "
+            f"({stats['coverage_pct']}% < 90%). "
+            "Index/FTS likely stale — rebuild before accepting the export."
+        )
+    return stats
+
+
 # ── JSON export ─────────────────────────────────────────────────────────────
 
 def export_json(
@@ -120,6 +175,7 @@ def export_json(
             "generated": "",
             "node_count": len(node_list),
             "edge_count": len(edge_list),
+            "include_bodies": include_bodies,
             "domains": list(set(n.get("domain", "") for n in node_list)),
             "max_importance": max((n.get("importance", 0) for n in node_list), default=0),
             "filters": {
@@ -132,6 +188,12 @@ def export_json(
 
     from datetime import datetime, timezone
     payload["meta"]["generated"] = datetime.now(timezone.utc).isoformat()
+    payload["meta"]["body_coverage"] = body_coverage(node_list)
+
+    # Hard gate: never write a "bodies included" export that is actually empty.
+    # This is the permanent fix for empty graph modals (hit twice before).
+    if include_bodies:
+        assert_bodies_present(payload, context=f"export_json({output_path})")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

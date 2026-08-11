@@ -125,13 +125,33 @@ def _vault_root() -> Path:
     return vault_root
 
 
+def _lean_mode() -> bool:
+    """True only when ENTROPICMEM_GRAPH_LEAN explicitly enables body-less exports.
+
+    Local viewer bodies are hard-pinned ON. The only way to drop them is
+    setting ENTROPICMEM_GRAPH_LEAN=1|true|yes — a deliberate ops choice, not
+    a query-param footgun that can silently empty every modal again.
+    """
+    return os.environ.get("ENTROPICMEM_GRAPH_LEAN", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _resolve_include_bodies(requested: bool) -> bool:
+    """Bodies are always on unless lean mode is explicitly enabled."""
+    if _lean_mode():
+        return requested
+    return True  # hard pin — ignore include_bodies=false from callers
+
+
 def _regenerate(*, include_bodies: bool = True) -> dict:
     """Rebuild index + export graph.
 
-    include_bodies defaults True for the local authenticated viewer so node
-    modals show markdown. Pass include_bodies=False for a lean/shareable
-    export without vault content.
+    Bodies are hard-pinned ON for the local authenticated viewer so node
+    modals always show markdown. Lean (body-less) exports require
+    ENTROPICMEM_GRAPH_LEAN=1 in the server environment.
     """
+    include_bodies = _resolve_include_bodies(include_bodies)
     vault_root = _vault_root()
     index = VaultIndex(INDEX_DB)
     try:
@@ -147,6 +167,8 @@ def _regenerate(*, include_bodies: bool = True) -> dict:
         # previously export_json was always called without bodies while
         # export_html alone got the flag, so graph.json stayed empty even
         # when refresh requested bodies.
+        from graph_export import assert_bodies_present  # local import ok
+
         payload = export_json(
             index,
             BASE_DIR / "graph.json",
@@ -162,6 +184,10 @@ def _regenerate(*, include_bodies: bool = True) -> dict:
         )
         payload.setdefault("meta", {})["index_rebuilt_notes"] = rebuilt
         payload.setdefault("meta", {})["include_bodies"] = include_bodies
+        payload.setdefault("meta", {})["lean_mode"] = _lean_mode()
+        # Second gate after HTML write (export_json already asserts).
+        if include_bodies:
+            assert_bodies_present(payload, context="graph-server /refresh")
         return payload
     finally:
         index.close()
@@ -229,15 +255,21 @@ def refresh(
     x_entropicmem_token: str | None = Header(default=None),
     include_bodies: bool = True,
 ):
-    """Regenerate graph.html/json. Bodies ON by default for the local viewer.
+    """Regenerate graph.html/json.
 
-    Pass ?include_bodies=false for a content-free export (shareable shell).
+    Bodies are hard-pinned ON. Query param include_bodies=false is ignored
+    unless the server process has ENTROPICMEM_GRAPH_LEAN=1.
     """
     _require_token(x_entropicmem_token)
-    payload = _regenerate(include_bodies=include_bodies)
+    effective = _resolve_include_bodies(include_bodies)
+    payload = _regenerate(include_bodies=effective)
+    cov = (payload.get("meta") or {}).get("body_coverage") or {}
     return JSONResponse({
         "status": "refreshed",
-        "include_bodies": include_bodies,
+        "include_bodies": effective,
+        "requested_include_bodies": include_bodies,
+        "lean_mode": _lean_mode(),
+        "body_coverage": cov,
         "generated": payload.get("meta", {}).get("generated"),
         "node_count": payload.get("meta", {}).get("node_count"),
         "edge_count": payload.get("meta", {}).get("edge_count"),
