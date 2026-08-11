@@ -235,6 +235,23 @@ def test_triple_path_respects_max_depth(engine):
 # ── health check additions ──────────────────────────────────────────────────
 
 
+def test_hermes_home_path_empty_env_guard(monkeypatch, tmp_path):
+    """Sourcery: an EMPTY HERMES_HOME must not resolve to the cwd."""
+    import vault
+    # unset → default ~/.hermes
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    default = vault.hermes_home_path()
+    assert default == (Path.home() / ".hermes").resolve()
+    # empty string → same default (NOT the current working directory)
+    monkeypatch.setenv("HERMES_HOME", "")
+    empty = vault.hermes_home_path()
+    assert empty == default
+    assert empty != Path.cwd().resolve()
+    # explicit value honored
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    assert vault.hermes_home_path() == tmp_path.resolve()
+
+
 def test_health_check_has_new_checks():
     """The deployed health script must define the G1–G3 checks."""
     import importlib.util

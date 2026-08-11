@@ -1016,9 +1016,7 @@ def cmd_memory(args) -> int:
     vault_path, index_path = _resolve_env()
     vault = Vault(vault_path)
     index = VaultIndex(index_path)
-    mem_path = Path(os.environ.get("ENTROPICMEM_MEMORY_DB",
-                   str(hermes_home_path() / "entropicmem" / "memory.db")))
-    engine = MemoryEngine(mem_path)
+    engine = MemoryEngine(_memory_db_path())
 
     if args.memory_command == "project":
         r = engine.project_to_vault(vault, index, limit=500)
@@ -1585,8 +1583,7 @@ def cmd_consolidate(args) -> int:
 def cmd_audit(args) -> int:
     """Show recent audit log entries."""
     from memory_engine import MemoryEngine
-    db = Path(os.environ.get("ENTROPICMEM_MEMORY_DB", str(hermes_home_path() / "entropicmem" / "memory.db")))
-    with MemoryEngine(db) as engine:
+    with MemoryEngine(_memory_db_path()) as engine:
         rows = engine.list_audit(limit=getattr(args, "limit", 50))
     for r in rows:
         print(f"{r.get('ts','')} {r.get('action','')} ok={r.get('ok')} id={r.get('fact_id','')} {r.get('detail','')}")
@@ -1597,9 +1594,8 @@ def cmd_audit(args) -> int:
 def cmd_pending(args) -> int:
     """List or promote/discard pending (quarantined) facts."""
     from memory_engine import MemoryEngine
-    db = Path(os.environ.get("ENTROPICMEM_MEMORY_DB", str(hermes_home_path() / "entropicmem" / "memory.db")))
     action = getattr(args, "pending_command", "list") or "list"
-    with MemoryEngine(db) as engine:
+    with MemoryEngine(_memory_db_path()) as engine:
         if action == "list":
             rows = engine.list_pending(limit=getattr(args, "limit", 50))
             for r in rows:

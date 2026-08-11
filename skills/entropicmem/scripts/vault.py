@@ -615,8 +615,15 @@ class CoreMemory:
 
 
 def hermes_home_path() -> Path:
-    """Resolve the Hermes home dir, honoring HERMES_HOME (profile mode)."""
-    return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")).expanduser().resolve()
+    """Resolve the Hermes home dir, honoring HERMES_HOME (profile mode).
+
+    Empty and unset are treated the same: both fall back to
+    ~/.hermes. An empty HERMES_HOME must NOT resolve to the current
+    working directory (Path('') == Path('.')).
+    """
+    env = os.environ.get("HERMES_HOME")
+    base = Path(env) if env else Path.home() / ".hermes"
+    return base.expanduser().resolve()
 
 
 def resolve_vault_path(explicit: Optional[str] = None) -> Path:
