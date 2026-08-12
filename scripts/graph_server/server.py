@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hmac
+import json
+
 # Canonical source for the graph server. Deployed (symlink-free) copy runs
 # from ~/.hermes/entropicmem/graph_server/server.py under the systemd user
 # unit entropicmem-graph-server.service. Keep both copies identical; after
@@ -18,11 +21,8 @@ from __future__ import annotations
 #   can show markdown. Static export CLI still defaults False (security).
 #   GET /api/note/{note_id} lazy-loads body when the embedded export omitted
 #   it (or for notes opened after a lean export).
-
 import os
 import sys
-import json
-import hmac
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -90,9 +90,10 @@ SCRIPTS_DIR = _resolve_scripts_dir()
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from graph_export import export_json, export_html  # noqa: E402
 from index import VaultIndex  # noqa: E402
 from vault import Vault, resolve_vault_path  # noqa: E402
+
+from graph_export import export_html, export_json  # noqa: E402
 
 BASE_DIR = _resolve_export_dir()
 # Hard-pin data paths under HERMES_HOME (do not trust ENTROPICMEM_* env).

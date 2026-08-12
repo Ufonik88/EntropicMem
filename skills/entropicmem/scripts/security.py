@@ -8,18 +8,16 @@ to encrypt/decrypt. While encrypted, the engine cannot open the DB.
 Requires: cryptography (install via `pip install entropicmem[security]`)
 """
 
-import hashlib
 import json
 import os
-import sqlite3
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 try:
+    import base64
+
     from cryptography.fernet import Fernet, InvalidToken
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-    import base64
     CRYPTO_AVAILABLE = True
 except ImportError:
     CRYPTO_AVAILABLE = False

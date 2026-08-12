@@ -987,7 +987,8 @@ def cmd_graph(args) -> int:
     elif args.graph_command == "show":
         # Phase 10: graph-aware note connections
         import sqlite3 as _sqlite
-        from graph_query import init_links_schema, get_connected_notes, graph_stats
+
+        from graph_query import get_connected_notes, graph_stats, init_links_schema
 
         db_path = index_path  # reuse the index DB
         conn = _sqlite.connect(str(db_path))
@@ -1393,7 +1394,7 @@ def cmd_timeline(args) -> int:
 
 def cmd_security(args) -> int:
     """Enable or disable encryption at rest (Phase 11.1)."""
-    from security import CRYPTO_AVAILABLE, encrypt_db, decrypt_db, security_status
+    from security import CRYPTO_AVAILABLE, decrypt_db, encrypt_db, security_status
 
     db_path = _memory_db_path()
 
@@ -1838,7 +1839,7 @@ def main() -> int:
     p_consolidate.add_argument("--dry-run", action="store_true", help="Report what would be archived without archiving")
 
     # Parse
-    
+
     p_audit = sub.add_parser("audit", help="Show recent security audit log")
     p_audit.add_argument("--limit", type=int, default=50)
 

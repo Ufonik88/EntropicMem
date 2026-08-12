@@ -12,12 +12,12 @@ Provides:
 Stdlib-only. No external memory dependencies.
 """
 
+import fcntl
 import hashlib
 import json
-import os
 import math
+import os
 import re
-import fcntl
 import sqlite3
 import uuid
 from collections import deque
@@ -29,7 +29,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from vault import derive_title  # naming convention helper (stdlib-only, acyclic)
 
 try:
-    from policy import evaluate_write, normalize_sensitivity, redact_for_prefetch
+    from policy import (  # noqa: F401 (availability probe)
+        evaluate_write,
+        normalize_sensitivity,
+        redact_for_prefetch,
+    )
     POLICY_AVAILABLE = True
 except ImportError:
     POLICY_AVAILABLE = False
@@ -39,8 +43,12 @@ except ImportError:
 try:
     from embeddings import (
         EMBEDDER_AVAILABLE as _EMB_AVAIL,
+    )
+    from embeddings import (
         NUMPY_AVAILABLE as _NP_AVAIL,
-        cosine_similarity,
+    )
+    from embeddings import (
+        cosine_similarity,  # noqa: F401 (availability probe)
         delete_embedding,
         embed_text,
         embedding_coverage,
@@ -64,7 +72,7 @@ except ImportError:
 # ── PII detection (Phase 9) ─────────────────────────────────────────────────
 
 try:
-    from pii import check_pii, scan_pii, redact_pii
+    from pii import check_pii, redact_pii, scan_pii  # noqa: F401 (availability probe)
     PII_AVAILABLE = True
 except ImportError:
     PII_AVAILABLE = False
@@ -223,14 +231,14 @@ class MemoryEngine:
             pass
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
-        
+
         # Concurrency guard: file lock for write serialization
         lock_path = self.db_path.parent / f"{self.db_path.name}.lock"
         self._lock_fd = open(lock_path, "w")
         self._write_locked = False
-        
+
         self._init_schema()
-    
+
     def _acquire_write_lock(self) -> None:
         """Acquire exclusive file lock for write operations."""
         if not self._write_locked:
@@ -241,7 +249,7 @@ class MemoryEngine:
                 # Lock held by another process — wait briefly
                 fcntl.flock(self._lock_fd, fcntl.LOCK_EX)
                 self._write_locked = True
-    
+
     def _release_write_lock(self) -> None:
         """Release file lock after write operations."""
         if self._write_locked:
@@ -1190,7 +1198,7 @@ class MemoryEngine:
         reduced relevance score.
         """
         try:
-            from graph_query import init_links_schema, get_connected_notes
+            from graph_query import get_connected_notes, init_links_schema
         except ImportError:
             return results
 

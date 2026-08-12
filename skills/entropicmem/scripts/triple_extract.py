@@ -19,7 +19,7 @@ incrementally from new facts.
 import os
 import re
 import sys
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 # ── known entity dictionary ────────────────────────────────────────────────
 # NOTE: This repo is public — keep this dict to GENERIC, non-personal names.

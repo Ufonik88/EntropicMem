@@ -10,9 +10,7 @@ Stdlib-only. No external dependencies.
 
 import re
 import sqlite3
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
-
+from typing import Dict, List, Set, Tuple
 
 # ── schema ──────────────────────────────────────────────────────────────────
 

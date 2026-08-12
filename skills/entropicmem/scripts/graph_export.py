@@ -321,6 +321,7 @@ def export_html(
         if vault_root is None:
             try:
                 import os
+
                 from vault import resolve_vault_path
                 env = os.environ.get("ENTROPICMEM_VAULT_PATH")
                 vault_root = Path(env).expanduser() if env else resolve_vault_path()

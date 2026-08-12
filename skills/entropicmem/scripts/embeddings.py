@@ -14,7 +14,6 @@ Requires: `pip install entropicmem[semantic]` (sentence-transformers + numpy)
 """
 
 import sqlite3
-from pathlib import Path
 from typing import List, Optional, Tuple
 
 # ── optional dependency detection ───────────────────────────────────────────
