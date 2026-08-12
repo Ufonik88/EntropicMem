@@ -130,9 +130,13 @@ _CANONICAL_TITLE: Dict[str, str] = {
 # Also index lowercase forms so alias lookups resolve to display case.
 for _key, _disp in list(_CANONICAL_TITLE.items()):
     _CANONICAL_TITLE.setdefault(_key.lower(), _disp)
-for _name in KNOWN_ENTITIES["person"]:
-    _CANONICAL_TITLE.setdefault(_name, _name.title())
-    _CANONICAL_TITLE.setdefault(_name.lower(), _name.title())
+# Title-case fallback display for every known entity, not just people —
+# otherwise entities like "nous research" render lowercase when the local
+# override file (which supplies display casing) is absent, e.g. in CI.
+for _cat_names in KNOWN_ENTITIES.values():
+    for _name in _cat_names:
+        _CANONICAL_TITLE.setdefault(_name, _name.title())
+        _CANONICAL_TITLE.setdefault(_name.lower(), _name.title())
 
 # Local (non-public) entity overrides — merged AFTER the canonical maps are
 # built so both dictionaries stay consistent.
