@@ -48,6 +48,11 @@ pythonpath = ["skills/entropicmem/scripts"]
 [tool.ruff]
 target-version = "py310"
 line-length = 100
+# Explicit first-party source: without this, ruff auto-detects src from
+# directories at the repo root, so the presence/absence of the generated
+# graph_export/ output dir (gitignored) silently changes import
+# categorization and breaks CI lint on fresh checkouts.
+src = ["skills/entropicmem/scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]

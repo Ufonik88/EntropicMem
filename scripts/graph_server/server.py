@@ -90,10 +90,9 @@ SCRIPTS_DIR = _resolve_scripts_dir()
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+from graph_export import export_html, export_json  # noqa: E402
 from index import VaultIndex  # noqa: E402
 from vault import Vault, resolve_vault_path  # noqa: E402
-
-from graph_export import export_html, export_json  # noqa: E402
 
 BASE_DIR = _resolve_export_dir()
 # Hard-pin data paths under HERMES_HOME (do not trust ENTROPICMEM_* env).
