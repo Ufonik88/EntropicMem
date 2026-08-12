@@ -124,3 +124,21 @@ def test_legend_svg_icons(template):
 def test_keyboard_shortcuts_documented_in_panel(template):
     assert 'class="shortcuts"' in template
     assert "<kbd>H</kbd>" in template
+
+
+# ── Wikilink lazy resolution (red dead-link fix) ────────────────────────────
+
+def test_pending_wikilinks_resolve_by_title(template):
+    """Unresolved [[wikilinks]] must be clickable 'pending' links that fetch
+    /api/note/by-title/ — not permanently dead red .broken spans."""
+    assert "wikilink.pending" in template
+    assert '"/api/note/by-title/"' in template
+    assert "Resolving link…" in template
+    assert "failBroken" in template
+    assert ".broken" in template
+
+
+def test_open_modal_guards_out_of_graph_nodes(template):
+    """openModal must not dim the whole graph when the note is not rendered."""
+    assert "nodeG.data().some" in template
+    assert "applyFocus(node.id)" in template

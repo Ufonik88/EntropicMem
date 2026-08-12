@@ -41,7 +41,6 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 from index import VaultIndex  # noqa: E402
 from memory_engine import MemoryEngine  # noqa: E402
 from retrieval import EMBEDDER_AVAILABLE, retrieve_composed  # noqa: E402
@@ -53,6 +52,8 @@ from vault import (  # noqa: E402
     hermes_home_path,
     resolve_vault_path,
 )
+
+from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 
 __version__ = "2.2.0"
 

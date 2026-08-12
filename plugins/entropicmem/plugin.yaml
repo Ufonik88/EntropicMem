@@ -1,4 +1,4 @@
 name: entropicmem
-version: 2.3.0
+version: 2.3.1
 description: "EntropicMem MemoryProvider — local facts, vault, hybrid retrieval. Notion→EntropicMem cron script + second-brain cron migrated."
 author: Ufonik

@@ -506,6 +506,8 @@ svg text { fill: #b9b9c6; font-size: 9px; pointer-events: none; font-family: var
 #modal-body hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
 #modal-body .wikilink { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); cursor: pointer; }
 #modal-body .wikilink:hover { border-bottom: 1px solid var(--accent); background: rgba(90,228,170,0.1); }
+#modal-body .wikilink.pending { color: var(--accent-dim); border-bottom: 1px dashed var(--accent-dim); cursor: pointer; }
+#modal-body .wikilink.pending:hover { color: var(--accent); border-bottom-color: var(--accent); background: rgba(90,228,170,0.1); }
 #modal-body .wikilink.broken { color: #FF6B6B; border-bottom-color: #FF6B6B; cursor: not-allowed; }
 #modal-body .frontmatter { background: #151520; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 20px; font-size: 0.85em; color: #aaa; }
 #modal-body .frontmatter .fm-key { color: var(--accent); font-weight: 600; }
@@ -1095,7 +1097,7 @@ function linkifyWikilinks(container) {
         const label = raw.includes("|") ? raw.split("|").slice(1).join("|").trim() : raw.trim();
         const dest = nodeByTitle.get(target.toLowerCase());
         const span = document.createElement("span");
-        span.className = "wikilink" + (dest ? "" : " broken");
+        span.className = "wikilink" + (dest ? "" : " pending");
         span.textContent = label;
         span.setAttribute("role", "link");
         span.tabIndex = 0;
@@ -1104,7 +1106,48 @@ function linkifyWikilinks(container) {
           span.addEventListener("click", open);
           span.addEventListener("keydown", (e) => { if (e.key === "Enter") open(); });
         } else {
-          span.title = "Linked note not in this export";
+          // Target not in the current export — try resolving it lazily against
+          // the full index via the local graph server before giving up.
+          span.title = "Resolving link…";
+          const openPending = () => {
+            const canFetch = location.protocol.startsWith("http") && target;
+            if (!canFetch) return failBroken();
+            fetch("/api/note/by-title/" + encodeURIComponent(target))
+              .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+              .then(payload => {
+                // Cache the resolved note so reopening it is instant.
+                const node = {
+                  id: payload.note_id || payload.id,
+                  title: payload.title || target,
+                  type: payload.type || "permanent",
+                  domain: payload.domain || "",
+                  importance: payload.importance || 0.3,
+                  tags: payload.tags || [],
+                  color: payload.domain ? PALETTE[payload.domain] : PALETTE[payload.domain] || "#888",
+                  shape: "circle",
+                  body_preview: payload.body_preview || "",
+                  full_body: payload.full_body || "",
+                  path: payload.path || "",
+                };
+                if (!nodeById.has(node.id)) {
+                  nodeById.set(node.id, node);
+                  nodeByTitle.set((node.title || node.id).toLowerCase(), node);
+                  if (!adjacency.has(node.id)) adjacency.set(node.id, new Set());
+                }
+                openModal(node, span);
+              })
+              .catch(failBroken);
+          };
+          const failBroken = () => {
+            span.classList.remove("pending");
+            span.classList.add("broken");
+            span.title = "Linked note not found in the vault";
+            span.removeEventListener("click", openPending);
+            span.removeEventListener("keydown", onPendingKey);
+          };
+          const onPendingKey = (e) => { if (e.key === "Enter") openPending(); };
+          span.addEventListener("click", openPending);
+          span.addEventListener("keydown", onPendingKey);
         }
         frag.appendChild(span);
       } else if (part) {
@@ -1212,7 +1255,10 @@ function openModal(node, trigger) {
   overlay.style.display = "block";
   document.body.style.overflow = "hidden";
   document.getElementById("modal-close").focus();
-  applyFocus(node.id);
+  // Only focus-highlight notes that are actually in the rendered graph;
+  // notes resolved lazily via /api/note/by-title may not be a node here.
+  if (nodeG && nodeG.data().some(d => d.id === node.id)) applyFocus(node.id);
+  else clearFocus();
 }
 
 /* Keep Tab cycling inside the modal while it is open. */

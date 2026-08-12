@@ -90,9 +90,10 @@ SCRIPTS_DIR = _resolve_scripts_dir()
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from graph_export import export_html, export_json  # noqa: E402
 from index import VaultIndex  # noqa: E402
 from vault import Vault, resolve_vault_path  # noqa: E402
+
+from graph_export import export_html, export_json  # noqa: E402
 
 BASE_DIR = _resolve_export_dir()
 # Hard-pin data paths under HERMES_HOME (do not trust ENTROPICMEM_* env).
@@ -275,6 +276,45 @@ def refresh(
         "edge_count": payload.get("meta", {}).get("edge_count"),
         "domains": payload.get("meta", {}).get("domains"),
     })
+
+
+@app.get("/api/note/by-title/{title:path}")
+def get_note_by_title(title: str):
+    """Resolve a wikilink target by title, against the FULL index.
+
+    Graph modals render [[wikilinks]] to notes that are not in the current
+    export (the 500-node cap) as dead red links. This endpoint lets the
+    client resolve those titles lazily: exact match first (case-
+    insensitive), then shortest containing match. Same trust plane and
+    response shape as /api/note/{id} (plus a note_id field).
+
+    NOTE: must be registered BEFORE /api/note/{note_id:path} — a path
+    converter would otherwise swallow "by-title/..." as a note id.
+    """
+    title = unquote(title).strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title required")
+
+    index = VaultIndex(INDEX_DB)
+    try:
+        row = index.db.execute(
+            """SELECT note_id FROM notes_meta WHERE lower(title) = lower(?) LIMIT 1""",
+            (title,),
+        ).fetchone()
+        if not row:
+            row = index.db.execute(
+                """SELECT note_id FROM notes_meta
+                   WHERE instr(lower(title), lower(?)) > 0
+                   ORDER BY length(title) ASC LIMIT 1""",
+                (title,),
+            ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"no note with title: {title}")
+        payload = _note_payload(row["note_id"])
+        payload["note_id"] = row["note_id"]
+        return JSONResponse(payload)
+    finally:
+        index.close()
 
 
 @app.get("/api/note/{note_id:path}")

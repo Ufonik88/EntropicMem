@@ -36,6 +36,7 @@ Panel, legend, minimap, and stats each have a collapse toggle; collapsed state i
 ## Interaction details
 
 - **Focus mode** (click a node): dims non-neighbors, highlights the selected node with an accent ring; Esc or clicking empty space releases it.
+- **Wikilinks resolve against the full vault** — `[[links]]` to notes outside the current export (the 500-node cap) are shown as dashed "pending" links and resolve lazily via `GET /api/note/by-title/{title}` (exact match, then shortest containing match) when served over HTTP; they only turn red when the target genuinely doesn't exist in the vault. Opening a lazily-resolved note no longer dims the graph.
 - **Tooltip** flips at viewport edges so it never clips offscreen.
 - **Modal**: full markdown rendering, wikilink navigation, tag chips that filter the graph, code-copy buttons, Tab focus trap, focus restored to the triggering node on close.
 - **Loading state**: spinner overlay until the first simulation tick paints; **empty state** message when filters match zero notes.
