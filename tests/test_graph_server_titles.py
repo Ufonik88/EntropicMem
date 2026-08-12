@@ -12,7 +12,11 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+
+# The graph server needs fastapi; CI only installs pytest, so skip the
+# whole module there rather than failing the lint/test matrix.
+pytest.importorskip("fastapi")
+from fastapi.testclient import TestClient  # noqa: E402
 
 _SERVER_DIR = Path(__file__).resolve().parent.parent / "scripts" / "graph_server"
 _PARENT = _SERVER_DIR.parent  # scripts/ — so `import graph_server.server` resolves
