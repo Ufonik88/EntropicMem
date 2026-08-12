@@ -367,7 +367,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EntropicMem — Vault Graph</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
@@ -380,11 +381,11 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   --accent: #5AE4AA;
   --accent-dim: #1DCF8E;
   --accent-glow: rgba(90,228,170,0.15);
-  --text: #ccc;
-  --text-dim: #888;
-  --text-bright: #eee;
+  --text: #d6d6de;
+  --text-dim: #9a9aa8;
+  --text-bright: #f2f2f7;
   --display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --blur: 12px;
   --radius: 12px;
   --radius-sm: 6px;
@@ -396,13 +397,24 @@ body { background: var(--bg-grad); color: var(--text); font-family: var(--body);
 #graph { position: absolute; inset: 0; width: 100vw; height: 100vh; }
 #graph svg { display: block; }
 
+/* ── Shared icon button / collapse affordances ── */
+.icon { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.collapse-btn { position: absolute; top: 10px; right: 10px; background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 4px; border-radius: 6px; line-height: 0; transition: color var(--transition), background var(--transition); }
+.collapse-btn:hover { color: var(--accent); background: rgba(90,228,170,0.08); }
+.collapse-btn .icon-chev { transition: transform 0.25s ease; }
+.collapsed .collapse-btn .icon-chev { transform: rotate(180deg); }
+
 /* ── Control panel ── */
-#panel { position: absolute; top: 12px; left: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; width: 264px; font-size: 13px; z-index: 10; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); max-height: calc(100vh - 24px); overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
-#panel h2 { font-family: var(--display); font-size: 16px; font-weight: 700; margin: 0 0 12px; color: var(--accent); letter-spacing: 0.3px; text-shadow: 0 0 12px var(--accent-glow); }
+#panel { position: absolute; top: 12px; left: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; width: 264px; font-size: 13px; z-index: 10; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); max-height: calc(100vh - 24px); overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.4); transition: transform 0.25s ease; }
+#panel.collapsed { transform: translateX(calc(-100% + 44px)); overflow: hidden; }
+#panel.collapsed:hover { transform: translateX(calc(-100% + 52px)); }
+#panel h2 { font-family: var(--display); font-size: 16px; font-weight: 700; margin: 0 0 12px; color: var(--accent); letter-spacing: 0.3px; text-shadow: 0 0 12px var(--accent-glow); padding-right: 24px; }
 #panel label { display: block; margin: 12px 0 4px; color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
 #panel select, #panel input[type=text] { width: 100%; padding: 7px 10px; background: #1a1a2e; border: 1px solid #333; border-radius: var(--radius-sm); color: var(--text); font-size: 12px; font-family: var(--body); transition: border-color var(--transition); }
 #panel input[type=text]:focus, #panel select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
 #panel input[type=range] { width: 100%; accent-color: var(--accent); }
+#panel .shortcuts { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 10px; line-height: 1.8; }
+#panel .shortcuts kbd { background: #1a1a2e; border: 1px solid #333; border-radius: 4px; padding: 0 5px; font-family: inherit; font-size: 10px; color: var(--text); }
 .domain-check { display: flex; align-items: center; gap: 7px; margin: 3px 0; font-size: 12px; cursor: pointer; }
 .domain-check input { width: auto; accent-color: var(--accent); }
 .domain-check .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
@@ -410,17 +422,26 @@ body { background: var(--bg-grad); color: var(--text); font-family: var(--body);
 .btn { flex: 1; padding: 7px; background: #2a2a3a; border: 1px solid #444; color: var(--text); border-radius: var(--radius-sm); cursor: pointer; font-size: 11px; font-family: var(--body); transition: all var(--transition); }
 .btn:hover { background: #353548; border-color: var(--accent); color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
 .btn:active { transform: scale(0.97); }
+.zoom-row { display: flex; gap: 6px; margin-top: 12px; }
+.zoom-btn { flex: 1; display: flex; align-items: center; justify-content: center; padding: 6px; background: #1a1a2e; border: 1px solid #333; color: var(--text-dim); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--transition); line-height: 0; }
+.zoom-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+.zoom-btn:active { transform: scale(0.94); }
 #imp-val { color: var(--accent); font-weight: 600; }
 
-/* ── Legend ── */
-#legend { position: absolute; bottom: 12px; right: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; font-size: 12px; z-index: 10; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); max-width: 220px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
-#legend .lg-title { font-family: var(--display); font-weight: 600; margin-bottom: 6px; color: var(--text-bright); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+/* ── Bottom-right dock (legend + minimap move as one unit) ── */
+#dock { position: absolute; bottom: 12px; right: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; z-index: 10; }
+#legend { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; font-size: 12px; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); width: 220px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); transition: opacity 0.2s ease, transform 0.25s ease; }
+#legend.collapsed { opacity: 0; pointer-events: none; transform: translateX(16px) scale(0.96); }
+#legend .lg-title { font-family: var(--display); font-weight: 600; margin-bottom: 6px; color: var(--text-bright); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; padding-right: 20px; }
 #legend .row { display: flex; align-items: center; gap: 8px; margin: 3px 0; color: var(--text-dim); }
 #legend .swatch { width: 11px; height: 11px; border-radius: 50%; flex: none; }
-#legend .shape-glyph { width: 14px; text-align: center; flex: none; color: var(--text); }
+#legend .shape-glyph { width: 14px; text-align: center; flex: none; color: var(--text); display: inline-flex; justify-content: center; }
+#legend .shape-glyph svg { display: block; }
 
 /* ── Minimap ── */
-#minimap { position: absolute; bottom: 12px; right: 244px; width: 180px; height: 130px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); z-index: 10; overflow: hidden; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); cursor: pointer; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+#minimap-wrap { position: relative; transition: opacity 0.2s ease, transform 0.25s ease; }
+#minimap-wrap.collapsed { opacity: 0; pointer-events: none; transform: translateX(16px) scale(0.96); }
+#minimap { width: 180px; height: 130px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); cursor: pointer; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
 #minimap .viewport-rect { fill: rgba(90,228,170,0.12); stroke: var(--accent); stroke-width: 1; }
 
 /* ── Tooltip ── */
@@ -429,17 +450,29 @@ body { background: var(--bg-grad); color: var(--text); font-family: var(--body);
 #tooltip .tt-meta { color: var(--text-dim); line-height: 1.5; }
 
 /* ── Stats / status ── */
-#stats { position: absolute; bottom: 12px; left: 12px; color: #555; font-size: 11px; z-index: 10; }
+#stats-wrap { position: absolute; bottom: 12px; left: 12px; z-index: 10; transition: opacity 0.2s ease, transform 0.25s ease; }
+#stats-wrap.collapsed { opacity: 0; pointer-events: none; transform: translateY(8px); }
+#stats { background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 6px 34px 6px 14px; color: var(--text-dim); font-size: 11px; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); position: relative; }
+#stats .collapse-btn { top: 50%; right: 8px; transform: translateY(-50%); padding: 2px; }
 #focus-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--accent); color: var(--accent); border-radius: 20px; padding: 6px 16px; font-size: 12px; z-index: 10; display: none; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); box-shadow: 0 0 24px var(--accent-glow); }
 #focus-banner b { font-family: var(--display); }
 
-svg text { fill: #aaa; font-size: 9px; pointer-events: none; font-family: var(--body); }
+/* ── Loading / empty states ── */
+#loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 50; background: var(--bg-grad); color: var(--text-dim); font-size: 13px; letter-spacing: 0.4px; transition: opacity 0.4s ease; }
+#loading.done { opacity: 0; pointer-events: none; }
+#loading .spinner { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: var(--text-dim); font-size: 13px; z-index: 5; display: none; pointer-events: none; }
+#empty-state .empty-title { font-family: var(--display); font-size: 15px; color: var(--text); margin-bottom: 6px; }
+
+svg text { fill: #b9b9c6; font-size: 9px; pointer-events: none; font-family: var(--body); shape-rendering: geometricPrecision; }
 .node-shape { cursor: pointer; transition: opacity var(--transition); }
 .node-halo { transition: opacity 0.3s ease-out, r 0.3s ease-out; }
-.node-group { transition: filter var(--transition); }
+.node-group { transition: filter var(--transition), opacity var(--transition); }
 .node-group:hover .node-shape { filter: url(#node-glow-strong) !important; }
 .node-group:focus { outline: none; }
 .node-group:focus .node-shape { stroke: #fff; stroke-width: 2; }
+.node-group.selected .node-shape { stroke: var(--accent); stroke-width: 2.2; stroke-opacity: 0.9; filter: url(#node-glow-strong); }
 
 /* ── Modal ── */
 #modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: none; backdrop-filter: blur(4px); }
@@ -447,9 +480,10 @@ svg text { fill: #aaa; font-size: 9px; pointer-events: none; font-family: var(--
 #modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); background: #0d0d14; }
 #modal-title { font-family: var(--display); font-size: 17px; font-weight: 700; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
 #modal-actions { display: flex; gap: 8px; align-items: center; }
-#modal-actions .btn { flex: none; padding: 5px 10px; }
-#modal-close { background: none; border: none; color: var(--text-dim); font-size: 26px; cursor: pointer; padding: 2px 8px; line-height: 1; transition: color 0.15s; }
-#modal-close:hover { color: var(--accent); }
+#modal-actions .btn { flex: none; padding: 5px 10px; display: inline-flex; align-items: center; gap: 5px; }
+#modal-close { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 4px 6px; line-height: 0; border-radius: 6px; transition: color 0.15s, background 0.15s; }
+#modal-close:hover { color: var(--accent); background: rgba(90,228,170,0.08); }
+#modal-close .icon { width: 18px; height: 18px; }
 #modal-body { flex: 1; overflow: auto; padding: 22px 26px; }
 #modal-body h1, #modal-body h2, #modal-body h3, #modal-body h4 { font-family: var(--display); color: var(--accent); margin: 1.2em 0 0.5em; font-weight: 600; line-height: 1.3; }
 #modal-body h1 { font-size: 1.7em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
@@ -497,6 +531,7 @@ svg text { fill: #aaa; font-size: 9px; pointer-events: none; font-family: var(--
 </svg>
 
 <div id="panel">
+  <button class="collapse-btn" id="collapse-panel" aria-label="Toggle control panel" aria-expanded="true" title="Toggle panel (H)"><svg class="icon icon-chev" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></button>
   <h2>EntropicMem Graph</h2>
   <label for="node-search">Find a note</label>
   <input type="text" id="node-search" placeholder="Search titles… (Enter to jump)" autocomplete="off" aria-label="Search notes by title">
@@ -507,25 +542,47 @@ svg text { fill: #aaa; font-size: 9px; pointer-events: none; font-family: var(--
   <div id="domain-checks"></div>
   <label for="imp-slider">Min importance: <span id="imp-val">0.0</span></label>
   <input type="range" id="imp-slider" min="0" max="1" step="0.05" value="0" aria-label="Minimum importance filter">
+  <div class="zoom-row" role="group" aria-label="Zoom controls">
+    <button class="zoom-btn" id="btn-zoom-in" type="button" aria-label="Zoom in (+)" title="Zoom in (+)"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+    <button class="zoom-btn" id="btn-zoom-out" type="button" aria-label="Zoom out (-)" title="Zoom out (-)"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+    <button class="zoom-btn" id="btn-zoom-fit" type="button" aria-label="Fit graph to view (0)" title="Fit to view (0)"><svg class="icon" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
+    <button class="zoom-btn" id="btn-zoom-100" type="button" aria-label="Reset zoom to 100%" title="Actual size (1:1)"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/></svg></button>
+  </div>
   <div class="btn-row">
     <button class="btn" id="btn-reset" type="button">Reset</button>
     <button class="btn" id="btn-export" type="button">Export PNG</button>
   </div>
+  <div class="shortcuts">
+    <kbd>+</kbd>/<kbd>-</kbd> zoom &nbsp; <kbd>0</kbd> fit &nbsp; <kbd>Esc</kbd> release focus<br>
+    <kbd>H</kbd> panel &nbsp; <kbd>L</kbd> legend &nbsp; <kbd>M</kbd> minimap &nbsp; <kbd>S</kbd> stats
+  </div>
 </div>
 
-<div id="focus-banner">Focused: <b id="focus-name"></b> — click empty space to release</div>
-<div id="legend"></div>
-<div id="minimap" aria-hidden="true"></div>
-<div id="stats"></div>
+<div id="focus-banner">Focused: <b id="focus-name"></b> — click empty space or press Esc to release</div>
+<div id="dock">
+  <div id="legend">
+    <button class="collapse-btn" id="collapse-legend" aria-label="Toggle legend" aria-expanded="true" title="Toggle legend (L)"><svg class="icon icon-chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>
+    <div id="legend-content"></div>
+  </div>
+  <div id="minimap-wrap">
+    <button class="collapse-btn" id="collapse-minimap" aria-label="Toggle minimap" aria-expanded="true" title="Toggle minimap (M)" style="z-index:2;"><svg class="icon icon-chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>
+    <div id="minimap" aria-hidden="true"></div>
+  </div>
+</div>
+<div id="stats-wrap">
+  <div id="stats"><span id="stats-text"></span><button class="collapse-btn" id="collapse-stats" aria-label="Toggle stats" aria-expanded="true" title="Toggle stats (S)"><svg class="icon" viewBox="0 0 24 24" style="width:11px;height:11px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+</div>
 <div id="tooltip" role="tooltip"></div>
+<div id="loading"><div class="spinner"></div><div>Building graph…</div></div>
+<div id="empty-state"><div class="empty-title">No notes match these filters</div><div>Loosen the importance slider, tag, or domain filters.</div></div>
 
 <div id="modal-overlay"></div>
 <div id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
   <div id="modal-header">
     <span id="modal-title">Note</span>
     <div id="modal-actions">
-      <button class="btn" id="btn-copy-link" type="button">Copy link</button>
-      <button id="modal-close" aria-label="Close note">&times;</button>
+      <button class="btn" id="btn-copy-link" type="button"><svg class="icon" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Copy link</button>
+      <button id="modal-close" aria-label="Close note"><svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
   </div>
   <div id="modal-body" tabindex="0"></div>
@@ -560,7 +617,9 @@ function edgeDash(d) { return d.kind === "tag" ? "4,3" : null; }
 /* ── Tunable configuration (physics, zoom/LOD, halo, clipboard) ── */
 const CFG = {
   physics: { linkDistance: 110, charge: -180, collisionPad: 12, alphaDecay: 0.035, alphaMin: 0.005, dragAlphaTarget: 0.15 },
-  zoom: { min: 0.05, max: 8, wheelFactor: 0.04, keyboardFactor: 1.3, focusScale: 1.8 },
+  // wheelFactor is applied AFTER deltaMode normalization (pixel units), so one
+  // mouse-wheel notch (~100px) zooms ~1.18x and trackpads feel identical.
+  zoom: { min: 0.05, max: 8, wheelFactor: 0.0016, keyboardFactor: 1.3, focusScale: 1.8 },
   lod: { hideBelow: 0.35, fadeBelow: 0.6, badgesAbove: 2.5 },
   halo: { baseScale: 2.2, speedDivisor: 3, maxIntensity: 0.6, minOpacity: 0.08, restScale: 2.0, velScale: 0.5 },
 };
@@ -589,12 +648,58 @@ let currentTransform = d3.zoomIdentity;
 let lastTrigger = null;   // element that opened the modal, for focus return
 let W = window.innerWidth, H = window.innerHeight;
 
-const zoom = d3.zoom().scaleExtent([CFG.zoom.min, CFG.zoom.max]).wheelDelta(event => -event.deltaY * CFG.zoom.wheelFactor).on("zoom", (event) => {
-  currentTransform = event.transform;
-  if (rootG) rootG.attr("transform", event.transform);
-  updateMinimapViewport();
-  updateLOD();
-});
+const zoom = d3.zoom().scaleExtent([CFG.zoom.min, CFG.zoom.max])
+  // deltaMode-normalized: 0=pixel (trackpads), 1=line (mouse wheels), 2=page.
+  // Convert line/page deltas to pixels first so every device zooms at the same rate.
+  .wheelDelta(event => {
+    const mode = event.deltaMode;
+    const raw = mode === 1 ? event.deltaY * 33 : mode === 2 ? event.deltaY * 1000 : event.deltaY;
+    return -raw * CFG.zoom.wheelFactor;
+  })
+  .on("zoom", (event) => {
+    currentTransform = event.transform;
+    if (rootG) rootG.attr("transform", event.transform);
+    updateMinimapViewport();
+    updateLOD();
+  });
+
+/* ── Zoom helpers (shared by buttons, keys, dblclick) ── */
+function zoomBy(factor, cx, cy) {
+  if (!svg) return;
+  cx = cx == null ? W / 2 : cx;
+  cy = cy == null ? H / 2 : cy;
+  const newK = Math.max(CFG.zoom.min, Math.min(CFG.zoom.max, currentTransform.k * factor));
+  const t = currentTransform;
+  // Keep the anchor point (cx, cy) fixed while scaling.
+  const wx = (cx - t.x) / t.k, wy = (cy - t.y) / t.k;
+  const next = d3.zoomIdentity.translate(cx - wx * newK, cy - wy * newK).scale(newK);
+  svg.transition().duration(200).call(zoom.transform, next);
+}
+
+function zoomTo(k) {
+  if (!svg) return;
+  const newK = Math.max(CFG.zoom.min, Math.min(CFG.zoom.max, k));
+  const t = currentTransform;
+  const cx = W / 2, cy = H / 2;
+  const wx = (cx - t.x) / t.k, wy = (cy - t.y) / t.k;
+  const next = d3.zoomIdentity.translate(cx - wx * newK, cy - wy * newK).scale(newK);
+  svg.transition().duration(350).call(zoom.transform, next);
+}
+
+function zoomFit() {
+  if (!svg || !nodeG) return;
+  const nodes = nodeG.data();
+  if (!nodes.length) return;
+  const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const pad = 60;
+  const bw = (maxX - minX) + pad * 2, bh = (maxY - minY) + pad * 2;
+  const k = Math.max(CFG.zoom.min, Math.min(CFG.zoom.max, Math.min(W / bw, H / bh)));
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const t = d3.zoomIdentity.translate(W / 2 - cx * k, H / 2 - cy * k).scale(k);
+  svg.transition().duration(600).call(zoom.transform, t);
+}
 
 /* ── Shape path generator (centered on 0,0 for given radius) ── */
 function shapePath(shape, r) {
@@ -614,20 +719,28 @@ function shapePath(shape, r) {
 }
 
 /* ── Legend ── */
+const SHAPE_SVGS = {
+  circle: '<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="currentColor"/></svg>',
+  square: '<svg width="12" height="12" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5" fill="currentColor"/></svg>',
+  diamond: '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 0.8 L11.2 6 L6 11.2 L0.8 6 Z" fill="currentColor"/></svg>',
+  triangle: '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1 L11 10.5 L1 10.5 Z" fill="currentColor"/></svg>',
+  link: '<svg width="14" height="12" viewBox="0 0 14 12"><line x1="1" y1="6" x2="13" y2="6" stroke="currentColor" stroke-width="1.6"/></svg>',
+  taglink: '<svg width="14" height="12" viewBox="0 0 14 12"><line x1="1" y1="6" x2="13" y2="6" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.4"/></svg>',
+};
 function buildLegend() {
-  const legend = document.getElementById("legend");
+  const legend = document.getElementById("legend-content");
   let html = '<div class="lg-title">Domains</div>';
   for (const [domain, color] of Object.entries(PALETTE)) {
     html += `<div class="row"><span class="swatch" style="background:${color};box-shadow:0 0 6px ${color};"></span>${domain}</div>`;
   }
   html += '<div class="lg-title" style="margin-top:8px;">Shapes</div>';
-  html += '<div class="row"><span class="shape-glyph">●</span> permanent</div>';
-  html += '<div class="row"><span class="shape-glyph">■</span> literature</div>';
-  html += '<div class="row"><span class="shape-glyph">◆</span> moc</div>';
-  html += '<div class="row"><span class="shape-glyph">▲</span> index / log</div>';
+  html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.circle}</span> permanent</div>`;
+  html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.square}</span> literature</div>`;
+  html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.diamond}</span> moc</div>`;
+  html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.triangle}</span> index / log</div>`;
   html += '<div class="lg-title" style="margin-top:8px;">Edges</div>';
-  html += '<div class="row"><span class="shape-glyph">—</span> wikilink</div>';
-  html += '<div class="row"><span class="shape-glyph">┄</span> tag link</div>';
+  html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.link}</span> wikilink</div>`;
+  html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.taglink}</span> tag link</div>`;
   legend.innerHTML = html;
 }
 
@@ -686,6 +799,18 @@ function updateFilters() {
   currentTag = document.getElementById("tag-search").value.trim();
   document.getElementById("imp-val").textContent = currentMinImp.toFixed(1);
   render();
+  updateStats();
+}
+
+function updateStats() {
+  const el = document.getElementById("stats-text");
+  if (!el) return;
+  const { nodes, edges } = getFilteredData();
+  const dropped = DATA.edges.length - edges.length;
+  el.textContent =
+    `${nodes.length} nodes / ${edges.length} edges` +
+    (dropped > 0 ? ` (${dropped} hidden by filters)` : "") +
+    ` | ${DATA.meta.domains.length} domains`;
 }
 
 function resetFilters() {
@@ -697,6 +822,7 @@ function resetFilters() {
   document.getElementById("imp-val").textContent = "0.0";
   clearFocus();
   render();
+  updateStats();
 }
 
 /* ── Focus mode ── */
@@ -710,6 +836,7 @@ function applyFocus(id) {
     const t = typeof e.target === "object" ? e.target.id : e.target;
     return (s === id || t === id) ? 0.85 : 0.04;
   });
+  nodeG.classed("selected", d => d.id === id);
   const node = nodeById.get(id);
   document.getElementById("focus-name").textContent = node ? (node.title || node.id) : id;
   document.getElementById("focus-banner").style.display = "block";
@@ -717,7 +844,7 @@ function applyFocus(id) {
 
 function clearFocus() {
   focusedId = null;
-  if (nodeG) nodeG.style("opacity", 1);
+  if (nodeG) { nodeG.style("opacity", 1); nodeG.classed("selected", false); }
   if (labelG) labelG.style("opacity", 1);
   if (linkG) linkG.style("opacity", 0.5);
   document.getElementById("focus-banner").style.display = "none";
@@ -744,18 +871,15 @@ function handleSearch() {
 /* ── Render ── */
 function render() {
   const { nodes, edges } = getFilteredData();
-  const dropped = DATA.edges.length - edges.length;
-  document.getElementById("stats").textContent =
-    `${nodes.length} nodes / ${edges.length} edges` +
-    (dropped > 0 ? ` (${dropped} hidden by filters)` : "") +
-    ` | ${DATA.meta.domains.length} domains`;
+  document.getElementById("empty-state").style.display = nodes.length ? "none" : "block";
+  updateStats();
 
   // Preserve positions of nodes that persist across re-renders
   const oldPos = new Map();
   if (nodeG) nodeG.each(function(d) { oldPos.set(d.id, { x: d.x, y: d.y, vx: d.vx, vy: d.vy }); });
 
   svg.selectAll(".layer").remove();
-  rootG = svg.append("g").attr("class", "layer");
+  rootG = svg.append("g").attr("class", "layer").style("will-change", "transform");
   linkG = rootG.append("g").attr("class", "links").selectAll("line").data(edges).join("line")
     .attr("stroke", "#3a3a4a").attr("stroke-width", edgeWidth)
     .attr("stroke-opacity", 0.5).attr("stroke-dasharray", edgeDash);
@@ -891,8 +1015,11 @@ function showTooltip(event, d) {
 }
 function moveTooltip(event) {
   const tip = document.getElementById("tooltip");
-  tip.style.left = (event.pageX + 14) + "px";
-  tip.style.top = (event.pageY - 10) + "px";
+  // Flip at viewport edges so the tooltip never clips offscreen.
+  const flipX = event.pageX + 14 + tip.offsetWidth > window.innerWidth - 8;
+  const flipY = event.pageY - 10 - tip.offsetHeight < 0;
+  tip.style.left = (flipX ? Math.max(8, event.pageX - tip.offsetWidth - 14) : event.pageX + 14) + "px";
+  tip.style.top = (flipY ? event.pageY + 22 : event.pageY - 10) + "px";
 }
 function hideTooltip() { document.getElementById("tooltip").style.display = "none"; }
 
@@ -1087,6 +1214,17 @@ function openModal(node, trigger) {
   applyFocus(node.id);
 }
 
+/* Keep Tab cycling inside the modal while it is open. */
+function trapModalFocus(e) {
+  const modal = document.getElementById("modal");
+  if (modal.style.display !== "flex" || e.key !== "Tab") return;
+  const focusables = modal.querySelectorAll('button, [tabindex="0"], a[href], .wikilink:not(.broken)');
+  if (!focusables.length) return;
+  const first = focusables[0], last = focusables[focusables.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
 function closeModal() {
   document.getElementById("modal").style.display = "none";
   document.getElementById("modal-overlay").style.display = "none";
@@ -1108,11 +1246,13 @@ function copyNoteLink() {
   }
 }
 
-/* ── Export PNG ── */
+/* ── Export PNG (HiDPI-aware, capped at 2x to bound file size) ── */
 function exportPNG() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const svgEl = svg.node();
   const clone = svgEl.cloneNode(true);
-  clone.setAttribute("width", W); clone.setAttribute("height", H);
+  clone.setAttribute("width", W * dpr); clone.setAttribute("height", H * dpr);
+  clone.setAttribute("viewBox", `0 0 ${W} ${H}`);
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   bg.setAttribute("width", W); bg.setAttribute("height", H); bg.setAttribute("fill", "#0a0a0f");
@@ -1122,9 +1262,9 @@ function exportPNG() {
   const svg64 = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(xml)));
   img.onload = () => {
     const canvas = document.createElement("canvas");
-    canvas.width = W; canvas.height = H;
+    canvas.width = W * dpr; canvas.height = H * dpr;
     const ctx = canvas.getContext("2d");
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, 0, 0, W * dpr, H * dpr);
     const a = document.createElement("a");
     a.download = "entropicmem-graph.png";
     a.href = canvas.toDataURL("image/png");
@@ -1133,43 +1273,103 @@ function exportPNG() {
   img.src = svg64;
 }
 
+/* ── Collapsible overlays (persisted to localStorage) ── */
+const OVERLAYS = [
+  { id: "panel", btn: "collapse-panel" },
+  { id: "legend", btn: "collapse-legend" },
+  { id: "minimap-wrap", btn: "collapse-minimap" },
+  { id: "stats-wrap", btn: "collapse-stats" },
+];
+const lsKey = id => `entropicmem-graph-${id}-collapsed`;
+function setOverlayCollapsed(entry, collapsed) {
+  const el = document.getElementById(entry.id);
+  const btn = document.getElementById(entry.btn);
+  if (!el) return;
+  el.classList.toggle("collapsed", collapsed);
+  if (btn) btn.setAttribute("aria-expanded", String(!collapsed));
+  try { localStorage.setItem(lsKey(entry.id), collapsed ? "1" : "0"); } catch (e) {}
+}
+function toggleOverlay(idOrEntry) {
+  const entry = typeof idOrEntry === "string" ? OVERLAYS.find(o => o.id === idOrEntry) : idOrEntry;
+  if (!entry) return;
+  const el = document.getElementById(entry.id);
+  if (el) setOverlayCollapsed(entry, !el.classList.contains("collapsed"));
+}
+function restoreOverlayStates() {
+  OVERLAYS.forEach(entry => {
+    let collapsed = false;
+    try { collapsed = localStorage.getItem(lsKey(entry.id)) === "1"; } catch (e) {}
+    if (collapsed) setOverlayCollapsed(entry, true);
+    const btn = document.getElementById(entry.btn);
+    if (btn) btn.addEventListener("click", ev => { ev.stopPropagation(); toggleOverlay(entry); });
+  });
+}
+
 /* ── Wiring ── */
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeModal();
-  // Keyboard zoom: + to zoom in, - to zoom out (skip if typing in an input)
-  if ((e.key === "+" || e.key === "=" || e.key === "-" || e.key === "_") &&
-      e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
-    e.preventDefault();
-    const factor = (e.key === "+" || e.key === "=") ? CFG.zoom.keyboardFactor : 1 / CFG.zoom.keyboardFactor;
-    const newK = Math.max(CFG.zoom.min, Math.min(CFG.zoom.max, currentTransform.k * factor));
-    const cx = W / 2, cy = H / 2;
-    const t = d3.zoomIdentity.translate(cx - cx * newK, cy - cy * newK).scale(newK);
-    svg.transition().duration(200).call(zoom.transform, t);
+  const modalOpen = document.getElementById("modal").style.display === "flex";
+  if (e.key === "Escape") {
+    if (modalOpen) closeModal();
+    else clearFocus();
+    return;
   }
+  trapModalFocus(e);
+  // Everything below is ignored while typing in a form field.
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  if (modalOpen) return;
+  const key = e.key.toLowerCase();
+  if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomBy(CFG.zoom.keyboardFactor); }
+  else if (e.key === "-" || e.key === "_") { e.preventDefault(); zoomBy(1 / CFG.zoom.keyboardFactor); }
+  else if (e.key === "0") { e.preventDefault(); zoomFit(); }
+  else if (key === "h") toggleOverlay("panel");
+  else if (key === "l") toggleOverlay("legend");
+  else if (key === "m") toggleOverlay("minimap-wrap");
+  else if (key === "s") toggleOverlay("stats-wrap");
 });
 
 document.addEventListener("DOMContentLoaded", () => {
   svg = d3.select("#graph").append("svg").attr("width", "100%").attr("height", "100%");
   svg.append("defs"); // for per-color halo gradients (haloGradientRef)
   svg.call(zoom).on("click", () => clearFocus());
+  // Double-click empty canvas zooms in at the cursor (nodes swallow their own clicks).
+  svg.on("dblclick", (event) => {
+    event.preventDefault();
+    const [mx, my] = d3.pointer(event, svg.node());
+    zoomBy(1.5, mx, my);
+  });
   initMinimap();
   buildLegend();
   buildDomainChecks();
   buildTagSuggestions();
+  restoreOverlayStates();
 
   document.getElementById("imp-slider").addEventListener("input", updateFilters);
   document.getElementById("tag-search").addEventListener("input", updateFilters);
   document.getElementById("node-search").addEventListener("keydown", (e) => { if (e.key === "Enter") handleSearch(); });
   document.getElementById("btn-reset").addEventListener("click", resetFilters);
   document.getElementById("btn-export").addEventListener("click", exportPNG);
+  document.getElementById("btn-zoom-in").addEventListener("click", () => zoomBy(CFG.zoom.keyboardFactor));
+  document.getElementById("btn-zoom-out").addEventListener("click", () => zoomBy(1 / CFG.zoom.keyboardFactor));
+  document.getElementById("btn-zoom-fit").addEventListener("click", zoomFit);
+  document.getElementById("btn-zoom-100").addEventListener("click", () => zoomTo(1));
   document.getElementById("modal-close").addEventListener("click", closeModal);
   document.getElementById("modal-overlay").addEventListener("click", closeModal);
   document.getElementById("btn-copy-link").addEventListener("click", copyNoteLink);
 
   render();
+  updateStats();
   window.addEventListener("resize", () => { W = window.innerWidth; H = window.innerHeight; });
   // Call updateLOD once after initial render
   setTimeout(updateLOD, 100);
+  // Hide the loading overlay once the simulation has painted a few frames.
+  let loadingHidden = false;
+  const hideLoading = () => {
+    if (loadingHidden) return;
+    loadingHidden = true;
+    document.getElementById("loading").classList.add("done");
+  };
+  if (simulation) simulation.on("tick.loading", () => hideLoading());
+  setTimeout(hideLoading, 2500); // failsafe for tiny graphs that end instantly
 
   // Deep-link: open a note from #note=Title
   const m = location.hash.match(/#note=(.+)/);

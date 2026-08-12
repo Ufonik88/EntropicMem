@@ -203,7 +203,9 @@ class TestZoomEnhancements:
         out = Path(tempfile.mkdtemp()) / "graph.html"
         html = export_html(index, out, max_nodes=50)
         assert "wheelDelta" in html, "wheel damping not configured"
-        assert "wheelFactor: 0.04" in html, "wheel factor not in CFG"
+        # v2.3.0: factor recalibrated for deltaMode-normalized (pixel) deltas
+        assert "wheelFactor: 0.0016" in html, "wheel factor not in CFG"
+        assert "deltaMode" in html, "wheelDelta must normalize event.deltaMode"
 
     def test_keyboard_zoom(self, populated_index):
         _, index = populated_index
