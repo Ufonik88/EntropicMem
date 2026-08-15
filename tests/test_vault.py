@@ -7,13 +7,15 @@ Uses temporary directories — NEVER touches the live vault.
 import os
 import sys
 import tempfile
-import pytest
 from pathlib import Path
+
+import pytest
 
 # Ensure the scripts dir is importable
 _SCRIPT_DIR = Path(__file__).resolve().parent.parent / "skills" / "entropicmem" / "scripts"
 sys.path.insert(0, str(_SCRIPT_DIR))
 
+from index import VaultIndex
 from vault import (
     DEFAULT_DOMAINS,
     PROTECTED_PREFIXES,
@@ -21,8 +23,6 @@ from vault import (
     Vault,
     resolve_vault_path,
 )
-from index import VaultIndex
-
 
 # ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ def temp_vault():
         ]
 
         for domain, title, body, tags in notes_data:
-            path = vault.write_note(domain, title, body, tags=tags, domain=domain)
+            vault.write_note(domain, title, body, tags=tags, domain=domain)
 
         yield vault, index_path
 

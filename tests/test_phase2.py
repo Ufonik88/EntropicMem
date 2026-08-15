@@ -15,7 +15,6 @@ _CLI = str(_SCRIPT_DIR / "entropicmem.py")
 sys.path.insert(0, str(_SCRIPT_DIR))
 
 from vault import Vault
-from index import VaultIndex
 
 
 def _run(*args, **env):
@@ -144,7 +143,7 @@ class TestRememberForget:
                  ENTROPICMEM_VAULT_PATH=str(vp), ENTROPICMEM_INDEX_DB=str(ip))
         assert r.returncode == 0
         assert "Remembered:" in r.stdout
-        eid_line = [l for l in r.stdout.split("\n") if "Remembered:" in l][0]
+        eid_line = [line for line in r.stdout.split("\n") if "Remembered:" in line][0]
         assert len(eid_line.split(":")[1].strip()) == 16
 
     def test_remember_forget_roundtrip(self, seeded_vault):
@@ -153,7 +152,7 @@ class TestRememberForget:
                  "--domain", "Infrastructure",
                  ENTROPICMEM_VAULT_PATH=str(vp), ENTROPICMEM_INDEX_DB=str(ip))
         assert r.returncode == 0
-        eid_line = [l for l in r.stdout.split("\n") if "Remembered:" in l][0]
+        eid_line = [line for line in r.stdout.split("\n") if "Remembered:" in line][0]
         eid = eid_line.split(":")[1].strip()
 
         r2 = _run("forget", "--confirm", eid,

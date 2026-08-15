@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import socket
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -106,8 +105,8 @@ def test_poisoned_instruction_markers_stripped(engine):
 
 
 def test_backend_paths_ignore_obsidian(tmp_path, monkeypatch):
-    from pathlib import Path as P
     import importlib.util
+    from pathlib import Path as P
     backend = P(__file__).resolve().parents[1] / "plugins" / "entropicmem" / "_backend.py"
     spec = importlib.util.spec_from_file_location("em_backend", backend)
     mod = importlib.util.module_from_spec(spec)

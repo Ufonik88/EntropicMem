@@ -6,8 +6,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pytest
-
 _ROOT = Path(__file__).resolve().parent.parent
 _CLI = str(_ROOT / "skills/entropicmem/scripts/entropicmem.py")
 

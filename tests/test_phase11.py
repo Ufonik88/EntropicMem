@@ -1,15 +1,11 @@
 """Tests for Phase 10.2 (graph-aware recall) and Phase 11 (security, capsule, versioning)."""
 
 import json
-import sqlite3
 import tarfile
-import tempfile
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
-from memory_engine import MemoryEngine, StoredFact
+from memory_engine import MemoryEngine
 
 
 def _crypto_available():
@@ -75,7 +71,7 @@ class TestSecurity:
         assert is_encrypted(db_path) is False
 
     def test_is_encrypted_true(self, tmp_path):
-        from security import is_encrypted, ENCRYPTED_MARKER
+        from security import ENCRYPTED_MARKER, is_encrypted
         db_path = tmp_path / "memory.db"
         db_path.touch()
         (tmp_path / ENCRYPTED_MARKER).write_text("{}")
@@ -86,7 +82,7 @@ class TestSecurity:
         reason="cryptography not installed",
     )
     def test_encrypt_decrypt_roundtrip(self, tmp_path):
-        from security import encrypt_db, decrypt_db, is_encrypted
+        from security import decrypt_db, encrypt_db, is_encrypted
 
         db_path = tmp_path / "memory.db"
         db_path.write_text("test database content")
@@ -107,7 +103,7 @@ class TestSecurity:
         reason="cryptography not installed",
     )
     def test_wrong_passphrase(self, tmp_path):
-        from security import encrypt_db, decrypt_db
+        from security import decrypt_db, encrypt_db
 
         db_path = tmp_path / "memory.db"
         db_path.write_text("secret data")

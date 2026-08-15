@@ -1,12 +1,11 @@
 """Tests for Phase 7–10 modules: embeddings, temporal, pii, graph_query."""
 
 import sqlite3
+
 import pytest
-from pathlib import Path
 
 # ── temporal ─────────────────────────────────────────────────────────────────
-
-from temporal import parse_temporal_query, extract_temporal_filter
+from temporal import extract_temporal_filter, parse_temporal_query
 
 
 class TestTemporalParsing:
@@ -55,7 +54,7 @@ class TestTemporalParsing:
 
 # ── pii ──────────────────────────────────────────────────────────────────────
 
-from pii import scan_pii, redact_pii, check_pii, PIIFinding
+from pii import check_pii, redact_pii, scan_pii
 
 
 class TestPIIDetection:
@@ -109,14 +108,14 @@ class TestPIIDetection:
 # ── graph_query ──────────────────────────────────────────────────────────────
 
 from graph_query import (
-    extract_wikilinks,
     extract_links_with_context,
+    extract_wikilinks,
+    get_connected_notes,
+    get_incoming_links,
+    get_outgoing_links,
+    graph_stats,
     init_links_schema,
     store_links,
-    get_outgoing_links,
-    get_incoming_links,
-    get_connected_notes,
-    graph_stats,
 )
 
 
@@ -179,15 +178,15 @@ class TestGraphQuery:
 # ── embeddings (unit tests without model) ───────────────────────────────────
 
 from embeddings import (
-    cosine_similarity,
-    hybrid_rank,
-    _vec_to_blob,
     _blob_to_vec,
+    _vec_to_blob,
+    cosine_similarity,
+    delete_embedding,
+    embedding_coverage,
+    get_embedding,
+    hybrid_rank,
     init_embeddings_schema,
     store_embedding,
-    delete_embedding,
-    get_embedding,
-    embedding_coverage,
 )
 
 

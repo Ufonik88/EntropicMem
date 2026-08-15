@@ -23,4 +23,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -q "ruff==0.16.2"
-      - run: ruff check skills/ plugins/ scripts/
+      - run: ruff check skills/ plugins/ scripts/ tests/

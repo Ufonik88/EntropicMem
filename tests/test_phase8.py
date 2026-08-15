@@ -4,7 +4,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 import pytest
@@ -67,9 +66,10 @@ class TestAutoExtract:
 
     def test_extract_deduplication(self):
         """Extraction respects entropic_id deduplication within same MemoryEngine."""
-        from memory_engine import MemoryEngine
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
+        from memory_engine import MemoryEngine
 
         with tempfile.TemporaryDirectory() as td:
             db_path = Path(td) / "dedup.db"
@@ -182,7 +182,7 @@ class TestCoreMemoryDirect:
 
         vault_root = tmp_path / "vault"
         vault_root.mkdir()
-        core = CoreMemory(vault_root)
+        CoreMemory(vault_root)  # constructor side effects are the assertion
 
         assert (vault_root / "Core" / "Persona.md").exists()
         assert (vault_root / "Core" / "User_Profile.md").exists()
@@ -261,7 +261,6 @@ class TestTemporalDecay:
 
     def test_reinforce_boosts_score(self, engine_with_facts):
         """Reinforcing a fact increases its relevance score."""
-        from memory_engine import StoredFact
 
         # Get initial score
         results1 = engine_with_facts.recall_with_relevance(
@@ -298,7 +297,6 @@ class TestTemporalDecay:
         """CLI reinforce works with temp DB (via direct API, as CLI uses default DB)."""
         # CLI uses default memory DB path from env, not our temp DB.
         # Test the API directly instead, which is what matters.
-        from memory_engine import MemoryEngine
 
         facts = engine_with_facts.list_facts(limit=1)
         if facts:
@@ -320,6 +318,7 @@ class TestMigrations:
         """MemoryEngine migrates old databases by adding temporal columns."""
         import sqlite3
         from pathlib import Path
+
         from memory_engine import MemoryEngine
 
         with tempfile.TemporaryDirectory() as td:
@@ -363,6 +362,7 @@ class TestMigrations:
         """Running migration twice on new DB doesn't error."""
         import tempfile
         from pathlib import Path
+
         from memory_engine import MemoryEngine
 
         with tempfile.TemporaryDirectory() as td:

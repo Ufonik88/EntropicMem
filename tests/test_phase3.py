@@ -15,13 +15,16 @@ _SCRIPT_DIR = Path(__file__).resolve().parent.parent / "skills" / "entropicmem" 
 _CLI = str(_SCRIPT_DIR / "entropicmem.py")
 sys.path.insert(0, str(_SCRIPT_DIR))
 
-from vault import Vault
-from index import VaultIndex
 from graph_export import (
-    export_json, export_dot, export_html, export_canvas,
-    get_color, get_shape,
-    DOMAIN_PALETTE,
+    export_canvas,
+    export_dot,
+    export_html,
+    export_json,
+    get_color,
+    get_shape,
 )
+from index import VaultIndex
+from vault import Vault
 
 
 def _run(*args, **env):
@@ -186,7 +189,8 @@ class TestGraphExport:
         vault, index = populated_index
         out = Path(tempfile.mkdtemp()) / "graph.html"
         html = export_html(index, out, max_nodes=50, vault_root=vault.root, include_bodies=True)
-        import re, shutil
+        import re
+        import shutil
         scripts = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
         assert scripts, "no inline <script> block"
         app_js = scripts[-1]

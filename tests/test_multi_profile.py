@@ -6,7 +6,6 @@ separate memory.db, separate index.db, separate vaults, and no cross-profile
 recall. This is the regression guard for the multi-profile support built in
 v2.2.1 (HERMES_HOME-aware path resolution).
 """
-import os
 import sys
 import tempfile
 from pathlib import Path

@@ -2,7 +2,6 @@
 test_phase4.py — Tests for the standalone MemoryEngine.
 """
 
-import hashlib
 import os
 import subprocess
 import sys
@@ -15,9 +14,9 @@ _SCRIPT_DIR = Path(__file__).resolve().parent.parent / "skills" / "entropicmem" 
 _CLI = str(_SCRIPT_DIR / "entropicmem.py")
 sys.path.insert(0, str(_SCRIPT_DIR))
 
-from vault import Vault
 from index import VaultIndex
-from memory_engine import MemoryEngine, StoredFact
+from memory_engine import MemoryEngine
+from vault import Vault
 
 
 def _run(*args, **env):
@@ -158,7 +157,7 @@ class TestMemoryCLI:
                  ENTROPICMEM_INDEX_DB=str(index.db_path),
                  ENTROPICMEM_MEMORY_DB=str(mp))
         assert r.returncode == 0
-        eid_line = [l for l in r.stdout.split("\n") if "Remembered:" in l][0]
+        eid_line = [line for line in r.stdout.split("\n") if "Remembered:" in line][0]
         eid = eid_line.split(":")[1].strip()
 
         r2 = _run("forget", "--confirm", eid,

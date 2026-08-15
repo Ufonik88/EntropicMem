@@ -204,7 +204,7 @@ See `skills/entropicmem/references/HERMES_INTEGRATION.md` for full documentation
 
 ## Sole Provider Status (2026-08-07)
 
-EntropicMem **v2.2.0** is the **sole memory provider** for Hermes Agent — full contextual parity: durable facts, episodic memory, knowledge triples, and embedding coverage in one engine.
+EntropicMem **v2.3.2** is the **sole memory provider** for Hermes Agent — full contextual parity: durable facts, episodic memory, knowledge triples, and embedding coverage in one engine.
 
 ```yaml
 memory:

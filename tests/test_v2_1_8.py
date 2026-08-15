@@ -14,8 +14,6 @@ import os
 import sqlite3
 import subprocess
 import sys
-import tempfile
-import time
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -42,7 +40,6 @@ if not _HEALTH.is_file() or not _GATE.is_file():
     )
 sys.path.insert(0, str(_SCRIPT_DIR))
 
-from index import VaultIndex
 from memory_engine import MemoryEngine
 from vault import Vault
 

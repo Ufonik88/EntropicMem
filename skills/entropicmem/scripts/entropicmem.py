@@ -54,7 +54,7 @@ from vault import (  # noqa: E402
     resolve_vault_path,
 )
 
-__version__ = "2.2.0"
+__version__ = "2.3.2"
 
 # ── input validation helpers ────────────────────────────────────────────────
 

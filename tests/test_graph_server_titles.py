@@ -7,8 +7,6 @@ dead links; the client resolves them lazily through this endpoint. Tests
 use FastAPI TestClient with a temp HERMES_HOME so INDEX_DB is isolated.
 """
 
-import os
-import tempfile
 from pathlib import Path
 
 import pytest

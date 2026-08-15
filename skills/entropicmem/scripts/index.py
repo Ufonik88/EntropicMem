@@ -108,7 +108,7 @@ class VaultIndex:
 
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path).resolve()
-        self.db = sqlite3.connect(str(self.db_path))
+        self.db = sqlite3.connect(str(self.db_path), timeout=30)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")

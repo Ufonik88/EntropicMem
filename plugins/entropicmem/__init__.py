@@ -904,14 +904,25 @@ class EntropicMemMemoryProvider(MemoryProvider):
         try:
             ensure_scripts_on_path(self._scripts_dir)
             from index import VaultIndex
-            from retrieval import retrieve
+            from retrieval import retrieve_composed
             from vault import Vault
 
             vault = Vault(self._vault_path)
             index = VaultIndex(self._index_db)
-            results = retrieve(vault, index, query, top_k=top_k)
-            index.close()
-            return json.dumps({"results": results})
+            try:
+                result = retrieve_composed(
+                    query=query, vault=vault, index=index, top_k=top_k
+                )
+            finally:
+                index.close()
+            payload = {
+                "results": [h.to_dict() for h in result.hits],
+                "snippets": result.snippets,
+                "graph_context": result.graph_context,
+                "orientation": result.orientation,
+                "stats": result.stats,
+            }
+            return json.dumps(payload)
         except Exception as e:
             return _tool_error(str(e))
 

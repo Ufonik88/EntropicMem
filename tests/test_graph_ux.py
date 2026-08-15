@@ -6,7 +6,6 @@ new physics, SVG glow defs, LOD, and modal enhancements, and that the
 inline JavaScript still parses cleanly.
 """
 
-import json
 import os
 import re
 import shutil
@@ -21,9 +20,9 @@ _SCRIPT_DIR = Path(__file__).resolve().parent.parent / "skills" / "entropicmem" 
 _CLI = str(_SCRIPT_DIR / "entropicmem.py")
 sys.path.insert(0, str(_SCRIPT_DIR))
 
-from vault import Vault
-from index import VaultIndex
 from graph_export import export_html, export_json
+from index import VaultIndex
+from vault import Vault
 
 
 def _run(*args, **env):

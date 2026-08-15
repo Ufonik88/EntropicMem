@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -50,8 +49,8 @@ def test_sanitize_strips_memory_context_and_hijack(engine):
 
 
 def test_export_html_omits_bodies_by_default(tmp_path, monkeypatch):
-    from index import VaultIndex
     from graph_export import export_html
+    from index import VaultIndex
     from vault import Vault
 
     vault_root = tmp_path / "vault"
@@ -78,8 +77,6 @@ def test_export_html_omits_bodies_by_default(tmp_path, monkeypatch):
 
 
 def test_plugin_defaults_secure():
-    from importlib.machinery import SourceFileLoader
-    import sys
     plugin_path = Path(__file__).resolve().parents[1] / "plugins" / "entropicmem" / "__init__.py"
     # Avoid importing agent.memory_provider — load defaults only by exec subset
     text = plugin_path.read_text(encoding="utf-8")

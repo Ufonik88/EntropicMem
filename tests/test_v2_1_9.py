@@ -11,11 +11,8 @@ The fix (v2.1.9):
 - Temp-dir refusal: never persist vault/index paths under /tmp.
 """
 
-import os
 import sys
 from pathlib import Path
-
-import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 _SCRIPT_DIR = REPO / "skills" / "entropicmem" / "scripts"
@@ -93,10 +90,8 @@ def test_init_does_not_poison_existing_env(tmp_path):
         'ENTROPICMEM_INDEX_DB="/home/u/.hermes/entropicmem/index.db"\n'
         'ENTROPICMEM_MEMORY_DB="/home/u/.hermes/entropicmem/memory.db"\n'
     )
-    env = {
-        **os.environ,
-        "ENTROPICMEM_HOME_ENV": str(env_file),  # not used by CLI; keeps test hermetic
-    }
+    # Note: no subprocess env is needed — _append_env takes the env file path
+    # directly; calling it against the pre-populated tmp file is the CLI path.
     # _append_env is invoked by cmd_init with the resolved env file; simulate
     # the CLI path by calling it with a tmp vault against the pre-populated file.
     _append_env(env_file, Path("/tmp/tmpfresh123/vault"), Path("/tmp/tmpfresh123/index.db"),

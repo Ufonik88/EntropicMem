@@ -10,8 +10,6 @@ Covers:
 - Health check: check_embeddings / check_episodes / check_triples presence
 """
 
-import json
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -256,6 +254,7 @@ def test_health_check_has_new_checks():
     """The deployed health script must define the G1–G3 checks."""
     import importlib.util
     import os
+
     import pytest
     hc_path = Path(os.environ.get(
         "ENTROPICMEM_INTERNAL_DIR",
@@ -291,8 +290,6 @@ def test_cli_has_episode_and_triple_routes():
 
 
 def test_cli_recall_episodic_parser():
-    import argparse
-    import ast
     src = (_SCRIPTS / "entropicmem.py").read_text(encoding="utf-8")
     assert "--type" in src and "--since" in src and "--until" in src
     assert 'choices=["fact", "episodic"]' in src

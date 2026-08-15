@@ -10,13 +10,10 @@ Tests cover:
 - Smart cache
 """
 
-import json
-import os
 import sys
-import tempfile
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -48,7 +45,6 @@ SMART_CONTEXT_DEFAULTS = plugin_module.SMART_CONTEXT_DEFAULTS
 # Import memory engine
 sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "entropicmem" / "scripts"))
 from memory_engine import MemoryEngine, StoredFact
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 

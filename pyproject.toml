@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "entropicmem"
-version = "2.3.1"
+version = "2.3.2"
 description = "Standalone agent memory system for Hermes Agent — SQLite FTS5 memory engine, Markdown vault, visual graph, and 14-command knowledge loop."
 readme = "README.md"
 license = {text = "MIT"}
@@ -57,3 +57,8 @@ src = ["skills/entropicmem/scripts"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test files bootstrap sys.path before importing scripts-dir modules —
+# imports after the bootstrap are intentionally not at top of file.
+"tests/*" = ["E402"]
