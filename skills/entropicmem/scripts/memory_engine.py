@@ -49,7 +49,6 @@ try:
     )
     from embeddings import (
         cosine_similarity,  # noqa: F401 (availability probe)
-        delete_embedding,
         embed_text,
         embedding_coverage,
         hybrid_rank,
@@ -255,6 +254,13 @@ class MemoryEngine:
         if self._write_locked:
             fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
             self._write_locked = False
+
+    def _has_embeddings_table(self) -> bool:
+        """True when the embeddings table exists on this DB (schema probe)."""
+        row = self.db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='embeddings'"
+        ).fetchone()
+        return row is not None
 
     def _init_schema(self) -> None:
         self._acquire_write_lock()
@@ -647,9 +653,11 @@ class MemoryEngine:
         self.db.execute("DELETE FROM facts WHERE id = ?", (entropic_id,))
         if row:
             self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (row[0],))
-        # Phase 7: remove embedding if present
-        if EMBEDDINGS_AVAILABLE:
-            delete_embedding(self.db, entropic_id)
+        # Remove embedding if present. Plain SQL — must NOT be gated on
+        # EMBEDDINGS_AVAILABLE, or runs without sentence-transformers
+        # (e.g. system python) leave orphan rows that trip the health check.
+        if self._has_embeddings_table():
+            self.db.execute("DELETE FROM embeddings WHERE fact_id = ?", (entropic_id,))
         self.db.commit()
         self._release_write_lock()
         self.audit("forget", fact_id=entropic_id, ok=row is not None)
@@ -705,6 +713,7 @@ class MemoryEngine:
         """)
 
         archived = 0
+        has_embeddings = self._has_embeddings_table()
         for (fid,) in candidates:
             # Copy to archive
             self.db.execute(
@@ -721,6 +730,10 @@ class MemoryEngine:
             self.db.execute("DELETE FROM facts WHERE id = ?", (fid,))
             if row:
                 self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (row[0],))
+            # Same orphan-embedding guard as forget(): plain SQL, not gated
+            # on EMBEDDINGS_AVAILABLE.
+            if has_embeddings:
+                self.db.execute("DELETE FROM embeddings WHERE fact_id = ?", (fid,))
             archived += 1
 
         self.db.commit()

@@ -69,6 +69,47 @@ def test_audit_log_on_remember(engine):
     assert any(r.get("action") == "remember" and r.get("fact_id") == eid for r in rows)
 
 
+# ── orphan-embedding guards (v2.3.2 audit fix) ─────────────────────────────
+
+
+def _seed_embeddings_table(engine, fact_ids):
+    """Create the embeddings table + rows directly (no sentence-transformers needed)."""
+    engine.db.execute(
+        "CREATE TABLE IF NOT EXISTS embeddings ("
+        "fact_id TEXT PRIMARY KEY, vector BLOB, model TEXT, dim INTEGER)"
+    )
+    for fid in fact_ids:
+        engine.db.execute(
+            "INSERT OR REPLACE INTO embeddings (fact_id, vector, model, dim) "
+            "VALUES (?, ?, 'test', 1)",
+            (fid, b"\x00" * 4),
+        )
+    engine.db.commit()
+
+
+def test_forget_removes_embedding_without_embedder(engine):
+    """forget() must clean embeddings even when sentence-transformers is absent."""
+    eid = engine.remember("forget me with embedding", domain="Knowledge")
+    _seed_embeddings_table(engine, [eid])
+    assert engine.forget(eid, confirm=True) is True
+    orphans = engine.db.execute(
+        "SELECT COUNT(*) FROM embeddings WHERE fact_id = ?", (eid,)
+    ).fetchone()[0]
+    assert orphans == 0, "forget left an orphan embedding row"
+
+
+def test_consolidate_removes_embeddings_without_embedder(engine):
+    """consolidate() must clean embeddings of archived facts (same class of bug)."""
+    eid = engine.remember("archive me with embedding", domain="Knowledge")
+    _seed_embeddings_table(engine, [eid])
+    r = engine.consolidate(max_age_days=0, min_access_count=10, dry_run=False, confirm=True)
+    assert r["archived"] == 1
+    orphans = engine.db.execute(
+        "SELECT COUNT(*) FROM embeddings WHERE fact_id = ?", (eid,)
+    ).fetchone()[0]
+    assert orphans == 0, "consolidate left an orphan embedding row"
+
+
 def test_recall_no_write_on_read(engine):
     eid = engine.remember("reinforcement probe uniquezzz", domain="Knowledge")
     before = engine.get_fact(eid).access_count
