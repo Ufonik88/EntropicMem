@@ -1,4 +1,4 @@
 name: entropicmem
 version: 2.3.2
-description: "EntropicMem MemoryProvider — local facts, vault, hybrid retrieval. Notion→EntropicMem cron script + second-brain cron migrated."
+description: "EntropicMem MemoryProvider for Hermes Agent — local durable facts, hybrid vault retrieval, and prefetch context injection."
 author: Ufonik

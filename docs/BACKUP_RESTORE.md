@@ -26,7 +26,10 @@ Env:
 rclone copy your-remote:your/backup/path/entropicmem_YYYY-mm-dd_HHMMSS.tar.gz.enc /tmp/
 
 # 2. Decrypt
-openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000   -in /tmp/entropicmem_....tar.gz.enc   -out /tmp/entropicmem_restore.tar.gz   -pass file:$HOME/.hermes/entropicmem/.backup_key
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+  -in /tmp/entropicmem_....tar.gz.enc \
+  -out /tmp/entropicmem_restore.tar.gz \
+  -pass file:$HOME/.hermes/entropicmem/.backup_key
 
 # 3. Extract to staging (never overwrite live without stop)
 mkdir -p /tmp/em-restore && tar -xzf /tmp/entropicmem_restore.tar.gz -C /tmp/em-restore

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "entropicmem"
 version = "2.3.2"
-description = "Standalone agent memory system for Hermes Agent — SQLite FTS5 memory engine, Markdown vault, visual graph, and 14-command knowledge loop."
+description = "Standalone agent memory system for Hermes Agent — SQLite FTS5 memory engine, Markdown vault, visual graph, and a 30-command knowledge loop."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"

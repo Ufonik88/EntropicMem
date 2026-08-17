@@ -1,6 +1,6 @@
 # EntropicMem — Standalone Agent Memory System
 
-> **A self-contained knowledge engine for Hermes Agent.** Own SQLite memory, Markdown vault, visual graph, and 14-command knowledge loop. Installed via `/learn`.
+> **A self-contained knowledge engine for Hermes Agent.** SQLite memory, Markdown vault, visual graph, and a 30-command knowledge loop. Installed via `/learn`.
 
 > **⚠️ Public repo.** This project is public-facing. Never commit personal
 > data — real names, home paths, emails, IPs, employer/client details, or
@@ -10,29 +10,24 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Hermes Agent](https://img.shields.io/badge/Hermes-Agent-blue.svg)](https://hermes-agent.nousresearch.com)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![CI](https://github.com/Ufonik88/EntropicMem/actions/workflows/test.yml/badge.svg)](https://github.com/Ufonik88/EntropicMem/actions/workflows/test.yml)
 
 ---
 
-## One-Line Description
+## What It Is
 
-A Hermes Agent **skill** providing a complete, standalone knowledge system — memory engine, Markdown vault, visual graph, and full ingest/query/workflow loop.
+A Hermes Agent **memory provider + skill** delivering a complete, standalone knowledge system:
 
-
-## Security Hardening (v2.1.6)
-
-EntropicMem sole-provider stack hardened for Hermes:
-
-| Control | Behavior |
-|---------|----------|
-| Write policy | Secrets/credentials blocked; Finance auto-extract quarantined |
-| Pending facts | `entropicmem pending list\|promote\|discard` |
-| Audit log | `entropicmem audit` |
-| Destructive ops | `forget`/`consolidate` require `--confirm` |
-| Prefetch | No write-on-read; sensitive content redacted; source denylist |
-| Graph | Localhost bind + token; bodies opt-in only |
-| Backups | AES-256-CBC before cloud upload |
-
-Details: `docs/BACKUP_RESTORE.md`.
+| Component | What it does |
+|-----------|--------------|
+| **Memory engine** | Durable facts with FTS5 search, dedup, versioning, audit log, quarantine |
+| **Episodic memory** | Session summaries with time-windowed recall |
+| **Knowledge triples** | Subject–predicate–object graph with neighbors, paths, inconsistency checks |
+| **Embeddings** | BGE-small vectors with hybrid FTS+vector recall (optional dep) |
+| **Vault** | Human-browsable, linked, domain-organized Markdown notes |
+| **Index** | Vault FTS5 + graph edges powering cited retrieval |
+| **Visual graph** | Self-contained D3 galaxy HTML export with lazy wikilink resolution |
+| **MemoryProvider plugin** | 7 `entropicmem_*` tools wired into Hermes' memory system |
 
 ## Install via `/learn`
 
@@ -47,181 +42,105 @@ The agent will fetch, install, bootstrap, and smoke-test in one pass.
 ```bash
 entropicmem init                         # Bootstrap vault + memory engine
 entropicmem ingest "https://..."         # Source → notes
-entropicmem query "topic" --top-k 10     # Full-text search
+entropicmem query "topic" --top-k 10     # Cited vault search
+entropicmem recall "durable fact"        # Memory engine search
 entropicmem remember "durable fact"      # Store in memory engine
-entropicmem graph export --format html   # Galaxy graph
+entropicmem graph export --format html   # Galaxy graph (./export/graph.html)
 ```
 
-## Architecture
+## Repository Layout
 
 ```
-EntropicMem (This Repo)
-├── memory_engine.py     # SQLite FTS5 memory engine (standalone)
-├── vault.py             # Markdown vault operations
-├── index.py             # Vault FTS5 index + graph edges
-├── retrieval.py         # Composed search stack
-├── graph_export.py      # D3 galaxy visual graph
-├── entropicmem.py       # CLI: 14 commands
-└── skills/entropicmem/
-    ├── SKILL.md         # Agent instructions
-    ├── SETUP.md         # Bootstrap checklist
-    └── templates/vault/ # Seed skeleton
+EntropicMem/
+├── skills/entropicmem/
+│   ├── SKILL.md                 # Agent instructions (loaded by /learn)
+│   ├── SETUP.md                 # First-run bootstrap checklist
+│   ├── scripts/                 # Engine + CLI (stdlib-only core)
+│   │   ├── memory_engine.py     # SQLite FTS5 memory engine
+│   │   ├── vault.py             # Markdown vault operations
+│   │   ├── index.py             # Vault FTS5 index + graph edges
+│   │   ├── retrieval.py         # Composed retrieval stack
+│   │   ├── graph_export.py      # D3 galaxy visual graph
+│   │   ├── policy.py / pii.py   # Write policy + PII redaction
+│   │   ├── embeddings.py        # Vector search (optional)
+│   │   └── entropicmem.py       # CLI
+│   ├── references/              # Agent-facing docs (memory model, integration)
+│   └── templates/vault/         # Seed vault skeleton
+├── plugins/entropicmem/         # Hermes MemoryProvider (7 tools)
+├── scripts/graph_server/        # FastAPI graph server (token-gated)
+├── docs/                        # User-facing docs (see index below)
+├── tests/                       # 300+ tests
+└── .github/workflows/test.yml   # CI: pytest (3.10–3.12) + ruff
 ```
 
 ## Memory Model
 
+Five cooperating layers — see [docs/MEMORY_MODEL.md](docs/MEMORY_MODEL.md) for the full model:
+
 | Layer | Where | Purpose |
 |-------|-------|---------|
-| **Memory Engine** | `~/.hermes/entropicmem/memory.db` | Durable facts with FTS5, entropic_id dedup |
+| **Hot cache** | `Wiki-Cache.md` | Instant orientation each session |
+| **Facts** | `~/.hermes/entropicmem/memory.db` | Durable facts, episodes, triples, embeddings |
 | **Vault** | Markdown files | Human-browsable, linked, domain-organized |
 | **Index** | `~/.hermes/entropicmem/index.db` | Vault FTS5 + graph edges for retrieval |
-| **Graph** | `graph.html` | D3 galaxy visualizer |
+| **Graph** | `export/graph.html` | D3 galaxy visualizer |
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `init [--vault PATH]` | Bootstrap vault + memory engine |
-| `ingest <source>` | URL/file/stdin → literature + atomic notes |
-| `ingest-pile <dir>` | Batch directory ingest |
-| `query "<q>"` | Cited retrieval |
-| `note [title]` | Stdin → permanent note |
-| `research "<q>"` | Agent-driven research brief |
-| `lint` | Orphans, dead links, stale, contradictions |
-| `moc` | Rebuild domain maps of content |
-| `hotcache` | Refresh cache |
-| `index rebuild \| status` | Rebuild vault index / report freshness (v2.1.8) |
-| `graph export --format html` | D3 galaxy graph |
-| `graph serve` | Serve graph via HTTP |
-| `remember "fact"` | Store in memory engine |
-| `forget <id>` | Delete from memory engine |
-| `memory project` | Project memory facts to vault |
-| `memory stats` | Memory engine statistics |
-| `memory reindex` | Rebuild facts_fts, repair orphan rows (v2.1.8) |
+30 top-level commands in 8 groups. Full reference: [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md).
 
-## Index Maintenance (v2.1.8)
+| Group | Commands |
+|-------|----------|
+| Vault & knowledge | `init`, `ingest`, `ingest-pile`, `query`, `note`, `research`, `lint`, `moc`, `hotcache`, `open` |
+| Memory engine | `remember`, `recall`, `forget --confirm`, `memory stats/list/project/reindex`, `extract`, `reinforce`, `history`, `consolidate --confirm` |
+| Episodic & triples | `episode add/list/stats`, `triple extract/list/stats/neighbors/path/inconsistencies` |
+| Index & graph | `index rebuild/status`, `graph export/serve/show` |
+| Vectors & time | `embed --rebuild`, `timeline` |
+| Security | `security enable/disable/status`, `patch-core` |
+| Portability | `export`, `import` |
+| Governance | `audit`, `pending list/promote/discard` |
 
-The vault index (`index.db`) now has a first-class maintenance path — the gap
-where notes written outside `init` (wiki.py, Obsidian, vault auto-commit)
-never reached the index and it went permanently stale:
-
-```bash
-entropicmem index status     # freshness report, no writes
-entropicmem index rebuild    # full reindex of every vault note + graph edges
-entropicmem memory reindex   # repair orphan facts_fts rows
-```
-
-## Notion → EntropicMem (v2.1.2)
-
-Cron-safe consolidated Notion sync for EntropicMem: fetches Notion pages and
-ingests them as vault notes + facts via the CLI. See the repo's internal
-operations docs for deployment details.
-
-## Visual Graph (v2.1.0)
-
-
-
-Single-file `graph.html` — D3 force-directed, dark galaxy theme. Self-contained: full note bodies are embedded so it works offline via `file://` or `graph serve`.
-
-- **Per-domain colors** (brand palette) + **per-type shapes** (circle=permanent, square=literature, diamond=moc, triangle=index/log).
-- **Click a node** → modal renders the note's Markdown (tables, code, blockquotes) with frontmatter (domain, type, importance, tags).
-- **Wikilink navigation** — `[[Target]]` in a note opens the linked note; unresolved links are flagged. Tag chips filter the graph.
-- **Focus mode** — clicking a node dims everything except its direct neighbors; click empty space to release.
-- **Search** — type a title and press Enter to zoom to and focus that note.
-- **Filters** — domain checkboxes, tag filter, min-importance slider; node positions persist across re-filters.
-- **Edge encoding** — solid = wikilink, dashed = tag co-occurrence; width scales with weight.
-- **Minimap** with live viewport, **PNG export**, **Copy link** (deep-link `#note=Title`).
-- **Accessible** — keyboard-focusable nodes (Enter/Space to open), `role=dialog` modal with focus return, Escape to close.
-
-## Smart Context Management (v1.2.0)
-
-EntropicMem now includes **intelligent context management** to optimize token usage:
-
-### Features
-
-- **Relevance Filtering**: Only inject facts above configurable threshold (default: 0.3)
-- **Token Budget**: Limit context per turn (default: 1500 chars)
-- **Deduplication**: Don't repeat facts within N turns (default: 5)
-- **Domain Filtering**: Filter by knowledge domain
-- **Progressive Disclosure**: High → medium → low relevance tiers
-- **Conversation Context**: Use recent messages for relevance
-- **Smart Cache**: Conversation-aware invalidation
-
-### Token Savings
-
-| Metric | Without Smart Context | With Smart Context |
-|--------|----------------------|-------------------|
-| **Chars/turn** | ~1500 (5 × 300) | ~200-800 |
-| **Relevant facts** | All top-5 | Only relevant, non-repeated |
-| **Cache** | Query-based | Conversation-aware |
-
-**Estimated savings**: 60-80% reduction in context injection token usage.
-
-### Cron durable writes (v2.1.1)
-
-Hermes cron jobs run with `skip_memory=True` by design, so interactive `memory` /
-`entropicmem_*` tools are **not** available in scheduled jobs. A deterministic
-helper script (`entropicmem_cron_remember.py`, shipped with the internal ops
-tooling) writes durable facts from cron without an LLM:
-
-```bash
-python3 ~/.hermes/scripts/entropicmem_cron_remember.py "durable fact" \
-  --domain Knowledge --importance 0.7 --source cron
-```
-
-### Configuration
-
-```yaml
-plugins:
-  entropicmem:
-    min_relevance_score: 0.3
-    prefetch_token_budget: 1500
-    dedup_window: 5
-    enabled_domains: []
-    high_relevance_threshold: 0.7
-    medium_relevance_threshold: 0.4
-    context_window_turns: 3
-    cache_conversation_context: true
-    cache_ttl_seconds: 300
-```
-
-See `skills/entropicmem/references/HERMES_INTEGRATION.md` for full documentation.
-
-## Production Hardening (v1.5.0)
-
-- **Non-blocking extraction** — `_auto_extract` runs fire-and-forget with a lock guard
-- **Thread-safe injection** — `_recently_injected` guarded with `_prefetch_lock`
-- **FTS parity** — `recall_with_relevance` multi-word queries search title/tags fields
-- **CoreMemory delegation** — CLI `patch-core` uses `CoreMemory` class (single source of truth)
-- **Context manager** — `MemoryEngine` supports `with` statements for safe cleanup
-
-## Intelligence & Resilience (v1.6.0)
-
-- **Fuzzy deduplication** — Jaccard similarity ≥ 0.8 catches near-duplicate facts
-- **DB error recovery** — automatic FTS5 index rebuild on corruption
-- **Memory consolidation** — archive old, low-access facts to `facts_archive` table
-- **Auto-backup** — timestamped SQLite backups before destructive operations
-
-## Sole Provider Status (2026-08-07)
-
-EntropicMem **v2.3.2** is the **sole memory provider** for Hermes Agent — full contextual parity: durable facts, episodic memory, knowledge triples, and embedding coverage in one engine.
+## Hermes Integration (sole memory provider)
 
 ```yaml
 memory:
   provider: entropicmem
 ```
 
-- **Interactive:** `memory` tool + `entropicmem_*` tools
-- **Cron:** deterministic write helper (no LLM required)
-- **Backup:** encrypted, before cloud upload
-- **Health:** local monitoring + stability checks
-- **Notion sync:** direct API fetch → vault + facts
+- **Interactive tools:** `entropicmem_remember`, `entropicmem_recall`, `entropicmem_query`, `entropicmem_patch_core`, `entropicmem_stats`, `entropicmem_get`, `entropicmem_consolidate` — plus the built-in `memory` tool.
+- **Prefetch injection:** relevant facts are prefetched into `<memory-context>` each turn. These are system-injected context, not user input.
+- **Cron:** Hermes cron runs use `skip_memory=True`; durable writes go through a deterministic helper script (no LLM).
+- **Full integration guide:** [skills/entropicmem/references/HERMES_INTEGRATION.md](skills/entropicmem/references/HERMES_INTEGRATION.md)
+
+## Security
+
+- **Write policy** — secrets and credentials are blocked; auto-extracted facts are quarantined as pending; PII is redacted.
+- **Destructive gates** — `forget` and `consolidate` require `--confirm`; both auto-backup before running.
+- **Audit log** — every write is append-only audited.
+- **Graph server** — localhost bind + token-gated refresh; note bodies embedded by default, `--no-bodies` for shareable lean shells.
+- **Backups** — AES-256-CBC encrypted before cloud upload. See [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md).
+
+## Smart Context Management
+
+Prefetch relevance filtering, per-turn token budgets, dedup windows, and progressive disclosure — defaults tuned to cut context-injection usage 60–80%. Configuration lives under `plugins.entropicmem` in `~/.hermes/config.yaml`. Details in [HERMES_INTEGRATION.md](skills/entropicmem/references/HERMES_INTEGRATION.md).
+
+## Documentation
+
+| Doc | Content |
+|-----|---------|
+| [docs/MEMORY_MODEL.md](docs/MEMORY_MODEL.md) | The five-layer memory model + write policy |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component architecture, storage layout, data flow |
+| [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) | All commands and subcommands |
+| [docs/VISUALIZER.md](docs/VISUALIZER.md) | Graph UI: zoom, overlays, wikilink resolution, shortcuts |
+| [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md) | Encrypted backup + restore drill |
+| [docs/SELF_INSTALL.md](docs/SELF_INSTALL.md) | `/learn` install flow |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Public-repo rules + commit checklist |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 ## Requirements
 
-
-- Python 3.10+ (stdlib only for core)
-- Optional: `sentence-transformers` for semantic re-rank, `graphviz` for DOT export
+- Python 3.10+ (stdlib only for the core path)
+- Optional: `sentence-transformers` for semantic search, `graphviz` for DOT export
 
 ## License
 

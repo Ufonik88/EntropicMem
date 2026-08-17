@@ -1,32 +1,22 @@
 # CLI Reference
 
-All commands: `python3 ~/.hermes/skills/entropicmem/scripts/entropicmem.py <cmd>`
+> Canonical reference: [`docs/CLI_REFERENCE.md`](../../../docs/CLI_REFERENCE.md)
+> in the repo root. That file is kept in sync with the argparse surface.
 
-| Command | Description |
-|---------|-------------|
-| `init` | Bootstrap vault, index, env vars |
-| `ingest <source>` | URL/file/stdin → notes |
-| `ingest-pile <dir>` | Batch ingest |
-| `query "<q>"` | Vault search with citations |
-| `recall "<q>"` | Memory engine fact search |
-| `remember "fact"` | Fact → memory.db + vault |
-| `forget <id>` | Remove from memory + vault note |
-| `memory stats` | Engine statistics |
-| `memory list` | List facts (`--domain`, `--limit`) |
-| `memory project` | Materialize facts into vault |
-| `memory reindex` | Rebuild `facts_fts` from facts; repairs orphan rows (v2.1.8) |
-| `note [title]` | Stdin → permanent note |
-| `research "<q>"` | Research brief in inbox |
-| `lint` | Vault health |
-| `moc` | Domain indexes |
-| `hotcache` | Rebuild Wiki-Cache |
-| `index rebuild` | Full vault index rebuild: every note + graph edges (v2.1.8) |
-| `index status` | Index freshness report, no writes (v2.1.8) |
-| `graph export` | json/dot/html/canvas |
-| `graph serve` | HTTP serve export dir |
-| `open <id>` | Open note in editor |
+Quick orientation (most-used commands):
+
+| Command | Purpose |
+|---------|---------|
+| `query "<q>"` | Cited vault retrieval (hot cache → FTS5 → wikilinks) |
+| `recall "<q>"` | Memory engine fact search (`--type fact\|episodic`) |
+| `remember "fact"` | Durable fact → memory.db + vault |
+| `forget --confirm <id>` | Delete fact + vault note (requires `--confirm`) |
+| `episode add/list/stats` | Episodic memory |
+| `triple extract/list/neighbors/path` | Knowledge triples |
+| `embed --rebuild` | Rebuild fact embeddings (run under the embedder venv) |
+| `graph export --format html` | Visual graph (bodies on by default) |
+| `memory reindex` | Rebuild facts_fts, repair orphans |
+| `index rebuild/status` | Vault index maintenance |
 
 Env: `ENTROPICMEM_VAULT_PATH`, `ENTROPICMEM_INDEX_DB`, `ENTROPICMEM_MEMORY_DB`
-
-The index stays aligned with the vault via the CLI (`entropicmem index
-status` / `entropicmem index rebuild`).
+(defaults resolve under `$HERMES_HOME/entropicmem/`).
