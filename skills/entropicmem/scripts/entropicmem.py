@@ -1537,7 +1537,15 @@ def cmd_import(args) -> int:
 
         # Extract vault
         if manifest.get("has_vault"):
-            tar.extractall(path=str(db_path.parent), members=[m for m in tar.getmembers() if m.name.startswith("vault/")])
+            # Security: members are filtered to the vault/ prefix AND must be
+            # free of path traversal (".." segments) so a crafted capsule
+            # cannot write outside the target directory (zip-slip / tar-slip).
+            members = [
+                m for m in tar.getmembers()
+                if m.name.startswith("vault/")
+                and ".." not in m.name.split("/")
+            ]
+            tar.extractall(path=str(db_path.parent), members=members)  # nosec B202 -- members filtered above (vault/ prefix, no "..")
 
     print(f"Capsule imported to {db_path.parent}")
     print(f"Exported at: {manifest.get('exported_at', 'unknown')}")
