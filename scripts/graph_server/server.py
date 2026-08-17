@@ -41,8 +41,6 @@ def _resolve_scripts_dir() -> Path:
         HERMES_HOME / "skills" / "entropicmem" / "scripts",
         # Repo checkout layout: <repo>/scripts/graph_server/server.py
         HERE.parents[1] / "skills" / "entropicmem" / "scripts",
-        # Public product repo when this file lives under EntropicMem-Internal
-        Path.home() / "Documents" / "dev" / "EntropicMem" / "skills" / "entropicmem" / "scripts",
     ]
     for candidate in candidates:
         if candidate.is_dir():

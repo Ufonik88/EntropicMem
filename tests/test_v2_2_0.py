@@ -258,7 +258,7 @@ def test_health_check_has_new_checks():
     import pytest
     hc_path = Path(os.environ.get(
         "ENTROPICMEM_INTERNAL_DIR",
-        str(Path.home() / "Documents" / "dev" / "EntropicMem-Internal"),
+        str(Path.home() / "dev" / "EntropicMem-Internal"),
     )) / "scripts" / "entropicmem_health_check.py"
     if not hc_path.is_file():
         pytest.skip("health check script lives in the internal ops workspace (not the public repo)")

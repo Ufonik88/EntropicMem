@@ -27,7 +27,7 @@ _CLI = str(_SCRIPT_DIR / "entropicmem.py")
 _INTERNAL = Path(
     __import__("os").environ.get(
         "ENTROPICMEM_INTERNAL_DIR",
-        str(Path.home() / "Documents" / "dev" / "EntropicMem-Internal"),
+        str(Path.home() / "dev" / "EntropicMem-Internal"),
     )
 )
 _HEALTH = _INTERNAL / "scripts" / "entropicmem_health_check.py"
