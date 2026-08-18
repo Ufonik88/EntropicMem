@@ -54,7 +54,7 @@ from vault import (  # noqa: E402
     resolve_vault_path,
 )
 
-__version__ = "2.3.2"
+__version__ = "2.4.0"
 
 # ── input validation helpers ────────────────────────────────────────────────
 
@@ -1634,6 +1634,57 @@ def cmd_pending(args) -> int:
     return 1
 
 
+def cmd_migrate(args) -> int:
+    """P1 provenance migration: hold migration.lock (fail-closed window),
+    upgrade schema, backfill legacy rows, stamp schema_info, release lock.
+    Idempotent and re-runnable."""
+    db = _memory_db_path()
+    db.parent.mkdir(parents=True, exist_ok=True)
+    lock = db.parent / MemoryEngine.MIGRATION_LOCK_FILENAME
+
+    if args.status:
+        state = {
+            "memory_db": str(db),
+            "exists": db.exists(),
+            "migration_lock_present": lock.exists(),
+        }
+        if db.exists():
+            try:
+                engine = MemoryEngine(db)
+                row = engine.db.execute(
+                    "SELECT schema_version, phase, applied_at FROM schema_info "
+                    "ORDER BY rowid DESC LIMIT 1"
+                ).fetchone()
+                state["schema_info"] = dict(row) if row else None
+                state["profile"] = engine.profile_id()
+                reg = engine.db.execute(
+                    "SELECT slug, created_at, renamed_to FROM profile_registry ORDER BY created_at"
+                ).fetchall()
+                state["profile_registry"] = [dict(r) for r in reg]
+                engine.close()
+            except Exception as exc:  # pragma: no cover - status is best-effort
+                state["error"] = str(exc)
+        print(json.dumps(state, indent=2, default=str))
+        return 0
+
+    if lock.exists():
+        print(f"migration.lock already present: {lock}", file=sys.stderr)
+        return 1
+    lock.write_text(
+        f"pid={os.getpid()} started={time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n"
+    )
+    try:
+        engine = MemoryEngine(db)
+        try:
+            result = engine.migrate(schema_version=args.schema_version, phase=args.phase)
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        finally:
+            engine.close()
+    finally:
+        lock.unlink(missing_ok=True)
+
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -1845,6 +1896,12 @@ def main() -> int:
     p_consolidate.add_argument("--confirm", action="store_true", help="Required to actually archive")
     p_consolidate.add_argument("--dry-run", action="store_true", help="Report what would be archived without archiving")
 
+    # migrate (P1 multi-profile provenance)
+    p_migrate = sub.add_parser("migrate", help="P1 provenance migration (fail-closed, idempotent)")
+    p_migrate.add_argument("--schema-version", type=int, default=1, help="Schema version to stamp")
+    p_migrate.add_argument("--phase", type=int, default=1, help="Implementation phase to stamp")
+    p_migrate.add_argument("--status", action="store_true", help="Report migration state without migrating")
+
     # Parse
 
     p_audit = sub.add_parser("audit", help="Show recent security audit log")
@@ -1904,6 +1961,7 @@ def main() -> int:
         "audit": cmd_audit,
         "pending": cmd_pending,
         "consolidate": cmd_consolidate,
+        "migrate": cmd_migrate,
     }
 
     handler = routes.get(args.command)

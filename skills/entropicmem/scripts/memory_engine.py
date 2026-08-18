@@ -91,7 +91,11 @@ CREATE TABLE IF NOT EXISTS facts (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_accessed TIMESTAMP,
-    access_count INTEGER DEFAULT 0
+    access_count INTEGER DEFAULT 0,
+    profile_id TEXT DEFAULT '',
+    fact_timestamp TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    deleted INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
@@ -106,6 +110,18 @@ CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
 CREATE INDEX IF NOT EXISTS idx_facts_domain ON facts(domain);
 CREATE INDEX IF NOT EXISTS idx_facts_importance ON facts(importance DESC);
 CREATE INDEX IF NOT EXISTS idx_facts_created ON facts(created_at DESC);
+
+-- P1 multi-profile provenance (2026-08-18): schema marker + profile slug registry
+CREATE TABLE IF NOT EXISTS schema_info (
+    schema_version INTEGER NOT NULL DEFAULT 1,
+    phase INTEGER NOT NULL DEFAULT 1,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS profile_registry (
+    slug TEXT PRIMARY KEY,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    renamed_to TEXT DEFAULT ''
+);
 
 -- v2.2.0 G1: episodic memory (session summaries / "what happened when")
 CREATE TABLE IF NOT EXISTS episodes (
@@ -217,9 +233,10 @@ class StoredFact:
 class MemoryEngine:
     """Standalone memory engine. One SQLite database, no external deps."""
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, profile_id: Optional[str] = None):
         self.db_path = Path(db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._profile_id = profile_id
         self.db = sqlite3.connect(str(self.db_path), timeout=30)
         # Restrictive modes: memory may hold finance/PII
         try:
@@ -254,6 +271,36 @@ class MemoryEngine:
         if self._write_locked:
             fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
             self._write_locked = False
+
+    # ── P1 multi-profile provenance (2026-08-18) ────────────────────────────
+
+    MIGRATION_LOCK_FILENAME = "migration.lock"
+    EM_MIGRATION_IN_PROGRESS = (
+        "EM_MIGRATION_IN_PROGRESS: writes rejected while migration.lock is present "
+        "(entropicmem migrate running)"
+    )
+
+    def profile_id(self) -> str:
+        """Resolve the owning profile slug: explicit > HERMES_HOME basename > 'default'."""
+        if self._profile_id:
+            return self._profile_id
+        env = os.environ.get("HERMES_HOME")
+        if env:
+            name = Path(env).expanduser().resolve().name
+            if name and name != ".hermes":
+                return name
+        return "default"
+
+    def _check_migration_lock(self) -> None:
+        """Fail-closed guard: durable writes are rejected while migration.lock exists."""
+        if (self.db_path.parent / self.MIGRATION_LOCK_FILENAME).exists():
+            self.audit(
+                "write_rejected",
+                actor=self.profile_id(),
+                detail="migration.lock present",
+                ok=False,
+            )
+            raise RuntimeError(self.EM_MIGRATION_IN_PROGRESS)
 
     def _has_embeddings_table(self) -> bool:
         """True when the embeddings table exists on this DB (schema probe)."""
@@ -293,6 +340,26 @@ class MemoryEngine:
             existing_cols = {r[1] for r in self.db.execute("PRAGMA table_info(facts)").fetchall()}
             if "sensitivity" not in existing_cols:
                 self.db.execute("ALTER TABLE facts ADD COLUMN sensitivity TEXT DEFAULT 'internal'")
+            # P1 multi-profile provenance: profile stamping columns (idempotent)
+            if "profile_id" not in existing_cols:
+                self.db.execute("ALTER TABLE facts ADD COLUMN profile_id TEXT DEFAULT ''")
+            if "fact_timestamp" not in existing_cols:
+                self.db.execute("ALTER TABLE facts ADD COLUMN fact_timestamp TEXT")
+            if "version" not in existing_cols:
+                self.db.execute("ALTER TABLE facts ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+            if "deleted" not in existing_cols:
+                self.db.execute("ALTER TABLE facts ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+            self.db.execute("CREATE INDEX IF NOT EXISTS idx_facts_profile ON facts(profile_id)")
+            # facts_archive is created lazily by consolidate(); upgrade it if present
+            has_archive = self.db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='facts_archive'"
+            ).fetchone()
+            if has_archive:
+                arch_cols = {r[1] for r in self.db.execute("PRAGMA table_info(facts_archive)").fetchall()}
+                if "profile_id" not in arch_cols:
+                    self.db.execute("ALTER TABLE facts_archive ADD COLUMN profile_id TEXT DEFAULT ''")
+                if "version" not in arch_cols:
+                    self.db.execute("ALTER TABLE facts_archive ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
             self.db.execute("""
                 CREATE TABLE IF NOT EXISTS audit_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -407,18 +474,18 @@ class MemoryEngine:
         self,
         action: str,
         *,
-        actor: str = "agent",
+        actor: Optional[str] = None,
         session_id: str = "",
         fact_id: str = "",
         detail: str = "",
         ok: bool = True,
     ) -> None:
-        """Append-only audit event (best-effort)."""
+        """Append-only audit event (best-effort). Actor defaults to the owning profile slug."""
         try:
             self.db.execute(
                 """INSERT INTO audit_log (action, actor, session_id, fact_id, detail, ok)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (action, actor, session_id, fact_id, detail[:2000], 1 if ok else 0),
+                (action, actor or self.profile_id(), session_id, fact_id, detail[:2000], 1 if ok else 0),
             )
             self.db.commit()
         except Exception:
@@ -469,7 +536,7 @@ class MemoryEngine:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def promote_pending(self, pending_id: str, *, actor: str = "agent") -> Optional[str]:
+    def promote_pending(self, pending_id: str, *, actor: Optional[str] = None) -> Optional[str]:
         """Promote a pending fact into durable memory via remember()."""
         row = self.db.execute(
             "SELECT * FROM pending_facts WHERE id = ?", (pending_id,)
@@ -486,7 +553,7 @@ class MemoryEngine:
             tags=tags + ["promoted"],
             session_id=row["session_id"] or "",
             sensitivity="internal",
-            actor="promote_pending",
+            actor=actor,
         )
         self._acquire_write_lock()
         try:
@@ -513,7 +580,9 @@ class MemoryEngine:
         tags: Optional[List[str]] = None,
         session_id: str = "",
         sensitivity: Optional[str] = None,
-        actor: str = "agent",
+        actor: Optional[str] = None,
+        profile_id: Optional[str] = None,
+        fact_timestamp: Optional[str] = None,
     ) -> str:
         """
         Store a durable fact. Returns the entropic_id.
@@ -521,10 +590,12 @@ class MemoryEngine:
 
         Phase 9: PII detection/redaction applied before storage.
         Phase 2: sensitivity tiers + write policy (block secrets, quarantine auto).
+        P1: stamps profile_id (owner slug) and fact_timestamp; bumps version on update.
         """
         content = self._sanitize_fact_text(content)
         if not content:
             raise ValueError("empty content after sanitize")
+        pid = profile_id or self.profile_id()
 
         # Phase 2 write policy
         tier = "internal"
@@ -534,7 +605,7 @@ class MemoryEngine:
                 content, domain=domain, sensitivity=tier, source=source
             )
             if action == "block":
-                self.audit("remember_blocked", actor=actor, session_id=session_id, detail=reason or "", ok=False)
+                self.audit("remember_blocked", actor=pid, session_id=session_id, detail=reason or "", ok=False)
                 raise ValueError(reason or "write blocked by policy")
             if action == "quarantine":
                 return self.quarantine_fact(
@@ -556,10 +627,14 @@ class MemoryEngine:
             if pii_result["has_pii"]:
                 content = pii_result["text"]  # use redacted version
 
+        # P1 fail-closed migration guard (no durable writes mid-migration)
+        self._check_migration_lock()
+
         self._acquire_write_lock()
         eid = StoredFact.make_id(content)
         tags_str = ", ".join(tags) if tags else ""
         now = datetime.now(timezone.utc).isoformat()
+        ft = fact_timestamp or now
 
         existing = self.db.execute(
             "SELECT id FROM facts WHERE id = ?", (eid,)
@@ -570,10 +645,11 @@ class MemoryEngine:
             self.snapshot_version(eid, source="dedup_update")
             self.db.execute(
                 """UPDATE facts SET content=?, title=?, importance=?, domain=?,
-                   tags=?, session_id=?, updated_at=?, sensitivity=?
+                   tags=?, session_id=?, updated_at=?, sensitivity=?, profile_id=?,
+                   fact_timestamp=COALESCE(?, fact_timestamp), version=version+1
                    WHERE id=?""",
                 (content, title or self._make_title(content), importance,
-                 domain, tags_str, session_id, now, tier, eid),
+                 domain, tags_str, session_id, now, tier, pid, fact_timestamp, eid),
             )
         else:
             # I1: Fuzzy deduplication — check for near-duplicate content
@@ -584,19 +660,22 @@ class MemoryEngine:
                 # Update the existing near-duplicate instead of creating a new fact
                 self.db.execute(
                     """UPDATE facts SET content=?, title=?, importance=?, domain=?,
-                       tags=?, session_id=?, updated_at=?, sensitivity=?
+                       tags=?, session_id=?, updated_at=?, sensitivity=?, profile_id=?,
+                       fact_timestamp=COALESCE(?, fact_timestamp), version=version+1
                        WHERE id=?""",
                     (content, title or self._make_title(content), importance,
-                     domain, tags_str, session_id, now, tier, fuzzy_id),
+                     domain, tags_str, session_id, now, tier, pid, fact_timestamp, fuzzy_id),
                 )
                 eid = fuzzy_id  # Return the existing fact's ID
             else:
                 self.db.execute(
                     """INSERT INTO facts (id, content, title, source, importance, domain,
-                       tags, session_id, created_at, updated_at, last_accessed, sensitivity)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       tags, session_id, created_at, updated_at, last_accessed, sensitivity,
+                       profile_id, fact_timestamp)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (eid, content, title or self._make_title(content),
-                     source, importance, domain, tags_str, session_id, now, now, now, tier),
+                     source, importance, domain, tags_str, session_id, now, now, now, tier,
+                     pid, ft),
                 )
 
         # Upsert FTS — must use the same rowid as the facts table
@@ -708,6 +787,8 @@ class MemoryEngine:
                 updated_at TIMESTAMP,
                 last_accessed TIMESTAMP,
                 access_count INTEGER DEFAULT 0,
+                profile_id TEXT DEFAULT '',
+                version INTEGER NOT NULL DEFAULT 1,
                 archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -739,6 +820,56 @@ class MemoryEngine:
         self.db.commit()
         self.audit("consolidate", detail=f"archived={archived};days={max_age_days}")
         return {"archived": archived, "cutoff_days": max_age_days, "dry_run": False}
+
+    def migrate(self, *, schema_version: int = 1, phase: int = 1) -> dict:
+        """P1 provenance migration: register the owning profile slug, backfill
+        legacy rows, stamp schema_info. Idempotent and safe to re-run.
+
+        The CLI holds migration.lock while this runs; engine writes fail
+        closed (EM_MIGRATION_IN_PROGRESS) while the lock exists.
+        """
+        self._acquire_write_lock()
+        try:
+            self._init_schema()
+            pid = self.profile_id()
+            now = datetime.now(timezone.utc).isoformat()
+            self.db.execute(
+                "INSERT OR IGNORE INTO profile_registry (slug, created_at) VALUES (?, ?)",
+                (pid, now),
+            )
+            # Backfill legacy rows: empty profile_id → owning store's slug
+            cur = self.db.execute(
+                """UPDATE facts SET profile_id=?, fact_timestamp=COALESCE(fact_timestamp, created_at)
+                   WHERE profile_id IS NULL OR profile_id=''""",
+                (pid,),
+            )
+            facts_backfilled = cur.rowcount
+            arch_backfilled = 0
+            if self.db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='facts_archive'"
+            ).fetchone():
+                cur = self.db.execute(
+                    """UPDATE facts_archive SET profile_id=?, version=COALESCE(version, 1)
+                       WHERE profile_id IS NULL OR profile_id=''""",
+                    (pid,),
+                )
+                arch_backfilled = cur.rowcount
+            # Single-row current state (re-run safe)
+            self.db.execute("DELETE FROM schema_info")
+            self.db.execute(
+                "INSERT INTO schema_info (schema_version, phase, applied_at) VALUES (?, ?, ?)",
+                (schema_version, phase, now),
+            )
+            self.db.commit()
+            return {
+                "profile": pid,
+                "facts_backfilled": facts_backfilled,
+                "archive_backfilled": arch_backfilled,
+                "schema_version": schema_version,
+                "phase": phase,
+            }
+        finally:
+            self._release_write_lock()
 
     def recall(
         self,
@@ -1294,6 +1425,7 @@ class MemoryEngine:
         Episodes answer "when did X happen" — a timestamped timeline layer
         distinct from the semantic fact store. Returns the episode_id.
         """
+        self._check_migration_lock()
         self._acquire_write_lock()
         try:
             eid = episode_id or ("ep_" + uuid.uuid4().hex[:12])
@@ -1430,6 +1562,7 @@ class MemoryEngine:
         confidence: float = 1.0,
     ) -> int:
         """Insert or update a (subject, predicate, object) triple. Returns row id."""
+        self._check_migration_lock()
         self._acquire_write_lock()
         try:
             self.db.execute(
