@@ -123,6 +123,38 @@ CREATE TABLE IF NOT EXISTS profile_registry (
     renamed_to TEXT DEFAULT ''
 );
 
+-- P2 controlled sync (2026-08-18): local outbox + shared-facts projection
+CREATE TABLE IF NOT EXISTS sync_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fact_id TEXT NOT NULL,
+    op TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    written_at TEXT NOT NULL,
+    fact_timestamp TEXT DEFAULT '',
+    payload TEXT NOT NULL,
+    emitted INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_sync_outbox_emitted ON sync_outbox(emitted);
+CREATE TABLE IF NOT EXISTS sync_offsets (
+    store_id TEXT PRIMARY KEY,
+    last_event_seq INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS shared_facts (
+    fact_id TEXT NOT NULL,
+    origin_store TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    written_at TEXT NOT NULL,
+    fact_timestamp TEXT DEFAULT '',
+    content TEXT NOT NULL,
+    domain TEXT DEFAULT 'Knowledge',
+    tags TEXT DEFAULT '',
+    importance REAL DEFAULT 0.5,
+    sensitivity TEXT DEFAULT 'internal',
+    deleted INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (fact_id, origin_store)
+);
+
 -- v2.2.0 G1: episodic memory (session summaries / "what happened when")
 CREATE TABLE IF NOT EXISTS episodes (
     episode_id TEXT PRIMARY KEY,
@@ -164,6 +196,28 @@ CREATE TABLE IF NOT EXISTS triples (
 CREATE INDEX IF NOT EXISTS idx_triples_subject ON triples(subject);
 CREATE INDEX IF NOT EXISTS idx_triples_object ON triples(object);
 CREATE INDEX IF NOT EXISTS idx_triples_predicate ON triples(predicate);
+"""
+
+# ── P2 controlled sync: shared-store log schema (2026-08-18) ────────────────
+# The shared store is a write-once append-only origin log + registry only.
+# The UNIQUE(origin_store, fact_id, version) index is what makes `publish`
+# idempotent even across a partial failure (event inserted, outbox not yet
+# flagged): a re-run re-inserts nothing.
+SHARED_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sync_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    origin_store TEXT NOT NULL,
+    fact_id TEXT NOT NULL,
+    op TEXT NOT NULL CHECK (op IN ('create','update','delete')),
+    version INTEGER NOT NULL,
+    written_at TEXT NOT NULL,
+    fact_timestamp TEXT DEFAULT '',
+    payload TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_events_uniq
+    ON sync_events(origin_store, fact_id, version);
+CREATE INDEX IF NOT EXISTS idx_sync_events_origin
+    ON sync_events(origin_store, event_id);
 """
 
 # ── auto-extraction patterns ────────────────────────────────────────────────
@@ -233,10 +287,13 @@ class StoredFact:
 class MemoryEngine:
     """Standalone memory engine. One SQLite database, no external deps."""
 
-    def __init__(self, db_path: Path, profile_id: Optional[str] = None):
+    def __init__(self, db_path: Path, profile_id: Optional[str] = None, publish_scope: Optional[str] = None):
         self.db_path = Path(db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._profile_id = profile_id
+        self.publish_scope = (
+            publish_scope or os.environ.get("ENTROPICMEM_PUBLISH_SCOPE") or "shared"
+        ).lower()
         self.db = sqlite3.connect(str(self.db_path), timeout=30)
         # Restrictive modes: memory may hold finance/PII
         try:
@@ -301,6 +358,39 @@ class MemoryEngine:
                 ok=False,
             )
             raise RuntimeError(self.EM_MIGRATION_IN_PROGRESS)
+
+    # ── P2 controlled sync helpers ──────────────────────────────────────────
+
+    def _publish_allowed(self, sensitivity: Optional[str]) -> bool:
+        """Publish-side filter, enforced at write time inside the transaction.
+
+        scope 'none' emits nothing; 'secret'/'sensitive' tier facts never leave
+        the store regardless of scope. Public + internal emit under
+        'shared'/'all'. (Finance/People/'sensitive' facts stay local.)
+        """
+        if self.publish_scope == "none":
+            return False
+        if (sensitivity or "internal").lower() in ("secret", "sensitive"):
+            return False
+        return True
+
+    def _enqueue_outbox(
+        self, *, fact_id: str, op: str, version: int, written_at: str,
+        fact_timestamp: str, payload: str, sensitivity: Optional[str],
+    ) -> None:
+        """Append a sync_outbox row in the SAME transaction as the facts write.
+
+        Called before the caller's commit; the outbox insert is durable by
+        construction with the fact itself. Rows stay local and unemitted;
+        `publish()` drains them to the shared log idempotently.
+        """
+        if not self._publish_allowed(sensitivity):
+            return
+        self.db.execute(
+            "INSERT INTO sync_outbox (fact_id, op, version, written_at, fact_timestamp, payload, emitted) "
+            "VALUES (?, ?, ?, ?, ?, ?, 0)",
+            (fact_id, op, version, written_at, fact_timestamp, payload),
+        )
 
     def _has_embeddings_table(self) -> bool:
         """True when the embeddings table exists on this DB (schema probe)."""
@@ -635,6 +725,7 @@ class MemoryEngine:
         tags_str = ", ".join(tags) if tags else ""
         now = datetime.now(timezone.utc).isoformat()
         ft = fact_timestamp or now
+        is_create = False
 
         existing = self.db.execute(
             "SELECT id FROM facts WHERE id = ?", (eid,)
@@ -677,6 +768,7 @@ class MemoryEngine:
                      source, importance, domain, tags_str, session_id, now, now, now, tier,
                      pid, ft),
                 )
+                is_create = True
 
         # Upsert FTS — must use the same rowid as the facts table
         # Get the rowid of the fact we just inserted/updated
@@ -690,6 +782,31 @@ class MemoryEngine:
             self.db.execute(
                 "INSERT INTO facts_fts (rowid, content, title, tags, domain) VALUES (?, ?, ?, ?, ?)",
                 (fact_rowid[0], content, title or "", tags_str, domain),
+            )
+
+        # P2 transactional outbox: append an event row in this same transaction.
+        row = self.db.execute(
+            "SELECT version, fact_timestamp FROM facts WHERE id = ?", (eid,)
+        ).fetchone()
+        if row:
+            payload = {
+                "content": content,
+                "title": title or "",
+                "source": source,
+                "importance": importance,
+                "domain": domain,
+                "tags": tags_str,
+                "sensitivity": tier,
+                "profile_id": pid,
+            }
+            self._enqueue_outbox(
+                fact_id=eid,
+                op="create" if is_create else "update",
+                version=row["version"],
+                written_at=now,
+                fact_timestamp=row["fact_timestamp"] or "",
+                payload=json.dumps(payload),
+                sensitivity=tier,
             )
         self.db.commit()
         # Phase 7: generate and store embedding (best-effort, non-blocking)
@@ -724,23 +841,57 @@ class MemoryEngine:
         if not confirm:
             self.audit("forget_denied", fact_id=entropic_id, detail="confirm=false", ok=False)
             raise ValueError("forget requires confirm=True")
+        self._check_migration_lock()
         self._acquire_write_lock()
-        # I4: Auto-backup before destructive operation
-        self._backup()
-        # Get rowid before deleting from facts
-        row = self.db.execute("SELECT rowid FROM facts WHERE id = ?", (entropic_id,)).fetchone()
-        self.db.execute("DELETE FROM facts WHERE id = ?", (entropic_id,))
-        if row:
-            self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (row[0],))
-        # Remove embedding if present. Plain SQL — must NOT be gated on
-        # EMBEDDINGS_AVAILABLE, or runs without sentence-transformers
-        # (e.g. system python) leave orphan rows that trip the health check.
-        if self._has_embeddings_table():
-            self.db.execute("DELETE FROM embeddings WHERE fact_id = ?", (entropic_id,))
-        self.db.commit()
-        self._release_write_lock()
-        self.audit("forget", fact_id=entropic_id, ok=row is not None)
-        return row is not None
+        try:
+            # I4: Auto-backup before destructive operation
+            self._backup()
+            # Fetch provenance before deleting (for the P2 delete outbox event)
+            before = self.db.execute(
+                "SELECT version, sensitivity, fact_timestamp, content, domain, tags, importance FROM facts WHERE id = ?",
+                (entropic_id,),
+            ).fetchone()
+            # Get rowid before deleting from facts
+            row = self.db.execute("SELECT rowid FROM facts WHERE id = ?", (entropic_id,)).fetchone()
+            self.db.execute("DELETE FROM facts WHERE id = ?", (entropic_id,))
+            if row:
+                self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (row[0],))
+            # Remove embedding if present. Plain SQL — must NOT be gated on
+            # EMBEDDINGS_AVAILABLE, or runs without sentence-transformers
+            # (e.g. system python) leave orphan rows that trip the health check.
+            if self._has_embeddings_table():
+                self.db.execute("DELETE FROM embeddings WHERE fact_id = ?", (entropic_id,))
+            if before:
+                now = datetime.now(timezone.utc).isoformat()
+                payload = {
+                    "content": before["content"],
+                    "title": "",
+                    "source": "deleted",
+                    "importance": before["importance"],
+                    "domain": before["domain"],
+                    "tags": before["tags"] or "",
+                    "sensitivity": before["sensitivity"] or "internal",
+                    "profile_id": self.profile_id(),
+                    "deleted": True,
+                }
+                self._enqueue_outbox(
+                    fact_id=entropic_id,
+                    op="delete",
+                    # Tombstone uses a NEW version: the shared log's
+                    # UNIQUE(origin_store, fact_id, version) index already holds
+                    # an event at the current version, so a delete at that same
+                    # version would be IGNORED and the tombstone never propagate.
+                    version=int(before["version"] or 1) + 1,
+                    written_at=now,
+                    fact_timestamp=before["fact_timestamp"] or "",
+                    payload=json.dumps(payload),
+                    sensitivity=before["sensitivity"],
+                )
+            self.db.commit()
+            self.audit("forget", fact_id=entropic_id, ok=row is not None)
+            return row is not None
+        finally:
+            self._release_write_lock()
 
     def consolidate(self, max_age_days: int = 90, min_access_count: int = 0, dry_run: bool = True, confirm: bool = False) -> dict:
         """Archive old, low-value facts (I3: memory consolidation).
@@ -871,11 +1022,189 @@ class MemoryEngine:
         finally:
             self._release_write_lock()
 
+    # ── P2 controlled sync (shared store) ───────────────────────────────────
+
+    @staticmethod
+    def shared_path() -> Path:
+        """Resolve the shared sync store path (env override or default)."""
+        env = os.environ.get("ENTROPICMEM_SHARED_DB")
+        if env:
+            return Path(env).expanduser().resolve()
+        return Path.home() / ".hermes" / "entropicmem-shared" / "memory.db"
+
+    @staticmethod
+    def shared_init(shared_db: Optional[Path] = None) -> dict:
+        """Bootstrap the shared sync store (append-only origin log). Idempotent."""
+        path = Path(shared_db) if shared_db else MemoryEngine.shared_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(path), timeout=30)
+        try:
+            conn.executescript(SHARED_SCHEMA)
+            conn.commit()
+        finally:
+            conn.close()
+        return {"shared_db": str(path)}
+
+    def publish(self, shared_db: Optional[Path] = None) -> dict:
+        """Drain unemitted local outbox rows into the shared sync_events log.
+
+        Idempotent by construction: rows are marked emitted only after the
+        shared insert commits, and the UNIQUE(origin_store, fact_id, version)
+        index makes a partial-failure re-run insert nothing new.
+        """
+        self._check_migration_lock()
+        self._acquire_write_lock()
+        try:
+            rows = self.db.execute(
+                "SELECT * FROM sync_outbox WHERE emitted=0 ORDER BY id"
+            ).fetchall()
+            if not rows:
+                return {"published": 0, "profile": self.profile_id()}
+            shared = sqlite3.connect(str(shared_db or self.shared_path()), timeout=30)
+            shared.row_factory = sqlite3.Row
+            try:
+                new_events = 0
+                attempted: List[int] = []
+                for r in rows:
+                    cur = shared.execute(
+                        "INSERT OR IGNORE INTO sync_events "
+                        "(origin_store, fact_id, op, version, written_at, fact_timestamp, payload) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (self.profile_id(), r["fact_id"], r["op"], r["version"],
+                         r["written_at"], r["fact_timestamp"] or "", r["payload"]),
+                    )
+                    new_events += cur.rowcount
+                    attempted.append(r["id"])
+                shared.commit()
+            finally:
+                shared.close()
+            for rid in attempted:
+                self.db.execute("UPDATE sync_outbox SET emitted=1 WHERE id=?", (rid,))
+            self.db.commit()
+            return {"published": new_events, "profile": self.profile_id()}
+        finally:
+            self._release_write_lock()
+
+    def pull(self, shared_db: Optional[Path] = None) -> dict:
+        """Apply new shared sync_events into the local shared_facts projection.
+
+        Echo prevention: events whose origin_store is this store are skipped.
+        LWW: an event is applied only when its (version, written_at) is newer
+        than the existing projection row; older events are no-ops. Deletions
+        set shared_facts.deleted=1 but keep the row (append-only log).
+        """
+        self._check_migration_lock()
+        self._acquire_write_lock()
+        try:
+            shared = sqlite3.connect(str(shared_db or self.shared_path()), timeout=30)
+            shared.row_factory = sqlite3.Row
+            try:
+                last = self.db.execute(
+                    "SELECT last_event_seq FROM sync_offsets WHERE store_id=?", (self.profile_id(),)
+                ).fetchone()
+                last_seq = last["last_event_seq"] if last else 0
+                events = shared.execute(
+                    "SELECT * FROM sync_events WHERE event_id>? ORDER BY event_id", (last_seq,)
+                ).fetchall()
+                applied = 0
+                max_seq = last_seq
+                for ev in events:
+                    max_seq = ev["event_id"]
+                    if ev["origin_store"] == self.profile_id():
+                        continue  # echo prevention: never re-import own writes
+                    existing = self.db.execute(
+                        "SELECT version, written_at FROM shared_facts WHERE fact_id=? AND origin_store=?",
+                        (ev["fact_id"], ev["origin_store"]),
+                    ).fetchone()
+                    if existing and (ev["version"], ev["written_at"]) <= (
+                        existing["version"], existing["written_at"]
+                    ):
+                        continue  # LWW: stale event is a no-op
+                    payload = json.loads(ev["payload"] or "{}")
+                    self.db.execute(
+                        """INSERT INTO shared_facts
+                           (fact_id, origin_store, version, written_at, fact_timestamp,
+                            content, domain, tags, importance, sensitivity, deleted)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                           ON CONFLICT(fact_id, origin_store) DO UPDATE SET
+                            version=excluded.version, written_at=excluded.written_at,
+                            fact_timestamp=excluded.fact_timestamp, content=excluded.content,
+                            domain=excluded.domain, tags=excluded.tags,
+                            importance=excluded.importance, sensitivity=excluded.sensitivity,
+                            deleted=excluded.deleted""",
+                        (ev["fact_id"], ev["origin_store"], ev["version"], ev["written_at"],
+                         ev["fact_timestamp"] or "", str(payload.get("content", "")),
+                         payload.get("domain", "Knowledge"),
+                         str(payload.get("tags", "") or ""),
+                         float(payload.get("importance", 0.5)),
+                         payload.get("sensitivity", "internal"),
+                         1 if ev["op"] == "delete" else 0),
+                    )
+                    applied += 1
+                self.db.execute(
+                    """INSERT INTO sync_offsets (store_id, last_event_seq, updated_at)
+                       VALUES (?, ?, CURRENT_TIMESTAMP)
+                       ON CONFLICT(store_id) DO UPDATE SET
+                        last_event_seq=excluded.last_event_seq,
+                        updated_at=CURRENT_TIMESTAMP""",
+                    (self.profile_id(), max_seq),
+                )
+                self.db.commit()
+                return {"pulled": len(events), "applied": applied, "profile": self.profile_id()}
+            finally:
+                shared.close()
+        finally:
+            self._release_write_lock()
+
+    def backfill(self, shared_db: Optional[Path] = None) -> dict:
+        """Emit every local non-published fact into the shared log once.
+
+        Implements LOCKED decision 1 (explicit opt-in for legacy facts):
+        nothing auto-publishes; this is the one-shot `publish --backfill`.
+        Idempotent via the UNIQUE(origin_store, fact_id, version) index.
+        """
+        self._acquire_write_lock()
+        try:
+            rows = self.db.execute(
+                "SELECT id, content, title, domain, tags, importance, sensitivity, "
+                "fact_timestamp, version FROM facts WHERE deleted=0"
+            ).fetchall()
+            shared = sqlite3.connect(str(shared_db or self.shared_path()), timeout=30)
+            shared.row_factory = sqlite3.Row
+            try:
+                emitted = 0
+                for r in rows:
+                    if not self._publish_allowed(r["sensitivity"]):
+                        continue
+                    payload = {
+                        "content": r["content"], "title": r["title"] or "",
+                        "source": "backfill", "importance": r["importance"],
+                        "domain": r["domain"], "tags": r["tags"] or "",
+                        "sensitivity": r["sensitivity"] or "internal",
+                        "profile_id": self.profile_id(),
+                    }
+                    cur = shared.execute(
+                        "INSERT OR IGNORE INTO sync_events "
+                        "(origin_store, fact_id, op, version, written_at, fact_timestamp, payload) "
+                        "VALUES (?, ?, 'create', ?, ?, ?, ?)",
+                        (self.profile_id(), r["id"], int(r["version"] or 1),
+                         datetime.now(timezone.utc).isoformat(),
+                         r["fact_timestamp"] or "", json.dumps(payload)),
+                    )
+                    emitted += cur.rowcount
+                shared.commit()
+            finally:
+                shared.close()
+            return {"emitted": emitted, "profile": self.profile_id()}
+        finally:
+            self._release_write_lock()
+
     def recall(
         self,
         query: str,
         top_k: int = 10,
         domain: Optional[str] = None,
+        scope: str = "own",
     ) -> List[StoredFact]:
         """Full-text search over stored facts.
 
@@ -883,12 +1212,19 @@ class MemoryEngine:
         always surfaced first (so a fact is always self-retrievable),
         followed by FTS5 prefix matches and a LIKE fallback.
 
+        P2 scope: 'own' (default) = local facts; 'shared' = peer-shared
+        facts only; 'all' = local facts merged with peer-shared facts
+        (local wins on id collision).
+
         Phase 8: supports NL temporal queries ("last Tuesday", "2 weeks ago").
         """
         # Phase 8: extract temporal filter from query
         temporal_range = None
         if TEMPORAL_AVAILABLE:
             query, temporal_range = extract_temporal_filter(query)
+
+        if scope not in ("own", "shared", "all"):
+            scope = "own"
 
         clean = query.replace('"', '""')
 
@@ -948,31 +1284,76 @@ class MemoryEngine:
             (fts_query, *params, *date_params, top_k),
         ).fetchall()
         fts_hits = [self._row_to_fact(r) for r in rows]
+        local = exact
         if fts_hits:
             seen = {f.id for f in exact}
-            combined = exact + [f for f in fts_hits if f.id not in seen]
-            return combined[:top_k]
-
-        # LIKE fallback
-        like_params = (f"%{query}%", f"%{query}%", f"%{query}%")
-        if domain:
-            like_params = (*like_params, domain)
-            like_where = "WHERE (f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ?) AND f.domain = ?"
+            local = exact + [f for f in fts_hits if f.id not in seen]
         else:
-            like_where = "WHERE f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ?"
-        rows = self.db.execute(
-            f"""
-            SELECT f.* FROM facts f
-            {like_where}
-            ORDER BY f.importance DESC
-            LIMIT ?
-            """,
-            (*like_params, top_k),
-        ).fetchall()
-        like_hits = [self._row_to_fact(r) for r in rows]
-        seen = {f.id for f in exact}
-        combined = exact + [f for f in like_hits if f.id not in seen]
-        return combined[:top_k]
+            # LIKE fallback
+            like_params = (f"%{query}%", f"%{query}%", f"%{query}%")
+            if domain:
+                like_params = (*like_params, domain)
+                like_where = "WHERE (f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ?) AND f.domain = ?"
+            else:
+                like_where = "WHERE f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ?"
+            rows = self.db.execute(
+                f"""
+                SELECT f.* FROM facts f
+                {like_where}
+                ORDER BY f.importance DESC
+                LIMIT ?
+                """,
+                (*like_params, top_k),
+            ).fetchall()
+            like_hits = [self._row_to_fact(r) for r in rows]
+            seen = {f.id for f in exact}
+            local = exact + [f for f in like_hits if f.id not in seen]
+
+        # P2 scope: merge the peer-shared projection for 'shared'/'all'.
+        if scope == "own":
+            return local[:top_k]
+        shared = self._recall_shared(query, domain, top_k)
+        if scope == "shared":
+            return shared[:top_k]
+        seen = {f.id for f in local}
+        return (local + [f for f in shared if f.id not in seen])[:top_k]
+
+    def _recall_shared(self, query: str, domain: Optional[str], top_k: int) -> List[StoredFact]:
+        """Search the local shared_facts projection (peer-published facts)."""
+        like = f"%{query}%"
+        if domain:
+            rows = self.db.execute(
+                """SELECT * FROM shared_facts
+                   WHERE (content LIKE ? OR tags LIKE ?) AND domain = ? AND deleted = 0
+                   ORDER BY importance DESC, written_at DESC LIMIT ?""",
+                (like, like, domain, top_k),
+            ).fetchall()
+        else:
+            rows = self.db.execute(
+                """SELECT * FROM shared_facts
+                   WHERE (content LIKE ? OR tags LIKE ?) AND deleted = 0
+                   ORDER BY importance DESC, written_at DESC LIMIT ?""",
+                (like, like, top_k),
+            ).fetchall()
+        out = []
+        for r in rows:
+            try:
+                tags = r["tags"].split(", ") if r["tags"] else []
+            except Exception:
+                tags = []
+            out.append(StoredFact(
+                id=r["fact_id"],
+                content=r["content"],
+                title=r["content"][:60],
+                source=f"shared:{r['origin_store']}",
+                importance=r["importance"],
+                domain=domain or r["domain"],
+                tags=[t for t in tags if t],
+                created_at=r["written_at"],
+                updated_at=r["written_at"],
+                sensitivity=r["sensitivity"],
+            ))
+        return out
 
     def get_fact(self, entropic_id: str) -> Optional[StoredFact]:
         row = self.db.execute("SELECT * FROM facts WHERE id = ?", (entropic_id,)).fetchone()

@@ -54,7 +54,7 @@ from vault import (  # noqa: E402
     resolve_vault_path,
 )
 
-__version__ = "2.4.0"
+__version__ = "2.5.0"
 
 # ── input validation helpers ────────────────────────────────────────────────
 
@@ -1087,7 +1087,13 @@ def cmd_recall(args) -> int:
         engine.close()
         return 0
 
-    results = engine.recall_hybrid(args.query, top_k=args.top_k, domain=args.domain) if EMBEDDER_AVAILABLE else engine.recall(args.query, top_k=args.top_k, domain=args.domain)
+    scope = getattr(args, "scope", "own")
+    if scope in ("shared", "all"):
+        results = engine.recall(args.query, top_k=args.top_k, domain=args.domain, scope=scope)
+    elif EMBEDDER_AVAILABLE:
+        results = engine.recall_hybrid(args.query, top_k=args.top_k, domain=args.domain)
+    else:
+        results = engine.recall(args.query, top_k=args.top_k, domain=args.domain)
     if not results:
         print("No matching facts.")
         engine.close()
@@ -1685,6 +1691,38 @@ def cmd_migrate(args) -> int:
         lock.unlink(missing_ok=True)
 
 
+def cmd_shared_init(args) -> int:
+    """Bootstrap the shared sync store (append-only origin log). Idempotent."""
+    res = MemoryEngine.shared_init(Path(args.db) if getattr(args, "db", None) else None)
+    print(json.dumps(res, indent=2))
+    return 0
+
+
+def cmd_publish(args) -> int:
+    """Drain local outbox → shared log (or emit all facts with --backfill)."""
+    engine = MemoryEngine(_memory_db_path())
+    try:
+        if getattr(args, "backfill", False):
+            res = engine.backfill()
+        else:
+            res = engine.publish()
+        print(json.dumps(res, indent=2))
+        return 0
+    finally:
+        engine.close()
+
+
+def cmd_pull(args) -> int:
+    """Apply new shared events into the local shared_facts projection."""
+    engine = MemoryEngine(_memory_db_path())
+    try:
+        res = engine.pull()
+        print(json.dumps(res, indent=2))
+        return 0
+    finally:
+        engine.close()
+
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -1792,8 +1830,10 @@ def main() -> int:
     # recall
     p_recall = sub.add_parser("recall", help="Search durable facts in memory engine")
     p_recall.add_argument("query", help="Search query")
-    p_recall.add_argument("--top-k", type=int, default=10)
-    p_recall.add_argument("--domain", help="Filter by domain")
+    p_recall.add_argument("--top-k", type=int, default=10, help="Max results (default: 10)")
+    p_recall.add_argument("--domain", default=None, help="Filter by domain")
+    p_recall.add_argument("--scope", default="own", choices=["own", "shared", "all"],
+                          help="own = local facts; shared = peer-shared; all = both")
     p_recall.add_argument("--type", dest="recall_type", default="fact",
                           choices=["fact", "episodic"], help="Store to search (v2.2.0)")
     p_recall.add_argument("--since", dest="since", help="Start date (YYYY-MM-DD), episodic only (v2.2.0)")
@@ -1902,6 +1942,13 @@ def main() -> int:
     p_migrate.add_argument("--phase", type=int, default=1, help="Implementation phase to stamp")
     p_migrate.add_argument("--status", action="store_true", help="Report migration state without migrating")
 
+    # shared / publish / pull (P2 controlled sync)
+    sub.add_parser("shared-init", help="Bootstrap the shared sync store (idempotent)")
+    p_publish = sub.add_parser("publish", help="Drain the local outbox into the shared log")
+    p_publish.add_argument("--backfill", action="store_true",
+                           help="Emit all local non-secret facts once (explicit opt-in for legacy facts)")
+    sub.add_parser("pull", help="Apply new shared events into the local shared-facts projection")
+
     # Parse
 
     p_audit = sub.add_parser("audit", help="Show recent security audit log")
@@ -1962,6 +2009,9 @@ def main() -> int:
         "pending": cmd_pending,
         "consolidate": cmd_consolidate,
         "migrate": cmd_migrate,
+        "shared-init": cmd_shared_init,
+        "publish": cmd_publish,
+        "pull": cmd_pull,
     }
 
     handler = routes.get(args.command)
