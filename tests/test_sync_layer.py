@@ -93,7 +93,7 @@ def test_pull_idempotent_and_echo_prevention(tmp_path, shared_db):
     assert rows[0]["origin_store"] == "a"
 
     # second pull: nothing new → no duplicate projection
-    pull2 = b.pull(shared_db)
+    b.pull(shared_db)
     assert b.db.execute("SELECT COUNT(*) FROM shared_facts").fetchone()[0] == 1
 
     # echo prevention: a pulls its own event → not applied to a's projection
@@ -148,7 +148,7 @@ def test_backfill_emits_non_secret_once(tmp_path, shared_db):
     a.remember("public note", domain="Knowledge", sensitivity="public")
     a.remember("internal note", domain="Knowledge")
     a.remember("sensitive nibble", domain="Finance", sensitivity="sensitive")
-    first = a.backfill(shared_db)
+    a.backfill(shared_db)
     assert _shared_count(shared_db) == 2        # only non-secret
     second = a.backfill(shared_db)
     assert second["emitted"] == 0               # idempotent re-run

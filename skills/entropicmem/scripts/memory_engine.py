@@ -218,6 +218,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_events_uniq
     ON sync_events(origin_store, fact_id, version);
 CREATE INDEX IF NOT EXISTS idx_sync_events_origin
     ON sync_events(origin_store, event_id);
+CREATE TABLE IF NOT EXISTS sync_offsets (
+    store_id TEXT PRIMARY KEY,
+    last_event_seq INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS shared_facts (
+    fact_id TEXT NOT NULL,
+    origin_store TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    written_at TEXT NOT NULL,
+    fact_timestamp TEXT DEFAULT '',
+    content TEXT NOT NULL,
+    domain TEXT DEFAULT 'Knowledge',
+    tags TEXT DEFAULT '',
+    importance REAL DEFAULT 0.5,
+    sensitivity TEXT DEFAULT 'internal',
+    deleted INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (fact_id, origin_store)
+);
 """
 
 # ── auto-extraction patterns ────────────────────────────────────────────────
@@ -1026,11 +1045,21 @@ class MemoryEngine:
 
     @staticmethod
     def shared_path() -> Path:
-        """Resolve the shared sync store path (env override or default)."""
+        """Resolve the shared sync store path (env override or default).
+
+        The shared log is anchored at the ROOT hermes home, not the active
+        profile home: profile mode sets HERMES_HOME=<root>/profiles/<name>,
+        and the shared store must stay at <root>/entropicmem-shared/ so all
+        profiles converge on one log. Mirrors get_default_hermes_root().
+        """
         env = os.environ.get("ENTROPICMEM_SHARED_DB")
         if env:
             return Path(env).expanduser().resolve()
-        return Path.home() / ".hermes" / "entropicmem-shared" / "memory.db"
+        hh = os.environ.get("HERMES_HOME", "")
+        base = Path(hh).expanduser() if hh else Path.home() / ".hermes"
+        if base.parent.name == "profiles":
+            base = base.parent.parent  # profile mode: climb back to <root>
+        return (base / "entropicmem-shared" / "memory.db").resolve()
 
     @staticmethod
     def shared_init(shared_db: Optional[Path] = None) -> dict:

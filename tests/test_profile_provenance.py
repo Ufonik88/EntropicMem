@@ -7,7 +7,6 @@ Covers the P1 acceptance contract:
 - `migrate()` backfills legacy rows and stamps schema_info/profile_registry
 - fact_timestamp is set at creation and preserved on update unless explicitly provided
 """
-import os
 import sqlite3
 import sys
 from pathlib import Path
