@@ -2289,3 +2289,64 @@ class MemoryEngine:
             last_accessed=row["last_accessed"] or "",
             access_count=row["access_count"] or 0,
         )
+
+
+    # ── Sprint A (v2) — Reflect + explicit recall tools (no schema changes) ──
+    # Added after planner gate @ 2026-09-04: renamed recall_summary → recall_for_agent
+    # to avoid collision with existing MemoryEngine.recall_summary aggregate.
+    def recall_for_agent(self, query: str, top_k: int = 10, domain: Optional[str] = None) -> dict:
+        """Explicit agent recall + reflection layer (Sprint A, v2).
+
+        Reads top-k via existing recall(), synthesizes via prompt template,
+        writes audit only. No storage write other than audit_log.
+        Returns {facts: [...], reflect_summary: str, source_ids: [...]}.
+        """
+        facts = self.recall(query, top_k=top_k, domain=domain, scope="own")
+        # Reflect: synthesize from recalled set only (no storage guarantee)
+        reflect_summary = ""
+        if facts:
+            prompts = [f"- {f.content[:120]}" for f in facts[:5]]
+            # Prompt-template-only synthesis (LLM called externally, not embedded)
+            reflect_summary = f"Reflect on {len(facts)} recalled facts about '{query}': known={len(facts)}, key themes={', '.join({f.tags[0] if f.tags else 'general' for f in facts[:3]})}."
+        # Audit-only write (no new storage)
+        audit = self.audit_log
+        audit.append({"action": "reflect", "query": query, "ts": __import__("time").strftime("%Y-%m-%dT%H:%M:%S")})
+        return {
+            "facts": [
+                {"id": f.id, "title": f.title or f.id, "domain": f.domain, "importance": f.importance}
+                for f in facts
+            ],
+            "reflect_summary": reflect_summary,
+            "source_ids": [f.id for f in facts],
+        }
+
+    def recall_related(self, fact_id: str, top_k: int = 10) -> List[StoredFact]:
+        """Graph-neighbor recall via existing triples / graph_edges (Sprint A, v2).
+
+        Direct neighbors first (v1); sibling/multi-hop out of scope.
+        No new tables; uses existing adjacency/triples.
+        """
+        related_ids = set()
+        # Direct from triples table if present
+        try:
+            for row in self.conn.execute(
+                "SELECT target FROM triples WHERE source = ? UNION SELECT source FROM triples WHERE target = ?",
+                (fact_id, fact_id),
+            ):
+                related_ids.add(row[0])
+        except Exception:
+            pass
+        # Fallback to graph_edges export adjacency if in-memory
+        if hasattr(self, "_graph_edges") and self._graph_edges and fact_id in self._graph_edges:
+            for n in self._graph_edges[fact_id]:
+                related_ids.add(n)
+        if not related_ids:
+            return []
+        # Fetch by id (existing recall path, no new index)
+        results = []
+        for nid in sorted(related_ids)[:top_k]:
+            found = self.recall(str(nid), top_k=1, scope="own")
+            if found:
+                results.append(found[0])
+        return results
+
