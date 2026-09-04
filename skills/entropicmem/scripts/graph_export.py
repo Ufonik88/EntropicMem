@@ -614,9 +614,11 @@ DATA.edges.forEach(e => {
 /* ── Visual encodings ── */
 function nodeRadius(d) { return Math.max(5, Math.min(26, Math.log((d.importance || 0.3) * 100 + 1) * 6)); }
 function edgeWidth(d) {
-  const base = 0.8;
-  const weightFactor = (d.weight || 1) * 0.8;
-  return base + weightFactor;
+  const kind = d.kind || "";
+  if (kind === "wikilink") return 0.8;
+  if (kind.startsWith("triple")) return 1.8;
+  if (kind === "tag") return 1.0;
+  return 1.0;
 }
 function edgeColor(d) { return "#6b6b7d"; }
 function edgeDash(d) {
