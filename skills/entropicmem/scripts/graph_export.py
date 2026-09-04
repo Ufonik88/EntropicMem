@@ -613,9 +613,17 @@ DATA.edges.forEach(e => {
 
 /* ── Visual encodings ── */
 function nodeRadius(d) { return Math.max(5, Math.min(26, Math.log((d.importance || 0.3) * 100 + 1) * 6)); }
-function edgeWidth(d) { return 0.6 + (d.weight || 1) * 1.1; }
-function nodeColor(d) { return d.color || PALETTE[d.domain] || "#888"; }
-function edgeDash(d) { return d.kind === "tag" ? "4,3" : null; }
+function edgeWidth(d) {
+  const base = 0.8;
+  const weightFactor = (d.weight || 1) * 0.8;
+  return base + weightFactor;
+}
+function edgeColor(d) { return "#6b6b7d"; }
+function edgeDash(d) {
+  if (d.kind === "tag" || d.kind === "wikilink") return null;
+  if (d.kind.startsWith("triple")) return "2,3";
+  return null;
+}
 
 /* ── Tunable configuration (physics, zoom/LOD, halo, clipboard) ── */
 const CFG = {
@@ -883,9 +891,19 @@ function render() {
 
   svg.selectAll(".layer").remove();
   rootG = svg.append("g").attr("class", "layer").style("will-change", "transform");
-  linkG = rootG.append("g").attr("class", "links").selectAll("line").data(edges).join("line")
-    .attr("stroke", "#3a3a4a").attr("stroke-width", edgeWidth)
-    .attr("stroke-opacity", 0.5).attr("stroke-dasharray", edgeDash);
+  linkG = rootG.append("g").attr("class", "links").style("mix-blend-mode", "screen").selectAll("path").data(edges).join("path")
+    .attr("fill", "none").attr("stroke", d => edgeColor(d)).attr("stroke-width", d => edgeWidth(d))
+    .attr("stroke-opacity", 0.65).attr("stroke-dasharray", d => edgeDash(d))
+    .attr("stroke-linecap", "round").attr("stroke-linejoin", "round");
+  linkG.style("filter", "drop-shadow(0 0 2px rgba(107,107,125,0.3))")
+    .on("mouseenter", function(event, d) {
+      d3.select(this).attr("stroke-opacity", 1).attr("stroke-width", edgeWidth(d) * 2.5);
+      if (labelG) labelG.style("opacity", 1);
+    })
+    .on("mouseleave", function(event, d) {
+      d3.select(this).attr("stroke-opacity", 0.65).attr("stroke-width", edgeWidth(d));
+      if (labelG) labelG.style("opacity", computeLabelOpacity(currentTransform.k));
+    });
 
   nodeG = rootG.append("g").attr("class", "nodes").selectAll("g").data(nodes, d => d.id).join("g")
     .attr("class", "node-group").attr("tabindex", 0)
@@ -947,8 +965,12 @@ function render() {
     .alphaMin(CFG.physics.alphaMin);
 
   simulation.on("tick", () => {
-    linkG.attr("x1", d => Math.round(d.source.x)).attr("y1", d => Math.round(d.source.y))
-         .attr("x2", d => Math.round(d.target.x)).attr("y2", d => Math.round(d.target.y));
+    linkG.attr("d", d => {
+      const sx = d.source.x, sy = d.source.y, tx = d.target.x, ty = d.target.y;
+      const dx = tx - sx, dy = ty - sy;
+      const dr = Math.sqrt(dx * dx + dy * dy) * 1.2;
+      return `M${sx.toFixed(1)},${sy.toFixed(1)}A${dr.toFixed(1)},${dr.toFixed(1)} 0 0,1 ${tx.toFixed(1)},${ty.toFixed(1)}`;
+    });
     nodeG.attr("transform", d => `translate(${Math.round(d.x)},${Math.round(d.y)})`);
     labelG.attr("x", d => Math.round(d.x)).attr("y", d => Math.round(d.y));
     updateMinimap();
@@ -984,6 +1006,7 @@ function updateNodeHalos() {
 
 /* ── Semantic LOD (level of detail) — hide labels at low zoom ── */
 let lastBadgeZoom = null; // true/false/null: whether badges are currently shown
+function computeLabelOpacity(k) { return k < CFG.lod.hideBelow ? 0 : k < CFG.lod.fadeBelow ? 0.3 : 1; }
 function updateLOD() {
   if (!labelG) return;
   const k = currentTransform.k;
