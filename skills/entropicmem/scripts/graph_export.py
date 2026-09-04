@@ -158,6 +158,21 @@ def export_json(
     # Build edge list (only edges where both nodes exist in the export set)
     node_ids = {n["id"] for n in node_list}
     all_edges = index.get_graph_edges(domain=domain, min_weight=1)
+
+    # If we hit the max_nodes cap, re-rank to prefer triple-heavy / high-degree
+    # nodes so the visible graph looks like a connected web, not an isolated
+    # importance-sorted dot field. Edges whose endpoints are both kept stay;
+    # nodes that got truncated drop their incident edges.
+    if max_nodes and len(node_list) >= max_nodes:
+        degree = {nid: 0 for nid in node_ids}
+        for e in all_edges:
+            s, t = e["source"], e["target"]
+            if s in degree: degree[s] += 1
+            if t in degree: degree[t] += 1
+        node_list.sort(key=lambda n: (degree.get(n["id"], 0), n.get("importance", 0.3)), reverse=True)
+        node_list = node_list[:max_nodes]
+        node_ids = {n["id"] for n in node_list}
+    all_edges = index.get_graph_edges(domain=domain, min_weight=1)
     edge_list = []
     for e in all_edges:
         if e.source_id in node_ids and e.target_id in node_ids:
@@ -910,6 +925,17 @@ function render() {
   nodeG = rootG.append("g").attr("class", "nodes").selectAll("g").data(nodes, d => d.id).join("g")
     .attr("class", "node-group").attr("tabindex", 0)
     .attr("role", "button").attr("aria-label", d => `${d.title || d.id}, ${d.domain || "uncategorized"}`)
+    .on("mouseover", (event, d) => {
+      const incident = adjacency.get(d.id) || new Set();
+      linkG.style("opacity", e => (incident.has(e.source.id) || incident.has(e.target.id)) ? 1 : 0.15)
+          .attr("stroke", e => (incident.has(e.source.id) || incident.has(e.target.id)) ? "#8b7cf6" : (edgeColor(e)));
+      d3.select(event.currentTarget).select(".node-shape").attr("stroke", "#5AE4AA").attr("stroke-width", 2.2);
+      if (labelG) labelG.style("opacity", computeLabelOpacity(currentTransform.k));
+    })
+    .on("mouseout", (event, d) => {
+      linkG.style("opacity", 0.65).attr("stroke", d => edgeColor(d));
+      d3.select(event.currentTarget).select(".node-shape").attr("stroke", null).attr("stroke-width", null);
+    })
     .call(d3.drag()
       .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(CFG.physics.dragAlphaTarget).restart(); d.fx = d.x; d.fy = d.y; })
       .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })

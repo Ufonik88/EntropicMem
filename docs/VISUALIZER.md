@@ -3,9 +3,15 @@
 `entropicmem graph export --format html --output-dir ./export`
 
 - Single self-contained `graph.html` (D3 v7, dark galaxy theme)
-- Nodes = vault notes; edges = wikilinks + tag links
+- Nodes = vault notes; edges = wikilinks + tag links + triples
 - Filters: `--domain`, `--max-nodes`, `--min-importance`
 - Serve: `entropicmem graph serve --port 8069 --dir ./export`
+
+## Shipped graph behavior
+- Edges render as cool-gray `#6b6b7d` lines with 0.65 opacity; semantic `triple:*` links are dashed, while `wikilink` and `tag` links are solid.
+- Edge width is kind-based: `wikilink` = 0.8px, `triple:*` = 1.8px, `tag` = 1.0px.
+- Links are drawn as curved SVG arcs with `mix-blend-mode: screen`; hover brightens opacity and enlarges the hovered edge, while revealing all connected labels.
+- Background uses a subtle SVG dot grid; label opacity follows LOD behavior.
 
 ## Typography & iconography
 
