@@ -1232,6 +1232,21 @@ function renderModalContent(node, bodyEl) {
   bodyEl.innerHTML = content;
   linkifyWikilinks(bodyEl);
 
+  // ── Linked Mentions pane (v2 Obsidian-style backlinks) ──
+  const linked = (typeof DATA !== "undefined" && DATA.nodes && adjacency && adjacency.get(node.id)) ? adjacency.get(node.id) : new Set();
+  if (linked && linked.size > 0) {
+    const pane = document.createElement("section");
+    pane.className = "modal-links";
+    pane.innerHTML = '<h3 style="font-family:var(--display);font-size:1.05em;color:var(--accent);border-bottom:1px solid var(--border);padding-bottom:6px;margin:1.2em 0 0.6em;">Linked Mentions</h3>' +
+      '<ul style="margin:0;padding-left:18px;color:#ccc;font-size:13px;line-height:1.6;">' +
+      Array.from(linked).map(nid => {
+        const n = DATA.nodes.find(x => x.id === nid) || { title: nid };
+        return `<li><a href="#note=${encodeURIComponent(n.title || nid)}" onclick="closeModal();applyFocus('${String(nid).replace(/'/g,"\\'")}');return true;" style="color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent);cursor:pointer;">${(n.title || nid).replace(/</g,"&lt;")}</a></li>`;
+      }).join("") +
+      "</ul>";
+    bodyEl.appendChild(pane);
+  }
+
   // Tag chips filter the graph and close the modal
   bodyEl.querySelectorAll(".fm-tag").forEach(chip => {
     chip.addEventListener("click", () => {
