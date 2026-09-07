@@ -132,6 +132,15 @@ class TestCoreMemory:
         assert (vp / "Core" / "Persona.md").exists()
         assert (vp / "Core" / "User_Profile.md").exists()
 
+    def test_core_memory_default_storage_fidelity_rule(self, temp_core_vault):
+        """The default Persona template ships with the storage-fidelity rule."""
+        vp, _ = temp_core_vault
+        r = _run("patch-core", "persona", ENTROPICMEM_VAULT_PATH=str(vp))
+        assert r.returncode == 0
+        content = (vp / "Core" / "Persona.md").read_text(encoding="utf-8")
+        assert "Storage fidelity" in content
+        assert "FULL DETAIL" in content
+
     def test_core_memory_patch(self, temp_core_vault):
         """Surgical patching of Core Memory works."""
         vp, _ = temp_core_vault

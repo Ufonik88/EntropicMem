@@ -543,7 +543,12 @@ class CoreMemory:
             persona.write_text(
                 "# Agent Persona\n\n*Core memory: operational guidelines, rules, identity.*\n\n"
                 "## Identity\nEntropicMem Agent — autonomous assistant\n\n## Rules\n(TBD)\n\n## Defaults\n"
-                "- Communication style: direct, concise\n- Verify before reporting success\n",
+                "- Communication style: direct, concise\n- Verify before reporting success\n"
+                "- Storage fidelity: specific/technical information (settings, configs, "
+                "numbers, model names, commands, procedures) must be stored in FULL DETAIL "
+                "in memory (facts may span several hundred words) and in durable notes — "
+                "never compressed to terse one-liners. One-liners only for preferences, "
+                "conventions, and pointers.\n",
                 encoding="utf-8",
             )
         if not profile.exists():
