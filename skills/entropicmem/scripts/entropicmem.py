@@ -436,17 +436,25 @@ def cmd_lint(args) -> int:
     issues = []
     notes = vault.list_notes(include_archive=False)
     known_titles = vault.get_all_titles()
-    known_ids = set()
 
     skip_stems = {'AGENTS', 'SCHEMA', 'index', 'log', 'Wiki-Cache'}
+    lintable: list[Path] = []
     for rel in notes:
         # Skip root seed files, templates, and utility files
         if rel.parent == Path('.') and rel.stem in skip_stems:
             continue
         if str(rel).startswith('templates/'):
             continue
-        note = vault.read_note(rel)
-        known_ids.add(note.note_id)
+        lintable.append(rel)
+
+    # Link targets are collected in a pass of their own, before any link is
+    # validated. Building known_ids inside the validation loop made a link
+    # resolve only when its target happened to be iterated earlier, so the same
+    # vault linted differently according to sort position.
+    loaded = [vault.read_note(rel) for rel in lintable]
+    known_ids = {note.note_id for note in loaded}
+
+    for note in loaded:
         nid = note.note_id
 
         # Check for dead wikilinks

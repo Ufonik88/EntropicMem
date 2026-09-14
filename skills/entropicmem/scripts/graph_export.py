@@ -166,9 +166,11 @@ def export_json(
     if max_nodes and len(node_list) >= max_nodes:
         degree = {nid: 0 for nid in node_ids}
         for e in all_edges:
-            s, t = e["source"], e["target"]
-            if s in degree: degree[s] += 1
-            if t in degree: degree[t] += 1
+            s, t = e.source_id, e.target_id
+            if s in degree:
+                degree[s] += 1
+            if t in degree:
+                degree[t] += 1
         node_list.sort(key=lambda n: (degree.get(n["id"], 0), n.get("importance", 0.3)), reverse=True)
         node_list = node_list[:max_nodes]
         node_ids = {n["id"] for n in node_list}

@@ -2305,7 +2305,6 @@ class MemoryEngine:
         # Reflect: synthesize from recalled set only (no storage guarantee)
         reflect_summary = ""
         if facts:
-            prompts = [f"- {f.content[:120]}" for f in facts[:5]]
             # Prompt-template-only synthesis (LLM called externally, not embedded)
             reflect_summary = f"Reflect on {len(facts)} recalled facts about '{query}': known={len(facts)}, key themes={', '.join({f.tags[0] if f.tags else 'general' for f in facts[:3]})}."
         # Audit-only write (no new storage)
