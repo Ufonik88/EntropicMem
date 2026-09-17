@@ -630,6 +630,7 @@ DATA.edges.forEach(e => {
 
 /* ── Visual encodings ── */
 function nodeRadius(d) { return Math.max(5, Math.min(26, Math.log((d.importance || 0.3) * 100 + 1) * 6)); }
+function nodeColor(d) { return d.color || PALETTE[d.domain] || "#888"; }
 function edgeWidth(d) {
   const kind = d.kind || "";
   if (kind === "wikilink") return 0.8;
