@@ -132,3 +132,20 @@ def _build_reasons(
 
 The plugin's `_recall()` handler includes `why_retrieved` in each result
 dict (last field so existing parsers still see content first).
+
+## Lifecycle hooks (P1 Slice 2)
+
+The plugin implements three Hermes memory-provider hooks, all deterministic
+(no LLM) and fail-soft (a hook failure logs and returns; it never breaks the
+host session):
+
+| Hook | What it does | Config keys |
+|------|--------------|-------------|
+| `on_session_end` | Flushes an extractive session digest into `episodes` (`ep_sess_{session_id}`, `INSERT OR REPLACE` = idempotent), then runs the regex extraction path into `pending_facts` (quarantine only; nothing auto-promotes). | `session_end_capture`, `session_extract_pending` |
+| `on_turn_start` | Partial digest flush every N turns, no more often than the min interval — for always-on gateway sessions where `on_session_end` is rare. | `turn_cadence_flush_turns` (0 disables), `turn_cadence_min_interval_sec` |
+| `on_pre_compress` | Returns a standing-constraints bullet list for the compression summary prompt and persists it as an `ep_precomp_{session_id}` episode tagged `source='pre_compress'`. Returns `""` when nothing salient. | (always on) |
+
+Digest construction lives in `skills/entropicmem/scripts/session_digest.py`
+(`extractive_digest`, `extract_constraints`): pure stdlib, head+tail sampling
+(first turns set context, recent turns carry state), bullets capped at 2,000
+chars. Tool-role messages are skipped; empty or tool-only transcripts no-op.

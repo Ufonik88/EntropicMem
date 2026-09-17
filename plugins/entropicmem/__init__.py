@@ -164,6 +164,13 @@ SMART_CONTEXT_DEFAULTS = {
     "auto_extract_enabled": False,
     "core_memory_writable": False,
     "reinforce_on_recall": False,
+
+    # P1 Slice 2: lifecycle hooks (A1/A2/A5/C1)
+    "session_end_capture": True,
+    "turn_cadence_flush_turns": 40,
+    "turn_cadence_min_interval_sec": 1800,
+    "session_extract_pending": True,
+
     "prefetch_denied_sources": [
         "auto_extracted",
         "test",
@@ -210,6 +217,10 @@ class EntropicMemMemoryProvider(MemoryProvider):
         self._cache_timestamp: float = 0.0
         self._last_conversation_hash: str = ""
         self._extract_lock = threading.Lock()
+
+        # P1 Slice 2: session digest state (A1/A5)
+        self._session_turns: List[Dict[str, Any]] = []
+        self._last_cadence_flush: float = 0.0
 
     @property
     def name(self) -> str:
@@ -301,6 +312,27 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "key": "auto_extract_enabled",
                 "description": "Enable background fact extraction from conversation (regex-based, no LLM). Default off for security.",
                 "default": False,
+            },
+            # P1 Slice 2: lifecycle hooks (A1/A2/A5/C1)
+            {
+                "key": "session_end_capture",
+                "description": "Flush a session digest episode when a session ends (A1). Default on.",
+                "default": True,
+            },
+            {
+                "key": "turn_cadence_flush_turns",
+                "description": "Flush a partial session digest every N turns for always-on sessions (A5). 0 disables.",
+                "default": 40,
+            },
+            {
+                "key": "turn_cadence_min_interval_sec",
+                "description": "Minimum seconds between turn-cadence digest flushes (A5).",
+                "default": 1800,
+            },
+            {
+                "key": "session_extract_pending",
+                "description": "Run regex fact extraction at session end into pending/quarantine (C1). Default on.",
+                "default": True,
             },
             {
                 "key": "core_memory_writable",
@@ -484,6 +516,16 @@ class EntropicMemMemoryProvider(MemoryProvider):
         """Update conversation history and run background auto-extraction."""
         if messages:
             self._conversation_history = messages[-(self._config.get("context_window_turns", 3) * 2):]
+
+        # P1 Slice 2 (A1/A5): bounded per-session turn buffer for digest flushes.
+        if user_content or assistant_content:
+            with self._prefetch_lock:
+                if user_content:
+                    self._session_turns.append({"role": "user", "content": user_content})
+                if assistant_content:
+                    self._session_turns.append({"role": "assistant", "content": assistant_content})
+                if len(self._session_turns) > 400:
+                    del self._session_turns[:-400]
 
         # Auto-extract facts from conversation (non-blocking, regex-based)
         if self._config.get("auto_extract_enabled", False) and self._memory_db and self._scripts_dir:
@@ -790,6 +832,130 @@ class EntropicMemMemoryProvider(MemoryProvider):
             with self._prefetch_lock:
                 self._prefetch_cache = ""
                 self._last_query = ""
+                self._session_turns = []
+            self._last_cadence_flush = 0.0
+
+    # ── P1 Slice 2: lifecycle hooks (A1/A2/A5/C1) ─────────────────────────────
+
+    def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
+        """A1: flush an extractive session digest episode when the session ends.
+
+        Idempotent by construction (deterministic ``ep_sess_{session_id}`` id):
+        re-firing replaces the same row instead of duplicating. Also runs the
+        C1 quarantine-first extraction (session-end only). Fail-soft.
+        """
+        try:
+            if self._config.get("session_end_capture", True):
+                self._flush_session_digest(messages, reason="session_end")
+        except Exception as e:  # _flush already fails soft; belt and braces
+            logger.debug("EntropicMem on_session_end failed: %s", e)
+        finally:
+            with self._prefetch_lock:
+                self._session_turns = []
+
+    def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
+        """A5: periodic partial digest flush for always-on sessions.
+
+        The gateway never dies, so ``on_session_end`` is rare there; flush a
+        partial digest every ``turn_cadence_flush_turns`` turns (default 40),
+        no more often than ``turn_cadence_min_interval_sec`` (default 1800).
+        0 turns disables. Fail-soft.
+        """
+        try:
+            cadence = int(self._config.get("turn_cadence_flush_turns") or 0)
+            if cadence <= 0 or not turn_number or turn_number % cadence != 0:
+                return
+            with self._prefetch_lock:
+                turns = list(self._session_turns)
+            if not turns:
+                return
+            min_interval = float(self._config.get("turn_cadence_min_interval_sec") or 0)
+            now = time.time()
+            if min_interval and (now - self._last_cadence_flush) < min_interval:
+                return
+            self._last_cadence_flush = now
+            self._flush_session_digest(turns, reason="cadence")
+        except Exception as e:
+            logger.debug("EntropicMem on_turn_start failed: %s", e)
+
+    def on_pre_compress(self, messages: List[Dict[str, Any]]) -> str:
+        """A2: extract standing constraints before Hermes compresses context.
+
+        Returns a bounded bullet list for the compression summary prompt
+        ("" when nothing salient) and persists it as an episode tagged
+        ``source='pre_compress'`` so constraints stay recallable after the
+        transcript is gone. Fail-soft: returns "" on any failure.
+        """
+        try:
+            if not self._scripts_dir or not self._memory_db:
+                return ""
+            ensure_scripts_on_path(self._scripts_dir)
+            from session_digest import extract_constraints, precompress_episode_id
+
+            constraints = extract_constraints(messages)
+            if not constraints:
+                return ""
+            try:
+                from memory_engine import MemoryEngine
+
+                sid = self._session_id or ""
+                with MemoryEngine(self._memory_db) as engine:
+                    engine.add_episode(
+                        title=f"Pre-compress constraints for session {sid or 'unknown'}"[:120],
+                        summary=constraints,
+                        source_session=sid,
+                        episode_id=precompress_episode_id(sid),
+                        source="pre_compress",
+                        importance=0.7,
+                    )
+            except Exception as e:  # persist is best-effort; the string still ships
+                logger.debug("EntropicMem pre-compress persist failed: %s", e)
+            return constraints
+        except Exception as e:
+            logger.debug("EntropicMem on_pre_compress failed: %s", e)
+            return ""
+
+    def _flush_session_digest(self, messages: List[Dict[str, Any]], *, reason: str) -> None:
+        """Write an extractive session digest episode (+ C1 pending extraction).
+
+        Deterministic and idempotent: the episode id derives from the session
+        id, so refiring replaces the same row. Fail-soft, never raises into
+        the host session.
+        """
+        if not self._scripts_dir or not self._memory_db:
+            return
+        try:
+            ensure_scripts_on_path(self._scripts_dir)
+            from memory_engine import MemoryEngine
+            from session_digest import episode_id_for, extractive_digest
+
+            digest = extractive_digest(messages or [])
+            if not digest["summary"]:
+                return  # empty / tool-only transcript, no-op
+
+            sid = self._session_id or ""
+            with MemoryEngine(self._memory_db) as engine:
+                engine.add_episode(
+                    title=digest["title"] or f"session {sid or 'unknown'}",
+                    summary=digest["summary"],
+                    start_ts=digest.get("start_ts"),
+                    end_ts=digest.get("end_ts"),
+                    source_session=sid,
+                    episode_id=episode_id_for(sid),
+                    importance=0.6,
+                    source="session_end" if reason == "session_end" else "cadence",
+                )
+                # C1: session-end regex extraction -> pending/quarantine only.
+                if reason == "session_end" and self._config.get("session_extract_pending", True):
+                    engine.extract_and_store(
+                        user_text=digest["user_text"],
+                        assistant_text=digest["assistant_text"],
+                        session_id=sid,
+                        source="auto_extracted",
+                        min_confidence=0.4,
+                    )
+        except Exception as e:
+            logger.debug("EntropicMem session digest flush failed: %s", e)
 
     def backup_paths(self) -> List[str]:
         paths = []

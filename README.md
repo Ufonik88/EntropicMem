@@ -114,6 +114,7 @@ memory:
 
 - **Interactive tools:** `entropicmem_remember`, `entropicmem_recall`, `entropicmem_query`, `entropicmem_patch_core`, `entropicmem_stats`, `entropicmem_get`, `entropicmem_consolidate` — plus the built-in `memory` tool.
 - **Prefetch injection:** relevant facts are prefetched into `<memory-context>` each turn. These are system-injected context, not user input.
+- **Lifecycle hooks:** `on_session_end` writes an extractive session digest episode (idempotent per session) and runs quarantine-first extraction; `on_turn_start` flushes a partial digest every N turns for always-on sessions; `on_pre_compress` feeds a standing-constraints digest into the compression summary prompt and persists it. Config under `plugins.entropicmem` (`session_end_capture`, `turn_cadence_flush_turns`, `turn_cadence_min_interval_sec`, `session_extract_pending`) — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Cron:** Hermes cron runs use `skip_memory=True`; durable writes go through a deterministic helper script (no LLM).
 - **Full integration guide:** [skills/entropicmem/references/HERMES_INTEGRATION.md](skills/entropicmem/references/HERMES_INTEGRATION.md)
 
