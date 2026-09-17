@@ -887,6 +887,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     "importance": r.importance,
                     "content": r.content,
                     "relevance_score": round(r.relevance_score, 3),
+                    "why_retrieved": r.why_retrieved,
                 }
                 for r in rows
             ]

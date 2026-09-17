@@ -293,6 +293,7 @@ class StoredFact:
     sensitivity: str = "internal"
     relevance_score: float = 0.0  # FTS5 rank-based relevance (0-1)
     decay_score: float = 1.0      # temporal decay factor (1.0 = no decay)
+    why_retrieved: List[Any] = field(default_factory=list)  # P1 D1: explainable recall reason tokens
 
     @staticmethod
     def make_id(content: str) -> str:
@@ -1300,6 +1301,10 @@ class MemoryEngine:
             exact_params,
         ).fetchall()
         exact = [self._row_to_fact(r) for r in exact_rows]
+        for f in exact:
+            f.why_retrieved = self._build_reasons(
+                exact_match=True, fts_match=False, domain_filtered=bool(domain),
+            )
 
         # FTS5 MATCH
         rows = self.db.execute(
@@ -1313,6 +1318,10 @@ class MemoryEngine:
             (fts_query, *params, *date_params, top_k),
         ).fetchall()
         fts_hits = [self._row_to_fact(r) for r in rows]
+        for f in fts_hits:
+            f.why_retrieved = self._build_reasons(
+                fts_match=True, domain_filtered=bool(domain),
+            )
         local = exact
         if fts_hits:
             seen = {f.id for f in exact}
@@ -1335,6 +1344,10 @@ class MemoryEngine:
                 (*like_params, top_k),
             ).fetchall()
             like_hits = [self._row_to_fact(r) for r in rows]
+            for f in like_hits:
+                f.why_retrieved = self._build_reasons(
+                    like_fallback=True, domain_filtered=bool(domain),
+                )
             seen = {f.id for f in exact}
             local = exact + [f for f in like_hits if f.id not in seen]
 
@@ -1381,6 +1394,7 @@ class MemoryEngine:
                 created_at=r["written_at"],
                 updated_at=r["written_at"],
                 sensitivity=r["sensitivity"],
+                why_retrieved=MemoryEngine._build_reasons(fts_match=True, domain_filtered=bool(domain)),
             ))
         return out
 
@@ -1666,6 +1680,15 @@ class MemoryEngine:
         # Sort by combined score (descending)
         results.sort(key=lambda f: f.relevance_score, reverse=True)
 
+        # Populate why_retrieved for all results
+        for f in results:
+            f.why_retrieved = self._build_reasons(
+                fts_match=True,
+                recency_applied=decay_enabled,
+                importance_applied=True,
+                domain_filtered=bool(domain),
+            )
+
         # Auto-reinforce returned facts (opt-in)
         if auto_reinforce:
             for fact in results[:top_k]:
@@ -1719,6 +1742,10 @@ class MemoryEngine:
                 if fid not in fact_map:
                     fact = self.get_fact(fid)
                     if fact:
+                        fact.why_retrieved = self._build_reasons(
+                            vector_match=True,
+                            domain_filtered=bool(domain),
+                        )
                         fact_map[fid] = fact
 
             results = []
@@ -2147,6 +2174,11 @@ class MemoryEngine:
             fact = self._row_to_fact(row)
             fact.relevance_score = fact.importance * 0.8
             if fact.relevance_score >= min_relevance:
+                fact.why_retrieved = self._build_reasons(
+                    like_fallback=True,
+                    importance_applied=True,
+                    domain_filtered=bool(domain),
+                )
                 results.append(fact)
 
         return results
@@ -2194,6 +2226,42 @@ class MemoryEngine:
         return result
 
     # ── helpers ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_reasons(
+        *,
+        fts_match: bool = False,
+        exact_match: bool = False,
+        vector_match: bool = False,
+        recency_applied: bool = False,
+        importance_applied: bool = False,
+        triple_boost: bool = False,
+        domain_filtered: bool = False,
+        like_fallback: bool = False,
+    ) -> List[Any]:
+        """Build a deterministic reason-token list for a single recall hit.
+
+        Returns a list of string tokens. Callers that have numeric scores can
+        later enrich individual entries into {"signal": ..., "score": ...}.
+        """
+        reasons: List[Any] = []
+        if exact_match:
+            reasons.append("exact")
+        if fts_match:
+            reasons.append("fts")
+        elif like_fallback:
+            reasons.append("fts")  # LIKE fallback is still an FTS-replacement match
+        if vector_match:
+            reasons.append("vector")
+        if recency_applied:
+            reasons.append("recency")
+        if importance_applied:
+            reasons.append("importance")
+        if triple_boost:
+            reasons.append("triple")
+        if domain_filtered:
+            reasons.append("domain")
+        return reasons
 
     def _make_title(self, content: str, max_len: int = 80) -> str:
         """Humanized title from fact content (naming convention v2.2.0+).

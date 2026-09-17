@@ -1,0 +1,98 @@
+{"content": "EntropicMem is a standalone SQLite-based memory engine with FTS5 full-text search", "domain": "Knowledge", "importance": 0.9}
+{"content": "The memory engine supports temporal decay scoring for fact relevance over time", "domain": "Knowledge", "importance": 0.8}
+{"content": "Facts are stored with domain classification including Knowledge, Infrastructure, and Projects", "domain": "Knowledge", "importance": 0.7}
+{"content": "The recall method uses BM25 ranking from SQLite FTS5 for relevance scoring", "domain": "Knowledge", "importance": 0.85}
+{"content": "Recall with relevance combines FTS5 rank with temporal decay and reinforcement boosting", "domain": "Knowledge", "importance": 0.9}
+{"content": "Vector embeddings are supported via sentence-transformers for semantic similarity search", "domain": "Knowledge", "importance": 0.75}
+{"content": "The hybrid recall method fuses FTS5 BM25 results with vector similarity scores", "domain": "Knowledge", "importance": 0.85}
+{"content": "Episodic memory stores session summaries with timestamps for timeline recall", "domain": "Knowledge", "importance": 0.7}
+{"content": "Knowledge triples encode subject-predicate-object relationships with confidence scores", "domain": "Knowledge", "importance": 0.65}
+{"content": "The vault system projects facts into Markdown notes with wikilink edges", "domain": "Knowledge", "importance": 0.6}
+{"content": "Hermes Agent uses EntropicMem as its primary memory provider plugin", "domain": "Infrastructure", "importance": 0.9}
+{"content": "The EntropicMem plugin registers as a Hermes MemoryProvider with tool schemas", "domain": "Infrastructure", "importance": 0.85}
+{"content": "Plugin tools include entropicmem_remember for storing durable facts", "domain": "Infrastructure", "importance": 0.8}
+{"content": "The entropicmem_recall tool performs full-text search over stored facts", "domain": "Infrastructure", "importance": 0.8}
+{"content": "Smart context management applies relevance filtering and token budgets for prefetch", "domain": "Infrastructure", "importance": 0.75}
+{"content": "Auto-extraction uses regex patterns to mine facts from conversation text", "domain": "Infrastructure", "importance": 0.7}
+{"content": "The plugin runs background auto-extraction with a thread pool for non-blocking operation", "domain": "Infrastructure", "importance": 0.65}
+{"content": "Deduplication prevents the same fact from being injected into context within N turns", "domain": "Infrastructure", "importance": 0.7}
+{"content": "Progressive disclosure shows high-relevance facts first with tiered thresholds", "domain": "Infrastructure", "importance": 0.65}
+{"content": "Core Memory injection provides persona and user profile context in every prefetch", "domain": "Infrastructure", "importance": 0.8}
+{"content": "Acme Systems security alarm Hub 2 Plus supports up to 200 detectors and cameras", "domain": "Acme Corp", "importance": 0.85}
+{"content": "The Acme migration project converted all translator CSV files to Hub device IDs", "domain": "Acme Corp", "importance": 0.8}
+{"content": "Acme MotionCam Outdoor detectors use photo-verification for alarm confirmation", "domain": "Acme Corp", "importance": 0.75}
+{"content": "The security installer portal requires distributor-level credentials for device management", "domain": "Acme Corp", "importance": 0.7}
+{"content": "Acme FireProtect 2 is a wireless smoke and heat detector with built-in siren", "domain": "Acme Corp", "importance": 0.75}
+{"content": "NVIDIA DOCA provides a software framework for BlueField DPU programming", "domain": "Infrastructure", "importance": 0.7}
+{"content": "DOCA Flow enables hardware-accelerated packet processing on BlueField DPUs", "domain": "Infrastructure", "importance": 0.7}
+{"content": "GPU Direct RDMA allows direct data transfers between GPUs and network adapters", "domain": "Infrastructure", "importance": 0.65}
+{"content": "The DOCA Telemetry API exposes hardware counters for performance monitoring", "domain": "Infrastructure", "importance": 0.6}
+{"content": "NVIDIA Holoscan SDK enables real-time sensor processing for AI applications", "domain": "Infrastructure", "importance": 0.7}
+{"content": "HoloHub is a community repository for Holoscan applications and modules", "domain": "Infrastructure", "importance": 0.65}
+{"content": "The Holoscan Sensor Bridge connects high-speed sensors to AI processing pipelines", "domain": "Infrastructure", "importance": 0.7}
+{"content": "Jetson Orin is NVIDIA's edge AI platform for autonomous machines and robotics", "domain": "Infrastructure", "importance": 0.65}
+{"content": "Megatron-LM is a framework for training large transformer models at scale", "domain": "Infrastructure", "importance": 0.6}
+{"content": "NeMo provides building blocks for conversational AI including ASR, NLP, and TTS", "domain": "Infrastructure", "importance": 0.65}
+{"content": "The VSS video analytics platform integrates DeepStream for real-time video processing", "domain": "Infrastructure", "importance": 0.6}
+{"content": "TAO toolkit enables fine-tuning of pre-trained vision models on custom datasets", "domain": "Infrastructure", "importance": 0.6}
+{"content": "The weekly review process captures completed tasks and plans for the next week", "domain": "Workflows", "importance": 0.7}
+{"content": "Morning brief generation pulls weather, news, and calendar events for daily planning", "domain": "Workflows", "importance": 0.65}
+{"content": "Notion sync cron job mirrors Notion knowledge base into Hermes memory every 6 hours", "domain": "Workflows", "importance": 0.7}
+{"content": "The Document uses 50/30/20 rule for expense categorization and tracking", "domain": "Finance", "importance": 0.75}
+{"content": "Bank transaction parsing extracts merchant, amount, and date from bank CSV exports", "domain": "Finance", "importance": 0.7}
+{"content": "Portfolio optimization uses Modern Portfolio Theory for asset allocation rebalancing", "domain": "Finance", "importance": 0.65}
+{"content": "The X growth strategy targets tech founders and AI engineers with daily content", "domain": "Content-Growth", "importance": 0.7}
+{"content": "Twitter content series publishes three articles per week on AI infrastructure topics", "domain": "Content-Growth", "importance": 0.65}
+{"content": "Google Workspace CLI tools automate email triage and calendar management workflows", "domain": "Workflows", "importance": 0.6}
+{"content": "Obsidian vault sync ensures markdown notes stay consistent between local and cloud", "domain": "Infrastructure", "importance": 0.6}
+{"content": "The Hermes agent profile system isolates memory and skills per project context", "domain": "Infrastructure", "importance": 0.7}
+{"content": "Custom provider configuration enables local LLMs to serve as Hermes model backends", "domain": "Infrastructure", "importance": 0.65}
+{"content": "The EntropicMem project was created to give Hermes agents durable long-term memory", "domain": "Projects", "importance": 0.9}
+{"content": "Phase one of EntropicMem shipped fact storage, FTS5 search, and vault projection", "domain": "Projects", "importance": 0.8}
+{"content": "Phase two added sensitivity tiers, write policies, and pending fact quarantine", "domain": "Projects", "importance": 0.8}
+{"content": "Phase seven introduced vector embeddings for semantic similarity search", "domain": "Projects", "importance": 0.75}
+{"content": "The P1 gap-close plan adds explainable recall and lifecycle hooks to the plugin", "domain": "Projects", "importance": 0.85}
+{"content": "Recall benchmark measures precision at five and mean reciprocal rank on frozen corpus", "domain": "Projects", "importance": 0.8}
+{"content": "Each recall result now carries a why_retrieved field with deterministic reason tokens", "domain": "Projects", "importance": 0.85}
+{"content": "The vault backup system creates timestamped database snapshots before destructive operations", "domain": "Infrastructure", "importance": 0.6}
+{"content": "Health check system monitors orphan FTS rows and database integrity on cron schedule", "domain": "Infrastructure", "importance": 0.55}
+{"content": "Controlled sync publishes local outbox events to a shared append-only log store", "domain": "Infrastructure", "importance": 0.6}
+{"content": "Multi-profile provenance stamps each fact with the owning profile slug for isolation", "domain": "Infrastructure", "importance": 0.7}
+{"content": "The agent team uses four specialized Hermes agents for planning, coding, ops, and research", "domain": "Knowledge", "importance": 0.8}
+{"content": "The planner agent handles specification and architecture decisions for the EntropicMem project", "domain": "Knowledge", "importance": 0.7}
+{"content": "the code agent implements features using test-driven development with clean commit history", "domain": "Knowledge", "importance": 0.7}
+{"content": "the ops agent runs tests, validates deployments, and maintains CI green status", "domain": "Knowledge", "importance": 0.65}
+{"content": "the research agent handles documentation updates and knowledge base maintenance", "domain": "Knowledge", "importance": 0.6}
+{"content": "the release agent manages git operations and pushes approved changes to production", "domain": "Knowledge", "importance": 0.65}
+{"content": "The CI pipeline runs pytest and ruff on every pull request before merge approval", "domain": "Infrastructure", "importance": 0.7}
+{"content": "Docker container deployment uses s6-overlay for process supervision and health checks", "domain": "Infrastructure", "importance": 0.55}
+{"content": "The Telegram integration enables Hermes agents to respond to messages and commands", "domain": "Infrastructure", "importance": 0.65}
+{"content": "Session memory capture runs as a cron job to preserve durable facts from conversations", "domain": "Infrastructure", "importance": 0.7}
+{"content": "Memory optimization framework uses tiered architecture inspired by Fable 5 prompting", "domain": "Infrastructure", "importance": 0.55}
+{"content": "EntropicMem enforces a strict no-LLM deterministic default for the recall engine", "domain": "Projects", "importance": 0.9}
+{"content": "All recall reason tokens are computed without network calls or language models", "domain": "Projects", "importance": 0.85}
+{"content": "The forgotten facts table archives soft-deleted facts for audit and recovery", "domain": "Infrastructure", "importance": 0.5}
+{"content": "Fact versioning snapshots content before each update for change history tracking", "domain": "Infrastructure", "importance": 0.55}
+{"content": "The graph server provides a web interface for visualizing vault note connections", "domain": "Infrastructure", "importance": 0.5}
+{"content": "Acme alarm systems use proprietary radio protocol for encrypted detector communication", "domain": "Acme Corp", "importance": 0.7}
+{"content": "The Obsidian vault contains over 2000 interconnected markdown notes", "domain": "Infrastructure", "importance": 0.6}
+{"content": "Logseq serves as a secondary knowledge base with block-level referencing", "domain": "Infrastructure", "importance": 0.55}
+{"content": "The event planning system automates vendor research and deliverables tracking", "domain": "Projects", "importance": 0.65}
+{"content": "Budget tracking exports parse bank transaction statements into categorized spreadsheets", "domain": "Finance", "importance": 0.7}
+{"content": "Personal finance automation monitors bank emails and categorizes spending patterns", "domain": "Finance", "importance": 0.65}
+{"content": "The EntropicMem plugin is installed via symlink from the project repo to Hermes plugins", "domain": "Infrastructure", "importance": 0.6}
+{"content": "Health data integration pulls fitness metrics for long-term trend analysis", "domain": "Workflows", "importance": 0.55}
+{"content": "The daily ops cron runs health checks, cost monitoring, and brief reporting", "domain": "Workflows", "importance": 0.6}
+{"content": "Cron maintenance skill handles failure diagnosis and automatic recovery for scheduled jobs", "domain": "Infrastructure", "importance": 0.6}
+{"content": "External knowledge sync pulls articles, papers, and blogs into the memory system", "domain": "Workflows", "importance": 0.55}
+{"content": "The Sourcery code review integration runs AI-powered quality checks before commits", "domain": "Infrastructure", "importance": 0.55}
+{"content": "The EntropicMem project spans over 50,000 lines of Python across the skill and plugin", "domain": "Projects", "importance": 0.6}
+{"content": "Memory provider ABC defines the contract that all Hermes memory backends must implement", "domain": "Infrastructure", "importance": 0.65}
+{"content": "The system prompt block injects EntropicMem usage instructions into every agent turn", "domain": "Infrastructure", "importance": 0.7}
+{"content": "NVIDIA TAO Vision ChangeNet detects differences between image pairs for AOI use cases", "domain": "Infrastructure", "importance": 0.55}
+{"content": "AutoML pipelines run container-backed hyperparameter optimization on GPU clusters", "domain": "Infrastructure", "importance": 0.5}
+{"content": "The recall hybrid method falls back gracefully to FTS5-only when embeddings are missing", "domain": "Knowledge", "importance": 0.8}
+{"content": "Auto-extracted facts are quarantined in pending_facts table and never auto-promoted", "domain": "Knowledge", "importance": 0.85}
+{"content": "Importance weighting boosts high-priority facts in recall result ranking", "domain": "Knowledge", "importance": 0.75}
+{"content": "FTS5 prefix matching enables partial-word queries to match relevant memory facts", "domain": "Knowledge", "importance": 0.7}
+{"content": "Temporal decay applies exponential weighting so older facts gradually lose relevance", "domain": "Knowledge", "importance": 0.8}

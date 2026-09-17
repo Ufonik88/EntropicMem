@@ -1,0 +1,102 @@
+[
+  {
+    "id": "p01_memory_engine_basics",
+    "query": "EntropicMem memory engine SQLite FTS5",
+    "expected_substrings": ["EntropicMem", "SQLite", "FTS5"]
+  },
+  {
+    "id": "p02_temporal_decay",
+    "query": "temporal decay scoring relevance over time",
+    "expected_substrings": ["temporal decay", "relevance", "older facts"]
+  },
+  {
+    "id": "p03_hybrid_recall",
+    "query": "hybrid recall fusion FTS5 vector similarity",
+    "expected_substrings": ["hybrid", "FTS5", "vector", "similarity"]
+  },
+  {
+    "id": "p04_hermes_plugin_integration",
+    "query": "Hermes Agent memory provider plugin EntropicMem",
+    "expected_substrings": ["Hermes", "EntropicMem", "plugin", "MemoryProvider"]
+  },
+  {
+    "id": "p05_auto_extraction",
+    "query": "auto extraction regex patterns conversation mining",
+    "expected_substrings": ["auto", "extract", "regex"]
+  },
+  {
+    "id": "p06_security_alarm_hardware",
+    "query": "Acme Systems security alarm Hub detector",
+    "expected_substrings": ["Acme", "Hub", "detector"]
+  },
+  {
+    "id": "p07_nvidia_doca",
+    "query": "NVIDIA DOCA BlueField DPU framework",
+    "expected_substrings": ["DOCA", "BlueField", "DPU"]
+  },
+  {
+    "id": "p08_holoscan_sdk",
+    "query": "Holoscan SDK sensor processing AI",
+    "expected_substrings": ["Holoscan", "sensor", "processing"]
+  },
+  {
+    "id": "p09_budget_finance",
+    "query": "budget finance 50 30 20 expense categorization",
+    "expected_substrings": ["budget", "expense", "50"]
+  },
+  {
+    "id": "p10_content_twitter_growth",
+    "query": "X Twitter content growth strategy AI infrastructure",
+    "expected_substrings": ["growth", "content", "Twitter"]
+  },
+  {
+    "id": "p11_entropicmem_phases",
+    "query": "EntropicMem phase development history project",
+    "expected_substrings": ["EntropicMem", "Phase", "fact storage"]
+  },
+  {
+    "id": "p12_ateam_agents",
+    "query": "agent team agents planner coder ops research",
+    "expected_substrings": ["agent team", "private profile", "Code", "ops", "research"]
+  },
+  {
+    "id": "p13_quarantine_pending",
+    "query": "quarantine pending facts auto promote security",
+    "expected_substrings": ["quarantine", "pending", "promote"]
+  },
+  {
+    "id": "p14_domain_classification",
+    "query": "domain classification Knowledge Infrastructure Projects",
+    "expected_substrings": ["domain", "Knowledge", "Infrastructure", "Projects"]
+  },
+  {
+    "id": "p15_importance_weighting",
+    "query": "importance weighting boosting high-priority facts",
+    "expected_substrings": ["importance", "boost", "priority", "facts"]
+  },
+  {
+    "id": "p16_fts5_prefix_matching",
+    "query": "FTS5 prefix matching partial word queries",
+    "expected_substrings": ["FTS5", "prefix", "partial", "word"]
+  },
+  {
+    "id": "p17_vault_markdown_projection",
+    "query": "vault system Markdown notes wikilink edges projection",
+    "expected_substrings": ["vault", "Markdown", "wikilink"]
+  },
+  {
+    "id": "p18_episodic_timeline",
+    "query": "episodic memory session summary timeline timestamps",
+    "expected_substrings": ["episodic", "session", "timeline"]
+  },
+  {
+    "id": "p19_factor_versioning",
+    "query": "fact versioning snapshot change history tracking",
+    "expected_substrings": ["versioning", "snapshot", "history", "tracking"]
+  },
+  {
+    "id": "p20_why_retrieved_explainable",
+    "query": "why_retrieved explainable recall deterministic reason tokens",
+    "expected_substrings": ["why_retrieved", "recall", "reason tokens"]
+  }
+]
