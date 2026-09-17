@@ -68,6 +68,7 @@ EntropicMem/
 │   └── templates/vault/         # Seed vault skeleton
 ├── plugins/entropicmem/         # Hermes MemoryProvider (7 tools)
 ├── scripts/graph_server/        # FastAPI graph server (token-gated)
+├── benchmarks/                  # Frozen recall benchmark (corpus, probes, runner)
 ├── docs/                        # User-facing docs (see index below)
 ├── tests/                       # 300+ tests
 └── .github/workflows/test.yml   # CI: pytest (3.10–3.12) + ruff
@@ -84,6 +85,10 @@ Five cooperating layers — see [docs/MEMORY_MODEL.md](docs/MEMORY_MODEL.md) for
 | **Vault** | Markdown files | Human-browsable, linked, domain-organized |
 | **Index** | `~/.hermes/entropicmem/index.db` | Vault FTS5 + graph edges for retrieval |
 | **Graph** | `export/graph.html` | D3 galaxy visualizer |
+
+**Explainable recall (D1):** Every `recall()` / `recall_with_relevance()` / `recall_hybrid()` hit carries a `why_retrieved` field — a deterministic list of reason tokens (`exact`, `fts`, `vector`, `recency`, `importance`, `triple`, `domain`; the LIKE-fallback path also reports `fts`) so you can audit why a fact surfaced. The plugin's `entropicmem_recall` tool exposes it in its JSON output.
+
+**Recall benchmark (D2):** Run `PYTHONPATH="skills/entropicmem/scripts" python3 benchmarks/run_recall_bench.py` to measure `precision@5` and `MRR` against a frozen 98-fact corpus with 20 probes. CI enforces a floor (`precision@5 >= 0.50`, `MRR >= 0.50`); first run: `precision@5 = 0.98`, `MRR = 0.975`.
 
 ## Commands
 
@@ -136,6 +141,7 @@ Prefetch relevance filtering, per-turn token budgets, dedup windows, and progres
 | [docs/SELF_INSTALL.md](docs/SELF_INSTALL.md) | `/learn` install flow |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Public-repo rules + commit checklist |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [benchmarks/run_recall_bench.py](benchmarks/run_recall_bench.py) | Recall benchmark runner (precision@5 / MRR) |
 
 ## Requirements
 

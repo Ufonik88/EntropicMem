@@ -34,6 +34,8 @@ All commands: `python3 ~/.hermes/skills/entropicmem/scripts/entropicmem.py <cmd>
 | `history <id>` | Show fact version snapshots |
 | `consolidate [--dry-run] --confirm ...` | Archive old, low-access facts to `facts_archive` |
 
+**Explainable recall:** The `entropicmem_recall` plugin tool (and `MemoryEngine.recall()` / `recall_with_relevance()` / `recall_hybrid()`) returns a `why_retrieved` field on every hit — a deterministic list of reason tokens (`exact`, `fts`, `vector`, `recency`, `importance`, `triple`, `domain`, `fts` for LIKE fallback) explaining why the fact was surfaced. See [MEMORY_MODEL.md](MEMORY_MODEL.md) for the token reference.
+
 ## Episodic memory & triples
 
 | Command | Description |
@@ -72,3 +74,21 @@ All commands: `python3 ~/.hermes/skills/entropicmem/scripts/entropicmem.py <cmd>
 
 Env: `ENTROPICMEM_VAULT_PATH`, `ENTROPICMEM_INDEX_DB`, `ENTROPICMEM_MEMORY_DB`
 (defaults resolve under `$HERMES_HOME/entropicmem/`).
+
+## Recall Benchmark (P1 D2)
+
+A frozen benchmark suite validates recall quality in CI:
+
+- **Corpus:** `benchmarks/corpus.jsonl` — 98 facts across Knowledge, Infrastructure, Acme Corp, Workflows, Finance, Content-Growth, Projects domains
+- **Probes:** `benchmarks/probes.json` — 20 queries with expected substrings
+- **Runner:** `benchmarks/run_recall_bench.py` — runs `recall_with_relevance()` against the corpus, computes `precision@5` and Mean Reciprocal Rank (MRR)
+- **Output:** `benchmarks/last_run.json` — machine-readable metrics for CI
+- **CI floor:** `precision@5 >= 0.50`, `MRR >= 0.50` (pinned from first run: 0.98 / 0.975)
+
+Run locally:
+
+```bash
+PYTHONPATH="skills/entropicmem/scripts" python3 benchmarks/run_recall_bench.py
+```
+
+Tests: `tests/test_recall_bench.py` (7 tests — runner exit code, metric validity, CI floor).

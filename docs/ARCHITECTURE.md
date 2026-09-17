@@ -102,3 +102,33 @@ Explicit `ENTROPICMEM_*` env vars override the profile defaults.
   resolves against the real modules.
 - **New optional deps** — mirror the try/except availability-probe pattern
   used for `embeddings.py`; the engine must degrade gracefully.
+
+## Explainable Recall (P1 D1)
+
+Every recall path in `MemoryEngine` now populates a `why_retrieved` field on
+`StoredFact`. The helper `_build_reasons()` constructs a deterministic list of
+reason tokens from boolean flags:
+
+```python
+def _build_reasons(
+    *,
+    fts_match: bool = False,
+    exact_match: bool = False,
+    vector_match: bool = False,
+    recency_applied: bool = False,
+    importance_applied: bool = False,
+    triple_boost: bool = False,
+    domain_filtered: bool = False,
+    like_fallback: bool = False,
+) -> List[Any]:
+```
+
+| Recall method | How `why_retrieved` is populated |
+|---------------|----------------------------------|
+| `recall()` | `exact` for exact matches, `fts` for FTS5 hits, `fts` for LIKE fallback; `domain` when domain filter active |
+| `recall_with_relevance()` | `fts` (always), `recency` when `decay_enabled=True`, `importance` (always), `domain` when domain filter active |
+| `recall_hybrid()` | Delegates to `recall_with_relevance` for FTS path; `vector_match=True` for vector-only hits; `domain` when domain filter active |
+| `_recall_like_fallback()` | `like_fallback=True` (emits `fts`), `importance_applied=True`, `domain` when domain filter active |
+
+The plugin's `_recall()` handler includes `why_retrieved` in each result
+dict (last field so existing parsers still see content first).

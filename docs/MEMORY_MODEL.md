@@ -21,6 +21,28 @@ Within L2, three complementary memory kinds live in `memory.db`:
 Embeddings (`embeddings` table) attach 384-dim vectors to facts and enable
 hybrid FTS+vector recall when `sentence-transformers` is installed.
 
+**Explainable recall (P1 D1):** Every `StoredFact` returned by `recall()`,
+`recall_with_relevance()`, `recall_hybrid()`, and the plugin's
+`entropicmem_recall` tool carries a `why_retrieved: list[str|dict]` field.
+This additive field lists deterministic reason tokens explaining why the
+fact was surfaced:
+
+| Token | Meaning |
+|-------|---------|
+| `exact` | Exact content or ID match (always ranked first) |
+| `fts` | FTS5 prefix match |
+| `vector` | Vector similarity (when embeddings available) |
+| `recency` | Temporal decay contributed to score |
+| `importance` | Importance weighting contributed to score |
+| `triple` | Graph/triple neighbor boost (hybrid path) |
+| `domain` | Domain filter was applied |
+| `fts` (LIKE fallback) | LIKE fallback used when FTS5 returned no results |
+
+Tokens are plain strings today (`"fts"`); the field also accepts enriched
+dicts (`{"signal": "fts", "score": 0.41}`) so numeric contributions can be
+added later without breaking consumers. The list is deterministic and
+requires no LLM.
+
 **Write policy:** stable facts → `remember`; source knowledge → `ingest`/`note`; ephemeral reasoning → do not persist.
 
 **Identity:** `entropic_id = SHA256(content)[:16]` deduplicates facts and links vault notes to memory rows.
