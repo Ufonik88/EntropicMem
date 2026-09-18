@@ -25,6 +25,46 @@
 - Double-click empty canvas zooms in 1.5x anchored at the cursor.
 - Minimap (bottom-right dock) shows a live viewport rect; click to pan.
 
+## Color modes & communities
+
+- **Color by: Domain | Community** (panel). In community mode each node takes
+  its community's color from a deterministic colorblind-safe palette
+  (Okabe-Ito core plus accessible extras), and the legend lists the largest
+  communities as `Community <id> (<n>)` with a `unclustered (n)` row for
+  isolated notes. Community ids are stable across rebuilds of identical vault
+  state (deterministic label propagation at export time).
+- **Cluster islands** (panel toggle, default off): a gentle centroid force
+  pulls each community toward its own centroid, reading as separate 2D
+  islands. Physics otherwise unchanged; off = the shipped layout.
+- Both preferences persist to `localStorage` (`entropicmem-graph-color-mode`,
+  `entropicmem-graph-island`).
+
+## Vault search
+
+- **Search the vault** (panel): full-text search over ALL notes via
+  `GET /api/search?q=` on the graph server (vault FTS), independent of the
+  500-node export cap. Debounced (300 ms) and Enter-triggered.
+- Results list shows title + domain; hits inside the current view zoom and
+  focus the node, hits outside the export open the note modal through the
+  lazy fetch ("not in current view" marker). Without the local server
+  (`file://` or server down) the box explains what is missing.
+
+## Path tracing
+
+- **Click a node, then shift-click a second node** to highlight the shortest
+  path between them (server BFS over `graph_edges`, depth-capped at 10 hops
+  by default). The path lights up with an accent ring per node, the rest of
+  the graph dims, and a banner reports the hop count; a further shift-click
+  re-routes from the same origin. `Esc` or an empty-canvas click clears.
+- A shift-click with no prior selection sets the path origin instead.
+
+## Orphan highlight
+
+- **Highlight orphans** (panel toggle): notes with zero graph edges stay lit
+  while connected notes fade, making disconnected notes easy to find. The
+  stats pill reports `<n> orphans` for the current view. This is a hygiene
+  signal only; nothing is ever deleted.
+
 ## Collapsible overlays
 
 Panel, legend, minimap, and stats each have a collapse toggle; collapsed state is persisted to `localStorage` (`entropicmem-graph-<id>-collapsed` keys).
@@ -33,7 +73,7 @@ Panel, legend, minimap, and stats each have a collapse toggle; collapsed state i
 |-----|--------|
 | `+` / `-` | Zoom in / out |
 | `0` | Fit graph to view |
-| `Esc` | Close modal, or release focus mode |
+| `Esc` | Clear the path, or release focus mode, or close the modal |
 | `H` | Toggle control panel |
 | `L` | Toggle legend |
 | `M` | Toggle minimap |

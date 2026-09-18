@@ -7,7 +7,9 @@ wikilink relationships, and feeds the graph visualizer with edges.
 Stdlib-only (sqlite3).
 """
 
+import hashlib
 import sqlite3
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -43,7 +45,8 @@ CREATE TABLE IF NOT EXISTS notes_meta (
     updated TEXT DEFAULT '',
     agent INTEGER DEFAULT 0,
     entropic_id TEXT DEFAULT '',
-    body_preview TEXT DEFAULT ''
+    body_preview TEXT DEFAULT '',
+    content_hash TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS graph_edges (
@@ -101,6 +104,30 @@ class GraphEdge:
     kind: str = "wikilink"
 
 
+def content_hash(note: Note) -> str:
+    """Deterministic hash of everything the index rows depend on.
+
+    The incremental rebuild diff uses this to detect changed notes without
+    re-reading whole bodies on every comparison. Path is excluded: a path
+    change produces a new note_id, which the diff sees as add + remove.
+    """
+    payload = "\x00".join([
+        note.title,
+        note.body,
+        ",".join(note.tags or []),
+        note.domain,
+        note.note_type,
+        f"{note.importance:.4f}",
+        note.source,
+        note.source_url or "",
+        note.created or "",
+        note.updated or "",
+        str(bool(note.agent)),
+        note.entropic_id or note.compute_entropic_id(),
+    ])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 # ── index class ─────────────────────────────────────────────────────────────
 
 class VaultIndex:
@@ -115,8 +142,15 @@ class VaultIndex:
         self._init_schema()
 
     def _init_schema(self) -> None:
-        """Create tables if they don't exist."""
+        """Create tables if they don't exist, then run lightweight migrations."""
         self.db.executescript(FTS5_SCHEMA)
+        # content_hash arrived in v2.6 (incremental rebuild diff); existing
+        # databases predate the column, so add it in place.
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(notes_meta)")}
+        if "content_hash" not in columns:
+            self.db.execute(
+                "ALTER TABLE notes_meta ADD COLUMN content_hash TEXT DEFAULT ''"
+            )
         self.db.commit()
 
     def close(self) -> None:
@@ -125,7 +159,32 @@ class VaultIndex:
     # ── CRUD ────────────────────────────────────────────────────────────
 
     def rebuild(self, vault: Vault, include_archive: bool = False) -> int:
-        """Full rebuild: drop all data and reindex every note in the vault."""
+        """Rebuild the index from the vault, incrementally.
+
+        Diffs the vault against the last index state and rewrites only the
+        notes that changed. Unchanged rows stay untouched, and non-wikilink
+        edges (synced triples) are never wiped, so a refresh no longer
+        re-creates the index.db/memory.db split-brain. Falls back to a full
+        wipe-and-rebuild if the diff cannot be applied cleanly.
+        """
+        try:
+            return self._rebuild_diff(vault, include_archive=include_archive)
+        except Exception as exc:  # noqa: BLE001 - the fallback is unconditional
+            print(
+                f"entropicmem: incremental rebuild failed ({exc!r}); "
+                "falling back to full rebuild",
+                file=sys.stderr,
+            )
+            return self.rebuild_full(vault, include_archive=include_archive)
+
+    def rebuild_full(self, vault: Vault, include_archive: bool = False) -> int:
+        """Full rebuild: drop all data and reindex every note in the vault.
+
+        Kept as the fallback path for the incremental diff and for callers
+        that explicitly want a clean slate. Wipes graph_edges entirely, so
+        triple edges must be re-synced afterwards (see the refresh wrapper
+        ordering note).
+        """
         self.db.execute("DELETE FROM notes_fts")
         self.db.execute("DELETE FROM notes_meta")
         self.db.execute("DELETE FROM graph_edges")
@@ -141,6 +200,102 @@ class VaultIndex:
 
         self.db.commit()
         return count
+
+    def _rebuild_diff(self, vault: Vault, include_archive: bool = False) -> int:
+        """Per-note diff rebuild: see rebuild() for the contract."""
+        # Snapshot the vault (every note is read once; this is also the hash
+        # source, so the read cost buys the change detection).
+        vault_notes: Dict[str, Note] = {}
+        for rel in vault.list_notes(include_archive=include_archive):
+            note = vault.read_note(rel)
+            vault_notes[note.note_id] = note
+
+        indexed: Dict[str, tuple] = {}
+        for row in self.db.execute("SELECT note_id, title, content_hash FROM notes_meta"):
+            indexed[row["note_id"]] = (row["title"], row["content_hash"] or "")
+
+        added: List[Note] = []
+        changed: List[Note] = []
+        renamed: List[tuple] = []  # (note_id, old_title, new_title)
+        for note_id, note in vault_notes.items():
+            stored = indexed.get(note_id)
+            if stored is None:
+                added.append(note)
+                continue
+            old_title, old_hash = stored
+            if content_hash(note) != old_hash:
+                changed.append(note)
+                if old_title != note.title:
+                    renamed.append((note_id, old_title, note.title))
+
+        for note_id in sorted(nid for nid in indexed if nid not in vault_notes):
+            self.delete_note(note_id)
+
+        # Two-phase so intra-batch cross-links resolve: all metadata first (the
+        # link resolver reads titles from notes_meta), then all edges. The
+        # title map is built once for the batch (per-note rescans would be
+        # O(N^2) on a full-diff run).
+        for note in added + changed:
+            self.upsert_note(note)
+        known_titles: Dict[str, str] = {}
+        for row in self.db.execute("SELECT title, note_id FROM notes_meta"):
+            known_titles[row["title"]] = row["note_id"]
+        for note in added + changed:
+            self.upsert_edges_for_note(vault, note, known_titles=known_titles)
+
+        # A changed title map can flip whether OTHER notes' [[links]] resolve
+        # (renames drop old links, additions and renames can revive dangling
+        # ones). Re-extract the sources that can possibly be affected:
+        # notes with live in-edges to a renamed note, plus notes whose bodies
+        # mention one of the affected titles.
+        rescan_titles = [note.title for note in added]
+        candidates: set = set()
+        for note_id, old_title, new_title in renamed:
+            rescan_titles.append(old_title)
+            rescan_titles.append(new_title)
+            for row in self.db.execute(
+                "SELECT DISTINCT source_id FROM graph_edges "
+                "WHERE target_id = ? AND kind = 'wikilink'",
+                (note_id,),
+            ).fetchall():
+                candidates.add(row["source_id"])
+        candidates.update(self._fts_link_candidates(rescan_titles))
+        already = {note.note_id for note in added + changed}
+        for candidate_id in sorted(candidates - already):
+            meta = self.get_note(candidate_id)
+            if not meta:
+                continue
+            try:
+                note = vault.read_note(Path(meta["path"]))
+            except Exception:
+                continue  # unreadable source heals on its next write
+            self.upsert_edges_for_note(vault, note, known_titles=known_titles)
+
+        self.db.commit()
+        return len(vault_notes)
+
+    def _fts_link_candidates(self, titles: List[str], limit_per_title: int = 200) -> set:
+        """Notes whose bodies likely mention one of `titles`.
+
+        Best-effort FTS5 phrase scan over indexed bodies; a title FTS refuses
+        simply contributes no candidates (its edges heal on the next touch of
+        the source). Work per title is bounded, so a hub-title rename cannot
+        trigger an unbounded rescan.
+        """
+        found: set = set()
+        for title in titles:
+            if not title:
+                continue
+            clean = title.replace('"', '""')
+            try:
+                rows = self.db.execute(
+                    "SELECT note_id FROM notes_fts WHERE notes_fts MATCH ? LIMIT ?",
+                    (f'body: "{clean}"', limit_per_title),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                continue
+            found.update(row["note_id"] for row in rows)
+        return found
 
     def _rebuild_edges(self, vault: Vault) -> None:
         """Scan all notes for [[wikilinks]] and rebuild graph_edges."""
@@ -176,14 +331,15 @@ class VaultIndex:
         self.db.execute(
             """INSERT INTO notes_meta (note_id, path, title, domain, note_type,
                importance, tags, source, source_url, created, updated, agent,
-               entropic_id, body_preview)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               entropic_id, body_preview, content_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(note_id) DO UPDATE SET
                 path=excluded.path, title=excluded.title, domain=excluded.domain,
                 note_type=excluded.note_type, importance=excluded.importance,
                 tags=excluded.tags, source=excluded.source, source_url=excluded.source_url,
                 created=excluded.created, updated=excluded.updated, agent=excluded.agent,
-                entropic_id=excluded.entropic_id, body_preview=excluded.body_preview""",
+                entropic_id=excluded.entropic_id, body_preview=excluded.body_preview,
+                content_hash=excluded.content_hash""",
             (
                 note_id, path_str, note.title,
                 note.domain, note.note_type,
@@ -194,6 +350,7 @@ class VaultIndex:
                 1 if note.agent else 0,
                 note.entropic_id or note.compute_entropic_id(),
                 note.body[:500],
+                content_hash(note),
             ),
         )
 
@@ -213,17 +370,34 @@ class VaultIndex:
         )
         self.db.commit()
 
-    def upsert_edges_for_note(self, vault: 'Vault', note: 'Note') -> None:
-        """Extract wikilinks from a note and create graph edges."""
+    def upsert_edges_for_note(
+        self, vault: 'Vault', note: 'Note',
+        known_titles: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Extract wikilinks from a note and create graph edges.
+
+        Only wikilink edges are replaced; kind='triple:*' edges are written
+        by the triples sync and must never be deleted by a note write (that
+        is what kept recreating the index.db/memory.db split-brain).
+
+        known_titles: optional prebuilt {title: note_id} map. Batch callers
+        (the incremental diff) pass it so the resolver is not re-scanned per
+        note, which is O(N^2) on a full-diff run.
+        """
         note_id = note.note_id
 
-        # Remove old edges from this source
-        self.db.execute('DELETE FROM graph_edges WHERE source_id = ?', (note_id,))
+        # Remove old wikilink edges from this source
+        self.db.execute(
+            "DELETE FROM graph_edges WHERE source_id = ? AND kind = 'wikilink'",
+            (note_id,),
+        )
 
         links = vault.extract_wikilinks(note.body)
-        known = {}
-        for row in self.db.execute('SELECT title, note_id FROM notes_meta'):
-            known[row['title']] = row['note_id']
+        known = known_titles
+        if known is None:
+            known = {}
+            for row in self.db.execute('SELECT title, note_id FROM notes_meta'):
+                known[row['title']] = row['note_id']
 
         for link in links:
             target_id = known.get(link)

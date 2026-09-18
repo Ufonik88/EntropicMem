@@ -22,11 +22,13 @@ import json
 #   GET /api/note/{note_id} lazy-loads body when the embedded export omitted
 #   it (or for notes opened after a lean export).
 import os
+import sqlite3
 import sys
+from collections import deque
 from pathlib import Path
 from urllib.parse import unquote
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
 HERE = Path(__file__).resolve().parent
@@ -324,6 +326,116 @@ def get_note(note_id: str):
     and this is the same trust plane as serving graph.html itself.
     """
     return JSONResponse(_note_payload(note_id))
+
+
+@app.get("/api/search")
+def search_notes(q: str = "", limit: int = 20):
+    """Full-text search over vault notes (the in-graph search box).
+
+    Vault FTS (notes_fts) is the mandatory path and the contract: the
+    embedding runtime is optional, lives outside this process, and is never
+    imported here. Result rows carry everything the note modal needs, so
+    hits outside the 500-node export open through the existing lazy
+    /api/note/{id} fetch.
+    """
+    query = (q or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="q required")
+    try:
+        limit = max(1, min(int(limit), 50))
+    except (TypeError, ValueError):
+        limit = 20
+
+    index = VaultIndex(INDEX_DB)
+    try:
+        try:
+            hits = index.search_fts(query, top_k=limit)
+        except sqlite3.OperationalError:
+            # FTS5 rejected the sanitized query (e.g. a lone quote collapses
+            # to an empty phrase): a clean 400, never a 500.
+            raise HTTPException(status_code=400, detail="invalid search query")
+        return JSONResponse({
+            "query": query,
+            "mode": "fts",
+            "results": [
+                {
+                    "note_id": h.note_id,
+                    "title": h.title,
+                    "domain": h.domain,
+                    "type": h.note_type,
+                    "importance": h.importance,
+                    "tags": h.tags,
+                    "snippet": h.snippet,
+                }
+                for h in hits
+            ],
+        })
+    finally:
+        index.close()
+
+
+@app.get("/api/path")
+def shortest_path(
+    from_: str = Query(default="", alias="from"),
+    to: str = Query(default=""),
+    max_depth: int = Query(default=10),
+):
+    """Shortest path between two notes over the undirected graph_edges set.
+
+    BFS with the established triple_path pattern: collections.deque +
+    popleft(), and the depth check happens BEFORE a neighbor is enqueued so
+    the search is genuinely bounded (the two Sourcery-caught bugs there must
+    not be reintroduced here).
+    """
+    start = (from_ or "").strip()
+    goal = (to or "").strip()
+    if not start or not goal:
+        raise HTTPException(status_code=400, detail="from and to required")
+    try:
+        max_depth = max(1, min(int(max_depth), 30))
+    except (TypeError, ValueError):
+        max_depth = 10
+
+    index = VaultIndex(INDEX_DB)
+    try:
+        adjacency: dict[str, list[str]] = {}
+        for source, target in index.db.execute(
+            "SELECT source_id, target_id FROM graph_edges ORDER BY id"
+        ).fetchall():
+            adjacency.setdefault(source, []).append(target)
+            adjacency.setdefault(target, []).append(source)
+
+        found_path: list[str] | None = None
+        if start == goal:
+            found_path = [start] if start in adjacency else None
+        else:
+            seen = {start}
+            queue: deque = deque([(start, [start])])
+            while queue:
+                node, path = queue.popleft()
+                for neighbor in adjacency.get(node, ()):
+                    new_path = path + [neighbor]
+                    if len(new_path) - 1 > max_depth:
+                        continue  # depth check BEFORE enqueueing
+                    if neighbor == goal:
+                        found_path = new_path
+                        break
+                    if neighbor not in seen:
+                        seen.add(neighbor)
+                        queue.append((neighbor, new_path))
+                if found_path:
+                    break
+
+        return JSONResponse({
+            "from": start,
+            "to": goal,
+            "found": found_path is not None,
+            "path": found_path or [],
+            "hops": (len(found_path) - 1) if found_path else None,
+            "max_depth": max_depth,
+        })
+    finally:
+        index.close()
 
 
 @app.get("/", response_class=HTMLResponse)

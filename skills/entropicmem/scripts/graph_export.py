@@ -49,6 +49,86 @@ def get_shape(note_type: str) -> str:
     return TYPE_SHAPES.get(note_type, "circle")
 
 
+# ─ community palette + detection (structure layer, stdlib) ───────────────
+# Okabe-Ito colorblind-safe core set plus accessible extras that read on the
+# dark galaxy theme. Deterministic per community id (indexed, cycles when the
+# number of communities exceeds the palette).
+
+COMMUNITY_PALETTE = [
+    "#E69F00",  # orange
+    "#56B4E9",  # sky blue
+    "#009E73",  # bluish green
+    "#F0E442",  # yellow
+    "#0072B2",  # blue
+    "#D55E00",  # vermillion
+    "#CC79A7",  # reddish purple
+    "#5AE4AA",  # accent green
+    "#FF6B6B",  # soft red
+    "#9CCC65",  # light green
+    "#7C4DFF",  # violet
+]
+
+
+def get_community_color(community_id: int) -> str:
+    return COMMUNITY_PALETTE[community_id % len(COMMUNITY_PALETTE)]
+
+
+def detect_communities(edges, max_iter: int = 30) -> dict:
+    """Label propagation over an undirected edge set. Stdlib-only.
+
+    Deterministic by construction: nodes are processed in sorted order, ties
+    between candidate labels resolve to the smallest label, and final ids are
+    renumbered by (size desc, smallest member). Identical graph state always
+    produces identical ids, so community colors cannot flicker between
+    rebuilds.
+
+    Args:
+        edges: iterable of (source_id, target_id) pairs.
+        max_iter: sweep cap; label propagation converges well before this on
+            vault-scale graphs.
+
+    Returns:
+        {node_id: community_id} for nodes participating in at least one edge.
+        Isolated nodes are absent (and export as community=null).
+    """
+    adjacency: dict = {}
+    for source, target in edges:
+        if source == target:
+            continue
+        adjacency.setdefault(source, set()).add(target)
+        adjacency.setdefault(target, set()).add(source)
+    if not adjacency:
+        return {}
+
+    labels = {node: node for node in adjacency}
+    for _ in range(max_iter):
+        changed = False
+        for node in sorted(adjacency):
+            neighbors = adjacency[node]
+            if not neighbors:
+                continue
+            counts: dict = {}
+            for neighbor in neighbors:
+                label = labels[neighbor]
+                counts[label] = counts.get(label, 0) + 1
+            best = min(counts, key=lambda label: (-counts[label], label))
+            if labels[node] != best:
+                labels[node] = best
+                changed = True
+        if not changed:
+            break
+
+    groups: dict = {}
+    for node, label in labels.items():
+        groups.setdefault(label, []).append(node)
+    ordered = sorted(groups.values(), key=lambda members: (-len(members), min(members)))
+    community_of: dict = {}
+    for community_id, members in enumerate(ordered):
+        for node in members:
+            community_of[node] = community_id
+    return community_of
+
+
 def body_coverage(nodes: list) -> dict:
     """Return body coverage stats for a graph node list.
 
@@ -124,6 +204,15 @@ def export_json(
 
     Returns the dict that was written (for testing).
     """
+    # Full in-scope edge set. Single fetch (previously fetched twice with the
+    # same args): drives degree, community detection, and the cap re-rank.
+    all_edges = index.get_graph_edges(domain=domain, min_weight=1)
+    degree_of: dict = {}
+    for e in all_edges:
+        degree_of[e.source_id] = degree_of.get(e.source_id, 0) + 1
+        degree_of[e.target_id] = degree_of.get(e.target_id, 0) + 1
+    community_of = detect_communities((e.source_id, e.target_id) for e in all_edges)
+
     nodes = index.get_graph_nodes(
         domain=domain, min_importance=min_importance, max_nodes=max_nodes
     )
@@ -137,6 +226,7 @@ def export_json(
         elif not isinstance(tags, list):
             tags = []
 
+        community_id = community_of.get(n["note_id"])
         node_list.append({
             "id": n["note_id"],
             "title": n.get("title", n["note_id"]),
@@ -146,6 +236,12 @@ def export_json(
             "tags": tags,
             "color": get_color(n.get("domain", "")),
             "shape": get_shape(n.get("note_type", "permanent")),
+            "community": community_id,
+            "community_color": (
+                get_community_color(community_id)
+                if community_id is not None else DEFAULT_COLOR
+            ),
+            "degree": degree_of.get(n["note_id"], 0),
         })
         # Bodies only embedded when explicitly requested (security default: off)
         if include_bodies:
@@ -157,24 +253,15 @@ def export_json(
 
     # Build edge list (only edges where both nodes exist in the export set)
     node_ids = {n["id"] for n in node_list}
-    all_edges = index.get_graph_edges(domain=domain, min_weight=1)
 
     # If we hit the max_nodes cap, re-rank to prefer triple-heavy / high-degree
     # nodes so the visible graph looks like a connected web, not an isolated
     # importance-sorted dot field. Edges whose endpoints are both kept stay;
     # nodes that got truncated drop their incident edges.
     if max_nodes and len(node_list) >= max_nodes:
-        degree = {nid: 0 for nid in node_ids}
-        for e in all_edges:
-            s, t = e.source_id, e.target_id
-            if s in degree:
-                degree[s] += 1
-            if t in degree:
-                degree[t] += 1
-        node_list.sort(key=lambda n: (degree.get(n["id"], 0), n.get("importance", 0.3)), reverse=True)
+        node_list.sort(key=lambda n: (n.get("degree", 0), n.get("importance", 0.3)), reverse=True)
         node_list = node_list[:max_nodes]
         node_ids = {n["id"] for n in node_list}
-    all_edges = index.get_graph_edges(domain=domain, min_weight=1)
     edge_list = []
     for e in all_edges:
         if e.source_id in node_ids and e.target_id in node_ids:
@@ -194,6 +281,7 @@ def export_json(
             "edge_count": len(edge_list),
             "include_bodies": include_bodies,
             "domains": list(set(n.get("domain", "") for n in node_list)),
+            "community_count": len(set(community_of.values())),
             "max_importance": max((n.get("importance", 0) for n in node_list), default=0),
             "filters": {
                 "domain": domain,
@@ -445,6 +533,15 @@ body { background: var(--bg-grad); color: var(--text); font-family: var(--body);
 .zoom-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
 .zoom-btn:active { transform: scale(0.94); }
 #imp-val { color: var(--accent); font-weight: 600; }
+#search-results { margin-top: 6px; max-height: 220px; overflow-y: auto; border: 1px solid #333; border-radius: var(--radius-sm); background: #14141f; }
+#search-results[hidden] { display: none; }
+.search-hit { display: block; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid #222232; padding: 7px 9px; color: var(--text); cursor: pointer; font-family: var(--body); }
+.search-hit:last-child { border-bottom: none; }
+.search-hit:hover { background: rgba(90,228,170,0.08); }
+.search-hit .sh-title { display: block; font-size: 12px; }
+.search-hit .sh-meta { display: block; font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+.search-hit.off-graph .sh-title { color: var(--text-dim); }
+.search-empty { padding: 8px 9px; color: var(--text-dim); font-size: 11px; }
 
 /* ── Bottom-right dock (legend + minimap move as one unit) ── */
 #dock { position: absolute; bottom: 12px; right: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; z-index: 10; }
@@ -474,6 +571,7 @@ body { background: var(--bg-grad); color: var(--text); font-family: var(--body);
 #stats .collapse-btn { top: 50%; right: 8px; transform: translateY(-50%); padding: 2px; }
 #focus-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--accent); color: var(--accent); border-radius: 20px; padding: 6px 16px; font-size: 12px; z-index: 10; display: none; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); box-shadow: 0 0 24px var(--accent-glow); }
 #focus-banner b { font-family: var(--display); }
+#path-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--accent); color: var(--accent); border-radius: 20px; padding: 6px 16px; font-size: 12px; z-index: 11; display: none; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); box-shadow: 0 0 24px var(--accent-glow); max-width: 82vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Loading / empty states ── */
 #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 50; background: var(--bg-grad); color: var(--text-dim); font-size: 13px; letter-spacing: 0.4px; transition: opacity 0.4s ease; }
@@ -491,6 +589,7 @@ svg text { fill: #b9b9c6; font-size: 9px; pointer-events: none; font-family: var
 .node-group:focus { outline: none; }
 .node-group:focus .node-shape { stroke: #fff; stroke-width: 2; }
 .node-group.selected .node-shape { stroke: var(--accent); stroke-width: 2.2; stroke-opacity: 0.9; filter: url(#node-glow-strong); }
+.node-group.on-path .node-shape { stroke: var(--accent); stroke-width: 2.2; stroke-opacity: 0.95; filter: url(#node-glow-strong); }
 
 /* ── Modal ── */
 #modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: none; backdrop-filter: blur(4px); }
@@ -555,11 +654,21 @@ svg text { fill: #b9b9c6; font-size: 9px; pointer-events: none; font-family: var
   <h2>EntropicMem Graph</h2>
   <label for="node-search">Find a note</label>
   <input type="text" id="node-search" placeholder="Search titles… (Enter to jump)" autocomplete="off" aria-label="Search notes by title">
+  <label for="vault-search">Search the vault</label>
+  <input type="text" id="vault-search" placeholder="Full-text search… (Enter)" autocomplete="off" aria-label="Full-text vault search">
+  <div id="search-results" hidden></div>
   <label for="tag-search">Filter by tag</label>
   <input type="text" id="tag-search" list="tag-suggestions" placeholder="e.g. infrastructure, hermes" aria-label="Filter nodes by tag">
   <datalist id="tag-suggestions"></datalist>
   <label>Domains</label>
   <div id="domain-checks"></div>
+  <label for="color-mode">Color by</label>
+  <select id="color-mode" aria-label="Node color mode">
+    <option value="domain" selected>Domain</option>
+    <option value="community">Community</option>
+  </select>
+  <label class="domain-check" style="margin-top:10px;"><input type="checkbox" id="island-toggle" aria-label="Cluster islands layout"> Cluster islands</label>
+  <label class="domain-check"><input type="checkbox" id="orphan-toggle" aria-label="Highlight orphan notes"> Highlight orphans</label>
   <label for="imp-slider">Min importance: <span id="imp-val">0.0</span></label>
   <input type="range" id="imp-slider" min="0" max="1" step="0.05" value="0" aria-label="Minimum importance filter">
   <div class="zoom-row" role="group" aria-label="Zoom controls">
@@ -573,12 +682,13 @@ svg text { fill: #b9b9c6; font-size: 9px; pointer-events: none; font-family: var
     <button class="btn" id="btn-export" type="button">Export PNG</button>
   </div>
   <div class="shortcuts">
-    <kbd>+</kbd>/<kbd>-</kbd> zoom &nbsp; <kbd>0</kbd> fit &nbsp; <kbd>Esc</kbd> release focus<br>
+    <kbd>+</kbd>/<kbd>-</kbd> zoom &nbsp; <kbd>0</kbd> fit &nbsp; <kbd>Esc</kbd> clear path / release focus<br>
     <kbd>H</kbd> panel &nbsp; <kbd>L</kbd> legend &nbsp; <kbd>M</kbd> minimap &nbsp; <kbd>S</kbd> stats
   </div>
 </div>
 
 <div id="focus-banner">Focused: <b id="focus-name"></b> — click empty space or press Esc to release</div>
+<div id="path-banner"></div>
 <div id="dock">
   <div id="legend">
     <button class="collapse-btn" id="collapse-legend" aria-label="Toggle legend" aria-expanded="true" title="Toggle legend (L)"><svg class="icon icon-chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>
@@ -615,6 +725,8 @@ const DATA = __ENTROPICMEM_GRAPH_DATA__;
 /* ── Derived lookups ── */
 const PALETTE = {};
 DATA.nodes.forEach(n => { if (n.domain && !PALETTE[n.domain]) PALETTE[n.domain] = n.color; });
+const commPalette = new Map();
+DATA.nodes.forEach(n => { if (n.community != null && !commPalette.has(n.community)) commPalette.set(n.community, n.community_color || "#888"); });
 const nodeById = new Map(DATA.nodes.map(n => [n.id, n]));
 const nodeByTitle = new Map();
 DATA.nodes.forEach(n => { nodeByTitle.set((n.title || n.id).toLowerCase(), n); });
@@ -630,7 +742,10 @@ DATA.edges.forEach(e => {
 
 /* ── Visual encodings ── */
 function nodeRadius(d) { return Math.max(5, Math.min(26, Math.log((d.importance || 0.3) * 100 + 1) * 6)); }
-function nodeColor(d) { return d.color || PALETTE[d.domain] || "#888"; }
+function nodeColor(d) {
+  if (colorMode === "community" && d.community != null) return d.community_color || commPalette.get(d.community) || "#888";
+  return d.color || PALETTE[d.domain] || "#888";
+}
 function edgeWidth(d) {
   const kind = d.kind || "";
   if (kind === "wikilink") return 0.8;
@@ -653,6 +768,10 @@ const CFG = {
   zoom: { min: 0.05, max: 8, wheelFactor: 0.0016, keyboardFactor: 1.3, focusScale: 1.8 },
   lod: { hideBelow: 0.35, fadeBelow: 0.6, badgesAbove: 2.5 },
   halo: { baseScale: 2.2, speedDivisor: 3, maxIntensity: 0.6, minOpacity: 0.08, restScale: 2.0, velScale: 0.5 },
+  // community rendering: legendMax caps legend rows; islandStrength drives the
+  // optional cluster-centroid force (2D reading of the reference tool's
+  // multi-galaxy; default off, toggle in the panel).
+  cluster: { legendMax: 10, islandStrength: 0.08 },
 };
 
 /* ── Per-color cached halo gradients (tinted radial fade) ── */
@@ -675,6 +794,12 @@ let simulation, svg, rootG, linkG, nodeG, labelG;
 let mmSvg, mmNodeG, mmViewport;
 let currentDomain = "", currentMinImp = 0, currentTag = "";
 let focusedId = null;
+let pathStart = null;       // first endpoint of a shift-click path query
+let activePath = null;      // rendered shortest path (array of node ids)
+let colorMode = "domain";   // legend + node color mode: "domain" | "community"
+let islandMode = false;     // optional cluster-centroid layout (default off)
+let orphanMode = false;     // highlight degree-0 notes (hygiene signal, no deletion)
+let searchTimer = null;     // debounce timer for the vault search input
 let currentTransform = d3.zoomIdentity;
 let lastTrigger = null;   // element that opened the modal, for focus return
 let W = window.innerWidth, H = window.innerHeight;
@@ -732,6 +857,29 @@ function zoomFit() {
   svg.transition().duration(600).call(zoom.transform, t);
 }
 
+/* ── Cluster force: gentle pull toward per-community centroids (islands) ── */
+function clusterForce(strength) {
+  let nodes = [];
+  function force(alpha) {
+    const centroids = new Map();
+    for (const d of nodes) {
+      if (d.community == null) continue;
+      const c = centroids.get(d.community) || { x: 0, y: 0, n: 0 };
+      c.x += d.x; c.y += d.y; c.n++;
+      centroids.set(d.community, c);
+    }
+    for (const d of nodes) {
+      if (d.community == null) continue;
+      const c = centroids.get(d.community);
+      if (!c || !c.n) continue;
+      d.vx += ((c.x / c.n) - d.x) * alpha * strength;
+      d.vy += ((c.y / c.n) - d.y) * alpha * strength;
+    }
+  }
+  force.initialize = ns => { nodes = ns; };
+  return force;
+}
+
 /* ── Shape path generator (centered on 0,0 for given radius) ── */
 function shapePath(shape, r) {
   if (shape === "square") {
@@ -760,9 +908,28 @@ const SHAPE_SVGS = {
 };
 function buildLegend() {
   const legend = document.getElementById("legend-content");
-  let html = '<div class="lg-title">Domains</div>';
-  for (const [domain, color] of Object.entries(PALETTE)) {
-    html += `<div class="row"><span class="swatch" style="background:${color};box-shadow:0 0 6px ${color};"></span>${domain}</div>`;
+  let html = "";
+  if (colorMode === "community") {
+    const sizes = new Map();
+    DATA.nodes.forEach(n => { if (n.community != null) sizes.set(n.community, (sizes.get(n.community) || 0) + 1); });
+    const ranked = Array.from(sizes.entries()).sort((a, b) => b[1] - a[1]);
+    html += '<div class="lg-title">Communities</div>';
+    for (const [cid, count] of ranked.slice(0, CFG.cluster.legendMax)) {
+      const color = commPalette.get(cid) || "#888";
+      html += `<div class="row"><span class="swatch" style="background:${color};box-shadow:0 0 6px ${color};"></span>Community ${cid} (${count})</div>`;
+    }
+    if (ranked.length > CFG.cluster.legendMax) {
+      html += `<div class="row" style="opacity:0.7;">+ ${ranked.length - CFG.cluster.legendMax} more communities</div>`;
+    }
+    const unclustered = DATA.nodes.filter(n => n.community == null).length;
+    if (unclustered) {
+      html += `<div class="row"><span class="swatch" style="background:#888888;"></span>unclustered (${unclustered})</div>`;
+    }
+  } else {
+    html += '<div class="lg-title">Domains</div>';
+    for (const [domain, color] of Object.entries(PALETTE)) {
+      html += `<div class="row"><span class="swatch" style="background:${color};box-shadow:0 0 6px ${color};"></span>${domain}</div>`;
+    }
   }
   html += '<div class="lg-title" style="margin-top:8px;">Shapes</div>';
   html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.circle}</span> permanent</div>`;
@@ -838,10 +1005,12 @@ function updateStats() {
   if (!el) return;
   const { nodes, edges } = getFilteredData();
   const dropped = DATA.edges.length - edges.length;
+  const orphans = nodes.filter(n => (n.degree || 0) === 0).length;
   el.textContent =
     `${nodes.length} nodes / ${edges.length} edges` +
     (dropped > 0 ? ` (${dropped} hidden by filters)` : "") +
-    ` | ${DATA.meta.domains.length} domains`;
+    ` | ${DATA.meta.domains.length} domains` +
+    ` | ${orphans} orphans`;
 }
 
 function resetFilters() {
@@ -856,29 +1025,122 @@ function resetFilters() {
   updateStats();
 }
 
-/* ── Focus mode ── */
+/* ── Focus mode + path dimming (one compositor; they must not fight) ── */
+function applyDimming() {
+  if (!nodeG) return;
+  if (activePath && activePath.length > 1) {
+    const onPath = new Set(activePath);
+    const onPathEdge = new Set();
+    for (let i = 0; i + 1 < activePath.length; i++) {
+      onPathEdge.add(activePath[i] + "\u0000" + activePath[i + 1]);
+      onPathEdge.add(activePath[i + 1] + "\u0000" + activePath[i]);
+    }
+    nodeG.style("opacity", d => onPath.has(d.id) ? 1 : 0.12);
+    nodeG.classed("selected", false).classed("on-path", d => onPath.has(d.id));
+    if (labelG) labelG.style("opacity", d => onPath.has(d.id) ? 1 : 0.08);
+    if (linkG) linkG.style("opacity", e => {
+      const s = typeof e.source === "object" ? e.source.id : e.source;
+      const t = typeof e.target === "object" ? e.target.id : e.target;
+      return onPathEdge.has(s + "\u0000" + t) ? 0.95 : 0.04;
+    });
+    return;
+  }
+  if (focusedId) {
+    const neighbors = adjacency.get(focusedId) || new Set();
+    nodeG.style("opacity", d => (d.id === focusedId || neighbors.has(d.id)) ? 1 : 0.12);
+    nodeG.classed("on-path", false).classed("selected", d => d.id === focusedId);
+    if (labelG) labelG.style("opacity", d => (d.id === focusedId || neighbors.has(d.id)) ? 1 : 0.08);
+    if (linkG) linkG.style("opacity", e => {
+      const s = typeof e.source === "object" ? e.source.id : e.source;
+      const t = typeof e.target === "object" ? e.target.id : e.target;
+      return (s === focusedId || t === focusedId) ? 0.85 : 0.04;
+    });
+    return;
+  }
+  if (orphanMode) {
+    // Hygiene view: keep unlinked notes lit, fade everything connected.
+    nodeG.style("opacity", d => (d.degree || 0) === 0 ? 1 : 0.12);
+    nodeG.classed("selected", false).classed("on-path", false);
+    if (labelG) labelG.style("opacity", d => (d.degree || 0) === 0 ? 1 : 0.08);
+    if (linkG) linkG.style("opacity", 0.06);
+    return;
+  }
+  nodeG.style("opacity", 1).classed("selected", false).classed("on-path", false);
+  if (labelG) labelG.style("opacity", 1);
+  if (linkG) linkG.style("opacity", 0.5);
+}
+
 function applyFocus(id) {
   focusedId = id;
-  const neighbors = adjacency.get(id) || new Set();
-  nodeG.style("opacity", d => (d.id === id || neighbors.has(d.id)) ? 1 : 0.12);
-  labelG.style("opacity", d => (d.id === id || neighbors.has(d.id)) ? 1 : 0.08);
-  linkG.style("opacity", e => {
-    const s = typeof e.source === "object" ? e.source.id : e.source;
-    const t = typeof e.target === "object" ? e.target.id : e.target;
-    return (s === id || t === id) ? 0.85 : 0.04;
-  });
-  nodeG.classed("selected", d => d.id === id);
   const node = nodeById.get(id);
   document.getElementById("focus-name").textContent = node ? (node.title || node.id) : id;
   document.getElementById("focus-banner").style.display = "block";
+  applyDimming();
 }
 
 function clearFocus() {
   focusedId = null;
-  if (nodeG) { nodeG.style("opacity", 1); nodeG.classed("selected", false); }
-  if (labelG) labelG.style("opacity", 1);
-  if (linkG) linkG.style("opacity", 0.5);
   document.getElementById("focus-banner").style.display = "none";
+  applyDimming();
+}
+
+/* ─ Path tracing: click a node, shift-click a second one ── */
+function pathBannerVisible() {
+  return document.getElementById("path-banner").style.display === "block";
+}
+
+function pathBannerMessage(msg) {
+  const el = document.getElementById("path-banner");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+function handlePathClick(d) {
+  // Shift-click: pick or complete the path query's endpoints.
+  if (!pathStart) {
+    pathStart = d.id;
+    pathBannerMessage(`Path start: ${d.title || d.id} - shift-click another node`);
+    return;
+  }
+  const fromId = pathStart;
+  if (fromId === d.id) { clearPath(); return; }
+  if (!location.protocol.startsWith("http")) {
+    pathBannerMessage("Path tracing needs the local graph server (port 8075).");
+    return;
+  }
+  fetch("/api/path?from=" + encodeURIComponent(fromId) + "&to=" + encodeURIComponent(d.id))
+    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(payload => {
+      if (payload.found && payload.path && payload.path.length > 1) {
+        showPath(payload.path, payload.hops);
+      } else {
+        pathBannerMessage(`No path between those nodes within ${payload.max_depth || 10} hops`);
+      }
+    })
+    .catch(() => pathBannerMessage("Path search failed - is the graph server running?"));
+}
+
+function showPath(pathIds, hops) {
+  activePath = pathIds;
+  pathStart = pathIds[0];  // keep the origin so a further shift-click re-routes
+  document.getElementById("focus-banner").style.display = "none";
+  const fromNode = nodeById.get(pathIds[0]);
+  const toNode = nodeById.get(pathIds[pathIds.length - 1]);
+  const label = `${(fromNode && (fromNode.title || fromNode.id)) || pathIds[0]} → ${(toNode && (toNode.title || toNode.id)) || pathIds[pathIds.length - 1]}`;
+  pathBannerMessage(`Path (${hops} hop${hops === 1 ? "" : "s"}): ${label} - Esc to clear`);
+  applyDimming();
+}
+
+function clearPath() {
+  activePath = null;
+  pathStart = null;
+  document.getElementById("path-banner").style.display = "none";
+  applyDimming();
+  if (focusedId && nodeG && nodeG.data().some(d => d.id === focusedId)) {
+    const node = nodeById.get(focusedId);
+    document.getElementById("focus-name").textContent = node ? (node.title || node.id) : focusedId;
+    document.getElementById("focus-banner").style.display = "block";
+  }
 }
 
 /* ── Search / zoom-to-node ── */
@@ -897,6 +1159,67 @@ function handleSearch() {
   let best = nodes.find(n => (n.title || n.id).toLowerCase() === q);
   if (!best) best = nodes.find(n => (n.title || n.id).toLowerCase().includes(q));
   if (best) jumpToNode(best);
+}
+
+/* ─ Vault search: server-side FTS over ALL notes (not just the export) ── */
+function runVaultSearch() {
+  const q = document.getElementById("vault-search").value.trim();
+  const box = document.getElementById("search-results");
+  if (!q) { box.hidden = true; box.innerHTML = ""; return; }
+  if (!location.protocol.startsWith("http")) {
+    box.hidden = false;
+    box.innerHTML = '<div class="search-empty">Full-text search needs the local graph server (port 8075).</div>';
+    return;
+  }
+  fetch("/api/search?q=" + encodeURIComponent(q) + "&limit=20")
+    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(payload => renderSearchResults(payload.results || []))
+    .catch(() => {
+      box.hidden = false;
+      box.innerHTML = '<div class="search-empty">Search failed - is the graph server running?</div>';
+    });
+}
+
+function renderSearchResults(results) {
+  const box = document.getElementById("search-results");
+  box.hidden = false;
+  if (!results.length) {
+    box.innerHTML = '<div class="search-empty">No matches.</div>';
+    return;
+  }
+  const rendered = new Set(nodeG ? nodeG.data().map(d => d.id) : []);
+  box.innerHTML = "";
+  results.forEach(r => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "search-hit" + (rendered.has(r.note_id) ? "" : " off-graph");
+    item.innerHTML = `<span class="sh-title">${escapeHtml(r.title || r.note_id)}</span>` +
+      `<span class="sh-meta">${escapeHtml(r.domain || "uncategorized")}${rendered.has(r.note_id) ? "" : " · not in current view"}</span>`;
+    item.addEventListener("click", () => selectSearchResult(r));
+    box.appendChild(item);
+  });
+}
+
+function selectSearchResult(r) {
+  const node = nodeById.get(r.note_id);
+  if (node && nodeG && nodeG.data().some(d => d.id === node.id)) {
+    jumpToNode(node);
+  } else {
+    // Outside the 500-node export (or filtered out of the current view):
+    // open through the same lazy-fetch modal path wikilinks use; the focus
+    // guard inside openModal keeps the whole graph from dimming.
+    const proxy = {
+      id: r.note_id,
+      title: r.title || r.note_id,
+      domain: r.domain || "",
+      type: r.type || "permanent",
+      importance: r.importance != null ? r.importance : 0.3,
+      tags: r.tags || [],
+    };
+    openModal(proxy, null);
+  }
+  const box = document.getElementById("search-results");
+  if (box) box.hidden = true;
 }
 
 /* ── Render ── */
@@ -943,7 +1266,12 @@ function render() {
       .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(CFG.physics.dragAlphaTarget).restart(); d.fx = d.x; d.fy = d.y; })
       .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
       .on("end", (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }))
-    .on("click", (event, d) => { event.stopPropagation(); openModal(d, event.currentTarget); })
+    .on("click", (event, d) => {
+      event.stopPropagation();
+      if (event.shiftKey) { handlePathClick(d); return; }
+      pathStart = d.id;  // keep as the origin for a later shift-click path query
+      openModal(d, event.currentTarget);
+    })
     .on("keydown", (event, d) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openModal(d, event.currentTarget); }
     })
@@ -992,6 +1320,7 @@ function render() {
     .force("charge", d3.forceManyBody().strength(CFG.physics.charge))
     .force("center", d3.forceCenter(W / 2, H / 2))
     .force("collision", d3.forceCollide().radius(d => nodeRadius(d) + CFG.physics.collisionPad))
+    .force("cluster", islandMode ? clusterForce(CFG.cluster.islandStrength) : null)
     .alphaDecay(CFG.physics.alphaDecay)
     .alphaMin(CFG.physics.alphaMin);
 
@@ -1012,7 +1341,9 @@ function render() {
   simulation.on("end", () => { if (focusedId === null) simulation.stop(); });
 
   rootG.attr("transform", currentTransform);
-  if (focusedId && nodeById.has(focusedId)) applyFocus(focusedId);
+  // Re-apply focus only when the focused node is part of the current view;
+  // a filtered-out id would dim every node (the applyFocus class bug).
+  if (focusedId && nodes.some(d => d.id === focusedId)) applyFocus(focusedId);
   else clearFocus();
   // nodeG was recreated — force LOD badge re-evaluation (zoom may be > badge threshold)
   lastBadgeZoom = null;
@@ -1067,7 +1398,7 @@ function showTooltip(event, d) {
   tip.innerHTML = `<div class="tt-title" style="color:${nodeColor(d)}">${escapeHtml(d.title || d.id)}</div>
     <div class="tt-meta">${d.type} · ${d.domain || "uncategorized"} · importance ${(d.importance || 0).toFixed(2)}</div>
     <div class="tt-meta">tags: ${(d.tags || []).join(", ") || "—"}</div>
-    <div class="tt-meta" style="margin-top:3px;color:#5AE4AA;">click to open · drag to move</div>`;
+    <div class="tt-meta" style="margin-top:3px;color:#5AE4AA;">click to open · shift-click path · drag to move</div>`;
   moveTooltip(event);
 }
 function moveTooltip(event) {
@@ -1421,11 +1752,28 @@ function restoreOverlayStates() {
   });
 }
 
+/* ─ Display prefs (color mode, cluster islands) persisted like overlays ── */
+function restoreDisplayPrefs() {
+  try {
+    if (localStorage.getItem("entropicmem-graph-color-mode") === "community") colorMode = "community";
+    if (localStorage.getItem("entropicmem-graph-island") === "1") islandMode = true;
+  } catch (e) {}
+  document.getElementById("color-mode").value = colorMode;
+  document.getElementById("island-toggle").checked = islandMode;
+}
+function saveDisplayPrefs() {
+  try {
+    localStorage.setItem("entropicmem-graph-color-mode", colorMode);
+    localStorage.setItem("entropicmem-graph-island", islandMode ? "1" : "0");
+  } catch (e) {}
+}
+
 /* ── Wiring ── */
 document.addEventListener("keydown", (e) => {
   const modalOpen = document.getElementById("modal").style.display === "flex";
   if (e.key === "Escape") {
     if (modalOpen) closeModal();
+    else if (activePath || pathBannerVisible()) clearPath();
     else clearFocus();
     return;
   }
@@ -1446,7 +1794,10 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("DOMContentLoaded", () => {
   svg = d3.select("#graph").append("svg").attr("width", "100%").attr("height", "100%");
   svg.append("defs"); // for per-color halo gradients (haloGradientRef)
-  svg.call(zoom).on("click", () => clearFocus());
+  svg.call(zoom).on("click", () => {
+    if (activePath || pathBannerVisible()) clearPath();
+    else clearFocus();
+  });
   // Double-click empty canvas zooms in at the cursor (nodes swallow their own clicks).
   svg.on("dblclick", (event) => {
     event.preventDefault();
@@ -1454,14 +1805,43 @@ document.addEventListener("DOMContentLoaded", () => {
     zoomBy(1.5, mx, my);
   });
   initMinimap();
+  restoreDisplayPrefs();
   buildLegend();
   buildDomainChecks();
   buildTagSuggestions();
   restoreOverlayStates();
 
+  document.getElementById("color-mode").addEventListener("change", (e) => {
+    colorMode = e.target.value === "community" ? "community" : "domain";
+    saveDisplayPrefs();
+    buildLegend();
+    render();
+  });
+  document.getElementById("island-toggle").addEventListener("change", (e) => {
+    islandMode = e.target.checked;
+    saveDisplayPrefs();
+    render();
+  });
+  document.getElementById("orphan-toggle").addEventListener("change", (e) => {
+    orphanMode = e.target.checked;
+    if (orphanMode) {
+      // Make the highlight immediately visible: path/focus win in the
+      // dimming compositor, so drop them when entering the orphan view.
+      if (activePath || pathBannerVisible()) clearPath();
+      clearFocus();
+    }
+    applyDimming();
+  });
   document.getElementById("imp-slider").addEventListener("input", updateFilters);
   document.getElementById("tag-search").addEventListener("input", updateFilters);
   document.getElementById("node-search").addEventListener("keydown", (e) => { if (e.key === "Enter") handleSearch(); });
+  document.getElementById("vault-search").addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(runVaultSearch, 300);
+  });
+  document.getElementById("vault-search").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { clearTimeout(searchTimer); runVaultSearch(); }
+  });
   document.getElementById("btn-reset").addEventListener("click", resetFilters);
   document.getElementById("btn-export").addEventListener("click", exportPNG);
   document.getElementById("btn-zoom-in").addEventListener("click", () => zoomBy(CFG.zoom.keyboardFactor));

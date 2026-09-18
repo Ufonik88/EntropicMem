@@ -54,7 +54,7 @@ _KEYWORDS = {
 # Helpers the visual encodings must keep defining (incident set + neighbours).
 _REQUIRED_HELPERS = (
     "nodeColor", "nodeRadius", "edgeWidth", "edgeColor", "edgeDash",
-    "shapePath", "haloGradientRef", "computeLabelOpacity",
+    "shapePath", "haloGradientRef", "computeLabelOpacity", "clusterForce",
 )
 
 _IDENT = re.compile(r"[A-Za-z_$][\w$]*")
