@@ -18,7 +18,7 @@
 {"content": "Deduplication prevents the same fact from being injected into context within N turns", "domain": "Infrastructure", "importance": 0.7}
 {"content": "Progressive disclosure shows high-relevance facts first with tiered thresholds", "domain": "Infrastructure", "importance": 0.65}
 {"content": "Core Memory injection provides persona and user profile context in every prefetch", "domain": "Infrastructure", "importance": 0.8}
-{"content": "Acme Systems security alarm Hub 2 Plus supports up to 200 detectors and cameras", "domain": "Acme Corp", "importance": 0.85}
+{"content": "Acme Hub 2 Plus security alarm supports up to 200 detectors and cameras", "domain": "Acme Corp", "importance": 0.85}
 {"content": "The Acme migration project converted all translator CSV files to Hub device IDs", "domain": "Acme Corp", "importance": 0.8}
 {"content": "Acme MotionCam Outdoor detectors use photo-verification for alarm confirmation", "domain": "Acme Corp", "importance": 0.75}
 {"content": "The security installer portal requires distributor-level credentials for device management", "domain": "Acme Corp", "importance": 0.7}
@@ -39,7 +39,7 @@
 {"content": "Morning brief generation pulls weather, news, and calendar events for daily planning", "domain": "Workflows", "importance": 0.65}
 {"content": "Notion sync cron job mirrors Notion knowledge base into Hermes memory every 6 hours", "domain": "Workflows", "importance": 0.7}
 {"content": "The Document uses 50/30/20 rule for expense categorization and tracking", "domain": "Finance", "importance": 0.75}
-{"content": "Bank transaction parsing extracts merchant, amount, and date from bank CSV exports", "domain": "Finance", "importance": 0.7}
+{"content": "Bank transaction parsing extracts merchant, amount, and date from CSV statement exports", "domain": "Finance", "importance": 0.7}
 {"content": "Portfolio optimization uses Modern Portfolio Theory for asset allocation rebalancing", "domain": "Finance", "importance": 0.65}
 {"content": "The X growth strategy targets tech founders and AI engineers with daily content", "domain": "Content-Growth", "importance": 0.7}
 {"content": "Twitter content series publishes three articles per week on AI infrastructure topics", "domain": "Content-Growth", "importance": 0.65}
@@ -60,10 +60,10 @@
 {"content": "Multi-profile provenance stamps each fact with the owning profile slug for isolation", "domain": "Infrastructure", "importance": 0.7}
 {"content": "The agent team uses four specialized Hermes agents for planning, coding, ops, and research", "domain": "Knowledge", "importance": 0.8}
 {"content": "The planner agent handles specification and architecture decisions for the EntropicMem project", "domain": "Knowledge", "importance": 0.7}
-{"content": "the code agent implements features using test-driven development with clean commit history", "domain": "Knowledge", "importance": 0.7}
-{"content": "the ops agent runs tests, validates deployments, and maintains CI green status", "domain": "Knowledge", "importance": 0.65}
-{"content": "the research agent handles documentation updates and knowledge base maintenance", "domain": "Knowledge", "importance": 0.6}
-{"content": "the release agent manages git operations and pushes approved changes to production", "domain": "Knowledge", "importance": 0.65}
+{"content": "The code agent implements features using test-driven development with clean commit history", "domain": "Knowledge", "importance": 0.7}
+{"content": "The ops agent runs tests, validates deployments, and maintains CI green status", "domain": "Knowledge", "importance": 0.65}
+{"content": "The research agent handles documentation updates and knowledge base maintenance", "domain": "Knowledge", "importance": 0.6}
+{"content": "The release agent manages git operations and pushes approved changes to production", "domain": "Knowledge", "importance": 0.65}
 {"content": "The CI pipeline runs pytest and ruff on every pull request before merge approval", "domain": "Infrastructure", "importance": 0.7}
 {"content": "Docker container deployment uses s6-overlay for process supervision and health checks", "domain": "Infrastructure", "importance": 0.55}
 {"content": "The Telegram integration enables Hermes agents to respond to messages and commands", "domain": "Infrastructure", "importance": 0.65}
@@ -74,7 +74,7 @@
 {"content": "The forgotten facts table archives soft-deleted facts for audit and recovery", "domain": "Infrastructure", "importance": 0.5}
 {"content": "Fact versioning snapshots content before each update for change history tracking", "domain": "Infrastructure", "importance": 0.55}
 {"content": "The graph server provides a web interface for visualizing vault note connections", "domain": "Infrastructure", "importance": 0.5}
-{"content": "Acme alarm systems use proprietary radio protocol for encrypted detector communication", "domain": "Acme Corp", "importance": 0.7}
+{"content": "Acme alarm systems use a proprietary radio protocol for encrypted detector communication", "domain": "Acme Corp", "importance": 0.7}
 {"content": "The Obsidian vault contains over 2000 interconnected markdown notes", "domain": "Infrastructure", "importance": 0.6}
 {"content": "Logseq serves as a secondary knowledge base with block-level referencing", "domain": "Infrastructure", "importance": 0.55}
 {"content": "The event planning system automates vendor research and deliverables tracking", "domain": "Projects", "importance": 0.65}

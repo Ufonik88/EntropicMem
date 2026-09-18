@@ -44,8 +44,7 @@ python3 ~/.hermes/skills/entropicmem/scripts/entropicmem.py init \
   --vault "$ENTROPICMEM_VAULT_PATH"
 ```
 
-`init` creates the vault skeleton, initializes `memory.db` + `index.db`,
-and appends the env block above.
+`init` creates the vault skeleton, initializes `index.db`, and appends the env block above. The `memory.db` is created on first use by the memory engine.
 
 ---
 

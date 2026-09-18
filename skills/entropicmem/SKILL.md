@@ -15,7 +15,7 @@ metadata:
 Complete memory system for Hermes: **memory engine** (facts), **vault** (linked notes), **index** (search), **graph** (visual map).
 
 ## Install
-`/learn https://github.com/Ufonik88/EntropicMem` then follow `SETUP.md` and run `entropicmem init`.
+`/learn https://github.com/Ufonik88/EntropicMem` then follow `SETUP.md`.
 
 ## Operating contract
 

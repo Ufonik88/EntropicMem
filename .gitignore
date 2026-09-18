@@ -57,3 +57,10 @@ graph_export/
 
 # Desktop attachment staging (user-provided files)
 .hermes/
+
+# Internal development docs (local working files, never committed)
+
+
+
+docs/plans/
+

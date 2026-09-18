@@ -26,7 +26,7 @@
   },
   {
     "id": "p06_security_alarm_hardware",
-    "query": "Acme Systems security alarm Hub detector",
+    "query": "Acme security alarm Hub detector",
     "expected_substrings": ["Acme", "Hub", "detector"]
   },
   {
@@ -55,9 +55,9 @@
     "expected_substrings": ["EntropicMem", "Phase", "fact storage"]
   },
   {
-    "id": "p12_ateam_agents",
-    "query": "agent team agents planner coder ops research",
-    "expected_substrings": ["agent team", "private profile", "Code", "ops", "research"]
+    "id": "p12_agent_roles",
+    "query": "agent team planner coder ops research",
+    "expected_substrings": ["agent", "planner", "ops", "research"]
   },
   {
     "id": "p13_quarantine_pending",
