@@ -1089,6 +1089,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "orientation": result.orientation,
                 "stats": result.stats,
             }
+            if result.screening:
+                payload["screening"] = result.screening
             return json.dumps(payload)
         except Exception as e:
             return _tool_error(str(e))

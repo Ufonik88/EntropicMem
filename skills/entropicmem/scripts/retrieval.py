@@ -38,6 +38,7 @@ class RetrievalResult:
     snippets: List[Dict] = field(default_factory=list)
     graph_context: List[Dict] = field(default_factory=list)
     stats: Dict = field(default_factory=dict)
+    screening: Dict = field(default_factory=dict)  # injection screen findings (local-v1; empty when clean)
 
     def summary(self) -> str:
         """Human-readable one-line summary."""
@@ -56,6 +57,14 @@ class RetrievalResult:
                 lines.append(f"   > {h.snippet}")
             if h.tags:
                 lines.append(f"   tags: {', '.join(h.tags)}")
+            lines.append("")
+        if self.screening.get("flagged"):
+            lines.append(
+                f"\u26a0 injection screen flagged {len(self.screening['flagged'])} result(s):"
+            )
+            for f in self.screening["flagged"]:
+                lines.append(f"  - [{f['shape']}/{f['detail']}] {f['title']} ({f['path']})")
+                lines.append(f"    > {f['evidence']}")
             lines.append("")
         return "\n".join(lines)
 
@@ -253,6 +262,10 @@ def retrieve_composed(
         "domains": list(set(h.domain for h in final_hits if h.domain)),
     }
 
+    # 10. Local prompt-injection screen (fail-open; never raises, never blocks).
+    #    Screens exactly what the consumer sees (title + snippet + body preview).
+    screening = _screen_hits(final_hits, index)
+
     return RetrievalResult(
         query=query,
         orientation=orientation,
@@ -260,4 +273,56 @@ def retrieve_composed(
         snippets=snippets,
         graph_context=graph_context,
         stats=stats,
+        screening=screening,
     )
+
+
+def _screen_hits(hits, index) -> Dict:
+    """Run the local injection screen over each hit's consumer-visible text.
+
+    Fail-open: a broken screen (or missing module) yields an empty findings list
+    with the error recorded, so retrieval never goes down. Stored content is
+    untouched; a flagged hit is still returned, in position.
+    """
+    try:
+        from injection_screen import SHAPE_GROUPS, screen_text
+    except Exception:  # noqa: BLE001 - module import must not break retrieval
+        return {}
+
+    flagged: List[Dict] = []
+    screened = 0
+    truncated = False
+    error = ""
+    try:
+        for h in hits:
+            meta = index.get_note(h.note_id) or {}
+            preview = (meta.get("body_preview") or "")[:300]
+            text = f"{h.title}\n{h.snippet}\n{preview}"
+            result = screen_text(text)
+            screened += 1
+            if result.truncated:
+                truncated = True
+            if result.error and not error:
+                error = result.error
+            if result.flagged:
+                for finding in result.findings:
+                    flagged.append({
+                        "note_id": h.note_id,
+                        "title": h.title,
+                        "path": meta.get("path", ""),
+                        "shape": SHAPE_GROUPS.get(finding.shape, finding.shape),
+                        "detail": finding.shape,
+                        "evidence": finding.evidence,
+                    })
+    except Exception as exc:  # noqa: BLE001 - fail-open
+        error = repr(exc)
+
+    if not flagged and not error and not truncated:
+        return {}
+    return {
+        "screen": "local-v1",
+        "screened": screened,
+        "flagged": flagged,
+        "truncated": truncated,
+        "error": error,
+    }

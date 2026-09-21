@@ -44,6 +44,9 @@ Changelog = "https://github.com/Ufonik88/EntropicMem/blob/main/CHANGELOG.md"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["skills/entropicmem/scripts"]
+markers = [
+    "slow: FP measurement harness (aggregate-only, run with -m slow)",
+]
 
 [tool.ruff]
 target-version = "py310"
