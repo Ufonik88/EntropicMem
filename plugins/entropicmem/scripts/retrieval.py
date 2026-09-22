@@ -11,11 +11,14 @@ All layers are standalone; retrieve_composed() runs the full stack.
 Stdlib-only for core path. sentence-transformers is optional.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
-from index import SearchHit, VaultIndex
+from index import SearchHit, VaultIndex, build_fts_query
 from vault import Vault
+
+logger = logging.getLogger(__name__)
 
 # Sentinel for optional dependency
 EMBEDDER_AVAILABLE = False
@@ -87,8 +90,13 @@ def retrieve_hot_cache(vault: Vault) -> str:
 def retrieve_fts(
     index: VaultIndex, query: str, top_k: int = 20, domain: Optional[str] = None
 ) -> List[SearchHit]:
-    """Primary FTS5 recall over the vault index."""
-    return index.search_fts(query, top_k=top_k, domain=domain)
+    """Primary FTS5 recall over the vault index.
+
+    Builds the MATCH expression with the shared build_fts_query() so this
+    layer and the memory-engine recall interpret the same query identically.
+    """
+    fts_query = build_fts_query(query, fields=("title", "tags", "body"))
+    return index.search_fts(query, top_k=top_k, domain=domain, fts_query=fts_query)
 
 
 # ── layer 3: wikilink expansion ────────────────────────────────────────────
@@ -169,9 +177,9 @@ def retrieve_semantic_rerank(
             h.rank = float(score)
 
         hits.sort(key=lambda h: h.rank, reverse=True)
-    except Exception:
-        # Degrade gracefully — any failure returns original order
-        pass
+    except (ImportError, ValueError, RuntimeError, OSError) as exc:
+        # Degrade gracefully — embedding stack failures return original order
+        logger.warning("semantic re-rank unavailable, keeping FTS order: %s", exc)
 
     return hits
 
@@ -286,7 +294,7 @@ def _screen_hits(hits, index) -> Dict:
     """
     try:
         from injection_screen import SHAPE_GROUPS, screen_text
-    except Exception:  # noqa: BLE001 - module import must not break retrieval
+    except ImportError:  # module import must not break retrieval
         return {}
 
     flagged: List[Dict] = []

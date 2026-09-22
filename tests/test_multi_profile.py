@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPTS = Path(__file__).parent.parent / "skills" / "entropicmem" / "scripts"
+SCRIPTS = Path(__file__).parent.parent / "plugins" / "entropicmem" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import vault  # noqa: E402
@@ -30,7 +30,9 @@ def two_homes(tmp_path):
 
 
 def test_resolve_vault_path_profile_aware(two_homes, monkeypatch):
-    """HERMES_HOME set => vault resolves under that profile, never the shared Obsidian vault."""
+    """HERMES_HOME set => vault resolves under that profile. The legacy shared
+    Obsidian fallback and OBSIDIAN_VAULT_PATH are gone (Phase 2 path
+    unification): CLI and plugin must resolve the SAME vault."""
     home_a, home_b = two_homes
     # Clear any ambient ENTROPICMEM_* / OBSIDIAN_* that could shadow the test.
     monkeypatch.delenv("ENTROPICMEM_VAULT_PATH", raising=False)
@@ -42,10 +44,11 @@ def test_resolve_vault_path_profile_aware(two_homes, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(home_b))
     assert vault.resolve_vault_path() == (home_b / "entropicmem" / "vault").resolve()
 
-    # No HERMES_HOME: with a shared Obsidian vault present (legacy
-    # default-profile behaviour), it resolves there; without one, it falls
-    # back under ~/.hermes. Isolated via a fake home so the test is
-    # deterministic regardless of the real machine's layout.
+    # No HERMES_HOME: always ~/.hermes/entropicmem/vault. The legacy
+    # ~/Documents/Obsidian Vault fallback is DROPPED even when that vault
+    # exists with AGENTS.md, and OBSIDIAN_VAULT_PATH is not honored (live ops
+    # scripts read it from os.environ themselves). Isolated via a fake home so
+    # the test is deterministic regardless of the real machine's layout.
     monkeypatch.delenv("HERMES_HOME", raising=False)
     fake_home = Path(tempfile.mkdtemp())
     monkeypatch.setattr(vault.Path, "home", staticmethod(lambda: Path(fake_home)))
@@ -53,12 +56,11 @@ def test_resolve_vault_path_profile_aware(two_homes, monkeypatch):
     obsidian_vault = fake_home / "Documents" / "Obsidian Vault"
     (obsidian_vault).mkdir(parents=True)
     (obsidian_vault / "AGENTS.md").write_text("# vault", encoding="utf-8")
-    assert vault.resolve_vault_path() == obsidian_vault.resolve()
+    expected = (fake_home / ".hermes" / "entropicmem" / "vault").resolve()
+    assert vault.resolve_vault_path() == expected
 
-    (obsidian_vault / "AGENTS.md").unlink()
-    assert vault.resolve_vault_path() == (
-        fake_home / ".hermes" / "entropicmem" / "vault"
-    ).resolve()
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(obsidian_vault))
+    assert vault.resolve_vault_path() == expected
 
 
 def test_stores_are_isolated_per_home(two_homes, monkeypatch):

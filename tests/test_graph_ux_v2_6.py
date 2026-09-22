@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-_SRC = Path(__file__).resolve().parent.parent / "skills" / "entropicmem" / "scripts" / "graph_export.py"
+_SRC = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts" / "graph_export.py"
 
 
 @pytest.fixture(scope="module")

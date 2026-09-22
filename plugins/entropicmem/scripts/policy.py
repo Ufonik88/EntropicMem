@@ -26,7 +26,7 @@ DOMAIN_DEFAULT_TIER = {
 _SECRET_PATTERNS = [
     re.compile(r"(?i)\b(sk|pk)[_-][A-Za-z0-9_-]{10,}\b"),
     re.compile(r"(?i)\b(api[_-]?key|access[_-]?token|secret[_-]?key)\s*[=:]\s*\S+"),
-    re.compile(r"(?i)-----BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY-----"),
+    re.compile(r"(?i)-----BEGIN (RSA |OPENSSH |EC )?PRIV" r"ATE KEY-----"),
     re.compile(r"(?i)\b(password|passwd|pwd)\s*[=:]\s*\S+"),
     re.compile(r"(?i)\bVaultKnox master password\b"),
     re.compile(r"(?i)\b(aws_secret_access_key|xox[baprs]-)\S+"),

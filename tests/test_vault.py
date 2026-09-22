@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 # Ensure the scripts dir is importable
-_SCRIPT_DIR = Path(__file__).resolve().parent.parent / "skills" / "entropicmem" / "scripts"
+_SCRIPT_DIR = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts"
 sys.path.insert(0, str(_SCRIPT_DIR))
 
 from index import VaultIndex
@@ -269,6 +269,63 @@ class TestVault:
         assert vault.is_safe_mode() is True
 
 
+class TestPathContainment:
+    """resolve_path is the single containment choke point (fix 7).
+
+    Absolute inputs and dot-dot traversal must be rejected with ValueError;
+    containment is resolve() + Path.relative_to (a startswith prefix check
+    accepts the sibling directory ``vault-evil/`` next to ``vault/``).
+    """
+
+    def _outside_file(self, vault):
+        evil = vault.root.parent / "vault-evil" / "evil.md"
+        evil.parent.mkdir(parents=True, exist_ok=True)
+        evil.write_text("secret outside the vault", encoding="utf-8")
+        return evil
+
+    def test_resolve_path_rejects_absolute(self, temp_vault):
+        vault, _ = temp_vault
+        with pytest.raises(ValueError):
+            vault.resolve_path("/etc/passwd")
+        with pytest.raises(ValueError):
+            vault.resolve_path(str(vault.root.parent / "outside.md"))
+
+    def test_resolve_path_rejects_sibling_dir_prefix_trick(self, temp_vault):
+        vault, _ = temp_vault
+        self._outside_file(vault)
+        # str-startswith would say '/x/vault-evil/evil.md'.startswith('/x/vault')
+        with pytest.raises(ValueError):
+            vault.resolve_path("../vault-evil/evil.md")
+
+    def test_resolve_path_rejects_dot_dot_traversal(self, temp_vault):
+        vault, _ = temp_vault
+        for bad in ("../outside.md", "Knowledge/../../outside.md", "..", "../"):
+            with pytest.raises(ValueError):
+                vault.resolve_path(bad)
+
+    def test_resolve_path_allows_vault_relative_forms(self, temp_vault):
+        vault, _ = temp_vault
+        p1 = vault.resolve_path("Knowledge/Index.md")
+        p2 = vault.resolve_path(Path("Knowledge/Index.md"))
+        p3 = vault.resolve_path("vault://Knowledge/Index.md")
+        assert p1 == p2 == p3
+        assert vault._contains(p1)
+
+    @pytest.mark.parametrize("bad", ["../vault-evil/evil.md", "/etc/passwd"])
+    def test_read_note_and_mutators_are_contained(self, temp_vault, bad):
+        vault, _ = temp_vault
+        evil = self._outside_file(vault)
+        with pytest.raises(ValueError):
+            vault.read_note(Path(bad))
+        with pytest.raises(ValueError):
+            vault.append_note(Path(bad), "appended")
+        with pytest.raises(ValueError):
+            vault.patch_note(Path(bad), "a", "b")
+        with pytest.raises(ValueError):
+            vault.delete_note(Path(bad))
+        assert evil.read_text(encoding="utf-8") == "secret outside the vault"
+
+
 # ── index tests ─────────────────────────────────────────────────────────────
 
 class TestIndex:
@@ -320,9 +377,10 @@ class TestIndex:
         note_id = hits[0].note_id
         index.delete_note(note_id)
         assert index.get_note(note_id) is None
-        # Re-query
-        hits2 = index.search_fts("Event Budget", top_k=1)
-        assert len(hits2) == 0
+        # Re-query: the deleted note must be gone from results (unrelated notes
+        # may still match the query under token-OR semantics).
+        hits2 = index.search_fts("Event Budget", top_k=10)
+        assert all(h.note_id != note_id for h in hits2)
 
     def test_graph_nodes(self, temp_vault_indexed):
         vault, index = temp_vault_indexed

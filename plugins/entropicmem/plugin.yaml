@@ -1,4 +1,27 @@
 name: entropicmem
-version: 2.6.0
+version: 2.7.0
 description: "EntropicMem MemoryProvider for Hermes Agent — local durable facts, hybrid vault retrieval, and prefetch context injection."
 author: Ufonik
+# What register() wires: one MemoryProvider exposing 7 tools and 5 lifecycle
+# hooks (declaration-time count must match the registrations).
+provides_tools:
+  - entropicmem_remember
+  - entropicmem_recall
+  - entropicmem_query
+  - entropicmem_patch_core
+  - entropicmem_stats
+  - entropicmem_get
+  - entropicmem_consolidate
+provides_hooks:
+  - on_memory_write
+  - on_session_switch
+  - on_session_end
+  - on_turn_start
+  - on_pre_compress
+# MemoryProvider lifecycle hooks (honcho-style declaration for memory plugins).
+hooks:
+  - on_memory_write
+  - on_session_switch
+  - on_session_end
+  - on_turn_start
+  - on_pre_compress

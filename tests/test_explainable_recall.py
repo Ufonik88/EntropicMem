@@ -4,7 +4,8 @@ Every recall() / recall_with_relevance() / recall_hybrid() result must carry
 a ``why_retrieved`` field listing the deterministic reason tokens that caused
 this fact to surface in the result set.
 
-Reason tokens: fts, vector, exact, recency, importance, triple, domain.
+Reason tokens: fts, vector, exact, recency, importance, triple, domain,
+match_error (hits surfaced by the LIKE fallback after a rejected MATCH).
 """
 import os
 import sys
@@ -220,7 +221,7 @@ def test_plugin_recall_output_includes_why_retrieved():
         # Write memory_engine module into scripts dir
         mem_eng = scripts_dir / "memory_engine.py"
         import shutil
-        src = Path(__file__).resolve().parent.parent / "skills" / "entropicmem" / "scripts" / "memory_engine.py"
+        src = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts" / "memory_engine.py"
         shutil.copy(str(src), str(mem_eng))
 
         # Write vault stub
@@ -284,7 +285,7 @@ def test_why_retrieved_accepts_both_string_and_dict(engine):
     for h in hits:
         for item in h.why_retrieved:
             if isinstance(item, str):
-                assert item in ("fts", "vector", "exact", "recency", "importance", "triple", "domain"), (
+                assert item in ("fts", "vector", "exact", "recency", "importance", "triple", "domain", "match_error"), (
                     f"Unexpected string reason token: {item}"
                 )
             elif isinstance(item, dict):

@@ -53,7 +53,7 @@ def test_bench_runner_exits_zero():
         text=True,
         timeout=30,
         cwd=str(PROJECT_ROOT),
-        env={**__import__("os").environ, "PYTHONPATH": f"skills/entropicmem/scripts:{__import__('os').environ.get('PYTHONPATH', '')}"},
+        env={**__import__("os").environ, "PYTHONPATH": f"plugins/entropicmem/scripts:{__import__('os').environ.get('PYTHONPATH', '')}"},
     )
     assert result.returncode == 0, (
         f"Runner exited {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"

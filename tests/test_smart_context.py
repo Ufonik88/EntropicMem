@@ -43,7 +43,7 @@ EntropicMemMemoryProvider = plugin_module.EntropicMemMemoryProvider
 SMART_CONTEXT_DEFAULTS = plugin_module.SMART_CONTEXT_DEFAULTS
 
 # Import memory engine
-sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "entropicmem" / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins" / "entropicmem" / "scripts"))
 from memory_engine import MemoryEngine, StoredFact
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
@@ -399,30 +399,30 @@ class TestConversationContext:
 # ── Test Smart Cache ──────────────────────────────────────────────────────
 
 class TestSmartCache:
-    """Test cache with conversation awareness."""
+    """Test cache keyed by the enhanced-query hash (conversation-aware)."""
 
     def test_cache_hit(self):
-        """Test cache hit on same query."""
+        """Test cache hit on same enhanced query."""
         provider = EntropicMemMemoryProvider(config={
             "cache_conversation_context": True,
             "cache_ttl_seconds": 300,
         })
         provider._prefetch_cache = "cached result"
         provider._cache_timestamp = provider._get_timestamp()
-        provider._last_query = "test query"
+        provider._cache_query_key = provider._cache_key("test query")
 
         result = provider._check_cache("test query")
         assert result == "cached result"
 
     def test_cache_miss_different_query(self):
-        """Test cache miss on different query."""
+        """Test cache miss on different enhanced query."""
         provider = EntropicMemMemoryProvider(config={
             "cache_conversation_context": True,
             "cache_ttl_seconds": 300,
         })
         provider._prefetch_cache = "cached result"
         provider._cache_timestamp = provider._get_timestamp()
-        provider._last_query = "old query"
+        provider._cache_query_key = provider._cache_key("old query")
 
         result = provider._check_cache("new query")
         assert result is None
@@ -435,7 +435,7 @@ class TestSmartCache:
         })
         provider._prefetch_cache = "cached result"
         provider._cache_timestamp = time.time() - 2  # 2 seconds ago
-        provider._last_query = "test query"
+        provider._cache_query_key = provider._cache_key("test query")
 
         result = provider._check_cache("test query")
         assert result is None
@@ -501,7 +501,7 @@ class TestIntegration:
         })
 
         # Mock the scripts_dir and memory_db
-        provider._scripts_dir = Path(__file__).parent.parent / "skills" / "entropicmem" / "scripts"
+        provider._scripts_dir = Path(__file__).parent.parent / "plugins" / "entropicmem" / "scripts"
         provider._memory_db = temp_db
 
         # First prefetch

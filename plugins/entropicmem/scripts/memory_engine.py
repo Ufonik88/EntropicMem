@@ -15,6 +15,7 @@ Stdlib-only. No external memory dependencies.
 import fcntl
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -24,9 +25,117 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from vault import derive_title  # naming convention helper (stdlib-only, acyclic)
+
+logger = logging.getLogger(__name__)
+
+# ── shared FTS5 query building (memory_engine + index + retrieval) ───────────
+#
+# Exactly one MATCH-expression builder for the whole codebase. Every caller
+# (facts prefetch/recall, vault search) goes through build_fts_query() so the
+# same user query means the same thing everywhere, punctuation can never raise
+# sqlite3.OperationalError, and hot-path queries stay bounded. index.py and
+# retrieval.py import these from here — this module stays self-contained so a
+# standalone copy of memory_engine.py keeps working.
+#
+# tokenizer='porter unicode61' on every FTS table: unicode61 keeps \w-ish
+# tokens whole (underscores included, no '#'/'@' splitting).
+
+MAX_FTS_TERMS = 10  # cap OR-of-prefix terms at the most discriminative words
+
+FTS_REASON_OK = "fts"
+FTS_REASON_MATCH_ERROR = "match_error"
+
+_FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+_FTS_PHRASE_RE = re.compile(r"\S+", re.UNICODE)
+
+
+def _fts_quote(token: str) -> str:
+    """Quote one token as a literal FTS5 prefix phrase (metacharacter-safe).
+
+    The surrounding double quotes make the token a plain string (so barewords
+    like NEAR/AND/OR and leftover punctuation are literal), internal quotes
+    are doubled, and the trailing * keeps the historical prefix-match
+    semantics.
+    """
+    return f'"{token.replace(chr(34), chr(34) * 2)}"*'
+
+
+def build_fts_query(
+    query: str,
+    fields: Sequence[str] = ("title", "tags", "body"),
+    max_terms: int = MAX_FTS_TERMS,
+) -> str:
+    """Build one shared FTS5 MATCH expression for a free-text query.
+
+    Tokenizes the query into ``\\w+`` runs (dropping FTS5 metacharacters such
+    as quotes, colons, parentheses, ^ and * so punctuation can never produce a
+    syntax error), quotes each token as a literal prefix phrase, OR-joins the
+    terms, and caps them at ``max_terms`` — longest (most discriminative)
+    tokens first — so a 150-word prefetch query cannot explode into hundreds
+    of OR-of-prefix terms. ``fields`` are grouped per term with the FTS5
+    ``{col ...}`` filter so every caller matches the same columns.
+
+    Returns '' when the query has no usable tokens — callers should skip
+    MATCH entirely (and use their LIKE fallback) in that case.
+    """
+    tokens: List[str] = []
+    seen: Set[str] = set()
+    for raw in _FTS_TOKEN_RE.findall(query):
+        key = raw.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        tokens.append(raw)
+    if not tokens:
+        return ""
+    # Longest first (stable), then cap — keeps the most discriminative terms.
+    tokens.sort(key=len, reverse=True)
+    tokens = tokens[:max_terms]
+    cols = "{" + " ".join(fields) + "}" if len(fields) > 1 else (fields[0] if fields else "")
+    prefix = f"{cols}: " if cols else ""
+    return " OR ".join(f"{prefix}{_fts_quote(tok)}" for tok in tokens)
+
+
+def phrase_query(text: str) -> str:
+    """Metacharacter-safe single FTS5 phrase (no prefix) built from ``text``.
+
+    Used where whole-phrase matching matters (e.g. wikilink title candidacy).
+    Returns '' when the text has no usable tokens.
+    """
+    words = [w for w in _FTS_PHRASE_RE.findall(text)]
+    if not words:
+        return ""
+    phrase = " ".join(words).replace('"', '""')
+    return f'"{phrase}"'
+
+
+def escape_like(text: str) -> str:
+    """Escape LIKE wildcards (\\, %, _) in user input.
+
+    Pair the result with ``LIKE ? ESCAPE '\\'`` so user-supplied percent and
+    underscore are matched literally instead of acting as wildcards.
+    """
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def run_fts_match(db: sqlite3.Connection, sql: str, params: Tuple) -> Tuple[List, str]:
+    """Run an FTS5 MATCH query without ever raising on the MATCH expression.
+
+    Returns ``(rows, reason)`` where reason is ``FTS_REASON_OK`` ('fts') on
+    success or ``FTS_REASON_MATCH_ERROR`` ('match_error') when SQLite rejects
+    the MATCH expression — in which case the result is an empty list plus the
+    reason token instead of an exception, and the failure is logged.
+    """
+    if not params or not params[0]:
+        return [], FTS_REASON_MATCH_ERROR
+    try:
+        return db.execute(sql, params).fetchall(), FTS_REASON_OK
+    except sqlite3.OperationalError as exc:
+        logger.warning("FTS5 MATCH failed for %r: %s", params[0], exc)
+        return [], FTS_REASON_MATCH_ERROR
 
 try:
     from policy import (  # noqa: F401 (availability probe)
@@ -53,11 +162,14 @@ try:
         embedding_coverage,
         hybrid_rank,
         init_embeddings_schema,
+        invalidate_vector_cache,
         store_embedding,
         vector_search,
     )
+    EMBEDDINGS_IMPORTABLE = True
     EMBEDDINGS_AVAILABLE = _EMB_AVAIL and _NP_AVAIL
 except ImportError:
+    EMBEDDINGS_IMPORTABLE = False
     EMBEDDINGS_AVAILABLE = False
 
 # ── temporal query parsing (Phase 8) ────────────────────────────────────────
@@ -325,27 +437,36 @@ class MemoryEngine:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
 
-        # Concurrency guard: file lock for write serialization
+        # Concurrency guard: file lock for write serialization.
+        # The lock is REENTRANT per engine instance (counter-based): nested
+        # helpers (_backup inside forget()/consolidate(), _init_schema inside
+        # migrate()) must not release the flock mid-operation.
         lock_path = self.db_path.parent / f"{self.db_path.name}.lock"
         self._lock_fd = open(lock_path, "w")
         self._write_locked = False
+        self._lock_depth = 0
 
         self._init_schema()
 
     def _acquire_write_lock(self) -> None:
-        """Acquire exclusive file lock for write operations."""
-        if not self._write_locked:
-            try:
-                fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                self._write_locked = True
-            except OSError:
-                # Lock held by another process — wait briefly
-                fcntl.flock(self._lock_fd, fcntl.LOCK_EX)
-                self._write_locked = True
+        """Acquire exclusive file lock for write operations (reentrant)."""
+        if self._lock_depth > 0:
+            self._lock_depth += 1
+            return
+        try:
+            fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            # Lock held by another process — wait briefly
+            fcntl.flock(self._lock_fd, fcntl.LOCK_EX)
+        self._write_locked = True
+        self._lock_depth = 1
 
     def _release_write_lock(self) -> None:
-        """Release file lock after write operations."""
-        if self._write_locked:
+        """Release file lock after write operations (outermost call wins)."""
+        if self._lock_depth == 0:
+            return
+        self._lock_depth -= 1
+        if self._lock_depth == 0 and self._write_locked:
             fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
             self._write_locked = False
 
@@ -542,9 +663,12 @@ class MemoryEngine:
 
     def close(self) -> None:
         try:
+            # Force a full release even if a caller leaked a nested acquire.
+            self._lock_depth = 1 if self._write_locked else 0
             self._release_write_lock()
         except (OSError, ValueError):
             pass  # lock already released or fd closed
+        self._lock_depth = 0
         try:
             self._lock_fd.close()
         except (OSError, ValueError):
@@ -598,8 +722,8 @@ class MemoryEngine:
                 (action, actor or self.profile_id(), session_id, fact_id, detail[:2000], 1 if ok else 0),
             )
             self.db.commit()
-        except Exception:
-            pass
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning("audit write failed for action=%s: %s", action, exc)
 
     def list_audit(self, limit: int = 50) -> List[dict]:
         rows = self.db.execute(
@@ -741,103 +865,105 @@ class MemoryEngine:
         self._check_migration_lock()
 
         self._acquire_write_lock()
-        eid = StoredFact.make_id(content)
-        tags_str = ", ".join(tags) if tags else ""
-        now = datetime.now(timezone.utc).isoformat()
-        ft = fact_timestamp or now
-        is_create = False
+        try:
+            eid = StoredFact.make_id(content)
+            tags_str = ", ".join(tags) if tags else ""
+            now = datetime.now(timezone.utc).isoformat()
+            ft = fact_timestamp or now
+            is_create = False
 
-        existing = self.db.execute(
-            "SELECT id FROM facts WHERE id = ?", (eid,)
-        ).fetchone()
+            existing = self.db.execute(
+                "SELECT id FROM facts WHERE id = ?", (eid,)
+            ).fetchone()
 
-        if existing:
-            # Phase 11.3: snapshot before update
-            self.snapshot_version(eid, source="dedup_update")
-            self.db.execute(
-                """UPDATE facts SET content=?, title=?, importance=?, domain=?,
-                   tags=?, session_id=?, updated_at=?, sensitivity=?, profile_id=?,
-                   fact_timestamp=COALESCE(?, fact_timestamp), version=version+1
-                   WHERE id=?""",
-                (content, title or self._make_title(content), importance,
-                 domain, tags_str, session_id, now, tier, pid, fact_timestamp, eid),
-            )
-        else:
-            # I1: Fuzzy deduplication — check for near-duplicate content
-            fuzzy_id = self._find_fuzzy_duplicate(content)
-            if fuzzy_id and fuzzy_id != eid:
-                # Phase 11.3: snapshot before fuzzy update
-                self.snapshot_version(fuzzy_id, source="fuzzy_dedup_update")
-                # Update the existing near-duplicate instead of creating a new fact
+            if existing:
+                # Phase 11.3: snapshot before update
+                self.snapshot_version(eid, source="dedup_update")
                 self.db.execute(
                     """UPDATE facts SET content=?, title=?, importance=?, domain=?,
                        tags=?, session_id=?, updated_at=?, sensitivity=?, profile_id=?,
                        fact_timestamp=COALESCE(?, fact_timestamp), version=version+1
                        WHERE id=?""",
                     (content, title or self._make_title(content), importance,
-                     domain, tags_str, session_id, now, tier, pid, fact_timestamp, fuzzy_id),
+                     domain, tags_str, session_id, now, tier, pid, fact_timestamp, eid),
                 )
-                eid = fuzzy_id  # Return the existing fact's ID
             else:
+                # I1: Fuzzy deduplication — check for near-duplicate content
+                fuzzy_id = self._find_fuzzy_duplicate(content)
+                if fuzzy_id and fuzzy_id != eid:
+                    # Phase 11.3: snapshot before fuzzy update
+                    self.snapshot_version(fuzzy_id, source="fuzzy_dedup_update")
+                    # Update the existing near-duplicate instead of creating a new fact
+                    self.db.execute(
+                        """UPDATE facts SET content=?, title=?, importance=?, domain=?,
+                           tags=?, session_id=?, updated_at=?, sensitivity=?, profile_id=?,
+                           fact_timestamp=COALESCE(?, fact_timestamp), version=version+1
+                           WHERE id=?""",
+                        (content, title or self._make_title(content), importance,
+                         domain, tags_str, session_id, now, tier, pid, fact_timestamp, fuzzy_id),
+                    )
+                    eid = fuzzy_id  # Return the existing fact's ID
+                else:
+                    self.db.execute(
+                        """INSERT INTO facts (id, content, title, source, importance, domain,
+                           tags, session_id, created_at, updated_at, last_accessed, sensitivity,
+                           profile_id, fact_timestamp)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (eid, content, title or self._make_title(content),
+                         source, importance, domain, tags_str, session_id, now, now, now, tier,
+                         pid, ft),
+                    )
+                    is_create = True
+
+            # Upsert FTS — must use the same rowid as the facts table
+            # Get the rowid of the fact we just inserted/updated
+            fact_rowid = self.db.execute(
+                "SELECT rowid FROM facts WHERE id = ?", (eid,)
+            ).fetchone()
+            if fact_rowid:
+                # Delete old FTS entry for this rowid (if any)
+                self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (fact_rowid[0],))
+                # Insert with matching rowid
                 self.db.execute(
-                    """INSERT INTO facts (id, content, title, source, importance, domain,
-                       tags, session_id, created_at, updated_at, last_accessed, sensitivity,
-                       profile_id, fact_timestamp)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (eid, content, title or self._make_title(content),
-                     source, importance, domain, tags_str, session_id, now, now, now, tier,
-                     pid, ft),
+                    "INSERT INTO facts_fts (rowid, content, title, tags, domain) VALUES (?, ?, ?, ?, ?)",
+                    (fact_rowid[0], content, title or "", tags_str, domain),
                 )
-                is_create = True
 
-        # Upsert FTS — must use the same rowid as the facts table
-        # Get the rowid of the fact we just inserted/updated
-        fact_rowid = self.db.execute(
-            "SELECT rowid FROM facts WHERE id = ?", (eid,)
-        ).fetchone()
-        if fact_rowid:
-            # Delete old FTS entry for this rowid (if any)
-            self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (fact_rowid[0],))
-            # Insert with matching rowid
-            self.db.execute(
-                "INSERT INTO facts_fts (rowid, content, title, tags, domain) VALUES (?, ?, ?, ?, ?)",
-                (fact_rowid[0], content, title or "", tags_str, domain),
-            )
-
-        # P2 transactional outbox: append an event row in this same transaction.
-        row = self.db.execute(
-            "SELECT version, fact_timestamp FROM facts WHERE id = ?", (eid,)
-        ).fetchone()
-        if row:
-            payload = {
-                "content": content,
-                "title": title or "",
-                "source": source,
-                "importance": importance,
-                "domain": domain,
-                "tags": tags_str,
-                "sensitivity": tier,
-                "profile_id": pid,
-            }
-            self._enqueue_outbox(
-                fact_id=eid,
-                op="create" if is_create else "update",
-                version=row["version"],
-                written_at=now,
-                fact_timestamp=row["fact_timestamp"] or "",
-                payload=json.dumps(payload),
-                sensitivity=tier,
-            )
-        self.db.commit()
-        # Phase 7: generate and store embedding (best-effort, non-blocking)
-        if EMBEDDINGS_AVAILABLE:
-            try:
-                vec = embed_text(content)
-                if vec:
-                    store_embedding(self.db, eid, vec)
-            except Exception:
-                pass  # embedding failure should never block remember()
-        self._release_write_lock()
+            # P2 transactional outbox: append an event row in this same transaction.
+            row = self.db.execute(
+                "SELECT version, fact_timestamp FROM facts WHERE id = ?", (eid,)
+            ).fetchone()
+            if row:
+                payload = {
+                    "content": content,
+                    "title": title or "",
+                    "source": source,
+                    "importance": importance,
+                    "domain": domain,
+                    "tags": tags_str,
+                    "sensitivity": tier,
+                    "profile_id": pid,
+                }
+                self._enqueue_outbox(
+                    fact_id=eid,
+                    op="create" if is_create else "update",
+                    version=row["version"],
+                    written_at=now,
+                    fact_timestamp=row["fact_timestamp"] or "",
+                    payload=json.dumps(payload),
+                    sensitivity=tier,
+                )
+            self.db.commit()
+            # Phase 7: generate and store embedding (best-effort, non-blocking)
+            if EMBEDDINGS_AVAILABLE:
+                try:
+                    vec = embed_text(content)
+                    if vec:
+                        store_embedding(self.db, eid, vec)
+                except Exception as exc:  # noqa: BLE001 - third-party embedder
+                    logger.warning("embedding generation failed for %s: %s", eid, exc)
+        finally:
+            self._release_write_lock()
         self.audit("remember", actor=actor, session_id=session_id, fact_id=eid, detail=f"domain={domain};tier={tier}")
         return eid
 
@@ -881,6 +1007,8 @@ class MemoryEngine:
             # (e.g. system python) leave orphan rows that trip the health check.
             if self._has_embeddings_table():
                 self.db.execute("DELETE FROM embeddings WHERE fact_id = ?", (entropic_id,))
+                if EMBEDDINGS_IMPORTABLE:
+                    invalidate_vector_cache()
             if before:
                 now = datetime.now(timezone.utc).isoformat()
                 payload = {
@@ -940,55 +1068,63 @@ class MemoryEngine:
                 "confirm_required": not confirm,
             }
 
-        # I4: Auto-backup before destructive operation
-        self._backup()
+        # Mutation phase runs under the (reentrant) write lock; the nested
+        # _backup() call keeps the lock held instead of unlocking mid-operation.
+        self._acquire_write_lock()
+        try:
+            # I4: Auto-backup before destructive operation
+            self._backup()
 
-        # Create archive table if needed
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS facts_archive (
-                id TEXT PRIMARY KEY,
-                content TEXT NOT NULL,
-                title TEXT DEFAULT '',
-                source TEXT DEFAULT 'agent',
-                importance REAL DEFAULT 0.5,
-                domain TEXT DEFAULT 'Knowledge',
-                tags TEXT DEFAULT '',
-                session_id TEXT DEFAULT '',
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP,
-                last_accessed TIMESTAMP,
-                access_count INTEGER DEFAULT 0,
-                profile_id TEXT DEFAULT '',
-                version INTEGER NOT NULL DEFAULT 1,
-                archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+            # Create archive table if needed
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS facts_archive (
+                    id TEXT PRIMARY KEY,
+                    content TEXT NOT NULL,
+                    title TEXT DEFAULT '',
+                    source TEXT DEFAULT 'agent',
+                    importance REAL DEFAULT 0.5,
+                    domain TEXT DEFAULT 'Knowledge',
+                    tags TEXT DEFAULT '',
+                    session_id TEXT DEFAULT '',
+                    created_at TIMESTAMP,
+                    updated_at TIMESTAMP,
+                    last_accessed TIMESTAMP,
+                    access_count INTEGER DEFAULT 0,
+                    profile_id TEXT DEFAULT '',
+                    version INTEGER NOT NULL DEFAULT 1,
+                    archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-        archived = 0
-        has_embeddings = self._has_embeddings_table()
-        for (fid,) in candidates:
-            # Copy to archive
-            self.db.execute(
-                """INSERT OR REPLACE INTO facts_archive
-                   (id, content, title, source, importance, domain, tags,
-                    session_id, created_at, updated_at, last_accessed, access_count)
-                   SELECT id, content, title, source, importance, domain, tags,
-                          session_id, created_at, updated_at, last_accessed, access_count
-                   FROM facts WHERE id = ?""",
-                (fid,),
-            )
-            # Delete from facts + FTS
-            row = self.db.execute("SELECT rowid FROM facts WHERE id = ?", (fid,)).fetchone()
-            self.db.execute("DELETE FROM facts WHERE id = ?", (fid,))
-            if row:
-                self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (row[0],))
-            # Same orphan-embedding guard as forget(): plain SQL, not gated
-            # on EMBEDDINGS_AVAILABLE.
-            if has_embeddings:
-                self.db.execute("DELETE FROM embeddings WHERE fact_id = ?", (fid,))
-            archived += 1
+            archived = 0
+            has_embeddings = self._has_embeddings_table()
+            for (fid,) in candidates:
+                # Copy to archive
+                self.db.execute(
+                    """INSERT OR REPLACE INTO facts_archive
+                       (id, content, title, source, importance, domain, tags,
+                        session_id, created_at, updated_at, last_accessed, access_count)
+                       SELECT id, content, title, source, importance, domain, tags,
+                              session_id, created_at, updated_at, last_accessed, access_count
+                       FROM facts WHERE id = ?""",
+                    (fid,),
+                )
+                # Delete from facts + FTS
+                row = self.db.execute("SELECT rowid FROM facts WHERE id = ?", (fid,)).fetchone()
+                self.db.execute("DELETE FROM facts WHERE id = ?", (fid,))
+                if row:
+                    self.db.execute("DELETE FROM facts_fts WHERE rowid = ?", (row[0],))
+                # Same orphan-embedding guard as forget(): plain SQL, not gated
+                # on EMBEDDINGS_AVAILABLE.
+                if has_embeddings:
+                    self.db.execute("DELETE FROM embeddings WHERE fact_id = ?", (fid,))
+                archived += 1
 
-        self.db.commit()
+            self.db.commit()
+        finally:
+            self._release_write_lock()
+        if has_embeddings and EMBEDDINGS_IMPORTABLE:
+            invalidate_vector_cache()
         self.audit("consolidate", detail=f"archived={archived};days={max_age_days}")
         return {"archived": archived, "cutoff_days": max_age_days, "dry_run": False}
 
@@ -1256,20 +1392,9 @@ class MemoryEngine:
         if scope not in ("own", "shared", "all"):
             scope = "own"
 
-        clean = query.replace('"', '""')
-
-        # Split multi-word queries into per-word OR terms (matches recall_with_relevance strategy)
-        words = clean.split()
-        if len(words) > 1:
-            word_queries = []
-            for w in words:
-                if w:
-                    word_queries.append(f'content: "{w}"*')
-                    word_queries.append(f'title: "{w}"*')
-                    word_queries.append(f'tags: "{w}"*')
-            fts_query = " OR ".join(word_queries)
-        else:
-            fts_query = f'content: "{clean}"* OR title: "{clean}"* OR tags: "{clean}"*'
+        # Shared FTS5 query builder — same fields and semantics as
+        # recall_with_relevance() so prefetch and recall agree on meaning.
+        fts_query = build_fts_query(query, fields=("content", "title", "tags"))
 
         where = ""
         params: tuple = ()
@@ -1306,17 +1431,22 @@ class MemoryEngine:
                 exact_match=True, fts_match=False, domain_filtered=bool(domain),
             )
 
-        # FTS5 MATCH
-        rows = self.db.execute(
-            f"""
-            SELECT f.* FROM facts_fts
-            JOIN facts f ON facts_fts.rowid = f.rowid
-            WHERE facts_fts MATCH ? {where} {date_where}
-            ORDER BY f.importance DESC, rank
-            LIMIT ?
-            """,
-            (fts_query, *params, *date_params, top_k),
-        ).fetchall()
+        # FTS5 MATCH (never raises: bad MATCH expressions → empty + reason)
+        rows: list = []
+        match_failed = False
+        if fts_query:
+            rows, fts_reason = run_fts_match(
+                self.db,
+                f"""
+                SELECT f.* FROM facts_fts
+                JOIN facts f ON facts_fts.rowid = f.rowid
+                WHERE facts_fts MATCH ? {where} {date_where}
+                ORDER BY f.importance DESC, rank
+                LIMIT ?
+                """,
+                (fts_query, *params, *date_params, top_k),
+            )
+            match_failed = fts_reason == FTS_REASON_MATCH_ERROR
         fts_hits = [self._row_to_fact(r) for r in rows]
         for f in fts_hits:
             f.why_retrieved = self._build_reasons(
@@ -1327,13 +1457,16 @@ class MemoryEngine:
             seen = {f.id for f in exact}
             local = exact + [f for f in fts_hits if f.id not in seen]
         else:
-            # LIKE fallback
-            like_params = (f"%{query}%", f"%{query}%", f"%{query}%")
+            # LIKE fallback (wildcards in user input are matched literally)
+            like = f"%{escape_like(query)}%"
+            like_params = (like, like, like)
             if domain:
                 like_params = (*like_params, domain)
-                like_where = "WHERE (f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ?) AND f.domain = ?"
+                like_where = ("WHERE (f.content LIKE ? ESCAPE '\\' OR f.title LIKE ? ESCAPE '\\' "
+                              "OR f.tags LIKE ? ESCAPE '\\') AND f.domain = ?")
             else:
-                like_where = "WHERE f.content LIKE ? OR f.title LIKE ? OR f.tags LIKE ?"
+                like_where = ("WHERE f.content LIKE ? ESCAPE '\\' OR f.title LIKE ? ESCAPE '\\' "
+                              "OR f.tags LIKE ? ESCAPE '\\'")
             rows = self.db.execute(
                 f"""
                 SELECT f.* FROM facts f
@@ -1347,6 +1480,7 @@ class MemoryEngine:
             for f in like_hits:
                 f.why_retrieved = self._build_reasons(
                     like_fallback=True, domain_filtered=bool(domain),
+                    match_error=match_failed,
                 )
             seen = {f.id for f in exact}
             local = exact + [f for f in like_hits if f.id not in seen]
@@ -1362,27 +1496,26 @@ class MemoryEngine:
 
     def _recall_shared(self, query: str, domain: Optional[str], top_k: int) -> List[StoredFact]:
         """Search the local shared_facts projection (peer-published facts)."""
-        like = f"%{query}%"
+        like = f"%{escape_like(query)}%"
         if domain:
             rows = self.db.execute(
                 """SELECT * FROM shared_facts
-                   WHERE (content LIKE ? OR tags LIKE ?) AND domain = ? AND deleted = 0
+                   WHERE (content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')
+                     AND domain = ? AND deleted = 0
                    ORDER BY importance DESC, written_at DESC LIMIT ?""",
                 (like, like, domain, top_k),
             ).fetchall()
         else:
             rows = self.db.execute(
                 """SELECT * FROM shared_facts
-                   WHERE (content LIKE ? OR tags LIKE ?) AND deleted = 0
+                   WHERE (content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')
+                     AND deleted = 0
                    ORDER BY importance DESC, written_at DESC LIMIT ?""",
                 (like, like, top_k),
             ).fetchall()
         out = []
         for r in rows:
-            try:
-                tags = r["tags"].split(", ") if r["tags"] else []
-            except Exception:
-                tags = []
+            tags = [t for t in (r["tags"] or "").split(", ") if t]
             out.append(StoredFact(
                 id=r["fact_id"],
                 content=r["content"],
@@ -1441,8 +1574,14 @@ class MemoryEngine:
         min_confidence: float = 0.4,
     ) -> List[Dict[str, Any]]:
         """
-        Extract durable facts from conversation text using heuristic patterns.
-        Stores extracted facts via remember(). Returns list of extracted facts.
+        Extract candidate facts from conversation text using heuristic patterns.
+
+        QUARANTINE SEMANTICS: extracted candidates are stored in the
+        pending_facts quarantine via quarantine_fact() — they are NEVER written
+        to durable recall (remember()) automatically. Promote a candidate with
+        promote_pending() (CLI: `entropicmem pending promote <id>`) or drop it
+        with discard_pending(). Returns the list of quarantined candidates
+        ({id, content, domain, importance, tag, pending: True}).
 
         This is a regex-based extraction — no LLM required.
         Designed for zero-cost, zero-latency background extraction.
@@ -1530,18 +1669,20 @@ class MemoryEngine:
         Returns True if the fact was found and reinforced.
         """
         self._acquire_write_lock()
-        row = self.db.execute("SELECT id FROM facts WHERE id = ?", (entropic_id,)).fetchone()
-        if not row:
-            return False
-        now = datetime.now(timezone.utc).isoformat()
-        self.db.execute(
-            """UPDATE facts SET last_accessed = ?, access_count = access_count + 1
-               WHERE id = ?""",
-            (now, entropic_id),
-        )
-        self.db.commit()
-        self._release_write_lock()
-        return True
+        try:
+            row = self.db.execute("SELECT id FROM facts WHERE id = ?", (entropic_id,)).fetchone()
+            if not row:
+                return False
+            now = datetime.now(timezone.utc).isoformat()
+            self.db.execute(
+                """UPDATE facts SET last_accessed = ?, access_count = access_count + 1
+                   WHERE id = ?""",
+                (now, entropic_id),
+            )
+            self.db.commit()
+            return True
+        finally:
+            self._release_write_lock()
 
     # ── Phase 11.3: fact versioning ─────────────────────────────────────────
 
@@ -1600,16 +1741,9 @@ class MemoryEngine:
         if not query.strip():
             return []
 
-        # Sanitize query for FTS5
-        clean = query.replace('"', '""')
-
-        # Split query for OR matching
-        words = clean.split()
-        if len(words) > 1:
-            word_queries = [f'content: "{w}"*' for w in words if w]
-            fts_query = " OR ".join(word_queries)
-        else:
-            fts_query = f'content: "{clean}"* OR title: "{clean}"* OR tags: "{clean}"*'
+        # Shared FTS5 query builder — same fields (content/title/tags) as
+        # recall() so prefetch and recall agree on what a query means.
+        fts_query = build_fts_query(query, fields=("content", "title", "tags"))
 
         where = ""
         params: tuple = ()
@@ -1617,21 +1751,28 @@ class MemoryEngine:
             where = "AND f.domain = ?"
             params = (domain,)
 
-        # Get FTS5 results with bm25 rank
-        rows = self.db.execute(
-            f"""
-            SELECT f.*, bm25(facts_fts) as rank
-            FROM facts_fts
-            JOIN facts f ON facts_fts.rowid = f.rowid
-            WHERE facts_fts MATCH ? {where}
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (fts_query, *params, top_k * 2),
-        ).fetchall()
+        # Get FTS5 results with bm25 rank (never raises on a bad MATCH)
+        match_failed = False
+        rows: list = []
+        if fts_query:
+            rows, fts_reason = run_fts_match(
+                self.db,
+                f"""
+                SELECT f.*, bm25(facts_fts) as rank
+                FROM facts_fts
+                JOIN facts f ON facts_fts.rowid = f.rowid
+                WHERE facts_fts MATCH ? {where}
+                ORDER BY rank
+                LIMIT ?
+                """,
+                (fts_query, *params, top_k * 2),
+            )
+            match_failed = fts_reason == FTS_REASON_MATCH_ERROR
 
         if not rows:
-            return self._recall_like_fallback(query, top_k, domain, min_relevance)
+            return self._recall_like_fallback(
+                query, top_k, domain, min_relevance, match_error=match_failed,
+            )
 
         # Normalize bm25 scores to 0-1
         ranks = [row["rank"] for row in rows]
@@ -1772,21 +1913,18 @@ class MemoryEngine:
         query: str,
         top_k: int,
     ) -> List[StoredFact]:
-        """Expand recall results with linked vault notes (Phase 10.2).
+        """Expand recall results with linked notes (Phase 10.2).
 
-        For each result whose title appears in the link graph, fetch
-        connected notes and append them as context facts with a
-        reduced relevance score.
+        Traverses the unified graph_edges table (the same graph the vault
+        index and the triple sync maintain — never the retired `links`
+        table). For each result whose title appears in the graph, fetch
+        connected notes and append matching facts as context with a
+        reduced relevance score. Databases without a graph_edges table
+        return the results unchanged.
         """
         try:
-            from graph_query import get_connected_notes, init_links_schema
+            from graph_query import get_connected_notes
         except ImportError:
-            return results
-
-        conn = self.db  # reuse engine connection (links table may exist)
-        try:
-            init_links_schema(conn)
-        except Exception:
             return results
 
         seen_ids = {f.id for f in results}
@@ -1795,7 +1933,7 @@ class MemoryEngine:
 
         for fact in results[:5]:  # expand top 5 only
             title = fact.title or fact.content[:60]
-            connected = get_connected_notes(conn, title, depth=1)
+            connected = get_connected_notes(self.db, title, depth=1)
             for linked_title in list(connected["all"])[:3]:
                 # Search for a fact matching the linked title
                 linked_facts = self.recall(linked_title, top_k=1)
@@ -1825,7 +1963,8 @@ class MemoryEngine:
                 if vec:
                     store_embedding(self.db, fact.id, vec)
                     embedded += 1
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - third-party embedder
+                logger.warning("embedding rebuild failed for %s: %s", fact.id, exc)
                 errors += 1
 
         return {
@@ -1928,7 +2067,9 @@ class MemoryEngine:
         limit: int = 10,
     ) -> List[dict]:
         """FTS timeline recall over episodes (title + summary), with window filter."""
-        clean = query.replace('"', '""')
+        fts_query = build_fts_query(query, fields=("title", "summary"))
+        if not fts_query:
+            return []
         where = ""
         window_params: list = []
         if from_date or to_date:
@@ -1940,12 +2081,13 @@ class MemoryEngine:
                 clauses.append("COALESCE(e.start_ts, e.created_at) <= ?")
                 window_params.append(to_date + "T23:59:59")
             where = " AND " + " AND ".join(clauses)
-        rows = self.db.execute(
+        rows, _reason = run_fts_match(
+            self.db,
             "SELECT e.* FROM episodes_fts f JOIN episodes e ON e.rowid = f.rowid "
             f"WHERE episodes_fts MATCH ?{where} "
             "ORDER BY e.start_ts ASC, e.created_at ASC LIMIT ?",
-            (clean, *window_params, limit),
-        ).fetchall()
+            (fts_query, *window_params, limit),
+        )
         return [dict(r) for r in rows]
 
     def rebuild_episodes_fts(self) -> int:
@@ -2150,19 +2292,27 @@ class MemoryEngine:
         top_k: int,
         domain: Optional[str],
         min_relevance: float,
+        match_error: bool = False,
     ) -> List[StoredFact]:
-        """Fallback LIKE-based search when FTS5 returns no results."""
+        """Fallback LIKE-based search when FTS5 returns no results.
+
+        User-supplied LIKE wildcards are escaped so %/_ match literally.
+        ``match_error`` records that the FTS stage failed (vs. simply had no
+        hits) and surfaces as a 'match_error' reason token on each hit.
+        """
         where = ""
         params: tuple = ()
         if domain:
             where = "AND domain = ?"
             params = (domain,)
 
-        like_params = (f"%{query}%", f"%{query}%", f"%{query}%")
+        like = f"%{escape_like(query)}%"
+        like_params = (like, like, like)
         rows = self.db.execute(
             f"""
             SELECT * FROM facts
-            WHERE (content LIKE ? OR title LIKE ? OR tags LIKE ?) {where}
+            WHERE (content LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\'
+                   OR tags LIKE ? ESCAPE '\\') {where}
             ORDER BY importance DESC
             LIMIT ?
             """,
@@ -2178,6 +2328,7 @@ class MemoryEngine:
                     like_fallback=True,
                     importance_applied=True,
                     domain_filtered=bool(domain),
+                    match_error=match_error,
                 )
                 results.append(fact)
 
@@ -2220,7 +2371,8 @@ class MemoryEngine:
                 index.upsert_note(note)
                 index.upsert_edges_for_note(vault, note)
                 result["created"] += 1
-            except Exception:
+            except (OSError, ValueError, KeyError, sqlite3.Error) as exc:
+                logger.warning("project_to_vault skipped fact %s: %s", fact.id, exc)
                 result["skipped"] += 1
 
         return result
@@ -2238,11 +2390,15 @@ class MemoryEngine:
         triple_boost: bool = False,
         domain_filtered: bool = False,
         like_fallback: bool = False,
+        match_error: bool = False,
     ) -> List[Any]:
         """Build a deterministic reason-token list for a single recall hit.
 
         Returns a list of string tokens. Callers that have numeric scores can
         later enrich individual entries into {"signal": ..., "score": ...}.
+        'match_error' marks hits that surfaced via the LIKE fallback because
+        the FTS5 MATCH expression was rejected (empty-result + reason token
+        semantics — never an exception).
         """
         reasons: List[Any] = []
         if exact_match:
@@ -2261,6 +2417,8 @@ class MemoryEngine:
             reasons.append("triple")
         if domain_filtered:
             reasons.append("domain")
+        if match_error:
+            reasons.append("match_error")
         return reasons
 
     def _make_title(self, content: str, max_len: int = 80) -> str:
@@ -2292,7 +2450,8 @@ class MemoryEngine:
         """Find an existing fact with Jaccard similarity >= threshold.
 
         Uses FTS pre-filter to avoid scanning all facts. Falls back to
-        last-200 scan if FTS returns no candidates (very short content).
+        last-200 scan if the content is too short for FTS or the MATCH
+        expression is refused.
 
         Returns the entropic_id of the duplicate, or None.
         """
@@ -2312,10 +2471,13 @@ class MemoryEngine:
                     return row[0]
             return None
 
-        # Build FTS query: OR of token prefixes
-        fts_terms = " OR ".join(f'content:"{t}"*' for t in tokens[:10])  # Cap at 10 tokens
-        try:
-            rows = self.db.execute(
+        # Build FTS query via the shared builder (OR of token prefixes, capped)
+        fts_terms = build_fts_query(content, fields=("content",), max_terms=10)
+        rows: list = []
+        fts_usable = bool(fts_terms)
+        if fts_usable:
+            rows, reason = run_fts_match(
+                self.db,
                 """
                 SELECT f.id, f.content FROM facts_fts
                 JOIN facts f ON facts_fts.rowid = f.rowid
@@ -2323,9 +2485,12 @@ class MemoryEngine:
                 LIMIT 50
                 """,
                 (fts_terms,),
-            ).fetchall()
-        except Exception:
-            # FTS query failed; fall back to recent scan
+            )
+            if reason != FTS_REASON_OK:
+                rows = []
+                fts_usable = False
+        if not fts_usable:
+            # Too short for FTS (or MATCH refused) — fall back to recent scan
             rows = self.db.execute(
                 "SELECT id, content FROM facts ORDER BY updated_at DESC LIMIT 200"
             ).fetchall()
@@ -2366,7 +2531,7 @@ class MemoryEngine:
         """Explicit agent recall + reflection layer (Sprint A, v2).
 
         Reads top-k via existing recall(), synthesizes via prompt template,
-        writes audit only. No storage write other than audit_log.
+        writes audit only via audit() (no storage write other than audit_log).
         Returns {facts: [...], reflect_summary: str, source_ids: [...]}.
         """
         facts = self.recall(query, top_k=top_k, domain=domain, scope="own")
@@ -2374,10 +2539,13 @@ class MemoryEngine:
         reflect_summary = ""
         if facts:
             # Prompt-template-only synthesis (LLM called externally, not embedded)
-            reflect_summary = f"Reflect on {len(facts)} recalled facts about '{query}': known={len(facts)}, key themes={', '.join({f.tags[0] if f.tags else 'general' for f in facts[:3]})}."
+            themes = sorted({f.tags[0] if f.tags else "general" for f in facts[:3]})
+            reflect_summary = (
+                f"Reflect on {len(facts)} recalled facts about '{query}': "
+                f"known={len(facts)}, key themes={', '.join(themes)}."
+            )
         # Audit-only write (no new storage)
-        audit = self.audit_log
-        audit.append({"action": "reflect", "query": query, "ts": __import__("time").strftime("%Y-%m-%dT%H:%M:%S")})
+        self.audit("reflect", detail=f"query={query[:200]};hits={len(facts)}")
         return {
             "facts": [
                 {"id": f.id, "title": f.title or f.id, "domain": f.domain, "importance": f.importance}
@@ -2388,32 +2556,48 @@ class MemoryEngine:
         }
 
     def recall_related(self, fact_id: str, top_k: int = 10) -> List[StoredFact]:
-        """Graph-neighbor recall via existing triples / graph_edges (Sprint A, v2).
+        """Graph-neighbor recall via the triples table (Sprint A, v2).
 
-        Direct neighbors first (v1); sibling/multi-hop out of scope.
-        No new tables; uses existing adjacency/triples.
+        Resolves the seed fact, walks every (subject, predicate, object) triple
+        that touches one of its entities (its id, title, or tags), and returns
+        up to top_k facts that mention a neighboring entity. Direct neighbors
+        first (v1); sibling/multi-hop out of scope. Runs entirely on self.db —
+        no new tables.
         """
-        related_ids = set()
-        # Direct from triples table if present
-        try:
-            for row in self.conn.execute(
-                "SELECT target FROM triples WHERE source = ? UNION SELECT source FROM triples WHERE target = ?",
-                (fact_id, fact_id),
-            ):
-                related_ids.add(row[0])
-        except Exception:
-            pass
-        # Fallback to graph_edges export adjacency if in-memory
-        if hasattr(self, "_graph_edges") and self._graph_edges and fact_id in self._graph_edges:
-            for n in self._graph_edges[fact_id]:
-                related_ids.add(n)
-        if not related_ids:
+        seed = self.get_fact(fact_id)
+        if not seed:
             return []
-        # Fetch by id (existing recall path, no new index)
-        results = []
-        for nid in sorted(related_ids)[:top_k]:
-            found = self.recall(str(nid), top_k=1, scope="own")
-            if found:
-                results.append(found[0])
+        entities: List[str] = [fact_id]
+        if seed.title:
+            entities.append(seed.title)
+        entities.extend(seed.tags)
+
+        related: List[str] = []  # neighbor entity names, in discovery order
+        seen = {e for e in entities if e}
+        for ent in sorted(seen):
+            for row in self.db.execute(
+                "SELECT subject, object FROM triples "
+                "WHERE (subject = ? OR object = ?) "
+                "AND (valid_until IS NULL OR valid_until = '')",
+                (ent, ent),
+            ).fetchall():
+                other = row["object"] if row["subject"] == ent else row["subject"]
+                if other and other not in seen:
+                    seen.add(other)
+                    related.append(other)
+
+        results: List[StoredFact] = []
+        for entity in related[:top_k]:
+            row = self.db.execute(
+                "SELECT * FROM facts "
+                "WHERE id != ? AND (title = ? OR content LIKE ? ESCAPE '\\') "
+                "ORDER BY importance DESC LIMIT 1",
+                (fact_id, entity, f"%{escape_like(entity)}%"),
+            ).fetchone()
+            if row:
+                fact = self._row_to_fact(row)
+                fact.why_retrieved = self._build_reasons(triple_boost=True)
+                results.append(fact)
+        self.audit("recall_related", fact_id=fact_id, detail=f"neighbors={len(related)}")
         return results
 

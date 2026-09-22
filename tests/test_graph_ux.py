@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-_SCRIPT_DIR = Path(__file__).resolve().parent.parent / "skills" / "entropicmem" / "scripts"
+_SCRIPT_DIR = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts"
 _CLI = str(_SCRIPT_DIR / "entropicmem.py")
 sys.path.insert(0, str(_SCRIPT_DIR))
 

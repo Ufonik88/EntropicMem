@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-_SCRIPT_DIR = REPO / "skills" / "entropicmem" / "scripts"
+_SCRIPT_DIR = REPO / "plugins" / "entropicmem" / "scripts"
 sys.path.insert(0, str(_SCRIPT_DIR))
 
 from entropicmem import _append_env  # noqa: E402

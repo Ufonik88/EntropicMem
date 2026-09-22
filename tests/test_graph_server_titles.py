@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 _SERVER_DIR = Path(__file__).resolve().parent.parent / "scripts" / "graph_server"
 _PARENT = _SERVER_DIR.parent  # scripts/ — so `import graph_server.server` resolves
-_ENGINE_DIR = Path(__file__).resolve().parent.parent / "skills" / "entropicmem" / "scripts"
+_ENGINE_DIR = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts"
 
 
 @pytest.fixture

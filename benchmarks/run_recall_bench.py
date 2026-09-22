@@ -7,7 +7,7 @@ precision@5 and Mean Reciprocal Rank (MRR).  Writes the result to
 
 Usage:
     cd EntropicMem
-    PYTHONPATH="skills/entropicmem/scripts" python3 benchmarks/run_recall_bench.py
+    PYTHONPATH="plugins/entropicmem/scripts" python3 benchmarks/run_recall_bench.py
 """
 
 import json
@@ -19,7 +19,7 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Ensure the memory_engine module is importable
-_SCRIPTS = _PROJECT_ROOT / "skills" / "entropicmem" / "scripts"
+_SCRIPTS = _PROJECT_ROOT / "plugins" / "entropicmem" / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 

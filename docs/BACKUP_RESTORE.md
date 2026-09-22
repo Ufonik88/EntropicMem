@@ -5,9 +5,8 @@
 A scheduled backup job runs the encryption + upload routine:
 
 1. Tar `memory.db`, `index.db`, `vault/`
-2. Encrypt with OpenSSL AES-256-CBC (pbkdf2, 200k iter) using key file  
-   `~/.hermes/entropicmem/.backup_key` (mode 600; auto-created)
-3. Upload **only** `*.tar.gz.enc` via rclone
+2. Encrypt with OpenSSL AES-256-CBC (pbkdf2, 200k iter) using key file `~/.hermes/entropicmem/.backup_key` (mode 600; auto-created)
+3. Upload only `*.tar.gz.enc` via rclone
 4. Keep last 7 local ciphertext archives; delete plaintext tars
 
 Env:
@@ -19,10 +18,12 @@ Env:
 | `RCLONE_REMOTE` | `your-remote` |
 | `RCLONE_PATH` | `your/backup/path` |
 
+> Set `RCLONE_REMOTE` and `RCLONE_PATH` to your own rclone remote and backup folder before running the backup job. The placeholders `your-remote` and `your/backup/path` are intentionally not real destinations.
+
 ## Restore drill
 
 ```bash
-# 1. Fetch ciphertext
+# 1. Fetch ciphertext (substitute your remote and path)
 rclone copy your-remote:your/backup/path/entropicmem_YYYY-mm-dd_HHMMSS.tar.gz.enc /tmp/
 
 # 2. Decrypt
@@ -47,8 +48,8 @@ chmod 600 ~/.hermes/entropicmem/*.db
 
 ## Game day checklist
 
-- [ ] Decrypt succeeds with production key
+- [ ] Decrypt succeeds with the backup key
 - [ ] `PRAGMA integrity_check` = ok
 - [ ] Fact count within expected range
 - [ ] Vault note sample opens
-- [ ] Health check OK after cutover
+- [ ] `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py memory stats` OK after cutover

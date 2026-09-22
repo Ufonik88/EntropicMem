@@ -13,6 +13,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))  # so `from plugins.entropicmem import ...` resolves
 
@@ -37,7 +39,7 @@ def _make_provider(tmp_path, **config):
         "memory_db": str(tmp_path / "memory.db"),
         **config,
     })
-    prov._scripts_dir = ROOT / "skills" / "entropicmem" / "scripts"
+    prov._scripts_dir = ROOT / "plugins" / "entropicmem" / "scripts"
     prov._hermes_home = tmp_path
     prov._vault_path = tmp_path / "vault"
     prov._memory_db = tmp_path / "memory.db"
@@ -184,11 +186,17 @@ def test_pre_compress_empty_when_nothing_salient(tmp_path):
     assert _episodes(tmp_path) == []
 
 
-def test_pre_compress_never_raises(tmp_path, monkeypatch):
+def test_pre_compress_fails_closed_on_extraction_error(tmp_path, monkeypatch):
+    """Checkpoint API v2 fail-closed: an extraction failure must propagate
+    instead of silently returning uncheckpointed text (with
+    ``require_checkpoint=True`` the host then keeps the uncompressed
+    transcript)."""
     prov = _make_provider(tmp_path)
 
     def _boom(*args, **kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(session_digest, "extract_constraints", _boom)
-    assert prov.on_pre_compress(MESSAGES) == ""
+    with pytest.raises(RuntimeError):
+        prov.on_pre_compress(MESSAGES)
+    assert _episodes(tmp_path) == []

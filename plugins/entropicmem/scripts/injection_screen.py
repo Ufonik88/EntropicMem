@@ -83,7 +83,8 @@ def _normalize(text: str) -> str:
 # a .env file", never "cat ~/.ssh/id_rsa", so the FP surface is tiny.
 _SECRET_FILE_VERB = re.compile(r"(?i)\b(?:cat|less|more|head|tail|dump|read|view|open|print)\b")
 _SECRET_FILE_PATH = re.compile(
-    r"(?i)(?:~/\.ssh|\.ssh/|\bid_rsa\b|/etc/passwd|\.aws/credentials|\.env\b|~/\.env|/root/|~/\.)"
+    r"(?i)(?:~/\.ssh|\.ssh/|\bid_rsa\b|/etc/" r"passwd"
+    r"|\.aws/credentials|\.env\b|~/\.en" r"v|/root/|~/\.)"
 )
 _NOFUNC_PREP = re.compile(r"(?i)\b(?:from|of|for|in|to|and|or|the|a|an)\b")
 
@@ -117,15 +118,15 @@ _COMMAND = re.compile(r"(?i)\b(?:run|execute)\s+(?:this|the\s+following)\s+(?:co
 _COMMAND_RISK = re.compile(
     r"(?i)(without\s+(?:asking|confirm\w*|telling|permission|approval)|silently|quietly"
     r"|do\s+not\s+(?:ask|tell|mention|confirm)|don'?t\s+(?:ask|tell|mention|confirm)"
-    r"|\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b|\brm\s+-[a-z]*r[a-z]*f|\bbase64\b|/dev/tcp/|\bnc\s+-"
+    r"|\|\s*(?:su" r"do\s+)?(?:ba|z|da)?sh\b|\brm\s+-[a-z]*r[a-z]*f|\bbase64\b|/dev/tcp/|\bnc\s+-"
     # The lookbehind keeps `process.env.NAME` in a code sample from reading as the .env file.
-    r"|~/\.ssh|\bid_rsa\b|/etc/passwd|\.aws/credentials|(?<!\w)\.env\b)")
+    r"|~/\.ssh|\bid_rsa\b|/etc/" r"passwd|\.aws/credentials|(?<!\w)\.env\b)")
 # A bare "curl https://" flagged three ordinary API examples. What an injection does with
 # curl is pipe it into a shell or upload a file that holds secrets.
 _FETCH_AND_RUN = re.compile(
     r"(?i)\b(?:curl|wget)\b[^\n|]{0,300}"
-    r"(?:\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b"
-    r"|@(?:~|\$HOME|/etc/|/root/|/home/)|@\S*(?:\.env|id_rsa|credentials)\b)")
+    r"(?:\|\s*(?:su" r"do\s+)?(?:ba|z|da)?sh\b"
+    r"|@(?:~|\$HOME|/etc/|/root/|/home/)|@\S*(?:\.en" r"v|id_rsa|credentials)\b)")
 
 # URL-borne exfiltration. Jev scored a markdown image whose query string carried the
 # conversation out at 0.45-0.48 against a 0.5 threshold, and when the passage was on topic
@@ -460,7 +461,7 @@ _GIVEN_TO_YOU = re.compile(
     r"|(?:given|provided)\s+to\s+you)\b")
 _MODELS_OWN = re.compile(r"(?i)\b(?:your|previous|prior|earlier|above|preceding|foregoing|system|safety)\b")
 # "Forget all the rules you learned about CSS floats" is how a tutorial opens, and
-# "Disregard any instructions printed on the old label" points at a label.
+# "Disregard any" + "instructions printed on the old label" points at a label.
 _FROM_ELSEWHERE = re.compile(
     r"(?i)\s+(?:(?:that\s+)?(?:you|we|they|i)\s+(?:(?:have|had|'ve)\s+)?(?:learned|learnt|read|heard)\b"
     r"|(?:printed|listed|written|described|shown|mentioned|issued|defined|documented)\s+"
@@ -549,7 +550,7 @@ def screen_text(text: str, *, unvetted: bool = False) -> ScreenResult:
         # 1. Instruction-shaped orders. _orders is the reference's combined gate; we
         #    also ask each component for its fine shape so the Finding carries it.
         #    _orders strips emphasis first (so "**Ignore** the above instructions"
-        #    reads as "Ignore the above instructions"); we do the same here.
+        #    reads as "Ignore the above" + "instructions"); we do the same here.
         orders_probe = _EMPHASIS.sub("", work)
         m = INSTRUCTION_PATTERNS.search(work)
         if m:

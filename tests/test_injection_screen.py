@@ -1,5 +1,5 @@
 """
-Tests for the local prompt-injection screen (skills/entropicmem/scripts/injection_screen.py).
+Tests for the local prompt-injection screen (plugins/entropicmem/scripts/injection_screen.py).
 
 Unit matrix over screen_text() (positives + negatives + robustness + fail-open),
 plus an integration test through the composed retrieval path, plus a slow,
@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-_SCRIPT_DIR = Path(__file__).resolve().parent.parent / "skills" / "entropicmem" / "scripts"
+_SCRIPT_DIR = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts"
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 

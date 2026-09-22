@@ -1,13 +1,16 @@
 # Visualizer
 
-`entropicmem graph export --format html --output-dir ./export`
+```bash
+python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py graph export --format html --output-dir ./export
+```
 
 - Single self-contained `graph.html` (D3 v7, dark galaxy theme)
 - Nodes = vault notes; edges = wikilinks + tag links + triples
 - Filters: `--domain`, `--max-nodes`, `--min-importance`
-- Serve: `entropicmem graph serve --port 8069 --dir ./export`
+- Serve: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py graph serve --port 8069 --dir ./export`
 
 ## Shipped graph behavior
+
 - Edges render as cool-gray `#6b6b7d` lines with 0.65 opacity; semantic `triple:*` links are dashed, while `wikilink` and `tag` links are solid.
 - Edge width is kind-based: `wikilink` = 0.8px, `triple:*` = 1.8px, `tag` = 1.0px.
 - Links are drawn as curved SVG arcs with `mix-blend-mode: screen`; hover brightens opacity and enlarges the hovered edge, while revealing all connected labels.
@@ -15,55 +18,35 @@
 
 ## Typography & iconography
 
-- Display font: **Space Grotesk** (panel titles, modal headings); body font: **Inter** — both loaded from Google Fonts with system fallbacks.
+- Display font: Space Grotesk (panel titles, modal headings); body font: Inter, both loaded from Google Fonts with system fallbacks.
 - All UI icons are inline SVG (Lucide-style, 24x24 stroke icons): zoom controls, collapse chevrons, close/copy buttons, legend shape glyphs. No raster or unicode-glyph icons.
 
 ## Zoom & navigation
 
-- Wheel zoom is `deltaMode`-normalized: trackpads (pixel deltas) and mouse wheels (line deltas) zoom at the same calibrated rate (~1.18x per notch).
-- On-screen zoom controls in the panel: zoom in, zoom out, **fit to view**, and 1:1 (100%).
+- Wheel zoom is `deltaMode`-normalized: trackpads (pixel deltas) and mouse wheels (line deltas) zoom at the same calibrated rate (about 1.18x per notch).
+- On-screen zoom controls in the panel: zoom in, zoom out, fit to view, and 1:1 (100%).
 - Double-click empty canvas zooms in 1.5x anchored at the cursor.
 - Minimap (bottom-right dock) shows a live viewport rect; click to pan.
 
 ## Color modes & communities
 
-- **Color by: Domain | Community** (panel). In community mode each node takes
-  its community's color from a deterministic colorblind-safe palette
-  (Okabe-Ito core plus accessible extras), and the legend lists the largest
-  communities as `Community <id> (<n>)` with a `unclustered (n)` row for
-  isolated notes. Community ids are stable across rebuilds of identical vault
-  state (deterministic label propagation at export time).
-- **Cluster islands** (panel toggle, default off): a gentle centroid force
-  pulls each community toward its own centroid, reading as separate 2D
-  islands. Physics otherwise unchanged; off = the shipped layout.
-- Both preferences persist to `localStorage` (`entropicmem-graph-color-mode`,
-  `entropicmem-graph-island`).
+- **Color by: Domain | Community** (panel). In community mode each node takes its community's color from a deterministic colorblind-safe palette (Okabe-Ito core plus accessible extras), and the legend lists the largest communities as `Community <id> (<n>)` with a `unclustered (n)` row for isolated notes. Community ids are stable across rebuilds of identical vault state (deterministic label propagation at export time).
+- **Cluster islands** (panel toggle, default off): a gentle centroid force pulls each community toward its own centroid, reading as separate 2D islands. Physics otherwise unchanged; off = the shipped layout.
+- Both preferences persist to `localStorage` (`entropicmem-graph-color-mode`, `entropicmem-graph-island`).
 
 ## Vault search
 
-- **Search the vault** (panel): full-text search over ALL notes via
-  `GET /api/search?q=` on the graph server (vault FTS), independent of the
-  500-node export cap. Debounced (300 ms) and Enter-triggered.
-- Results list shows title + domain; hits inside the current view zoom and
-  focus the node, hits outside the export open the note modal through the
-  lazy fetch ("not in current view" marker). Without the local server
-  (`file://` or server down) the box explains what is missing.
+- **Search the vault** (panel): full-text search over ALL notes via `GET /api/search?q=` on the graph server (vault FTS), independent of the 500-node export cap. Debounced (300 ms) and Enter-triggered.
+- Results list shows title + domain; hits inside the current view zoom and focus the node, hits outside the export open the note modal through the lazy fetch ("not in current view" marker). Without the local server (`file://` or server down) the box explains what is missing.
 
 ## Path tracing
 
-- **Click a node, then shift-click a second node** to highlight the shortest
-  path between them (server BFS over `graph_edges`, depth-capped at 10 hops
-  by default). The path lights up with an accent ring per node, the rest of
-  the graph dims, and a banner reports the hop count; a further shift-click
-  re-routes from the same origin. `Esc` or an empty-canvas click clears.
+- Click a node, then shift-click a second node to highlight the shortest path between them (server BFS over `graph_edges`, depth-capped at 10 hops by default). The path lights up with an accent ring per node, the rest of the graph dims, and a banner reports the hop count; a further shift-click re-routes from the same origin. `Esc` or an empty-canvas click clears.
 - A shift-click with no prior selection sets the path origin instead.
 
 ## Orphan highlight
 
-- **Highlight orphans** (panel toggle): notes with zero graph edges stay lit
-  while connected notes fade, making disconnected notes easy to find. The
-  stats pill reports `<n> orphans` for the current view. This is a hygiene
-  signal only; nothing is ever deleted.
+- **Highlight orphans** (panel toggle): notes with zero graph edges stay lit while connected notes fade, making disconnected notes easy to find. The stats pill reports `<n> orphans` for the current view. This is a hygiene signal only; nothing is ever deleted.
 
 ## Collapsible overlays
 
@@ -82,9 +65,22 @@ Panel, legend, minimap, and stats each have a collapse toggle; collapsed state i
 ## Interaction details
 
 - **Focus mode** (click a node): dims non-neighbors, highlights the selected node with an accent ring; Esc or clicking empty space releases it.
-- **Wikilinks resolve against the full vault** — `[[links]]` to notes outside the current export (the 500-node cap) are shown as dashed "pending" links and resolve lazily via `GET /api/note/by-title/{title}` (exact match, then shortest containing match) when served over HTTP; they only turn red when the target genuinely doesn't exist in the vault. Opening a lazily-resolved note no longer dims the graph.
+- **Wikilinks resolve against the full vault.** `[[links]]` to notes outside the current export (the 500-node cap) are shown as dashed "pending" links and resolve lazily via `GET /api/note/by-title/{title}` (exact match, then shortest containing match) when served over HTTP; they only turn red when the target genuinely does not exist in the vault. Opening a lazily-resolved note no longer dims the graph.
 - **Tooltip** flips at viewport edges so it never clips offscreen.
 - **Modal**: full markdown rendering, wikilink navigation, tag chips that filter the graph, code-copy buttons, Tab focus trap, focus restored to the triggering node on close.
 - **Loading state**: spinner overlay until the first simulation tick paints; **empty state** message when filters match zero notes.
 - **PNG export** renders at `devicePixelRatio` (capped 2x) for crisp HiDPI output.
 - Labels hide below 0.35x zoom and fade below 0.6x (semantic LOD); tag-count badges appear above 2.5x.
+
+## Graph server security model
+
+The read endpoints (`/`, `/graph.json`, `/api/note/*`, `/api/search`, `/api/path`) serve full vault content, so the server enforces its exposure policy at startup:
+
+- **Loopback-only bind enforced.** A non-loopback bind is refused at startup. To serve beyond loopback you must set `ENTROPICMEM_GRAPH_EXPOSE=1` to explicitly accept the exposure.
+- **Token opt-in for exposure.** When not loopback-bound, the body-bearing read endpoints require `ENTROPICMEM_GRAPH_TOKEN` (set it in the server environment), sent per request in the `X-EntropicMem-Token` header. On the loopback trust plane reads are tokenless.
+- **`POST /refresh` is always token-gated.** It is disabled until `ENTROPICMEM_GRAPH_TOKEN` is configured, then requires the same `X-EntropicMem-Token` header (constant-time comparison).
+- **`GET /health`** reports the active bind policy and whether the token is required.
+
+## Markdown sanitization (stored-XSS guard)
+
+Note bodies are untrusted content. The modal renders markdown with `marked`, which passes raw HTML through and emits link hrefs verbatim, so every rendered result also passes a client-side `sanitizeRenderedHtml` pass before touching the DOM. This covers both bodies embedded at export time and raw lazy-fetched bodies from `/api/note/*`. Static export CLI defaults to metadata-only bodies (`--include-bodies` to embed); the local authenticated server pins bodies on (drop them only with `ENTROPICMEM_GRAPH_LEAN=1`).

@@ -104,6 +104,86 @@ def init_embeddings_schema(db: sqlite3.Connection) -> None:
     db.commit()
 
 
+# ── decoded-vector cache (vectorized search path) ────────────────────────────
+#
+# The embeddings table is decoded into one float32 matrix per db file and
+# cached across vector_search() calls. The cache key is (db path, table
+# fingerprint, write generation): the fingerprint (count/rowid aggregate)
+# catches raw-SQL row changes and the generation counter is bumped by every
+# store/delete through this module, so the cached matrix can never go stale
+# silently. In-memory connections are keyed per connection object.
+
+_vec_cache: dict = {}
+_write_gen = 0
+
+
+def invalidate_vector_cache() -> None:
+    """Drop all cached decoded embedding matrices (after any embedding write)."""
+    global _write_gen
+    _write_gen += 1
+    _vec_cache.clear()
+
+
+def _db_cache_key(db: sqlite3.Connection) -> str:
+    """Cache key for a connection: its main db file path, or the conn id for
+    in-memory databases (which are per-connection and must never share)."""
+    try:
+        rows = db.execute("PRAGMA database_list").fetchall()
+        path = rows[0][2] if rows else ""
+    except sqlite3.Error:
+        path = ""
+    if not path or path == ":memory:":
+        return f"conn:{id(db)}"
+    return path
+
+
+def _table_signature(db: sqlite3.Connection) -> tuple:
+    """Cheap fingerprint of the embeddings table state (count + rowid agg)."""
+    try:
+        row = db.execute(
+            "SELECT COUNT(*), COALESCE(MAX(rowid), 0), COALESCE(SUM(rowid), 0) "
+            "FROM embeddings"
+        ).fetchone()
+        return (int(row[0]), int(row[1]), int(row[2]), _write_gen)
+    except sqlite3.Error:
+        return (-1, -1, -1, _write_gen)
+
+
+def load_vector_matrix(db: sqlite3.Connection) -> Tuple[List[str], object]:
+    """Decode the whole embeddings table once per (db file, table state).
+
+    Returns (fact_ids, matrix) where matrix is an (n, dim) float32 numpy array
+    when NUMPY_AVAILABLE (used for one vectorized dot product per search) and
+    a plain list of vectors otherwise. Cached in-process; call
+    invalidate_vector_cache() after raw-SQL embedding writes.
+    """
+    key = _db_cache_key(db)
+    sig = _table_signature(db)
+    cached = _vec_cache.get(key)
+    if cached is not None and cached[0] == sig:
+        return cached[1], cached[2]
+
+    rows = db.execute(
+        "SELECT fact_id, vector FROM embeddings ORDER BY rowid"
+    ).fetchall()
+    ids = [row[0] for row in rows]
+    if NUMPY_AVAILABLE:
+        if rows:
+            lengths = {len(row[1]) for row in rows}
+            if len(lengths) == 1:
+                matrix = np.frombuffer(
+                    b"".join(row[1] for row in rows), dtype=np.float32
+                ).reshape(len(rows), -1).copy()
+            else:  # ragged dims — decode row by row
+                matrix = np.array([_blob_to_vec(row[1]) for row in rows], dtype=np.float32)
+        else:
+            matrix = np.empty((0, 0), dtype=np.float32)
+    else:
+        matrix = [_blob_to_vec(row[1]) for row in rows]
+    _vec_cache[key] = (sig, ids, matrix)
+    return ids, matrix
+
+
 def store_embedding(db: sqlite3.Connection, fact_id: str, vector: List[float]) -> None:
     """Store or update an embedding for a fact."""
     blob = _vec_to_blob(vector)
@@ -113,12 +193,14 @@ def store_embedding(db: sqlite3.Connection, fact_id: str, vector: List[float]) -
         (fact_id, blob, _MODEL_NAME, len(vector)),
     )
     db.commit()
+    invalidate_vector_cache()
 
 
 def delete_embedding(db: sqlite3.Connection, fact_id: str) -> None:
     """Remove an embedding when a fact is deleted."""
     db.execute("DELETE FROM embeddings WHERE fact_id = ?", (fact_id,))
     db.commit()
+    invalidate_vector_cache()
 
 
 def get_embedding(db: sqlite3.Connection, fact_id: str) -> Optional[List[float]]:
@@ -173,7 +255,10 @@ def vector_search(
     Brute-force cosine similarity search over all stored embeddings.
 
     Returns list of (fact_id, similarity_score) sorted by score descending.
-    For <10K facts this is fast enough; for larger sets, consider HNSW.
+    With numpy available the stored vectors are decoded once per db file
+    (cached) and scored with a single vectorized dot product; without numpy a
+    pure-Python decode-and-loop fallback is used. For <10K facts this is fast
+    enough; for larger sets, consider HNSW.
     """
     if domain:
         rows = db.execute(
@@ -184,7 +269,25 @@ def vector_search(
         ).fetchall()
     else:
         rows = db.execute("SELECT fact_id, vector FROM embeddings").fetchall()
+    if not rows:
+        return []
 
+    if NUMPY_AVAILABLE:
+        # Vectorized path: one decode per db file (cached), one dot product.
+        ids, matrix = load_vector_matrix(db)
+        pos = {fid: i for i, fid in enumerate(ids)}
+        fids = [row[0] for row in rows if row[0] in pos]
+        if not fids:
+            return []
+        sub = matrix[[pos[fid] for fid in fids]]
+        q = np.asarray(query_vec, dtype=np.float32)
+        denom = np.linalg.norm(sub, axis=1) * (float(np.linalg.norm(q)) or 1.0)
+        denom[denom == 0.0] = 1.0
+        sims = (sub @ q) / denom
+        scored = sorted(zip(fids, (float(s) for s in sims)), key=lambda x: x[1], reverse=True)
+        return scored[:top_k]
+
+    # Pure-Python fallback: decode each blob and loop over cosine_similarity.
     scored = []
     for row in rows:
         vec = _blob_to_vec(row[1])
