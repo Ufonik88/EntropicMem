@@ -25,7 +25,7 @@ import pytest
 
 _SRC = (
     Path(__file__).resolve().parent.parent
-    / "skills"
+    / "plugins"
     / "entropicmem"
     / "scripts"
     / "graph_export.py"

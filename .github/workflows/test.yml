@@ -12,8 +12,41 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install -q pytest
+      # fastapi + cryptography so the graph-server and encryption tests run
+      # instead of importorskip-ing (they were silently untested in CI before).
+      - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50"
       - run: pytest -q tests/
+
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: PYTHONPATH="plugins/entropicmem/scripts" python3 benchmarks/run_recall_bench.py
+      - name: Assert recall floor
+        run: |
+          python3 - <<'PY'
+          import json
+          d = json.load(open("benchmarks/last_run.json"))
+          assert d["precision_at_5"] >= 0.50, d
+          assert d["mean_reciprocal_rank"] >= 0.50, d
+          print("bench floor OK:", d["precision_at_5"], d["mean_reciprocal_rank"])
+          PY
+
+  plugin-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # `hermes plugins validate` is not on PyPI yet (0.19.0 predates it);
+      # install the hermes-agent toolchain from a pinned commit (bump as needed).
+      - run: pip install -q "hermes-agent @ git+https://github.com/NousResearch/hermes-agent@4094ab610dc7f8554461e7a9b3ffe5e419220949"
+      # Exact command the Hermes plugin catalog runs at the pinned plugin SHA.
+      - run: hermes plugins validate --install-deps plugins/entropicmem
 
   lint:
     runs-on: ubuntu-latest
@@ -23,4 +56,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -q "ruff==0.16.2"
-      - run: ruff check skills/ plugins/ scripts/ tests/
+      - run: ruff check skills/ plugins/ scripts/ tests/ benchmarks/

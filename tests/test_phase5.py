@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
-_CLI = str(_ROOT / "skills/entropicmem/scripts/entropicmem.py")
+_CLI = str(_ROOT / "plugins/entropicmem/scripts/entropicmem.py")
 
 
 def _run(*args, **env):

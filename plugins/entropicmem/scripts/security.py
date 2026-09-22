@@ -5,6 +5,13 @@ Uses Fernet symmetric encryption with PBKDF2-derived keys.
 No key material is stored on disk; the passphrase is required
 to encrypt/decrypt. While encrypted, the engine cannot open the DB.
 
+Plaintext-remnant caveat (write-then-unlink): encrypt_file and decrypt_file
+replace files write-then-unlink (the new .enc or plaintext copy is written and
+the counterpart removed with unlink). On journaling, copy-on-write or
+SSD wear-leveling filesystems the unlinked plaintext (or the decrypted copy)
+may remain recoverable until its blocks are overwritten. Removal is logical,
+not forensic — use full-disk encryption when the threat model requires it.
+
 Requires: cryptography (install via `pip install entropicmem[security]`)
 """
 
@@ -27,6 +34,12 @@ ENCRYPTED_MARKER = ".encrypted"
 SALT_FILE = ".salt"
 VAULT_ENCRYPTED_EXT = ".md.enc"
 
+# Known plaintext probe: encrypt_db stores a Fernet token over this constant in
+# the marker so decrypt_db can validate the passphrase against a known test
+# vector before mutating anything.
+_VERIFIER_PLAINTEXT = b"entropicmem-encryption-verifier-v1"
+_VERIFIER_KEY = "verifier"
+
 
 def _derive_key(passphrase: str, salt: bytes) -> bytes:
     """Derive a Fernet-compatible key from passphrase + salt via PBKDF2."""
@@ -42,6 +55,56 @@ def _derive_key(passphrase: str, salt: bytes) -> bytes:
 
 def _get_fernet(passphrase: str, salt: bytes) -> "Fernet":
     return Fernet(_derive_key(passphrase, salt))
+
+def _ciphertext_files(db_path: Path) -> list:
+    """All ciphertext files for this DB directory, in decrypt order.
+
+    Order: the DB itself, then WAL/SHM companions, then vault ``*.md.enc``.
+    """
+    files = []
+    enc_db = db_path.with_suffix(db_path.suffix + ".enc")
+    if enc_db.exists():
+        files.append(enc_db)
+    for suffix in ["-wal", "-shm"]:
+        enc_wal = db_path.parent / (db_path.name + suffix + ".enc")
+        if enc_wal.exists():
+            files.append(enc_wal)
+    vault_dir = db_path.parent / "vault"
+    if vault_dir.exists():
+        files.extend(sorted(vault_dir.rglob("*.md.enc")))
+    return files
+
+def _validate_passphrase(fernet: "Fernet", db_path: Path) -> None:
+    """Raise ValueError unless ``fernet`` matches the stored test vector.
+
+    encrypt_db embeds a Fernet token over the known ``_VERIFIER_PLAINTEXT`` in
+    the marker file. Markers written by older versions carry no verifier; for
+    those, the first ciphertext file is decrypted in memory as the check. Both
+    paths are read-only: nothing on disk is modified before the passphrase is
+    proven correct.
+    """
+    verifier = None
+    try:
+        marker = json.loads((db_path.parent / ENCRYPTED_MARKER).read_text())
+        if isinstance(marker, dict):
+            verifier = marker.get(_VERIFIER_KEY)
+    except Exception:
+        verifier = None
+    if verifier:
+        token = verifier.encode("ascii") if isinstance(verifier, str) else bytes(verifier)
+        try:
+            plain = fernet.decrypt(token)
+        except InvalidToken:
+            raise ValueError("Wrong passphrase — cannot decrypt")
+        if plain != _VERIFIER_PLAINTEXT:
+            raise ValueError("Encryption verifier mismatch — cannot decrypt")
+        return
+    probe = next(iter(_ciphertext_files(db_path)), None)
+    if probe is not None:
+        try:
+            fernet.decrypt(probe.read_bytes())
+        except InvalidToken:
+            raise ValueError("Wrong passphrase — cannot decrypt")
 
 
 def is_encrypted(db_path: Path) -> bool:
@@ -59,7 +122,12 @@ def encrypt_file(path: Path, fernet: "Fernet") -> None:
 
 
 def decrypt_file(enc_path: Path, fernet: "Fernet") -> Path:
-    """Decrypt a .enc file back to its original path."""
+    """Decrypt a .enc file back to its original path.
+
+    The ciphertext is decrypted in memory first and only then written, so an
+    InvalidToken (wrong passphrase / corrupt token) never modifies the
+    filesystem. See the module docstring for the plaintext-remnant caveat.
+    """
     data = enc_path.read_bytes()
     decrypted = fernet.decrypt(data)
     original_path = enc_path.with_suffix("")  # strip .enc
@@ -105,9 +173,11 @@ def encrypt_db(db_path: Path, passphrase: str) -> dict:
             encrypt_file(md_file, fernet)
             encrypted_count += 1
 
-    # Write salt + marker
+    # Write salt + marker (the marker carries a passphrase verifier so
+    # decrypt_db can validate the passphrase before mutating anything)
     (db_path.parent / SALT_FILE).write_bytes(salt)
-    marker_data = json.dumps({"version": 1, "files": encrypted_count})
+    verifier = fernet.encrypt(_VERIFIER_PLAINTEXT).decode("ascii")
+    marker_data = json.dumps({"version": 1, "files": encrypted_count, _VERIFIER_KEY: verifier})
     (db_path.parent / ENCRYPTED_MARKER).write_text(marker_data)
 
     return {"encrypted_files": encrypted_count, "salt": salt.hex()}
@@ -116,6 +186,10 @@ def encrypt_db(db_path: Path, passphrase: str) -> dict:
 def decrypt_db(db_path: Path, passphrase: str) -> dict:
     """
     Decrypt the memory DB and all vault .md.enc files.
+
+    The passphrase is validated against the stored test vector BEFORE any file
+    is touched, so a wrong passphrase is a complete no-op — never a
+    half-decrypted directory with the marker still in place.
 
     Returns {"decrypted_files": int}.
     Raises ValueError if passphrase is wrong.
@@ -133,36 +207,18 @@ def decrypt_db(db_path: Path, passphrase: str) -> dict:
     salt = salt_path.read_bytes()
     fernet = _get_fernet(passphrase, salt)
 
-    decrypted_count = 0
+    # Validate the passphrase against the known test vector BEFORE mutating
+    # anything; only then decrypt all files.
+    _validate_passphrase(fernet, db_path)
 
-    # Decrypt DB
-    enc_db = db_path.with_suffix(db_path.suffix + ".enc")
-    if enc_db.exists():
+    decrypted_count = 0
+    for enc_path in _ciphertext_files(db_path):
         try:
-            decrypt_file(enc_db, fernet)
+            decrypt_file(enc_path, fernet)
             decrypted_count += 1
         except InvalidToken:
-            raise ValueError("Wrong passphrase — cannot decrypt")
-
-    # Decrypt WAL/SHM
-    for suffix in ["-wal", "-shm"]:
-        enc_wal = db_path.parent / (db_path.name + suffix + ".enc")
-        if enc_wal.exists():
-            try:
-                decrypt_file(enc_wal, fernet)
-                decrypted_count += 1
-            except InvalidToken:
-                raise ValueError("Wrong passphrase — cannot decrypt")
-
-    # Decrypt vault files
-    vault_dir = db_path.parent / "vault"
-    if vault_dir.exists():
-        for enc_file in vault_dir.rglob("*.md.enc"):
-            try:
-                decrypt_file(enc_file, fernet)
-                decrypted_count += 1
-            except InvalidToken:
-                raise ValueError("Wrong passphrase — cannot decrypt")
+            # The passphrase was already validated; this is per-file corruption.
+            raise ValueError(f"Ciphertext verification failed for {enc_path.name} — cannot decrypt")
 
     # Remove marker + salt
     (db_path.parent / ENCRYPTED_MARKER).unlink(missing_ok=True)

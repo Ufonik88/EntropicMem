@@ -8,6 +8,7 @@ Stdlib-only (sqlite3).
 """
 
 import hashlib
+import logging
 import sqlite3
 import sys
 from dataclasses import dataclass, field
@@ -15,6 +16,24 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from vault import Note, Vault
+
+logger = logging.getLogger(__name__)
+
+# ── shared FTS5 query building (single home: memory_engine) ─────────────────
+#
+# The one MATCH-expression builder for the whole codebase lives in
+# memory_engine.py (which must stay self-contained for standalone copies).
+# Re-exported here so vault-search callers keep one import site.
+
+from memory_engine import (  # noqa: F401,E402 (shared FTS5 query layer)
+    FTS_REASON_MATCH_ERROR,
+    FTS_REASON_OK,
+    MAX_FTS_TERMS,
+    build_fts_query,
+    escape_like,
+    phrase_query,
+    run_fts_match,
+)
 
 # ── FTS schema ──────────────────────────────────────────────────────────────
 
@@ -267,8 +286,10 @@ class VaultIndex:
                 continue
             try:
                 note = vault.read_note(Path(meta["path"]))
-            except Exception:
-                continue  # unreadable source heals on its next write
+            except (OSError, ValueError, KeyError) as exc:
+                # unreadable source heals on its next write
+                logger.warning("edge rescan skipped unreadable note %s: %s", meta.get("path"), exc)
+                continue
             self.upsert_edges_for_note(vault, note, known_titles=known_titles)
 
         self.db.commit()
@@ -284,15 +305,15 @@ class VaultIndex:
         """
         found: set = set()
         for title in titles:
-            if not title:
+            phrase = phrase_query(title)
+            if not phrase:
                 continue
-            clean = title.replace('"', '""')
-            try:
-                rows = self.db.execute(
-                    "SELECT note_id FROM notes_fts WHERE notes_fts MATCH ? LIMIT ?",
-                    (f'body: "{clean}"', limit_per_title),
-                ).fetchall()
-            except sqlite3.OperationalError:
+            rows, reason = run_fts_match(
+                self.db,
+                "SELECT note_id FROM notes_fts WHERE notes_fts MATCH ? LIMIT ?",
+                (f"body: {phrase}", limit_per_title),
+            )
+            if reason != FTS_REASON_OK:
                 continue
             found.update(row["note_id"] for row in rows)
         return found
@@ -407,7 +428,8 @@ class VaultIndex:
                         "INSERT INTO graph_edges (source_id, target_id, kind) VALUES (?, ?, 'wikilink')",
                         (note_id, target_id),
                     )
-                except Exception:
+                except sqlite3.IntegrityError:
+                    # duplicate edge — increment weight
                     self.db.execute(
                         "UPDATE graph_edges SET weight = weight + 1 WHERE source_id = ? AND target_id = ?",
                         (note_id, target_id),
@@ -434,16 +456,23 @@ class VaultIndex:
     # ── search ──────────────────────────────────────────────────────────
 
     def search_fts(
-        self, query: str, top_k: int = 10, domain: Optional[str] = None
+        self, query: str, top_k: int = 10, domain: Optional[str] = None,
+        fts_query: Optional[str] = None,
     ) -> List[SearchHit]:
         """
         Full-text search over title, tags, and body using FTS5.
         Returns ranked results with highlight snippets.
+
+        Uses the shared build_fts_query() (token OR-prefix, metacharacter-safe,
+        term-capped) so vault search and fact recall mean the same thing for
+        the same query. Pass a prebuilt ``fts_query`` to reuse one expression
+        across layers. A rejected MATCH expression yields [] (logged), never an
+        exception.
         """
-        # Sanitize query for FTS5: escape double quotes only
-        clean_query = query.replace('"', '""')
-        # Build FTS5 query string with parameterized values
-        fts_query = f'title: "{clean_query}"* OR tags: "{clean_query}"* OR body: "{clean_query}"*'
+        if fts_query is None:
+            fts_query = build_fts_query(query, fields=("title", "tags", "body"))
+        if not fts_query:
+            return []
 
         where = ""
         params: tuple = ()
@@ -451,7 +480,8 @@ class VaultIndex:
             where = "AND notes_meta.domain = ?"
             params = (domain,)
 
-        rows = self.db.execute(
+        rows, reason = run_fts_match(
+            self.db,
             f"""SELECT
                 notes_fts.note_id,
                 notes_fts.title,
@@ -459,6 +489,7 @@ class VaultIndex:
                 notes_fts.note_type,
                 notes_fts.importance,
                 notes_fts.tags,
+                notes_meta.path,
                 snippet(notes_fts, 4, '[HL]', '[/HL]', '...', 32) AS snippet,
                 rank
             FROM notes_fts
@@ -467,18 +498,16 @@ class VaultIndex:
             ORDER BY rank
             LIMIT ?""",
             (fts_query, *params, top_k),
-        ).fetchall()
+        )
+        if reason != FTS_REASON_OK:
+            return []
 
         hits = []
         for row in rows:
             tags = [t.strip() for t in (row["tags"] or "").split(",") if t.strip()]
-            meta_row = self.db.execute(
-                "SELECT path FROM notes_meta WHERE note_id = ?", (row["note_id"],)
-            ).fetchone()
-            path = meta_row["path"] if meta_row else ""
             hits.append(SearchHit(
                 note_id=row["note_id"],
-                path=path,
+                path=row["path"] or "",
                 title=row["title"],
                 domain=row["domain"] or "",
                 note_type=row["note_type"] or "permanent",
@@ -493,8 +522,8 @@ class VaultIndex:
         """Exact or prefix title search (for link resolution)."""
         rows = self.db.execute(
             """SELECT note_id, title, domain, note_type, importance, tags, path, body_preview
-            FROM notes_meta WHERE title LIKE ? LIMIT 10""",
-            (f"%{title}%",),
+            FROM notes_meta WHERE title LIKE ? ESCAPE '\\' LIMIT 10""",
+            (f"%{escape_like(title)}%",),
         ).fetchall()
         hits = []
         for row in rows:

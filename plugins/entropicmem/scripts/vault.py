@@ -156,14 +156,35 @@ class Vault:
 
     # ── path helpers ────────────────────────────────────────────────────
 
-    def resolve_path(self, relative: str) -> Path:
-        """Resolve a relative path within the vault. Accepts vault://Domain/Note format."""
-        clean = relative.removeprefix("vault://")
-        # Prevent path traversal: resolve and ensure it's within vault root
+    def resolve_path(self, relative) -> Path:
+        """Resolve a note path to an absolute path INSIDE the vault.
+
+        The single containment choke point for every reader/mutator
+        (read_note, append_note, patch_note, delete_note, open_note).
+        Accepts ``vault://Domain/Note`` and ``Domain/Note`` forms (str or Path).
+
+        Security contract:
+        - absolute inputs are rejected (an absolute path can never name a
+          vault-relative note);
+        - dot-dot traversal is rejected by resolve() + ``Path.relative_to``
+          containment — a plain ``startswith`` prefix check is NOT sufficient
+          because a sibling directory like ``<vault>-evil/`` passes it.
+        """
+        clean = str(relative).removeprefix("vault://")
+        if Path(clean).is_absolute() or os.path.isabs(clean):
+            raise ValueError(f"Absolute paths are not allowed in the vault: {relative}")
         resolved = (self.root / clean).resolve()
-        if not str(resolved).startswith(str(self.root.resolve())):
+        if not self._contains(resolved):
             raise ValueError(f"Path traversal attempt blocked: {relative}")
         return resolved
+
+    def _contains(self, resolved: Path) -> bool:
+        """True when *resolved* is inside the vault root (relative_to containment)."""
+        try:
+            resolved.relative_to(self.root)
+            return True
+        except ValueError:
+            return False
 
     def sanitize(self, name: str) -> str:
         """Sanitize a string into a safe filename stub.
@@ -253,8 +274,13 @@ class Vault:
         return fm
 
     def read_note(self, path: Path) -> Note:
-        """Read a note from disk and parse frontmatter + body."""
-        full = self.root / path if not path.is_absolute() else path
+        """Read a note from disk and parse frontmatter + body.
+
+        *path* is vault-relative; it goes through resolve_path (the single
+        containment choke point), so absolute or traversal paths raise
+        ValueError instead of escaping the vault.
+        """
+        full = self.resolve_path(path)
         text = full.read_text(encoding="utf-8")
         fm: Dict[str, Any] = {}
         body = text
@@ -265,7 +291,7 @@ class Vault:
                 body = parts[2].strip()
         title = fm.get("title", full.stem.replace("-", " ").title())
         return Note(
-            path=path if not path.is_absolute() else path.relative_to(self.root),
+            path=full.relative_to(self.root),
             title=title,
             body=body,
             frontmatter=fm,
@@ -333,8 +359,8 @@ class Vault:
         if filepath != candidate:
             filename = filepath.name
 
-        # Ensure the resolved path is within vault root
-        if not str(filepath).startswith(str(self.root.resolve())):
+        # Ensure the resolved path is within vault root (relative_to containment)
+        if not self._contains(filepath):
             raise ValueError(f"Path traversal attempt blocked: {folder}/{filename}")
 
         filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -359,20 +385,28 @@ class Vault:
         return Path(safe_folder) / filename
 
     def append_note(self, path: Path, content: str, anchor: Optional[str] = None) -> None:
-        """Append content to an existing note, optionally after an anchor line."""
-        text = (self.root / path).read_text(encoding="utf-8")
+        """Append content to an existing note, optionally after an anchor line.
+
+        *path* goes through resolve_path (vault containment).
+        """
+        full = self.resolve_path(path)
+        text = full.read_text(encoding="utf-8")
         if anchor and anchor in text:
             idx = text.index(anchor) + len(anchor)
             text = text[:idx] + "\n" + content + text[idx:]
         else:
             text += "\n" + content
-        (self.root / path).write_text(text, encoding="utf-8")
+        full.write_text(text, encoding="utf-8")
 
     def patch_note(
         self, path: Path, old_string: str, new_string: str, replace_all: bool = False
     ) -> None:
-        """Find-and-replace inside a note body."""
-        text = (self.root / path).read_text(encoding="utf-8")
+        """Find-and-replace inside a note body.
+
+        *path* goes through resolve_path (vault containment).
+        """
+        full = self.resolve_path(path)
+        text = full.read_text(encoding="utf-8")
         if replace_all:
             text = text.replace(old_string, new_string)
         else:
@@ -382,13 +416,17 @@ class Vault:
             if count > 1:
                 raise ValueError(f"old_string appears {count} times in {path} — use replace_all=True")
             text = text.replace(old_string, new_string, 1)
-        (self.root / path).write_text(text, encoding="utf-8")
+        full.write_text(text, encoding="utf-8")
 
     def delete_note(self, path: Path) -> None:
-        """Delete a note. Refuses to delete protected paths."""
-        if self._is_protected(path):
+        """Delete a note. Refuses to delete protected paths.
+
+        *path* goes through resolve_path (vault containment).
+        """
+        full = self.resolve_path(path)
+        rel = full.relative_to(self.root)
+        if self._is_protected(rel):
             raise ValueError(f"Cannot delete protected path: {path}")
-        full = self.root / path
         if full.exists():
             full.unlink()
 
@@ -631,33 +669,36 @@ def hermes_home_path() -> Path:
     return base.expanduser().resolve()
 
 
-def resolve_vault_path(explicit: Optional[str] = None) -> Path:
+def resolve_vault_path(
+    explicit: Optional[str] = None, hermes_home: Optional[Path] = None
+) -> Path:
     """
-    Resolve vault path from env vars or defaults.
+    THE single shared vault-path resolver (CLI and plugin both call this, so
+    they can never operate on different vaults).
 
     Order of precedence:
-    1. ENTROPICMEM_VAULT_PATH env var
-    2. OBSIDIAN_VAULT_PATH env var
-    3. $HERMES_HOME/entropicmem/vault (profile-aware; also the default home)
-    4. ~/Documents/Obsidian Vault (legacy fallback, only when HERMES_HOME
-       is unset AND the shared Obsidian vault exists with AGENTS.md)
+    1. ``explicit`` (CLI ``--vault`` argument or plugin config ``vault_path``)
+    2. ``ENTROPICMEM_VAULT_PATH`` env var
+    3. ``HERMES_HOME/entropicmem/vault`` (profile-aware; ``hermes_home``
+       argument wins over the env-derived home)
 
-    Profiles (HERMES_HOME set) never fall back to the shared Obsidian
-    vault — a wife/personal profile must keep its own isolated vault.
+    ``OBSIDIAN_VAULT_PATH`` and the legacy ``~/Documents/Obsidian Vault``
+    fallback are deliberately NOT honored (Phase 2 path unification): a
+    shared Obsidian vault is no substitute for the profile-scoped default,
+    and honoring a second env var here made CLI and plugin resolve different
+    vaults. Live ops scripts that want an Obsidian vault read
+    ``OBSIDIAN_VAULT_PATH`` directly from ``os.environ`` themselves.
     """
     if explicit:
-        return Path(explicit).expanduser().resolve()
+        return Path(os.path.expandvars(str(explicit))).expanduser().resolve()
 
-    env_path = os.environ.get("ENTROPICMEM_VAULT_PATH") or os.environ.get("OBSIDIAN_VAULT_PATH")
+    env_path = os.environ.get("ENTROPICMEM_VAULT_PATH")
     if env_path:
         return Path(os.path.expandvars(env_path)).expanduser().resolve()
 
-    profile_vault = hermes_home_path() / "entropicmem" / "vault"
-    if "HERMES_HOME" in os.environ:
-        return profile_vault
-
-    default_vault = Path.home() / "Documents" / "Obsidian Vault"
-    if (default_vault / "AGENTS.md").exists():
-        return default_vault
-
-    return profile_vault
+    base = (
+        Path(hermes_home).expanduser().resolve()
+        if hermes_home is not None
+        else hermes_home_path()
+    )
+    return (base / "entropicmem" / "vault").resolve()

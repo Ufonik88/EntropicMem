@@ -36,7 +36,7 @@ import time
 from datetime import date
 from pathlib import Path
 
-# ── path setup (support both repo-root and ~/.hermes/skills/entropicmem/scripts/) ──
+# ── path setup (support both repo-root and ~/.hermes/plugins/entropicmem/scripts/) ──
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
@@ -54,7 +54,7 @@ from vault import (  # noqa: E402
     resolve_vault_path,
 )
 
-__version__ = "2.6.0"
+__version__ = "2.7.0"
 
 # ── input validation helpers ────────────────────────────────────────────────
 
@@ -711,30 +711,13 @@ def cmd_ingest(args) -> int:
         title = "Stdin Capture"
         source_label = "stdin"
     elif source.startswith("http://") or source.startswith("https://"):
-        import ipaddress
-        import urllib.parse
+        import http.client
         import urllib.request
 
-        # Validate URL to prevent SSRF
+        # Validate URL to prevent SSRF (scheme, internal hosts, DNS rebinding)
         try:
-            parsed = urllib.parse.urlparse(source)
-            if parsed.scheme not in ("http", "https"):
-                print("Error: only http/https URLs allowed", file=sys.stderr)
-                return 1
-            # Block private/internal IPs
-            hostname = parsed.hostname or ""
-            try:
-                ip = ipaddress.ip_address(hostname)
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                    print("Error: private/internal IP addresses not allowed", file=sys.stderr)
-                    return 1
-            except ValueError:
-                # Not an IP address, that's fine - it's a hostname
-                # Additional check: block localhost and common internal hostnames
-                if hostname.lower() in ("localhost", "localhost.localdomain", "metadata", "metadata.google.internal", "169.254.169.254"):
-                    print("Error: internal hostname not allowed", file=sys.stderr)
-                    return 1
-        except Exception as e:
+            source = validate_url(source)
+        except ValueError as e:
             print(f"Error: invalid URL: {e}", file=sys.stderr)
             return 1
 
@@ -743,7 +726,7 @@ def cmd_ingest(args) -> int:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 # Limit response size to prevent memory exhaustion
                 text = resp.read(10 * 1024 * 1024).decode("utf-8", errors="replace")
-        except Exception as e:
+        except (OSError, ValueError, http.client.HTTPException) as e:
             print(f"Error fetching URL: {e}", file=sys.stderr)
             return 1
         text = re.sub(r'<script.*?</script>', '', text, flags=re.S | re.I)
@@ -992,14 +975,14 @@ def cmd_graph(args) -> int:
         except KeyboardInterrupt:
             print()
     elif args.graph_command == "show":
-        # Phase 10: graph-aware note connections
+        # Phase 10: graph-aware note connections (unified graph_edges table)
         import sqlite3 as _sqlite
 
-        from graph_query import get_connected_notes, graph_stats, init_links_schema
+        from graph_query import get_connected_notes, graph_stats, init_graph_schema
 
         db_path = index_path  # reuse the index DB
         conn = _sqlite.connect(str(db_path))
-        init_links_schema(conn)
+        init_graph_schema(conn)
         stats = graph_stats(conn)
         if stats["total_links"] == 0:
             print("Link graph is empty. Run 'entropicmem index rebuild' to reindex notes and edges.")
@@ -1076,6 +1059,39 @@ def cmd_memory(args) -> int:
 
 def cmd_recall(args) -> int:
     engine = MemoryEngine(_memory_db_path())
+
+    # Sprint A: graph-neighbor recall via the triples table
+    related_id = getattr(args, "related", None)
+    if related_id:
+        try:
+            related_id = validate_entropic_id(related_id)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            engine.close()
+            return 1
+        results = engine.recall_related(related_id, top_k=args.top_k)
+        if not results:
+            print("No related facts.")
+            engine.close()
+            return 0
+        for r in results:
+            preview = r.content.replace("\n", " ")
+            print(f"[{r.id}] ({r.domain}) imp={r.importance:.2f} {preview}")
+        engine.close()
+        return 0
+
+    if not args.query:
+        print("Error: query required (or use --related FACT_ID)", file=sys.stderr)
+        engine.close()
+        return 1
+
+    # Sprint A: agent reflection layer over the recalled set
+    if getattr(args, "reflect", False):
+        data = engine.recall_for_agent(args.query, top_k=args.top_k, domain=args.domain)
+        print(json.dumps(data, indent=2))
+        engine.close()
+        return 0
+
     if getattr(args, "recall_type", "fact") == "episodic":
         episodes = engine.recall_episodes(
             args.query,
@@ -1140,10 +1156,14 @@ def cmd_remember(args) -> int:
 
 def cmd_forget(args) -> int:
     vault_path, index_path = _resolve_env()
+    try:
+        eid = validate_entropic_id(args.entropic_id)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     vault = Vault(vault_path)
     index = VaultIndex(index_path)
     engine = MemoryEngine(_memory_db_path())
-    eid = args.entropic_id
     engine.forget(eid, confirm=bool(getattr(args, "confirm", False)))
     found = None
     for rel in vault.list_notes():
@@ -1162,7 +1182,7 @@ def cmd_forget(args) -> int:
     return 0
 
 
-# ── stub for Phase 3-4 ──────────────────────────────────────────────────────
+# ── subcommand: extract (Phase 8: auto-extraction) ───────────────────────────
 
 def cmd_extract(args) -> int:
     """Extract facts from conversation text using heuristic patterns (no LLM needed)."""
@@ -1198,13 +1218,18 @@ def cmd_extract(args) -> int:
 
 def cmd_reinforce(args) -> int:
     """Boost a fact's access count and timestamp."""
+    try:
+        eid = validate_entropic_id(args.entropic_id)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     engine = MemoryEngine(_memory_db_path())
-    found = engine.reinforce(args.entropic_id)
+    found = engine.reinforce(eid)
     engine.close()
     if found:
-        print(f"Reinforced: {args.entropic_id}")
+        print(f"Reinforced: {eid}")
     else:
-        print(f"Fact not found: {args.entropic_id}", file=sys.stderr)
+        print(f"Fact not found: {eid}", file=sys.stderr)
         return 1
     return 0
 
@@ -1238,11 +1263,6 @@ def cmd_patch_core(args) -> int:
 
     target_name = "Persona" if args.target == "persona" else "User_Profile"
     print(f"Patched Core/{target_name}.md")
-    return 0
-
-
-def _stub(cmd: str) -> int:
-    print(f"`entropicmem {cmd}` — not implemented yet. Coming in Phase 3–4.")
     return 0
 
 
@@ -1570,16 +1590,21 @@ def cmd_import(args) -> int:
 
 def cmd_history(args) -> int:
     """Show version history for a fact (append-only mode)."""
+    try:
+        eid = validate_entropic_id(args.entropic_id)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     engine = MemoryEngine(_memory_db_path())
-    versions = engine.get_versions(args.entropic_id)
+    versions = engine.get_versions(eid)
     engine.close()
 
     if not versions:
-        print(f"No version history for {args.entropic_id}")
+        print(f"No version history for {eid}")
         print("(Versioning requires facts stored in append-only mode)")
         return 0
 
-    print(f"Version history for {args.entropic_id} ({len(versions)} versions):")
+    print(f"Version history for {eid} ({len(versions)} versions):")
     for i, v in enumerate(versions):
         marker = " (current)" if i == 0 else ""
         preview = v["content"].replace("\n", " ")[:80]
@@ -1596,12 +1621,15 @@ def cmd_consolidate(args) -> int:
         max_age_days=args.max_age_days,
         min_access_count=args.min_access_count,
         dry_run=args.dry_run,
+        confirm=bool(getattr(args, "confirm", False)),
     )
     engine.close()
 
     if result.get("dry_run"):
         print(f"Dry run: {result['would_archive']} facts would be archived "
               f"(older than {result['cutoff_days']} days, accessed ≤ {args.min_access_count} times)")
+        if result.get("confirm_required"):
+            print("Dry run only — re-run with --confirm (and without --dry-run) to actually archive.")
     else:
         print(f"Consolidated: {result['archived']} facts archived "
               f"(cutoff: {result['cutoff_days']} days)")
@@ -1837,11 +1865,15 @@ def main() -> int:
 
     # recall
     p_recall = sub.add_parser("recall", help="Search durable facts in memory engine")
-    p_recall.add_argument("query", help="Search query")
+    p_recall.add_argument("query", nargs="?", default="", help="Search query (omit with --related)")
     p_recall.add_argument("--top-k", type=int, default=10, help="Max results (default: 10)")
     p_recall.add_argument("--domain", default=None, help="Filter by domain")
     p_recall.add_argument("--scope", default="own", choices=["own", "shared", "all"],
                           help="own = local facts; shared = peer-shared; all = both")
+    p_recall.add_argument("--reflect", action="store_true",
+                          help="Agent reflection layer: JSON facts + reflect_summary (Sprint A)")
+    p_recall.add_argument("--related", metavar="ENTROPIC_ID",
+                          help="Find facts related to a fact via its triples graph (Sprint A)")
     p_recall.add_argument("--type", dest="recall_type", default="fact",
                           choices=["fact", "episodic"], help="Store to search (v2.2.0)")
     p_recall.add_argument("--since", dest="since", help="Start date (YYYY-MM-DD), episodic only (v2.2.0)")

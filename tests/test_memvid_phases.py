@@ -64,7 +64,7 @@ class TestPIIDetection:
         assert any(f.pii_type == "email" for f in findings)
 
     def test_phone_detection(self):
-        findings = scan_pii("call me on 0821234567")
+        findings = scan_pii("call me on 0820000000")
         assert len(findings) >= 1
         assert any("phone" in f.pii_type for f in findings)
 
@@ -88,9 +88,15 @@ class TestPIIDetection:
         assert result["text"] == "my email is test@test.com"  # unchanged
 
     def test_check_pii_redact(self):
+        # Write-time policy: only high-confidence secrets (api_key, password)
+        # are auto-redacted; other PII types are warn-only and text survives.
         result = check_pii("my email is test@test.com", mode="redact")
         assert result["has_pii"] is True
-        assert "test@test.com" not in result["text"]
+        assert "test@test.com" in result["text"]  # preserved (warn-only finding)
+
+        secret = check_pii("password=supersecret123", mode="redact")
+        assert secret["has_pii"] is True
+        assert "supersecret123" not in secret["text"]  # secret redacted
 
     def test_check_pii_clean(self):
         result = check_pii("nothing sensitive here", mode="warn")

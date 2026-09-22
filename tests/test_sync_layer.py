@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "entropicmem" / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins" / "entropicmem" / "scripts"))
 from memory_engine import MemoryEngine  # noqa: E402
 
 

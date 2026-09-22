@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 REPO = Path(__file__).resolve().parent.parent
-SCRIPTS = REPO / "skills" / "entropicmem" / "scripts"
+SCRIPTS = REPO / "plugins" / "entropicmem" / "scripts"
 PLUGIN = REPO / "plugins" / "entropicmem" / "__init__.py"
 
 sys.path.insert(0, str(SCRIPTS))

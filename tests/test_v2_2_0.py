@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-_SCRIPTS = REPO / "skills" / "entropicmem" / "scripts"
+_SCRIPTS = REPO / "plugins" / "entropicmem" / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
 from memory_engine import MemoryEngine  # noqa: E402

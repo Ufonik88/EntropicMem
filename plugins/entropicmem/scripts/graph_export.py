@@ -9,6 +9,7 @@ used automatically when present next to the output file, for offline use).
 """
 
 import json
+from html import escape as html_escape
 from pathlib import Path
 from typing import Optional
 
@@ -182,6 +183,41 @@ def assert_bodies_present(payload: dict, *, context: str = "graph export") -> di
             "Index/FTS likely stale — rebuild before accepting the export."
         )
     return stats
+
+
+# ── vault path safety ───────────────────────────────────────────────────────
+
+def resolve_note_path(vault_root: Path, rel_path) -> Path:
+    """Resolve a DB-supplied note path strictly inside the vault root.
+
+    notes_meta.path rows feed vault reads here (body fallback) and in the
+    graph server; a poisoned row must never turn those reads into arbitrary
+    file access. Absolute paths and any dot-dot segment are rejected outright,
+    and the resolved result must still land under vault_root (symlink escapes
+    resolve() away).
+
+    Args:
+        vault_root: vault directory the note must live under.
+        rel_path: DB-supplied relative path (str or Path).
+
+    Returns:
+        The resolved absolute path to the note inside vault_root.
+
+    Raises:
+        ValueError: when the path is empty, absolute, contains '..', or
+            resolves outside vault_root.
+    """
+    raw = str(rel_path or "").strip()
+    if not raw:
+        raise ValueError("empty note path")
+    candidate = Path(raw)
+    if candidate.is_absolute() or candidate.drive or any(p == ".." for p in candidate.parts):
+        raise ValueError(f"note path escapes vault root: {raw!r}")
+    root = Path(vault_root).expanduser().resolve()
+    full = (root / candidate).resolve()
+    if not full.is_relative_to(root):
+        raise ValueError(f"note path escapes vault root: {raw!r}")
+    return full
 
 
 # ── JSON export ─────────────────────────────────────────────────────────────
@@ -413,6 +449,11 @@ def export_html(
 
     vault_root: path to the vault when include_bodies=True. When omitted and
     bodies are requested, resolved from ENTROPICMEM_VAULT_PATH only (not Obsidian).
+
+    Stored-XSS guard: body text embedded into the template is HTML-escaped at
+    embed time (the modal renders bodies via marked.parse() into innerHTML and
+    marked passes raw HTML through). Lazy /api/note bodies arrive raw and are
+    covered by the client-side sanitizeRenderedHtml pass in the template.
     """
     data = export_json(
         index, output_path.parent / "graph.json",
@@ -450,10 +491,23 @@ def export_html(
                     continue
                 node["full_body"] = meta.get("body_preview", "")
                 try:
-                    note = vault.read_note(Path(meta["path"]))
+                    # resolve_note_path rejects absolute/dot-dot DB paths: a
+                    # poisoned notes_meta.path must not become an arbitrary
+                    # file read (its ValueError lands in the except below).
+                    note = vault.read_note(resolve_note_path(Path(vault_root), meta["path"]))
                     node["full_body"] = note.body
                 except Exception:
                     pass
+
+    # Stored-XSS guard: escape every embedded body so a stored
+    # <img onerror=…> payload reaches the modal DOM as literal text, never as
+    # markup (marked would otherwise pass it straight into innerHTML). Only
+    # the template payload is escaped — graph.json, already written above,
+    # keeps raw body text (it is data, not markup).
+    for node in data.get("nodes", []):
+        for key in ("full_body", "body_preview"):
+            if node.get(key):
+                node[key] = html_escape(node[key], quote=True)
 
     # Serialize and make it safe to embed inside a <script> tag: the only
     # sequence that can prematurely close the tag is "</", so escape it.
@@ -928,7 +982,7 @@ function buildLegend() {
   } else {
     html += '<div class="lg-title">Domains</div>';
     for (const [domain, color] of Object.entries(PALETTE)) {
-      html += `<div class="row"><span class="swatch" style="background:${color};box-shadow:0 0 6px ${color};"></span>${domain}</div>`;
+      html += `<div class="row"><span class="swatch" style="background:${color};box-shadow:0 0 6px ${color};"></span>${escapeHtml(domain)}</div>`;
     }
   }
   html += '<div class="lg-title" style="margin-top:8px;">Shapes</div>';
@@ -965,7 +1019,12 @@ function buildTagSuggestions() {
   const tags = new Set();
   DATA.nodes.forEach(n => (n.tags || []).forEach(t => tags.add(t)));
   const dl = document.getElementById("tag-suggestions");
-  dl.innerHTML = Array.from(tags).sort().map(t => `<option value="${t}">`).join("");
+  dl.innerHTML = "";
+  Array.from(tags).sort().forEach(t => {
+    const opt = document.createElement("option");
+    opt.value = t; // DOM property — never HTML-parsed
+    dl.appendChild(opt);
+  });
 }
 
 /* ── Filtering ── */
@@ -1396,8 +1455,8 @@ function showTooltip(event, d) {
   const tip = document.getElementById("tooltip");
   tip.style.display = "block";
   tip.innerHTML = `<div class="tt-title" style="color:${nodeColor(d)}">${escapeHtml(d.title || d.id)}</div>
-    <div class="tt-meta">${d.type} · ${d.domain || "uncategorized"} · importance ${(d.importance || 0).toFixed(2)}</div>
-    <div class="tt-meta">tags: ${(d.tags || []).join(", ") || "—"}</div>
+    <div class="tt-meta">${escapeHtml(d.type)} · ${escapeHtml(d.domain || "uncategorized")} · importance ${(d.importance || 0).toFixed(2)}</div>
+    <div class="tt-meta">tags: ${escapeHtml((d.tags || []).join(", ") || "—")}</div>
     <div class="tt-meta" style="margin-top:3px;color:#5AE4AA;">click to open · shift-click path · drag to move</div>`;
   moveTooltip(event);
 }
@@ -1461,6 +1520,34 @@ function updateMinimapViewport() {
 /* ── Modal ── */
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ── Markdown rendering with a sanitize pass (stored-XSS guard) ── */
+function sanitizeRenderedHtml(html) {
+  // marked passes raw HTML through and emits link hrefs verbatim, so nothing
+  // parsed from a note body may reach innerHTML as-is. Bodies embedded at
+  // export time are already HTML-escaped by the Python side; this pass covers
+  // raw lazy-fetched bodies (/api/note) and markup marked itself builds from
+  // hostile markdown (e.g. [x](javascript:...) hrefs).
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  tpl.content.querySelectorAll("script,style,iframe,object,embed,link,meta,base,form").forEach(el => el.remove());
+  tpl.content.querySelectorAll("*").forEach(el => {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      const value = String(attr.value || "");
+      if (name.startsWith("on")) { el.removeAttribute(attr.name); continue; }
+      if ((name === "href" || name === "src" || name === "xlink:href" || name === "action" || name === "formaction") &&
+          /^\s*(javascript|vbscript|data):/i.test(value)) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+  return tpl.innerHTML;
+}
+
+function renderMarkdown(text) {
+  return sanitizeRenderedHtml(marked.parse(String(text)));
 }
 
 function linkifyWikilinks(container) {
@@ -1558,7 +1645,7 @@ function renderModalContent(node, bodyEl) {
 
   const noteBody = node.full_body || node.body_preview || "";
   if (noteBody) {
-    content += marked.parse(noteBody);
+    content += renderMarkdown(noteBody);
   } else {
     content += '<p class="empty-note">No content available for this note.</p>';
   }
@@ -1567,17 +1654,32 @@ function renderModalContent(node, bodyEl) {
   linkifyWikilinks(bodyEl);
 
   // ── Linked Mentions pane (v2 Obsidian-style backlinks) ──
+  // Built with DOM nodes + addEventListener and a data-note-id attribute; the
+  // old string-concatenated inline onclick interpolated ids/titles raw into
+  // an event-handler attribute (stored-XSS sink).
   const linked = (typeof DATA !== "undefined" && DATA.nodes && adjacency && adjacency.get(node.id)) ? adjacency.get(node.id) : new Set();
   if (linked && linked.size > 0) {
     const pane = document.createElement("section");
     pane.className = "modal-links";
-    pane.innerHTML = '<h3 style="font-family:var(--display);font-size:1.05em;color:var(--accent);border-bottom:1px solid var(--border);padding-bottom:6px;margin:1.2em 0 0.6em;">Linked Mentions</h3>' +
-      '<ul style="margin:0;padding-left:18px;color:#ccc;font-size:13px;line-height:1.6;">' +
-      Array.from(linked).map(nid => {
-        const n = DATA.nodes.find(x => x.id === nid) || { title: nid };
-        return `<li><a href="#note=${encodeURIComponent(n.title || nid)}" onclick="closeModal();applyFocus('${String(nid).replace(/'/g,"\\'")}');return true;" style="color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent);cursor:pointer;">${(n.title || nid).replace(/</g,"&lt;")}</a></li>`;
-      }).join("") +
-      "</ul>";
+    const heading = document.createElement("h3");
+    heading.style.cssText = "font-family:var(--display);font-size:1.05em;color:var(--accent);border-bottom:1px solid var(--border);padding-bottom:6px;margin:1.2em 0 0.6em;";
+    heading.textContent = "Linked Mentions";
+    const ul = document.createElement("ul");
+    ul.style.cssText = "margin:0;padding-left:18px;color:#ccc;font-size:13px;line-height:1.6;";
+    linked.forEach(nid => {
+      const n = DATA.nodes.find(x => x.id === nid) || { title: nid };
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.href = "#note=" + encodeURIComponent(n.title || nid);
+      a.dataset.noteId = nid;
+      a.style.cssText = "color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent);cursor:pointer;";
+      a.textContent = n.title || nid;
+      a.addEventListener("click", () => { closeModal(); applyFocus(a.dataset.noteId); });
+      li.appendChild(a);
+      ul.appendChild(li);
+    });
+    pane.appendChild(heading);
+    pane.appendChild(ul);
     bodyEl.appendChild(pane);
   }
 

@@ -1,3 +1,8 @@
+"""EntropicMem graph server — serves graph.html/graph.json + vault note APIs.
+
+``entropicmem graph serve`` requires fastapi and uvicorn (both optional; not
+part of the core EntropicMem install).
+"""
 from __future__ import annotations
 
 import hmac
@@ -5,8 +10,16 @@ import json
 
 # Canonical source for the graph server. Deployed (symlink-free) copy runs
 # from ~/.hermes/entropicmem/graph_server/server.py under the systemd user
-# unit entropicmem-graph-server.service. Keep both copies identical; after
-# editing here, sync the deployed copy and restart the unit.
+# unit entropicmem-graph-server.service. This repo file is the single source
+# of truth — the deployed copy must be synced from here (the operator handles
+# the deploy step and unit restart).
+#
+# Bind policy: the read endpoints below serve full vault content, so serving
+# on a non-loopback bind is refused at startup unless
+# ENTROPICMEM_GRAPH_EXPOSE=1 explicitly opts in; whenever the process is not
+# loopback-bound, the body-bearing read endpoints require the same
+# ENTROPICMEM_GRAPH_TOKEN as /refresh (loopback stays tokenless — the local
+# trust plane).
 #
 # Path resolution (portable - no hard-coded user home paths):
 #   HERMES_HOME                 default ~/.hermes; override via env
@@ -40,9 +53,9 @@ def _resolve_scripts_dir() -> Path:
     if override:
         return Path(override)
     candidates = [
-        HERMES_HOME / "skills" / "entropicmem" / "scripts",
+        HERMES_HOME / "plugins" / "entropicmem" / "scripts",
         # Repo checkout layout: <repo>/scripts/graph_server/server.py
-        HERE.parents[1] / "skills" / "entropicmem" / "scripts",
+        HERE.parents[1] / "plugins" / "entropicmem" / "scripts",
     ]
     for candidate in candidates:
         if candidate.is_dir():
@@ -60,7 +73,7 @@ def _looks_like_repo_root(path: Path) -> bool:
     return (
         (path / "pyproject.toml").is_file()
         and (path / "scripts" / "graph_server").is_dir()
-        and (path / "skills" / "entropicmem" / "scripts").is_dir()
+        and (path / "plugins" / "entropicmem" / "scripts").is_dir()
     )
 
 
@@ -76,9 +89,9 @@ def _resolve_export_dir() -> Path:
 
     # Deployed under ~/.hermes/entropicmem/graph_server - follow the skills
     # symlink (if present) back to the checkout's graph_export.
-    skills_scripts = HERMES_HOME / "skills" / "entropicmem" / "scripts"
+    skills_scripts = HERMES_HOME / "plugins" / "entropicmem" / "scripts"
     if skills_scripts.exists():
-        # <repo>/skills/entropicmem/scripts → parents[2] = <repo>
+        # <repo>/plugins/entropicmem/scripts → parents[2] = <repo>
         repo_via_skills = skills_scripts.resolve().parent.parent.parent
         if _looks_like_repo_root(repo_via_skills):
             return repo_via_skills / "graph_export"
@@ -90,8 +103,8 @@ SCRIPTS_DIR = _resolve_scripts_dir()
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from graph_export import export_html, export_json  # noqa: E402
-from index import VaultIndex  # noqa: E402
+from graph_export import export_html, export_json, resolve_note_path  # noqa: E402
+from index import VaultIndex, build_fts_query  # noqa: E402
 from vault import Vault, resolve_vault_path  # noqa: E402
 
 BASE_DIR = _resolve_export_dir()
@@ -111,11 +124,156 @@ def _require_token(x_entropicmem_token: str | None) -> None:
     if not expected:
         raise HTTPException(
             status_code=403,
-            detail="Refresh disabled: set ENTROPICMEM_GRAPH_TOKEN to enable",
+            detail="Access disabled: set ENTROPICMEM_GRAPH_TOKEN to enable",
         )
     provided = (x_entropicmem_token or "").strip()
     if not provided or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+
+# ── bind policy (enforces the loopback-only claim) ──────────────────────────
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _is_loopback_host(host: str) -> bool:
+    h = (host or "").strip().lower().strip("[]")
+    return h in _LOOPBACK_HOSTS or h.startswith("127.")
+
+
+def _proc_addr_to_host(addr: str) -> str:
+    """Map a /proc/net/tcp{,6} local_address field to a host string."""
+    ip_hex = addr.split(":", 1)[0]
+    if len(ip_hex) == 8:  # IPv4 (little-endian 32-bit word in /proc)
+        return ".".join(str(b) for b in bytes.fromhex(ip_hex)[::-1])
+    if ip_hex == "0" * 32:
+        return "::"          # IPv6 wildcard (dual-stack when v6only=0)
+    if ip_hex == "0" * 31 + "1":
+        return "::1"
+    if ip_hex[-8:] == "0100007F" and set(ip_hex[:-8]) <= {"0", "F"}:
+        return "127.0.0.1"   # v4-mapped 127.0.0.1
+    return "ipv6:" + ip_hex  # anything else counts as non-loopback
+
+
+def _proc_listen_hosts() -> set | None:
+    """Local addresses of this process's LISTEN sockets, via /proc (Linux).
+
+    None when /proc is unavailable (non-Linux); an empty set means the
+    process currently holds no listening sockets.
+    """
+    try:
+        fds = os.listdir("/proc/self/fd")
+    except OSError:
+        return None
+    inodes = set()
+    for fd in fds:
+        try:
+            target = os.readlink(f"/proc/self/fd/{fd}")
+        except OSError:
+            continue
+        if target.startswith("socket:[") and target.endswith("]"):
+            inodes.add(target[len("socket:["): -1])
+    hosts: set = set()
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            lines = Path(table).read_text(encoding="ascii").splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            # 4th field is the socket state (0A = LISTEN), 10th the inode.
+            if len(fields) < 10 or fields[3] != "0A" or fields[9] not in inodes:
+                continue
+            hosts.add(_proc_addr_to_host(fields[1]))
+    return hosts
+
+
+def _argv_bind_hosts() -> set:
+    """uvicorn's --host value(s) from the command line (portable fallback)."""
+    hosts = set()
+    argv = sys.argv[1:]
+    for i, arg in enumerate(argv):
+        if arg.startswith("--host="):
+            hosts.add(arg.split("=", 1)[1].strip())
+        elif arg == "--host" and i + 1 < len(argv):
+            hosts.add(argv[i + 1].strip())
+    return {h for h in hosts if h}
+
+
+def _bind_hosts() -> set | None:
+    """Best-effort bind addresses for this server process.
+
+    Precedence: ENTROPICMEM_GRAPH_BIND (explicit override, authoritative —
+    for setups where /proc and argv give no signal), then this process's
+    /proc LISTEN sockets, then uvicorn's --host argument. None means no
+    signal at all.
+    """
+    env = (os.environ.get("ENTROPICMEM_GRAPH_BIND") or "").strip()
+    if env:
+        return {h.strip() for h in env.split(",") if h.strip()}
+    hosts: set = set()
+    seen = False
+    proc = _proc_listen_hosts()
+    if proc is not None:
+        hosts |= proc
+        seen = True
+    argv_hosts = _argv_bind_hosts()
+    if argv_hosts:
+        hosts |= argv_hosts
+        seen = True
+    return hosts if seen else None
+
+
+def _bind_is_loopback() -> bool:
+    """True while every detected bind address is loopback.
+
+    Nothing detected counts as loopback (the local trust plane): the process
+    holds no serving socket yet (tests, pre-bind import).
+    """
+    hosts = _bind_hosts()
+    if not hosts:
+        return True
+    return all(_is_loopback_host(h) for h in hosts)
+
+
+def _expose_override() -> bool:
+    """Explicit opt-in to serve on a non-loopback bind."""
+    return os.environ.get("ENTROPICMEM_GRAPH_EXPOSE", "").strip() == "1"
+
+
+def _token_required() -> bool:
+    """Read endpoints need the token whenever the bind is not loopback-only."""
+    return not _bind_is_loopback()
+
+
+def _require_token_if_exposed(x_entropicmem_token: str | None) -> None:
+    """Gate a read endpoint: tokenless on the loopback trust plane, the same
+    constant-time ENTROPICMEM_GRAPH_TOKEN check as /refresh otherwise."""
+    if _token_required():
+        _require_token(x_entropicmem_token)
+
+
+def _enforce_bind_policy() -> None:
+    """Startup gate: refuse a non-loopback bind without the explicit override.
+
+    Every read endpoint serves full vault content, so the loopback-only claim
+    is enforced here, not just documented. Raises RuntimeError so uvicorn
+    aborts startup.
+    """
+    if _bind_is_loopback() or _expose_override():
+        return
+    hosts = ", ".join(sorted(_bind_hosts() or [])) or "unknown"
+    raise RuntimeError(
+        "EntropicMem graph server refuses a non-loopback bind (" + hosts +
+        "): the read endpoints expose full vault content. Bind 127.0.0.1, or "
+        "set ENTROPICMEM_GRAPH_EXPOSE=1 to accept the exposure (read endpoints "
+        "then require ENTROPICMEM_GRAPH_TOKEN)."
+    )
+
+
+@app.on_event("startup")
+async def _startup_bind_guard() -> None:
+    _enforce_bind_policy()
 
 
 def _vault_root() -> Path:
@@ -218,8 +376,11 @@ def _note_payload(note_id: str) -> dict:
         # Fallback: read live vault file when FTS/preview empty
         if not body and d.get("path"):
             try:
-                vault = Vault(_vault_root())
-                note = vault.read_note(d["path"])
+                vault_root = _vault_root()
+                vault = Vault(vault_root)
+                # resolve_note_path rejects absolute/dot-dot DB rows: a
+                # poisoned notes_meta.path must not become an arbitrary read.
+                note = vault.read_note(resolve_note_path(vault_root, d["path"]))
                 body = note.body or ""
             except Exception:
                 body = ""
@@ -247,7 +408,17 @@ def _note_payload(note_id: str) -> dict:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "bind_policy": "tailscale+local"}
+    """Liveness plus the enforced bind policy (see _enforce_bind_policy)."""
+    loopback = _bind_is_loopback()
+    if loopback:
+        policy = "loopback (tokenless local trust plane)"
+    elif _expose_override():
+        policy = "non-loopback via ENTROPICMEM_GRAPH_EXPOSE=1 override"
+    else:
+        policy = "non-loopback without ENTROPICMEM_GRAPH_EXPOSE=1 (refused at startup)"
+    if _expose_override() and "ENTROPICMEM_GRAPH_EXPOSE" not in policy:
+        policy += "; ENTROPICMEM_GRAPH_EXPOSE=1 set"
+    return {"ok": True, "bind_policy": policy, "token_required": not loopback}
 
 
 @app.post("/refresh")
@@ -278,7 +449,7 @@ def refresh(
 
 
 @app.get("/api/note/by-title/{title:path}")
-def get_note_by_title(title: str):
+def get_note_by_title(title: str, x_entropicmem_token: str | None = Header(default=None)):
     """Resolve a wikilink target by title, against the FULL index.
 
     Graph modals render [[wikilinks]] to notes that are not in the current
@@ -290,6 +461,7 @@ def get_note_by_title(title: str):
     NOTE: must be registered BEFORE /api/note/{note_id:path} — a path
     converter would otherwise swallow "by-title/..." as a note id.
     """
+    _require_token_if_exposed(x_entropicmem_token)
     title = unquote(title).strip()
     if not title:
         raise HTTPException(status_code=400, detail="title required")
@@ -317,30 +489,44 @@ def get_note_by_title(title: str):
 
 
 @app.get("/api/note/{note_id:path}")
-def get_note(note_id: str):
+def get_note(note_id: str, x_entropicmem_token: str | None = Header(default=None)):
     """Lazy-load one note's markdown for the graph modal.
 
     Used when the embedded graph export omitted bodies (security default)
-    or when the user opens a node whose body was not inlined. No token
-    required: the graph server is bind-restricted (127.0.0.1 / Tailscale)
-    and this is the same trust plane as serving graph.html itself.
+    or when the user opens a node whose body was not inlined. Tokenless only
+    on the loopback trust plane: when the process is not loopback-bound the
+    same ENTROPICMEM_GRAPH_TOKEN as /refresh is required (body-bearing
+    endpoint).
     """
+    _require_token_if_exposed(x_entropicmem_token)
     return JSONResponse(_note_payload(note_id))
 
 
 @app.get("/api/search")
-def search_notes(q: str = "", limit: int = 20):
+def search_notes(
+    q: str = "",
+    limit: int = 20,
+    x_entropicmem_token: str | None = Header(default=None),
+):
     """Full-text search over vault notes (the in-graph search box).
 
     Vault FTS (notes_fts) is the mandatory path and the contract: the
     embedding runtime is optional, lives outside this process, and is never
     imported here. Result rows carry everything the note modal needs, so
     hits outside the 500-node export open through the existing lazy
-    /api/note/{id} fetch.
+    /api/note/{id} fetch. Tokenless only on the loopback trust plane (snippets
+    are vault content): a non-loopback bind requires ENTROPICMEM_GRAPH_TOKEN.
+    A query that sanitizes to an empty FTS expression is a clean 400.
     """
+    _require_token_if_exposed(x_entropicmem_token)
     query = (q or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="q required")
+    if not build_fts_query(query, fields=("title", "tags", "body")):
+        # The query sanitizes to an empty MATCH expression (e.g. a lone NUL
+        # byte or quote): a clean 400, never a 500 and never a silent
+        # 200-empty that looks like "no matches".
+        raise HTTPException(status_code=400, detail="invalid search query")
     try:
         limit = max(1, min(int(limit), 50))
     except (TypeError, ValueError):
@@ -379,14 +565,18 @@ def shortest_path(
     from_: str = Query(default="", alias="from"),
     to: str = Query(default=""),
     max_depth: int = Query(default=10),
+    x_entropicmem_token: str | None = Header(default=None),
 ):
     """Shortest path between two notes over the undirected graph_edges set.
 
     BFS with the established triple_path pattern: collections.deque +
     popleft(), and the depth check happens BEFORE a neighbor is enqueued so
     the search is genuinely bounded (the two Sourcery-caught bugs there must
-    not be reintroduced here).
+    not be reintroduced here). Tokenless only on the loopback trust plane:
+    the response echoes vault note ids, so a non-loopback bind requires the
+    same ENTROPICMEM_GRAPH_TOKEN as the body-bearing reads.
     """
+    _require_token_if_exposed(x_entropicmem_token)
     start = (from_ or "").strip()
     goal = (to or "").strip()
     if not start or not goal:
@@ -439,7 +629,10 @@ def shortest_path(
 
 
 @app.get("/", response_class=HTMLResponse)
-def index():
+def index(x_entropicmem_token: str | None = Header(default=None)):
+    """Serve graph.html — body-bearing (embeds note bodies), so it is
+    tokenless only on the loopback trust plane."""
+    _require_token_if_exposed(x_entropicmem_token)
     html_path = BASE_DIR / "graph.html"
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="graph.html missing - run authenticated refresh")
@@ -454,7 +647,10 @@ def index():
 
 
 @app.get("/graph.json")
-def graph_json():
+def graph_json(x_entropicmem_token: str | None = Header(default=None)):
+    """Serve graph.json — body-bearing when the export included bodies, so it
+    is tokenless only on the loopback trust plane."""
+    _require_token_if_exposed(x_entropicmem_token)
     path = BASE_DIR / "graph.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail="graph.json missing")

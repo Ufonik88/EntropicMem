@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-_SCRIPT_DIR = REPO / "skills" / "entropicmem" / "scripts"
+_SCRIPT_DIR = REPO / "plugins" / "entropicmem" / "scripts"
 _CLI = str(_SCRIPT_DIR / "entropicmem.py")
 # Ops scripts (health check, stability gate) live in the internal ops
 # workspace, not the public repo. Path is configurable for CI/local runs.
