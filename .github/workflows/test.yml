@@ -42,9 +42,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      # `hermes plugins validate` is not on PyPI yet (0.19.0 predates it);
-      # install the hermes-agent toolchain from a pinned commit (bump as needed).
-      - run: pip install -q "hermes-agent @ git+https://github.com/NousResearch/hermes-agent@4094ab610dc7f8554461e7a9b3ffe5e419220949"
+      # `hermes plugins validate` is not on PyPI yet (0.19.0 predates it), and
+      # the hermes-agent package refuses wheel/sdist builds (installer/Docker/Nix
+      # distribution). Install the toolchain from a pinned commit as an editable
+      # install, the supported dev path (bump the commit as needed).
+      - run: |
+          git clone --quiet https://github.com/NousResearch/hermes-agent /tmp/hermes-agent
+          git -C /tmp/hermes-agent checkout --quiet 4094ab610dc7f8554461e7a9b3ffe5e419220949
+          pip install -q uv
+          uv pip install --system -e /tmp/hermes-agent
       # Exact command the Hermes plugin catalog runs at the pinned plugin SHA.
       - run: hermes plugins validate --install-deps plugins/entropicmem
 
