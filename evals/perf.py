@@ -39,6 +39,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# ── argparse type validators ─────────────────────────────────────────────────
+
+def positive_int(value: str) -> int:
+    """argparse type: reject non-positive integers to avoid ZeroDivisionError
+    in _measure_concurrent (len(queries) == 0) and silent no-op probes."""
+    ivalue = int(value)
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError(f"--probes must be positive, got {value}")
+    return ivalue
+
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SCRIPTS_DIR = _REPO_ROOT / "plugins" / "entropicmem" / "scripts"
 if str(_REPO_ROOT) not in sys.path:
@@ -131,15 +142,23 @@ def _fact_text(rng: random.Random, i: int) -> str:
     )
 
 
-def build_corpus(size: int, seed: int, db_path: Path) -> List[Dict[str, Any]]:
+def build_corpus(size: int, seed: int, db_path: Path,
+                 vectors: bool = False) -> List[Dict[str, Any]]:
     """Write ``size`` seeded synthetic facts into ``db_path`` through the
-    real ``MemoryEngine.remember`` path. Returns [{id, content, domain}]."""
+    real ``MemoryEngine.remember`` path. Returns [{id, content, domain}].
+
+    ``vectors=False`` (default) force-disables embeddings during corpus
+    build (no sentence-transformers/torch import). Pass ``--vectors`` to
+    enable; the §6.4 budget explicitly excludes embedding cost from
+    ``remember`` latency, so this keeps the bench on-spec."""
     MemoryEngine = _memory_engine()
     db_path = Path(db_path)
     if db_path.exists():
         db_path.unlink()
     rng = random.Random(seed)
     engine = MemoryEngine(db_path, profile_id="perfbench")
+    if not vectors and hasattr(engine, "EMBEDDINGS_AVAILABLE"):
+        engine.EMBEDDINGS_AVAILABLE = False
     out: List[Dict[str, Any]] = []
     try:
         for i in range(size):
@@ -250,13 +269,16 @@ def _measure_prefetch(provider, queries: List[str]) -> Dict[str, Any]:
     cold: List[float] = []
     warm: List[float] = []
     for q in queries:
-        provider._conversation_history = []
+        provider.on_session_switch("perfcold", parent_session_id="", reset=True,
+                                   reason="bench-reset")
         _, ms = _timed(lambda qq=q: provider.prefetch(qq, session_id="perfcold"))
         cold.append(ms)
-        provider._conversation_history = []
+        provider.on_session_switch("perfwarm", parent_session_id="", reset=True,
+                                   reason="bench-reset")
         _, ms = _timed(lambda qq=q: provider.prefetch(qq, session_id="perfwarm"))
         warm.append(ms)
-        provider._conversation_history = []
+        provider.on_session_switch("perfwarm", parent_session_id="", reset=True,
+                                   reason="bench-reset")
     return {"cold": _stats(cold), "warm": _stats(warm)}
 
 
@@ -346,7 +368,8 @@ def _measure_concurrent(db_path: Path, home: Path, provider,
     deadline = time.time() + 300.0
     while writer.poll() is None and time.time() < deadline:
         q = queries[len(samples) % len(queries)] + f" load sample {len(samples)}"
-        provider._conversation_history = []
+        provider.on_session_switch("perfload", parent_session_id="", reset=True,
+                                   reason="bench-reset")
         _, ms = _timed(lambda qq=q: provider.prefetch(qq, session_id="perfload"))
         samples.append(ms)
     writer.wait(timeout=60)
@@ -377,6 +400,7 @@ def run_perf(
     out_dir: Optional[Path] = None,
     workdir: Optional[Path] = None,
     writer_facts: Optional[int] = None,
+    vectors: bool = False,
 ) -> Dict[str, Any]:
     """Bench each corpus size; return the report (also written to
     ``out_dir/perf-<UTC>.json`` and printed as a table by ``main``).
@@ -402,7 +426,7 @@ def run_perf(
         db_path = base / "memory.db"
 
         t0 = time.perf_counter()
-        build_corpus(size, seed, db_path)
+        build_corpus(size, seed, db_path, vectors=vectors)
         build_s = round(time.perf_counter() - t0, 1)
 
         provider = _make_provider(home)
@@ -501,11 +525,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--sizes", default="1000,10000",
                         help="comma-separated corpus sizes (default: 1000,10000)")
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--probes", type=int, default=20,
+    parser.add_argument("--probes", type=positive_int, default=20,
                         help="timed samples per metric (default: 20)")
-    parser.add_argument("--writer-facts", type=int, default=None,
+    parser.add_argument("--writer-facts", type=positive_int, default=None,
                         help="facts the concurrent CLI writer appends "
                              "(default: clamp(size/100, 50, 200))")
+    parser.add_argument("--vectors", action="store_true",
+                        help="enable embeddings during corpus build (slow)")
     parser.add_argument("--out-dir", default=None,
                         help="results dir (default: evals/results)")
     parser.add_argument("--workdir", default=None,
@@ -520,6 +546,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         out_dir=Path(args.out_dir) if args.out_dir else None,
         workdir=Path(args.workdir) if args.workdir else None,
         writer_facts=args.writer_facts,
+        vectors=args.vectors,
     )
     print(render_table(report))
     print(f"\nResults stored: {report['out_path']}")
