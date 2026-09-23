@@ -2,6 +2,13 @@
 
 All notable changes to EntropicMem are documented here. The format follows Keep a Changelog.
 
+## [Unreleased]
+
+### Added
+
+- **Hermes host harness (`tests/harness/`).** `FakeHost` drives a memory provider exactly the way Hermes `MemoryManager` does — full `initialize()` kwarg set, `prefetch` on its own thread with the 8 s join and stuck-provider skip, `sync_turn`/`queue_prefetch` on a single FIFO worker, `<memory-context>` wrapping with 10k-char spill, byte-identical replay of prior blocks (cumulative prompt-token accounting), and the real hook order for normal turns, `/new`, `/undo`, compression (checkpoint API v2, fail-closed), delegation, and shutdown with the 5 s drain. Profile scoping is context-local (real `hermes_constants` override when importable, ContextVar simulation otherwise) and `HERMES_HOME` is poisoned with a decoy after `initialize`, so post-init env reads are caught. Ships the EM-003 acceptance tests: a 20-turn smoke run with metrics, and a two-profile bleed test (xfail strict until EM-102).
+- **Performance bench (`evals/perf.py`, EM-005).** Seeded synthetic corpora (1k / 10k / 50k memories) measured through the real engine and provider paths: `remember` p50/p95 (no embedding), `prefetch` p50/p95 cold/warm, tool search p95, DB size per memory, and a concurrent-writer test (CLI writer process + provider reader) reporting prefetch p95 under write load. `python -m evals.perf --sizes 1000,10000` prints a table and stores `evals/results/perf-*.json`. Stdlib only; informational §6.4 budget flags (CI enforcement lands in EM-007).
+
 ## [2.7.0] - 2026-09-22
 
 Hardening release. The engine moved into the plugin directory and every content-trust surface (writes, retrieval, prefetch, the graph viewer, the graph server) got explicit policy.
