@@ -130,9 +130,6 @@ def test_f001_min_relevance_score_actually_filters(engine):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-001 (R7) → EM-107: progressive "
-          "disclosure caps at 2 whenever any fact scores 'high', which R1 "
-          "inflation makes always true")
 def test_f001_progressive_disclosure_caps_results(make_provider, home_a):
     """Provider-level repro: 5 facts all strongly matching the query must all
     be surfaced (max_prefetch_results=5). v2.7's disclosure tiers are

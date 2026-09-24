@@ -162,6 +162,10 @@ SMART_CONTEXT_DEFAULTS = {
     # Conversation context awareness
     "context_window_turns": 3,
     "max_context_query_length": 1000,
+    # EM-107: 'current' (query only) or 'concat' (prior user turns, old F-006)
+    "context_query_mode": "current",
+    # EM-107: tiered disclosure off by default (old max-2 cap, F-007/R7)
+    "progressive_disclosure": False,
 
     # Cache behavior
     "cache_conversation_context": True,
@@ -355,6 +359,16 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "key": "max_context_query_length",
                 "description": "Maximum length of context-enhanced query",
                 "default": 1000,
+            },
+            {
+                "key": "context_query_mode",
+                "description": "Enhanced query mode: 'current' (query only) or 'concat' (prior user turns)",
+                "default": "current",
+            },
+            {
+                "key": "progressive_disclosure",
+                "description": "Tiered relevance caps in prefetch (off by default since 2.8.0)",
+                "default": False,
             },
             {
                 "key": "cache_conversation_context",
@@ -779,9 +793,16 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return self._conversation_fingerprint() != self._last_conversation_hash
 
     def _build_context_query(self, query: str) -> str:
-        """Build enhanced query using conversation context."""
+        """Build enhanced query using conversation context.
+
+        EM-107(a): ``context_query_mode`` defaults to ``current`` (the query
+        alone — concatenating prior user turns poisoned retrieval with stale
+        terms, F-006); ``concat`` keeps the old multi-turn behaviour.
+        """
         from textutil import message_text
 
+        if self._config.get("context_query_mode", "current") == "current":
+            return query
         if not self._conversation_history:
             return query
 
@@ -862,9 +883,15 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return fresh
 
     def _apply_progressive_disclosure(self, facts: list) -> list:
-        """Apply tiered relevance filtering."""
+        """Apply tiered relevance filtering.
+
+        EM-107(b): default OFF — the max-2 tier fired whenever any score was
+        'high' (>= 0.7), collapsing full high-relevance sets to 2 (F-007/R7).
+        """
         if not facts:
             return []
+        if not self._config.get("progressive_disclosure", False):
+            return list(facts)
 
         high_threshold = self._config.get("high_relevance_threshold", 0.7)
         medium_threshold = self._config.get("medium_relevance_threshold", 0.4)
@@ -883,14 +910,19 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return facts[:5]
 
     def _apply_token_budget(self, facts: list) -> list:
-        """Apply token budget constraint."""
+        """Apply token budget constraint.
+
+        EM-107(c): pack in combined-score order (was importance-first) and
+        never truncate mid-fact — a fact that does not fit is skipped whole
+        and packing continues with the smaller ones.
+        """
         budget = self._config.get("prefetch_token_budget", 1500)
 
         selected = []
         char_count = 0
 
-        # Sort by importance to keep most important facts
-        sorted_facts = sorted(facts, key=lambda f: f.importance, reverse=True)
+        # Pack by combined relevance score (relevance_score holds combined)
+        sorted_facts = sorted(facts, key=lambda f: f.relevance_score, reverse=True)
 
         for fact in sorted_facts:
             fact_chars = len(fact.content)
@@ -898,16 +930,6 @@ class EntropicMemMemoryProvider(MemoryProvider):
             if char_count + fact_chars <= budget:
                 selected.append(fact)
                 char_count += fact_chars
-            else:
-                # Try truncated version
-                remaining = budget - char_count
-                if remaining >= 100:  # Minimum useful size
-                    # dataclasses.replace preserves every field (sensitivity,
-                    # decay_score, access_count, ...) — only content changes.
-                    from dataclasses import replace
-                    truncated = replace(fact, content=fact.content[:remaining] + "...")
-                    selected.append(truncated)
-                break
 
         return selected
 
@@ -946,10 +968,12 @@ class EntropicMemMemoryProvider(MemoryProvider):
             except Exception:
                 pass
             body, _ = _screen_for_injection(body)
-            content_preview = body[:300]
-            if len(body) > 300:
-                content_preview += "..."
-            lines.append(f"- [{fact.id}] {content_preview}{score_str}")
+            # EM-107(d)/(e): no second truncation here (budget already caps
+            # the block and cutting at 300 ended bullets mid-word) and each
+            # line carries its provenance: (domain · YYYY-MM-DD).
+            date_str = (fact.created_at or fact.updated_at or "")[:10] or "unknown"
+            prov = f" ({fact.domain} · {date_str})"
+            lines.append(f"- [{fact.id}] {body}{prov}{score_str}")
 
         return "\n".join(lines)
 

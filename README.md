@@ -137,6 +137,8 @@ plugins:
 | `high_relevance_threshold` | `0.7` | High tier for progressive disclosure |
 | `medium_relevance_threshold` | `0.4` | Medium tier for progressive disclosure |
 | `context_window_turns` | `3` | Recent turns used to build the context-aware query |
+| `context_query_mode` | `current` | Enhanced query: `current` (query only) or `concat` (prior user turns) |
+| `progressive_disclosure` | `false` | Tiered relevance caps in prefetch (max 2/3/5) |
 | `max_context_query_length` | `1000` | Maximum length of the context-enhanced query |
 | `cache_conversation_context` | `true` | Cache prefetch results with conversation awareness |
 | `cache_ttl_seconds` | `300` | Prefetch cache TTL |
