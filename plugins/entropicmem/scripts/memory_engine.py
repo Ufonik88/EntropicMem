@@ -673,6 +673,8 @@ class MemoryEngine:
                     self.db.execute("ALTER TABLE facts_archive ADD COLUMN profile_id TEXT DEFAULT ''")
                 if "version" not in arch_cols:
                     self.db.execute("ALTER TABLE facts_archive ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+                if "sensitivity" not in arch_cols:
+                    self.db.execute("ALTER TABLE facts_archive ADD COLUMN sensitivity TEXT DEFAULT 'internal'")
             self.db.execute("""
                 CREATE TABLE IF NOT EXISTS audit_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1123,28 +1125,66 @@ class MemoryEngine:
         finally:
             self._release_write_lock()
 
-    def consolidate(self, max_age_days: int = 90, min_access_count: int = 0, dry_run: bool = True, confirm: bool = False) -> dict:
-        """Archive old, low-value facts (I3: memory consolidation).
+    def consolidate(
+        self,
+        max_age_days: int = 90,
+        min_access_count: int = 0,
+        dry_run: bool = True,
+        confirm: bool = False,
+        evergreen_domains: Optional[Sequence[str]] = None,
+    ) -> dict:
+        """Archive old, low-value facts (I3; safe selection per EM-108/L2).
 
-        Facts older than max_age_days with access_count <= min_access_count
-        are moved to an archive table. Returns stats.
+        A fact is a candidate only when ALL hold:
+        - importance < 0.6 (durable memory is never archived)
+        - domain not in ``evergreen_domains`` (default ["People"])
+        - source not in ("built_in_memory", "promoted")
+        - no "pinned" tag
+        - age from ``max(updated_at, last_accessed)`` >= ``max_age_days``
+        - access_count <= ``min_access_count``
+
+        Candidates archive lowest-importance first (oldest first within a
+        tier); archive rows keep the fact's sensitivity.
 
         If dry_run=True, reports what would be archived without modifying anything.
         """
-        cutoff = datetime.now(timezone.utc).timestamp() - (max_age_days * 86400)
-        cutoff_iso = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
+        evergreen: Set[str] = set(evergreen_domains) if evergreen_domains is not None else {"People"}
+        now = datetime.now(timezone.utc)
 
-        # Find candidates
-        candidates = self.db.execute(
-            """SELECT id FROM facts
-               WHERE created_at < ? AND access_count <= ?""",
-            (cutoff_iso, min_access_count),
-        ).fetchall()
+        # Find candidates (EM-108: durable facts are never candidates)
+        candidates = []
+        for row in self.db.execute(
+            """SELECT id, source, importance, domain, tags, created_at,
+                      updated_at, last_accessed
+               FROM facts WHERE access_count <= ?""",
+            (min_access_count,),
+        ).fetchall():
+            fid, source, importance, domain, tags, created_at, updated_at, last_accessed = row
+            if (importance or 0.0) >= 0.6:
+                continue
+            if (domain or "Knowledge") in evergreen:
+                continue
+            if (source or "agent") in ("built_in_memory", "promoted"):
+                continue
+            tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
+            if "pinned" in tag_list:
+                continue
+            stamps = [s for s in (_parse_ts(updated_at), _parse_ts(last_accessed)) if s]
+            newest = max(stamps) if stamps else _parse_ts(created_at)
+            if newest is None:
+                continue
+            if (now - newest).total_seconds() / 86400.0 < max_age_days:
+                continue
+            candidates.append((importance or 0.0, newest, fid))
+
+        # Lowest importance first, oldest first within a tier
+        candidates.sort(key=lambda c: (c[0], c[1]))
+        candidate_ids = [fid for _, _, fid in candidates]
 
         if dry_run or not confirm:
             return {
                 "archived": 0,
-                "would_archive": len(candidates),
+                "would_archive": len(candidate_ids),
                 "cutoff_days": max_age_days,
                 "dry_run": True,
                 "confirm_required": not confirm,
@@ -1174,20 +1214,23 @@ class MemoryEngine:
                     access_count INTEGER DEFAULT 0,
                     profile_id TEXT DEFAULT '',
                     version INTEGER NOT NULL DEFAULT 1,
+                    sensitivity TEXT DEFAULT 'internal',
                     archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
             archived = 0
             has_embeddings = self._has_embeddings_table()
-            for (fid,) in candidates:
-                # Copy to archive
+            for fid in candidate_ids:
+                # Copy to archive (sensitivity preserved — EM-108)
                 self.db.execute(
                     """INSERT OR REPLACE INTO facts_archive
                        (id, content, title, source, importance, domain, tags,
-                        session_id, created_at, updated_at, last_accessed, access_count)
+                        session_id, created_at, updated_at, last_accessed, access_count,
+                        sensitivity)
                        SELECT id, content, title, source, importance, domain, tags,
-                              session_id, created_at, updated_at, last_accessed, access_count
+                              session_id, created_at, updated_at, last_accessed, access_count,
+                              sensitivity
                        FROM facts WHERE id = ?""",
                     (fid,),
                 )

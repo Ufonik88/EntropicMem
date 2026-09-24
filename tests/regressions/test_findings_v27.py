@@ -59,13 +59,17 @@ def engine(db_path):
 def _age_facts(eng, days: int) -> None:
     """Age every fact by N days.
 
-    facts.created_at / facts.last_accessed are ISO-8601 strings, so time
-    travel must write ISO strings — integer epochs break both the decay
-    parser (datetime.fromisoformat) and consolidate's string comparison.
+    facts.created_at / facts.updated_at / facts.last_accessed are ISO-8601
+    strings, so time travel must write ISO strings — integer epochs break
+    both the decay parser (datetime.fromisoformat) and string comparisons.
+    All three stamps are aged: age is derived from max(updated_at,
+    last_accessed) since EM-106/EM-108, so a fresh updated_at would keep
+    the fact young.
     """
     then = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     eng.db.execute(
-        "UPDATE facts SET created_at = ?, last_accessed = ?", (then, then)
+        "UPDATE facts SET created_at = ?, updated_at = ?, last_accessed = ?",
+        (then, then, then),
     )
     eng.db.commit()
 
@@ -481,8 +485,6 @@ def test_f006_recall_returns_superseded_with_reason(engine):
 # F-007 (L2) → EM-108: consolidate ignores importance; archives important facts
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-007 (L2) → EM-108: consolidate "
-          "archives by created_at + access_count, ignoring importance")
 def test_f007_consolidate_respects_importance(engine):
     """A high-importance fact (>0.8) older than 90 days must NOT be archived
     by consolidate. v2.7 selects candidates on created_at + access_count
@@ -503,8 +505,6 @@ def test_f007_consolidate_respects_importance(engine):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-007 (L2) → EM-108: consolidate "
-          "archives low-importance facts first, not oldest")
 def test_f007_consolidate_archives_low_importance_first(engine):
     """When consolidating, low-importance facts should be archived before
     high-importance ones, even if they're the same age."""

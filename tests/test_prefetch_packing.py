@@ -9,8 +9,9 @@
 (e) Each bullet carries ``(domain · YYYY-MM-DD)``.
 """
 
-from memory_engine import StoredFact
 from plugins.entropicmem import EntropicMemMemoryProvider
+
+from memory_engine import StoredFact
 
 
 def _fact(i, content, *, importance=0.5, relevance=0.9, domain="Work",
