@@ -7,6 +7,9 @@ import pytest
 
 # Add paths
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins" / "entropicmem" / "scripts"))
+# harness fakes (FakeHost) must be importable from any test dir, not only
+# when tests/harness happens to be collected first
+sys.path.insert(0, str(Path(__file__).parent / "harness"))
 
 # Mock the agent.memory_provider module before importing plugin
 mock_memory_provider = MagicMock()

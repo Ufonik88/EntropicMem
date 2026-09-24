@@ -8,6 +8,7 @@ Candidate selection requires ALL of:
 Candidates archive lowest-importance first. Archive rows keep sensitivity.
 """
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -137,3 +138,49 @@ class TestArchiveRoundTrip:
         assert stats["would_archive"] == 1
         assert stats["archived"] == 0
         assert _archived(engine) == []
+        # EM-108: dry-run reports the candidate list (id, title, age, importance)
+        assert len(stats["candidates"]) == 1
+        cand = stats["candidates"][0]
+        assert set(cand) == {"id", "title", "age", "importance"}
+        assert cand["importance"] == 0.1
+        assert cand["age"] >= 90
+
+
+class TestConsolidateToolGate:
+    """EM-108: entropicmem_consolidate stays dry-run unless confirm=true AND
+    config allow_agent_consolidate is enabled (default false)."""
+
+    def _provider(self, make_provider, home_a, **cfg):
+        from fake_host import FakeHost
+
+        provider = make_provider(cfg)
+        host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA")
+        host.start()
+        provider.handle_tool_call(
+            "entropicmem_remember",
+            {"content": "old low value note about a blue car", "domain": "Work",
+             "importance": 0.1},
+        )
+        return provider, host
+
+    def test_stays_dry_run_without_opt_in(self, make_provider, home_a):
+        provider, host = self._provider(make_provider, home_a)
+        result = json.loads(provider.handle_tool_call(
+            "entropicmem_consolidate",
+            {"dry_run": False, "confirm": True, "max_age_days": 0},
+        ))
+        host.shutdown()
+        assert result["dry_run"] is True
+        assert result["archived"] == 0
+
+    def test_real_run_with_confirm_and_opt_in(self, make_provider, home_a):
+        provider, host = self._provider(
+            make_provider, home_a, allow_agent_consolidate=True,
+        )
+        result = json.loads(provider.handle_tool_call(
+            "entropicmem_consolidate",
+            {"dry_run": False, "confirm": True, "max_age_days": 0},
+        ))
+        host.shutdown()
+        assert result["dry_run"] is False
+        assert result["archived"] == 1

@@ -175,6 +175,8 @@ SMART_CONTEXT_DEFAULTS = {
     "auto_extract_enabled": False,
     "core_memory_writable": False,
     "reinforce_on_recall": False,
+    # EM-108: agent-triggered real consolidation needs operator opt-in
+    "allow_agent_consolidate": False,
 
     # P1 Slice 2: lifecycle hooks (A1/A2/A5/C1)
     "session_end_capture": True,
@@ -458,6 +460,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "key": "touch_on_inject",
                 "description": "Bump last_accessed for injected facts via background write",
                 "default": True,
+            },
+            {
+                "key": "allow_agent_consolidate",
+                "description": "Allow entropicmem_consolidate to archive for real (confirm=true still required)",
+                "default": False,
             },
             {
                 "key": "reinforcement_boost",
@@ -1460,6 +1467,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
         min_access = args.get("min_access_count", 0)
         dry_run = args.get("dry_run", True)
         confirm = bool(args.get("confirm", False))
+        # EM-108: agent-triggered real runs require an explicit confirm AND the
+        # operator opt-in (allow_agent_consolidate, default false) — otherwise
+        # the call stays a dry-run no matter what the args say.
+        if not dry_run and not (confirm and self._config.get("allow_agent_consolidate", False)):
+            dry_run = True
         try:
             with engine:
                 result = engine.consolidate(
@@ -1467,6 +1479,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     min_access_count=min_access,
                     dry_run=dry_run,
                     confirm=confirm,
+                    evergreen_domains=self._config.get("evergreen_domains") or ["People"],
                 )
             return json.dumps(result)
         except Exception as e:

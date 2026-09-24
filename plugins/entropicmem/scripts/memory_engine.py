@@ -1154,12 +1154,12 @@ class MemoryEngine:
         # Find candidates (EM-108: durable facts are never candidates)
         candidates = []
         for row in self.db.execute(
-            """SELECT id, source, importance, domain, tags, created_at,
+            """SELECT id, title, source, importance, domain, tags, created_at,
                       updated_at, last_accessed
                FROM facts WHERE access_count <= ?""",
             (min_access_count,),
         ).fetchall():
-            fid, source, importance, domain, tags, created_at, updated_at, last_accessed = row
+            fid, title, source, importance, domain, tags, created_at, updated_at, last_accessed = row
             if (importance or 0.0) >= 0.6:
                 continue
             if (domain or "Knowledge") in evergreen:
@@ -1173,18 +1173,29 @@ class MemoryEngine:
             newest = max(stamps) if stamps else _parse_ts(created_at)
             if newest is None:
                 continue
-            if (now - newest).total_seconds() / 86400.0 < max_age_days:
+            age_days = (now - newest).total_seconds() / 86400.0
+            if age_days < max_age_days:
                 continue
-            candidates.append((importance or 0.0, newest, fid))
+            candidates.append((importance or 0.0, newest, fid, title or "", age_days))
 
         # Lowest importance first, oldest first within a tier
         candidates.sort(key=lambda c: (c[0], c[1]))
-        candidate_ids = [fid for _, _, fid in candidates]
+        candidate_ids = [fid for _, _, fid, _, _ in candidates]
 
         if dry_run or not confirm:
             return {
                 "archived": 0,
                 "would_archive": len(candidate_ids),
+                # EM-108: dry-run reports the candidate list, not just a count
+                "candidates": [
+                    {
+                        "id": fid,
+                        "title": title,
+                        "age": round(age_days, 1),
+                        "importance": importance,
+                    }
+                    for importance, _, fid, title, age_days in candidates
+                ],
                 "cutoff_days": max_age_days,
                 "dry_run": True,
                 "confirm_required": not confirm,
