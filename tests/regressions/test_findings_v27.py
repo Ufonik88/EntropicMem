@@ -6,18 +6,25 @@ fails today but is expected to pass once the fixing task (EM-1xx) lands.
 When the fix ships, the xfail marker is removed so the test becomes a
 regression guard.
 
-Findings map (v2.7.0 defects → fixing EM task):
-  F-001 → EM-105  Relevance normalisation / junk-query noise amplification
-  F-002 → EM-107  Temporal decay from last_accessed; long-term facts forgotten
-  F-003 → EM-108  Multimodal list payload crashes prefetch (TypeError swallowed)
-  F-004 → EM-109  No user/chat scoping; cross-user memory bleed
-  F-005 → EM-103  os.environ check already clean (F-005a, EM-102); bare threading.Thread fixed (F-005b, H3)
-  F-006 → EM-104  Near-duplicate dedup silently overwrites; no supersession record
-  F-007 → EM-106  consolidate ignores importance; archives important facts
-  F-008 → EM-111  Prefetch synchronous on agent thread; core memory re-injected every turn
-  F-009 → EM-112  Learning loop dead; regex extraction only, nothing promoted
+Findings map (v2.7.0 defects → fixing EM task; corrected mapping):
+  F-001 (R1 relevance normalisation) → EM-105  min-max inflation: partial-coverage hits score 1.0
+  F-001 (R2 query builder)          → EM-104  single/stopword tokens over-match — FIXED, regression guard
+  F-001 (R7 progressive disclosure) → EM-107  max-2 tier fires whenever any score is 'high'
+  F-002 (R3 temporal decay)         → EM-106  decay from last_accessed; long-term facts forgotten
+  F-003 (H2 multimodal payloads)    → EM-101  FIXED — regression guard
+  F-004 (H1 user/chat scoping)      → EM-118  No user/chat scoping; cross-user memory bleed
+  F-005 (H3 threading/env)          → EM-103 (+EM-102)  FIXED — regression guard
+  F-006 (L1 silent fuzzy overwrite) → EM-109  near-duplicate dedup silently overwrites; no supersession record
+  F-007 (L2 safe consolidate)       → EM-108  consolidate ignores importance; archives important facts
+  F-008 (L8/H5 prefetch + core mem) → EM-116 (+EM-107)  queue_prefetch stub; core memory re-injected
+  F-009 (L4 learning loop)          → EM-111  regex extraction only; candidates never promoted from quarantine
+  F-009 (R8 episodes in recall)     → S3 retrieval v3 (out of S1 scope)
   F-010 → EM-212  Plugin namespace isolation: _backend bare-imports vault/index/etc
   F-011 → EM-213  Stale provides_tools/provides_hooks in plugin.yaml
+
+Note: test_f004_cross_user_isolation's inline xfail reason still cites EM-109
+(pre-correction numbering) — that test is kept untouched; the canonical fix for
+F-004/H1 is EM-118.
 
 | # | Finding | Category | EM-fixing |
 |---|---|---|---|
@@ -27,6 +34,7 @@ Findings map (v2.7.0 defects → fixing EM task):
 AC: ≥ 20 xfail tests; each references the fixing task id.
 """
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -43,115 +51,172 @@ def db_path(tmp_path):
 
 @pytest.fixture()
 def engine(db_path):
-    eng = MemoryEngine(str(db_path))
-    eng.initialize(profile_id="regression_test",
-                   vault_root=str(db_path.parent / "vault"))
+    # Real API: constructor only (schema built in __init__), no initialize().
+    eng = MemoryEngine(db_path, profile_id="regression_test")
     yield eng
     eng.close()
 
+def _age_facts(eng, days: int) -> None:
+    """Age every fact by N days.
 
-# ═════════════════════════════════════════════════════════════════════════════
-# F-001 → EM-105: Relevance normalisation / junk-query noise amplification
-# ═════════════════════════════════════════════════════════════════════════════
-
-@pytest.mark.xfail(strict=True, reason="F-001 → EM-105: min-max normalisation "
-          "gives junk queries relevance=1.0; noise injected on most turns")
-def test_f001_junk_query_returns_zero_relevance(engine):
-    """A gibberish query matching no real fact should never return relevance
-    1.0. v2.7 min-max normalises per-result-set so even filler ranks at 1.0."""
-    engine.remember(
-        content="The user works at a large company as a manager.",
-        domain="Work", importance=0.9,
+    facts.created_at / facts.last_accessed are ISO-8601 strings, so time
+    travel must write ISO strings — integer epochs break both the decay
+    parser (datetime.fromisoformat) and consolidate's string comparison.
+    """
+    then = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    eng.db.execute(
+        "UPDATE facts SET created_at = ?, last_accessed = ?", (then, then)
     )
-    # gibberish with no real overlap
-    results = engine.recall_with_relevance("zzqx nonsense a query", top_k=10)
-    for _, _, score, _ in results:
-        assert score < 0.3, f"junk query returned relevance {score} (>= 0.3)"
+    eng.db.commit()
 
 
-@pytest.mark.xfail(strict=True, reason="F-001 → EM-105: 1-letter FTS prefix terms "
-          "make every token match; no real filtering")
+# ═════════════════════════════════════════════════════════════════════════════
+# F-001 (R1/R2/R7) → EM-105 / EM-104 / EM-107: relevance normalisation,
+# query builder, progressive disclosure
+# ═════════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.xfail(strict=True, reason="F-001 (R1) → EM-105: min-max normalisation "
+          "inflates a lone partial-coverage hit to relevance=1.0")
+def test_f001_junk_query_returns_zero_relevance(engine):
+    """R1 normalisation repro (rewritten: after the EM-104 query-builder fix a
+    pure-junk query like 'zzqx nonsense a' legitimately returns zero hits, so
+    the old junk repro was trivially satisfied).
+
+    A fact matching only ONE term of a 5-term query (coverage 1/5) must not be
+    min-max normalised to relevance 1.0 — v2.7 normalises per result set, so a
+    lone hit always scores 1.0 and noise is injected on most turns."""
+    engine.remember(
+        content="The user has a pasta allergy",
+        domain="Personal", importance=0.5,
+    )
+    results = engine.recall_with_relevance(
+        "homemade italian pasta recipe ideas", top_k=10
+    )
+    assert results, "repro cannot run: the weak-coverage fact was not returned at all"
+    for fact in results:
+        assert fact.relevance_score <= 0.5, (
+            f"1/5-term partial match '{fact.content}' inflated to relevance "
+            f"{fact.relevance_score:.3f} (R1 min-max normalisation, EM-105)"
+        )
+
+
+@pytest.mark.xfail(strict=True, reason="F-001 (R2) → EM-104: single-token queries "
+          "over-match — FTS term rules landed, but the literal LIKE fallback "
+          "still substring-matches every fact containing the letter")
 def test_f001_single_token_query_does_not_match_everything(engine):
-    """A single common token should not match all facts in the DB.
-    v2.7 treats 'a' as a prefix match so it hits everything."""
+    """A single common token should not match facts that do not contain it as
+    a term. v2.7 treated 'a' as a prefix match so it hit everything; the
+    FTS builder is fixed (EM-104) but the no-hit LIKE fallback still matches
+    'a' inside unrelated words like 'deadline'/'budget'."""
     engine.remember(content="The project deadline is Friday", domain="Work", importance=0.9)
     engine.remember(content="The budget is approved for Q3", domain="Finance", importance=0.8)
     engine.remember(content="The server runs on port 9090", domain="Infrastructure", importance=0.7)
     results = engine.recall_with_relevance("a", top_k=10)
-    # should match at most the fact containing "a" (if any), not all 3
-    assert len(results) <= 1, f"single token 'a' matched {len(results)} facts"
+    # should match at most the fact containing the term "a" (if any), not all 3
+    assert len(results) <= 1, (
+        f"single token 'a' matched {len(results)} facts: "
+        f"{[f.content for f in results]} (R2, EM-104)"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason="F-001 → EM-105: min_relevance_score "
-          "is meaningless under min-max normalisation")
+@pytest.mark.xfail(strict=True, reason="F-001 (R1) → EM-105: min_relevance is "
+          "meaningless under min-max normalisation — weak hits inflate past it")
 def test_f001_min_relevance_score_actually_filters(engine):
-    """min_relevance_score=0.5 should exclude facts below that threshold.
-    Under min-max normalisation the minimum is always 0.0 so nothing is filtered."""
-    engine.remember(content="The user likes rooibos tea", domain="Personal", importance=0.6)
+    """min_relevance=0.5 should exclude facts below that threshold. Under
+    min-max normalisation a lone weak-coverage hit scores 1.0, so nothing is
+    ever filtered and weak noise is injected regardless of the threshold."""
+    engine.remember(content="The user has a pasta allergy", domain="Personal", importance=0.5)
     engine.remember(content="Project Falcon uses SQLite FTS5", domain="Engineering", importance=0.85)
     results = engine.recall_with_relevance(
-        "what tea does the user like", top_k=10, min_relevance_score=0.5
+        "homemade italian pasta recipe ideas", top_k=10, min_relevance=0.5
     )
-    for _, _, score, _ in results:
-        assert score >= 0.5, f"fact with relevance {score} below min_relevance_score=0.5"
+    assert not any("pasta" in fact.content for fact in results), (
+        "min_relevance=0.5 failed to exclude a 1/5-term partial match "
+        f"{[(f.content, round(f.relevance_score, 3)) for f in results]} — "
+        "min-max inflation pushes weak hits past any threshold (R1, EM-105)"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason="F-001 → EM-105: progressive disclosure "
-          "max-2/3/5 tiers are meaningless")
-def test_f001_progressive_disclosure_caps_results(engine):
-    """With 5 facts all scoring >=0.7, progressive disclosure should cap at 2,
-    not return all 5."""
-    for i in range(5):
-        engine.remember(
-            content=f"Fact number {i} about the project deadline on Friday",
-            domain="Work", importance=0.9,
+@pytest.mark.xfail(strict=True, reason="F-001 (R7) → EM-107: progressive "
+          "disclosure caps at 2 whenever any fact scores 'high', which R1 "
+          "inflation makes always true")
+def test_f001_progressive_disclosure_caps_results(make_provider, home_a):
+    """Provider-level repro: 5 facts all strongly matching the query must all
+    be surfaced (max_prefetch_results=5). v2.7's disclosure tiers are
+    meaningless: the max-2 tier fires whenever any score >= 0.7, and R1
+    inflation makes every score 'high', so a full high-relevance set is
+    always collapsed to 2."""
+    provider = make_provider()
+    host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA")
+    host.start()
+    # Distinct-enough facts (pairwise Jaccard 0.67 < 0.8, so L1 fuzzy dedup
+    # cannot collapse them) that all strongly match "project deadline".
+    markers = ["orchid", "harbor", "lantern", "meadow", "quartz"]
+    tails = ["morning", "evening", "noon", "weekly", "promptly"]
+    for marker, tail in zip(markers, tails):
+        provider.handle_tool_call(
+            "entropicmem_remember",
+            {"content": f"The {marker} project deadline review is scheduled "
+                        f"for Friday {tail}",
+             "domain": "Work"},
         )
-    results = engine.prefetch("project deadline", session_id="regress_f001")
-    # progressive disclosure: max 2 if any >= 0.7
-    assert len(results) <= 2, f"returned {len(results)} facts, progressive disclosure cap is 2"
+    block = provider.prefetch("what is the project deadline", session_id="regress_f001")
+    host.shutdown()
+    count = sum(1 for marker in markers if marker in block)
+    assert count >= 5, (
+        f"progressive disclosure surfaced {count}/5 strongly-relevant facts — "
+        "the max-2 tier fires whenever any score is 'high' (>= 0.7), which R1 "
+        "inflation makes always true; a full high-relevance set must not be "
+        "capped at 2 (R7, EM-107)"
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-002 → EM-107: Temporal decay from last_accessed; long-term facts forgotten
+# F-002 (R3) → EM-106: Temporal decay from last_accessed; long-term facts forgotten
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-002 → EM-107: decay computed from "
-          "last_accessed (never updated by default); 120-day facts decayed to 0.062")
+@pytest.mark.xfail(strict=True, reason="F-002 (R3) → EM-106: decay computed from "
+          "last_accessed crushes 120-day facts to 0.062 regardless of importance")
 def test_f002_old_important_fact_still_retrievable(engine):
-    """A 120-day-old fact with importance 0.9 should still be retrieved
-    on a relevant query. v2.7 decays it to ~0.062 and never prefetches."""
-    import time as _time
+    """A 120-day-old fact with importance 0.9 should still be retrieved at a
+    useful relevance score on a relevant query. v2.7 decays it to ~0.062
+    (below the prefetch threshold), so long-term facts are forgotten."""
     engine.remember(
         content="The user's display name is Alex Rivera",
-        domain="People", importance=0.9, age_days=120,
+        domain="People", importance=0.9,
     )
-    # simulate time having passed
-    engine.db.execute(
-        "UPDATE facts SET created_at = ?, last_accessed = ?",
-        (int(_time.time()) - 120 * 86400, int(_time.time()) - 120 * 86400),
-    )
-    engine.db.commit()
+    _age_facts(engine, 120)
     results = engine.recall_with_relevance("what is the user's display name", top_k=10)
-    found = any("Alex Rivera" in r for _, r, _, _ in results)
-    assert found, "120-day-old important fact was not retrieved"
+    found = [f for f in results if "Alex Rivera" in f.content]
+    assert found, "repro cannot run: the relevant fact was not returned at all"
+    assert found[0].relevance_score >= 0.5, (
+        f"120-day-old importance-0.9 fact decayed to relevance "
+        f"{found[0].relevance_score:.4f} (< 0.5) — decay runs off last_accessed "
+        "and crushes long-term facts (R3, EM-106)"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason="F-002 → EM-107: last_accessed never "
-          "updated by default reinforce path")
+@pytest.mark.xfail(strict=True, reason="F-002 (R3) → EM-106: recall never "
+          "updates last_accessed, so actively-used facts keep decaying")
 def test_f002_recall_updates_last_accessed(engine):
     """Recalling a fact should update its last_accessed timestamp so it
-    doesn't decay. v2.7 only updates via opt-in reinforce."""
+    doesn't decay. v2.7 only updates via the opt-in reinforce path."""
     engine.remember(
         content="The user prefers dark mode in all applications",
-        domain="Preferences", importance=0.8, age_days=90,
+        domain="Preferences", importance=0.8,
     )
-    engine.recall("what is the user's theme preference")
+    _age_facts(engine, 90)
+    results = engine.recall("what is the user's theme preference")
+    assert results, "repro cannot run: the fact was not retrieved"
     # last_accessed should be within the last few seconds (just recalled)
-    import time as _time
     stored = engine.db.execute(
         "SELECT last_accessed FROM facts WHERE content LIKE '%dark mode%'"
     ).fetchone()
-    assert stored[0] > _time.time() - 5, f"last_accessed={stored[0]} not updated after recall"
+    last = datetime.fromisoformat(stored[0])
+    assert last > datetime.now(timezone.utc) - timedelta(seconds=5), (
+        f"last_accessed={stored[0]} not updated by recall — actively-used "
+        "facts keep decaying (R3, EM-106)"
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -371,101 +436,109 @@ def test_f005_no_os_environ_heremes_home_in_engine():
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-006 → EM-104: Near-duplicate dedup silently overwrites; no supersession
+# F-006 (L1) → EM-109: Near-duplicate dedup silently overwrites; no supersession
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-006 → EM-104: Jaccard >=0.8 dedup "
-          "silently overwrites without supersession record")
+@pytest.mark.xfail(strict=True, reason="F-006 (L1) → EM-109: Jaccard >=0.8 "
+          "fuzzy dedup silently overwrites without a supersession record")
 def test_f006_dedup_preserves_supersession_record(engine):
     """When a near-duplicate fact is remembered, the old fact must be
-    preserved as a superseded version, not silently overwritten."""
+    preserved as a superseded version, not silently overwritten. The pair
+    below has Jaccard 0.82, so v2.7's fuzzy dedup updates the old row in
+    place and '...five minutes' disappears from recall entirely."""
     engine.remember(
-        content="The API gateway listens on port 8080",
+        content="The project dashboard refresh interval is set to five minutes",
         domain="Infrastructure", importance=0.8,
     )
     engine.remember(
-        content="The API gateway listens on port 9090",
+        content="The project dashboard refresh interval is set to ten minutes",
         domain="Infrastructure", importance=0.8,
     )
     # Both should be retrievable: old as superseded, new as current
-    rows = engine.db.execute(
-        "SELECT content, superseded_by FROM facts ORDER BY created_at"
-    ).fetchall()
-    assert len(rows) >= 1
-    old_row = rows[0]
-    # The old fact must have a supersession record
-    assert old_row[1] is not None, (
-        f"Old fact '{old_row[0]}' was silently overwritten — "
-        "no supersession record (F-006, EM-104)"
+    results = engine.recall("The project dashboard refresh interval")
+    contents = [f.content for f in results]
+    assert any("five minutes" in c for c in contents) \
+        and any("ten minutes" in c for c in contents), (
+        f"near-duplicate write silently overwrote '...five minutes' (Jaccard "
+        f"0.82 fuzzy dedup) — both versions must stay retrievable, old as "
+        f"superseded (L1, EM-109): recall={contents}"
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-006 → EM-104: recall surfaces only the "
-          "newest without a way to query superseded versions")
+@pytest.mark.xfail(strict=True, reason="F-006 (L1) → EM-109: recall surfaces "
+          "only the newest version, with no supersession reason")
 def test_f006_recall_returns_superseded_with_reason(engine):
     """When querying a superseded concept, recall should indicate that a
     newer version exists rather than returning only the new fact."""
     engine.remember(
-        content="The server address is host alpha-seven.internal",
+        content="The primary application server hostname is set to alpha-seven.internal now",
         domain="Infrastructure", importance=0.9,
     )
     engine.remember(
-        content="The server address is host beta-nine.internal",
+        content="The primary application server hostname is set to beta-nine.internal now",
         domain="Infrastructure", importance=0.9,
     )
-    # Recall should mention both facts or at least note the supersession
     results = engine.recall("what is the server address")
-    # At minimum, the response should not silently drop the old fact
-    assert "alpha-seven" in results or "superseded" in results.lower(), (
-        "Superseded fact alpha-seven was silently dropped (F-006, EM-104)"
+    old_visible = any("alpha-seven" in f.content for f in results)
+    supersession_flagged = any(
+        "superseded" in str(f.why_retrieved).lower() for f in results
+    )
+    assert old_visible or supersession_flagged, (
+        "superseded fact alpha-seven.internal was silently dropped — recall "
+        "must surface the superseded version or flag the supersession "
+        f"(L1, EM-109): results={[f.content for f in results]}"
     )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-007 → EM-106: consolidate ignores importance; archives important facts
+# F-007 (L2) → EM-108: consolidate ignores importance; archives important facts
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-007 → EM-106: consolidate archives by "
-          "created_at + access_count, ignoring importance")
+@pytest.mark.xfail(strict=True, reason="F-007 (L2) → EM-108: consolidate "
+          "archives by created_at + access_count, ignoring importance")
 def test_f007_consolidate_respects_importance(engine):
     """A high-importance fact (>0.8) older than 90 days must NOT be archived
-    by consolidate. v2.7 uses access_count (always 0 by default) + created_at."""
+    by consolidate. v2.7 selects candidates on created_at + access_count
+    (always 0 by default), so importance is ignored."""
     engine.remember(
-        content="The user's emergency contact is 911",
-        domain="Personal", importance=0.95, age_days=120,
+        content="The user's emergency contact is a close family member",
+        domain="Personal", importance=0.95,
     )
-    engine.consolidate(max_age_days=90, min_access_count=0)
+    _age_facts(engine, 120)
+    # dry_run=False + confirm=True is the only combination that archives
+    engine.consolidate(max_age_days=90, min_access_count=0, dry_run=False, confirm=True)
     rows = engine.db.execute(
         "SELECT content FROM facts_archive WHERE content LIKE '%emergency contact%'"
     ).fetchall()
     assert len(rows) == 0, (
-        f"High-importance fact was archived by consolidate (F-007, EM-106): "
-        f"{rows}"
+        f"High-importance (0.95) fact was archived by consolidate — "
+        f"importance must shield facts from archiving (L2, EM-108): {rows}"
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-007 → EM-106: consolidate archives "
-          "low-importance facts first, not oldest")
+@pytest.mark.xfail(strict=True, reason="F-007 (L2) → EM-108: consolidate "
+          "archives low-importance facts first, not oldest")
 def test_f007_consolidate_archives_low_importance_first(engine):
     """When consolidating, low-importance facts should be archived before
     high-importance ones, even if they're the same age."""
     engine.remember(
-        content="Low importance fact: the user once saw a blue car",
-        domain="Personal", importance=0.1, age_days=120,
+        content="Low importance note: the user once saw a blue car on the street",
+        domain="Personal", importance=0.1,
     )
     engine.remember(
-        content="High importance fact: the user has a medical allergy to penicillin",
-        domain="Personal", importance=0.95, age_days=120,
+        content="The user has a severe medical allergy to penicillin",
+        domain="Personal", importance=0.95,
     )
-    engine.consolidate(max_age_days=90, min_access_count=0)
+    _age_facts(engine, 120)
+    engine.consolidate(max_age_days=90, min_access_count=0, dry_run=False, confirm=True)
     archived = engine.db.execute("SELECT content FROM facts_archive").fetchall()
     archived_text = " ".join(r[0] for r in archived)
     # High-importance fact must NOT be archived when low-importance exists
     assert "medical allergy" not in archived_text, (
-        "High-importance fact was archived before low-importance (F-007, EM-106)"
+        "High-importance fact was archived before low-importance (L2, EM-108)"
     )
     assert "blue car" in archived_text, (
-        "Low-importance fact was not archived (F-007, EM-106)"
+        "Low-importance fact was not archived (L2, EM-108)"
     )
 
 
@@ -544,70 +617,75 @@ def test_f008_core_memory_not_reinjected_every_turn(make_provider, home_a):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-009 → EM-112: Learning loop dead; regex extraction only, nothing promoted
+# F-009 (L4/R8) → EM-111 / S3: Learning loop dead; nothing promoted; episodes
+# never reach recall
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-009 → EM-112: extraction is regex-only; "
-          "extracted facts land in quarantine, nothing promotes to active")
+@pytest.mark.xfail(strict=True, reason="F-009 (L4) → EM-111: extracted "
+          "candidates land in the pending_facts quarantine and nothing "
+          "promotes them to active facts")
 def test_f009_extraction_promotes_from_quarantine(engine):
-    """Extracted facts from session digests should be promoted from
-    quarantine to active facts. v2.7 lands everything in quarantine."""
-    engine.sync_turn(
-        messages=[{"role": "user", "content": "Remember: my new laptop is a MacBook Pro M3"},
-                  {"role": "assistant", "content": "I'll remember that."}],
-        turn_author="test_user",
+    """Extracted facts from conversation text should be promoted from
+    quarantine to active facts. v2.7's extract_and_store() lands everything
+    in pending_facts and nothing auto-promotes."""
+    engine.extract_and_store(
+        "I use a MacBook Pro M3 as my new laptop for work.",
+        session_id="regress_f009",
     )
-    # The extraction regex should pull "MacBook Pro M3" as a fact
-    # and it should be promoted (not stuck in quarantine)
     quarantined = engine.db.execute(
-        "SELECT content FROM pending_facts WHERE content LIKE '%MacBook%'"
+        "SELECT content FROM pending_facts WHERE content LIKE '%laptop%'"
     ).fetchall()
+    assert quarantined, "repro cannot run: nothing was extracted into pending_facts"
     active = engine.db.execute(
-        "SELECT content FROM facts WHERE content LIKE '%MacBook%'"
+        "SELECT content FROM facts WHERE content LIKE '%laptop%'"
     ).fetchall()
     assert len(active) > 0, (
-        f"Extracted fact stuck in quarantine, not promoted to facts "
-        f"(F-009, EM-112): active={len(active)}, quarantined={len(quarantined)}"
+        f"extracted candidate stuck in pending_facts quarantine, not promoted "
+        f"to active facts (L4, EM-111): active={len(active)}, "
+        f"quarantined={len(quarantined)}"
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-009 → EM-112: no semantic "
-          "extraction; regex patterns are domain-specific")
+@pytest.mark.xfail(strict=True, reason="F-009 (L4) → EM-111: extraction is "
+          "regex-only; generic constraint statements are never captured")
 def test_f009_semantic_extraction_of_new_patterns(engine):
     """Extraction should handle generic constraint statements, not just
-    domain-specific regex patterns."""
-    engine.sync_turn(
-        messages=[{"role": "user", "content": "My security protocol requires rotating the API key every 90 days"},
-                  {"role": "assistant", "content": "Noted."}],
-        turn_author="test_user",
+    domain-specific regex patterns. (Repro note: the original statement here
+    was 'rotating the API key every 90 days' — secret words trip the write
+    policy and pollute the repro, so a non-secret generic constraint is used.)
+    """
+    engine.extract_and_store(
+        "I always prefer the office thermostat kept at 21 degrees.",
+        session_id="regress_f009",
     )
     rows = engine.db.execute(
-        "SELECT content FROM facts WHERE content LIKE '%API key%'"
+        "SELECT content FROM facts WHERE content LIKE '%thermostat%'"
     ).fetchall()
     assert len(rows) > 0, (
-        "Constraint statement 'rotating API key every 90 days' was not "
-        "extracted — regex-only patterns miss generic statements (F-009, EM-112)"
+        "generic constraint statement 'I always prefer the office thermostat "
+        "kept at 21 degrees' was not extracted into facts — regex-only "
+        "patterns miss generic statements (L4, EM-111)"
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-009 → EM-112: episodes and triples "
-          "never reach prefetch")
+@pytest.mark.xfail(strict=True, reason="F-009 (R8) → S3 retrieval v3: episodes "
+          "are stored in the timeline layer but recall() never surfaces them "
+          "(out of S1 scope)")
 def test_f009_episodes_reach_recall(engine):
-    """Episodic memories (conversations) should be retrievable alongside
-    facts. v2.7 extracts them but they never reach prefetch."""
-    engine.remember(
-        content="The user asked about Kubernetes deployment on Tuesday",
-        domain="Work", importance=0.7, age_days=3,
-    )
-    engine.sync_turn(
-        messages=[{"role": "user", "content": "what did we discuss about Kubernetes?"},
-                  {"role": "assistant", "content": "We discussed deployment."}],
-        turn_author="test_user",
+    """Episodic memories (conversation records) should be retrievable
+    alongside facts. v2.7 stores them via add_episode() but the standard
+    recall() path never surfaces them."""
+    engine.add_episode(
+        title="Kubernetes deployment discussion",
+        summary="The user asked about Kubernetes deployment on Tuesday; "
+                "we discussed deployment strategies.",
+        source_session="regress_f009",
     )
     results = engine.recall("kubernetes deployment")
-    assert "Kubernetes" in results, (
-        "Episodic memory not surfaced in recall (F-009, EM-112): "
-        f"results={results[:100]}"
+    assert any("Kubernetes" in f.content or "Kubernetes" in f.title for f in results), (
+        "episodic memory not surfaced by recall() — episodes must be "
+        f"retrievable alongside facts (R8 → S3 retrieval v3): "
+        f"results={[f.content for f in results]}"
     )
 
 
@@ -677,16 +755,17 @@ def test_em004_ac_minimum_xfail_count():
 
 
 # Reference the fixing task IDs so they're discoverable in the test file
+# (canonical master-plan numbering — the pre-correction map swapped several)
 FIXING_TASK_IDS = {
-    "F-001": "EM-105",
-    "F-002": "EM-107",
-    "F-003": "EM-108",
-    "F-004": "EM-109",
-    "F-005": "EM-110",
-    "F-006": "EM-104",
-    "F-007": "EM-106",
-    "F-008": "EM-111",
-    "F-009": "EM-112",
+    "F-001": "EM-105 (R1) / EM-104 (R2, fixed) / EM-107 (R7)",
+    "F-002": "EM-106",
+    "F-003": "EM-101 (fixed)",
+    "F-004": "EM-118",
+    "F-005": "EM-103 (+EM-102, fixed)",
+    "F-006": "EM-109",
+    "F-007": "EM-108",
+    "F-008": "EM-116 (+EM-107)",
+    "F-009": "EM-111 (R8 episodes → S3 retrieval v3)",
     "F-010": "EM-212",
     "F-011": "EM-213",
 }
