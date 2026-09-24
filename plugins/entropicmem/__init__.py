@@ -713,6 +713,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                         session_id=session_id,
                         source="auto_extracted",
                         min_confidence=0.4,
+                        promote=False,  # background extraction stays pending-only
                     )
             except Exception:
                 pass  # Non-blocking; failures are silent
@@ -1067,11 +1068,26 @@ class EntropicMemMemoryProvider(MemoryProvider):
         try:
             if self._config.get("session_end_capture", True):
                 self._flush_session_digest(messages, reason="session_end")
+            # EM-111: auto TTL purge of the pending quarantine
+            self._prune_pending_quarantine()
         except Exception as e:  # _flush already fails soft; belt and braces
             logger.debug("EntropicMem on_session_end failed: %s", e)
         finally:
             with self._prefetch_lock:
                 self._session_turns = []
+
+    def _prune_pending_quarantine(self) -> None:
+        """EM-111: TTL purge pending_facts (30d) at session end. Fail-soft."""
+        if not self._writes_allowed():
+            return
+        try:
+            engine, error = self._memory_engine()
+            if error:
+                return
+            with engine:
+                engine.prune_pending(older_than_days=30)
+        except Exception as e:
+            logger.debug("EntropicMem pending prune failed: %s", e)
 
     def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
         """A5: periodic partial digest flush for always-on sessions.
@@ -1189,6 +1205,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                         session_id=sid,
                         source="auto_extracted",
                         min_confidence=0.4,
+                        promote=False,  # C1: background capture stays pending-only
                     )
         except Exception as e:
             logger.debug("EntropicMem session digest flush failed: %s", e)

@@ -604,9 +604,6 @@ def test_f008_core_memory_not_reinjected_every_turn(make_provider, home_a):
 # never reach recall
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-009 (L4) → EM-111: extracted "
-          "candidates land in the pending_facts quarantine and nothing "
-          "promotes them to active facts")
 def test_f009_extraction_promotes_from_quarantine(engine):
     """Extracted facts from conversation text should be promoted from
     quarantine to active facts. v2.7's extract_and_store() lands everything
@@ -629,8 +626,6 @@ def test_f009_extraction_promotes_from_quarantine(engine):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-009 (L4) → EM-111: extraction is "
-          "regex-only; generic constraint statements are never captured")
 def test_f009_semantic_extraction_of_new_patterns(engine):
     """Extraction should handle generic constraint statements, not just
     domain-specific regex patterns. (Repro note: the original statement here

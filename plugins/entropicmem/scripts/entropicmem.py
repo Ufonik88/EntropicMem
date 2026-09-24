@@ -1672,6 +1672,13 @@ def cmd_pending(args) -> int:
             ok = engine.discard_pending(args.id)
             print(json.dumps({"ok": ok}))
             return 0 if ok else 1
+        if action == "prune":
+            # EM-111: TTL purge, e.g. --older-than 30d
+            raw = str(getattr(args, "older_than", "30d"))
+            days = int(raw[:-1]) if raw.lower().endswith("d") else int(raw)
+            n = engine.prune_pending(older_than_days=days)
+            print(json.dumps({"pruned": n, "older_than_days": days}))
+            return 0
     print("unknown pending action", file=sys.stderr)
     return 1
 
@@ -2002,6 +2009,8 @@ def main() -> int:
     p_pp.add_argument("id", help="Pending fact id")
     p_pd = p_pending_sub.add_parser("discard", help="Discard pending fact")
     p_pd.add_argument("id", help="Pending fact id")
+    p_pr = p_pending_sub.add_parser("prune", help="TTL-purge old pending facts (EM-111)")
+    p_pr.add_argument("--older-than", default="30d", help="TTL, e.g. 30d (default)")
 
     args = parser.parse_args()
 

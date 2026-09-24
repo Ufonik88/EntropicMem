@@ -23,7 +23,7 @@ import sqlite3
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -434,33 +434,21 @@ CREATE TABLE IF NOT EXISTS shared_facts (
 # Each pattern produces (content, domain, importance) tuples.
 
 _EXTRACTION_PATTERNS: List[Tuple[str, str, float, str]] = [
-    # Pattern                     Domain           Imp  Description
-    (r"(the|my)\s+(\w+\s+){0,4}(budget|account|salary|income|expense|financ)",
-     "Finance",        0.7, "financial"),
-    (r"(security|alarm|detector|hub|camera|sensor)\s{1,3}(systems?|app|device|migration)",
-     "Acme Corp",   0.8, "alarm"),
-    (r"(hermes|agent|plugin|skill|tool|model|provider)\s{1,3}(config|setup|install|error|memory)",
-     "Infrastructure", 0.7, "hermes"),
-    (r"(entropicmem|memory|vault|engine|index|retrieval)",
-     "Infrastructure", 0.6, "entropicmem"),
-    (r"(obsidian|vault|note|logseq)\s{1,3}(sync|backup|cleanup|migrat)",
-     "Infrastructure", 0.6, "obsidian"),
-    (r"(prefer|want|like|need|don't want|hate|dislike)\s{1,3}(to\s+)?(\w+\s+){1,6}\.",
-     "People",         0.5, "preference"),
-    (r"(customer|partner|installer|distributor)\s{1,3}(call|meeting|demo|pitch|follow)",
-     "Projects",       0.6, "customer"),
-    (r"(roadshow|webinar|certification|training|event)\s{1,3}(2026|\d{1,2}\s*\w+\s*2026)",
-     "Projects",       0.7, "event"),
-    (r"(twitter|x\s*post|social|content|viral|growth|follow)",
-     "Content-Growth",       0.6, "social"),
-    (r"(fix|bug|error|crash|fail|broken)\s{1,3}(\w+\s+){1,5}(in|on|with)",
-     "Infrastructure", 0.5, "bug"),
-    (r"(python|node|rust|golang?|typescript|bash)\s{1,3}(version|update|upgrade|install)",
-     "Infrastructure", 0.5, "dev-env"),
-    (r"(email|gmail|google\s*workspace|calendar)\s{1,3}(setup|sync|config|problem)",
-     "Workflows",      0.6, "productivity"),
-    (r"(release|shipped|launched|deployed|merged|pr\s*#?\d+)",
-     "Projects",       0.5, "release"),
+    # EM-111 (G1): generic first-person patterns ONLY. The old
+    # domain-specific keyword lists (finance/alarm/hermes/obsidian/social/
+    # events) encoded one employer's world into a generic engine, missed
+    # everything outside it, and leaked employer/campaign/product strings
+    # into the shipped scripts.
+    (r"\b(?:i|we)\s+(?:always |usually |often |also |still |really |generally "
+     r"|typically |prefer to |tend to )?(?:prefer|like|love|want|need|hate|dislike"
+     r"|use|using|keep|choose|avoid|work with|work on|live in|run|manage|maintain"
+     r"|build|drive|own)\b[^.!?\n]{3,120}",
+     "Preferences", 0.5, "first-person"),
+    (r"\bmy\s+[a-z][\w\- ]{2,40}?\s+(?:is|are|was|has|have|runs|uses|stays|needs"
+     r"|works)\b[^.!?\n]{2,120}",
+     "Preferences", 0.5, "first-person"),
+    (r"\b(?:i|we)\s+(?:always |never |must |should |have to |need to )\w+[^.!?\n]{3,120}",
+     "Preferences", 0.5, "constraint"),
 ]
 
 # ── data types ──────────────────────────────────────────────────────────────
@@ -830,6 +818,13 @@ class MemoryEngine:
         reason: str = "",
     ) -> str:
         """Store a candidate fact in pending_facts (not durable recall)."""
+        # EM-111: quarantine hygiene — sanitize injection markers and redact
+        # PII before the candidate is stored anywhere.
+        content = self._sanitize_fact_text(content)
+        if PII_AVAILABLE:
+            pii_result = check_pii(content, mode="redact")
+            if pii_result["has_pii"]:
+                content = pii_result["text"]
         eid = StoredFact.make_id(content)
         tags_str = ", ".join(tags) if tags else ""
         self._acquire_write_lock()
@@ -870,7 +865,8 @@ class MemoryEngine:
             domain=row["domain"] or "Knowledge",
             tags=tags + ["promoted"],
             session_id=row["session_id"] or "",
-            sensitivity="internal",
+            # EM-111: keep the pending row's domain-derived sensitivity
+            sensitivity=None,
             actor=actor,
         )
         self._acquire_write_lock()
@@ -887,6 +883,27 @@ class MemoryEngine:
         self.db.commit()
         self.audit("discard_pending", fact_id=pending_id, ok=cur.rowcount > 0)
         return cur.rowcount > 0
+
+    def prune_pending(self, older_than_days: int = 30) -> int:
+        """TTL purge of the pending quarantine (EM-111).
+
+        Deletes pending rows older than ``older_than_days`` and returns the
+        count. Runs on demand (CLI `pending prune --older-than 30d`) and
+        automatically at session end.
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
+        self._acquire_write_lock()
+        try:
+            cur = self.db.execute(
+                "DELETE FROM pending_facts WHERE created_at < ?", (cutoff,)
+            )
+            self.db.commit()
+            n = cur.rowcount
+        finally:
+            self._release_write_lock()
+        if n:
+            self.audit("pending_prune", detail=f"pruned {n} older than {older_than_days}d")
+        return n
 
     def remember(
         self,
@@ -1743,16 +1760,20 @@ class MemoryEngine:
         session_id: str = "",
         source: str = "auto_extracted",
         min_confidence: float = 0.4,
+        promote: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Extract candidate facts from conversation text using heuristic patterns.
 
-        QUARANTINE SEMANTICS: extracted candidates are stored in the
-        pending_facts quarantine via quarantine_fact() — they are NEVER written
-        to durable recall (remember()) automatically. Promote a candidate with
-        promote_pending() (CLI: `entropicmem pending promote <id>`) or drop it
-        with discard_pending(). Returns the list of quarantined candidates
-        ({id, content, domain, importance, tag, pending: True}).
+        QUARANTINE SEMANTICS: every extracted candidate is recorded in the
+        pending_facts quarantine via quarantine_fact(). When the write policy
+        allows the candidate, it is ALSO promoted to durable facts (EM-111 —
+        extraction now has a promotion path); the pending row remains as the
+        extraction record until the TTL purge (prune_pending). Promote or drop
+        a candidate explicitly with promote_pending() (CLI: `entropicmem
+        pending promote <id>`) or discard_pending(). Returns the list of
+        quarantined candidates ({id, content, domain, importance, tag,
+        pending: True}).
 
         This is a regex-based extraction — no LLM required.
         Designed for zero-cost, zero-latency background extraction.
@@ -1774,7 +1795,7 @@ class MemoryEngine:
                     continue
                 self._quarantine_candidate(
                     extracted, content, source, session_id,
-                    importance, domain, tag, "auto_extract",
+                    importance, domain, tag, "auto_extract", promote,
                 )
 
         # Preference detection via common patterns
@@ -1790,7 +1811,7 @@ class MemoryEngine:
                     continue
                 self._quarantine_candidate(
                     extracted, content, source, session_id,
-                    importance, domain, "preference", "auto_extract_preference",
+                    importance, domain, "preference", "auto_extract_preference", promote,
                 )
 
         return extracted
@@ -1805,6 +1826,7 @@ class MemoryEngine:
         domain: str,
         tag: str,
         reason: str,
+        promote: bool = True,
     ) -> None:
         """Dedup + quarantine one candidate; append to ``extracted`` if stored."""
         eid = StoredFact.make_id(content)
@@ -1813,7 +1835,7 @@ class MemoryEngine:
         if self.db.execute("SELECT 1 FROM pending_facts WHERE id = ?", (eid,)).fetchone():
             return
 
-        # Quarantine — never auto-promote into durable facts
+        # Quarantine — every extraction is recorded in pending_facts
         stored_id = self.quarantine_fact(
             content=content,
             source=source,
@@ -1823,6 +1845,23 @@ class MemoryEngine:
             session_id=session_id,
             reason=reason,
         )
+        # EM-111: extraction now has a promotion path — when the write policy
+        # allows the candidate it goes to durable facts too; the pending row
+        # stays as the extraction record (TTL-pruned by prune_pending).
+        # Background paths (session-end capture) pass promote=False and stay
+        # pending-only.
+        if promote:
+            try:
+                self.remember(
+                    content=content,
+                    source="promoted",
+                    importance=importance,
+                    domain=domain,
+                    tags=[tag],
+                    session_id=session_id,
+                )
+            except ValueError:
+                pass  # policy-blocked or empty after sanitize: stays quarantined
         extracted.append({
             "id": stored_id,
             "content": content,
