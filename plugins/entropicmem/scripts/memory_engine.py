@@ -972,11 +972,23 @@ class MemoryEngine:
                      domain, tags_str, session_id, now, tier, pid, fact_timestamp, eid),
                 )
             else:
-                # I1: Fuzzy deduplication — check for near-duplicate content
+                # I1: Fuzzy deduplication — check for near-duplicate content.
+                # EM-109 (L1): a fuzzy UPDATE in place is allowed only when the
+                # pair passes _safe_fuzzy_update (Jaccard >= 0.95 AND identical
+                # numbers/versions/IPs/dates AND identical negation tokens).
+                # Otherwise the write inserts as a NEW fact and the pair is
+                # audited as possible_duplicate — no more silent overwrites.
                 fuzzy_id = self._find_fuzzy_duplicate(content)
+                old_content = ""
                 if fuzzy_id and fuzzy_id != eid:
+                    row = self.db.execute(
+                        "SELECT content FROM facts WHERE id = ?", (fuzzy_id,)
+                    ).fetchone()
+                    old_content = row[0] if row else ""
+                if fuzzy_id and fuzzy_id != eid and self._safe_fuzzy_update(content, old_content):
                     # Phase 11.3: snapshot before fuzzy update
                     self.snapshot_version(fuzzy_id, source="fuzzy_dedup_update")
+                    before_hash = hashlib.sha256(old_content.encode("utf-8")).hexdigest()
                     # Update the existing near-duplicate instead of creating a new fact
                     self.db.execute(
                         """UPDATE facts SET content=?, title=?, importance=?, domain=?,
@@ -985,6 +997,13 @@ class MemoryEngine:
                            WHERE id=?""",
                         (content, title or self._make_title(content), importance,
                          domain, tags_str, session_id, now, tier, pid, fact_timestamp, fuzzy_id),
+                    )
+                    # EM-109: allowed fuzzy updates are audited with the
+                    # before-content hash
+                    self.audit(
+                        "fuzzy_update",
+                        fact_id=fuzzy_id,
+                        detail=json.dumps({"before_sha256": before_hash}),
                     )
                     eid = fuzzy_id  # Return the existing fact's ID
                 else:
@@ -998,6 +1017,14 @@ class MemoryEngine:
                          pid, ft),
                     )
                     is_create = True
+                    if fuzzy_id and fuzzy_id != eid:
+                        # EM-109: near-duplicate that failed the safe rule —
+                        # both facts stay, and the pair is audited
+                        self.audit(
+                            "possible_duplicate",
+                            fact_id=eid,
+                            detail=json.dumps({"new": eid, "duplicate_of": fuzzy_id}),
+                        )
 
             # Upsert FTS — must use the same rowid as the facts table
             # Get the rowid of the fact we just inserted/updated
@@ -2646,6 +2673,52 @@ class MemoryEngine:
         intersection = set_a & set_b
         union = set_a | set_b
         return len(intersection) / len(union)
+
+    # EM-109: critical tokens whose change must block a fuzzy in-place update
+    _NUMBER_WORDS = {
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+        "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+        "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty",
+        "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred",
+        "thousand", "million", "half", "quarter", "first", "second", "third",
+    }
+    _NEGATION_TOKENS = {
+        "no", "not", "never", "without", "none", "nobody", "nothing",
+        "cannot", "cant", "dont", "doesnt", "isnt", "arent", "wasnt",
+        "werent", "wont", "wouldnt", "shouldnt", "couldnt", "didnt",
+    }
+    _TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9.\-_:]*")
+
+    @classmethod
+    def _critical_tokens(cls, text: str) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+        """(numbers/versions/IPs/dates, negations) as sorted tuples.
+
+        Tokens are split on separators first so embedded number words in
+        identifiers ("alpha-seven.internal") count too.
+        """
+        numbers: Set[str] = set()
+        negations: Set[str] = set()
+        for token in cls._TOKEN_RE.findall(text.lower()):
+            for part in re.split(r"[.\-_:]+", token):
+                if not part:
+                    continue
+                if any(ch.isdigit() for ch in part) or part in cls._NUMBER_WORDS:
+                    numbers.add(part)
+                if part in cls._NEGATION_TOKENS:
+                    negations.add(part)
+        return tuple(sorted(numbers)), tuple(sorted(negations))
+
+    @classmethod
+    def _safe_fuzzy_update(cls, content: str, old_content: str) -> bool:
+        """EM-109: may a fuzzy near-duplicate update in place?
+
+        Only when Jaccard >= 0.95 AND the numbers/versions/IPs/dates are
+        identical AND the negation tokens are identical. Anything else must
+        insert as a new fact (never a silent overwrite).
+        """
+        if cls._jaccard_similarity(content, old_content) < 0.95:
+            return False
+        return cls._critical_tokens(content) == cls._critical_tokens(old_content)
 
     def _find_fuzzy_duplicate(self, content: str, threshold: float = 0.8) -> Optional[str]:
         """Find an existing fact with Jaccard similarity >= threshold.

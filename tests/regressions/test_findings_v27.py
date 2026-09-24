@@ -430,8 +430,6 @@ def test_f005_no_os_environ_heremes_home_in_engine():
 # F-006 (L1) → EM-109: Near-duplicate dedup silently overwrites; no supersession
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-006 (L1) → EM-109: Jaccard >=0.8 "
-          "fuzzy dedup silently overwrites without a supersession record")
 def test_f006_dedup_preserves_supersession_record(engine):
     """When a near-duplicate fact is remembered, the old fact must be
     preserved as a superseded version, not silently overwritten. The pair
@@ -456,8 +454,6 @@ def test_f006_dedup_preserves_supersession_record(engine):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-006 (L1) → EM-109: recall surfaces "
-          "only the newest version, with no supersession reason")
 def test_f006_recall_returns_superseded_with_reason(engine):
     """When querying a superseded concept, recall should indicate that a
     newer version exists rather than returning only the new fact."""
