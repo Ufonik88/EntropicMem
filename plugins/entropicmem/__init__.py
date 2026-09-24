@@ -182,6 +182,8 @@ SMART_CONTEXT_DEFAULTS = {
     # EM-118: interim gateway privacy guard (owner/guest separation)
     "owner_user_ids": [],
     "guest_hidden_domains": ["People", "Finance"],
+    # EM-110: mirror built-in writes (background_review opt-in)
+    "mirror": {"background_review": False},
 
     # P1 Slice 2: lifecycle hooks (A1/A2/A5/C1)
     "session_end_capture": True,
@@ -485,6 +487,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "key": "guest_hidden_domains",
                 "description": "EM-118: domains never prefetched for guest users",
                 "default": ["People", "Finance"],
+            },
+            {
+                "key": "mirror.background_review",
+                "description": "EM-110: mirror built-in writes with write_origin=background_review (default off)",
+                "default": False,
             },
             {
                 "key": "reinforcement_boost",
@@ -1102,10 +1109,27 @@ class EntropicMemMemoryProvider(MemoryProvider):
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Mirror a built-in memory-tool write. Skipped for non-primary agent contexts (write path)."""
+        """Mirror a built-in memory-tool write (EM-110: add/replace/remove).
+
+        replace/remove locate the mirror by make_id(previous_content), falling
+        back to a substring match of old_text against facts tagged 'mirrored'.
+        Writes with write_origin == "background_review" are skipped unless
+        mirror.background_review is enabled. Skipped for non-primary agent
+        contexts (write path).
+        """
         if not self._writes_allowed():
             return
-        if action != "add" or not content or not self._memory_db or not self._scripts_dir:
+        metadata = metadata or {}
+        if (
+            str(metadata.get("write_origin") or "") == "background_review"
+            and not (self._config.get("mirror") or {}).get("background_review", False)
+        ):
+            return
+        if not self._memory_db or not self._scripts_dir:
+            return
+        if action not in ("add", "replace", "remove"):
+            return
+        if action in ("add", "replace") and not content:
             return
         try:
             ensure_scripts_on_path(self._scripts_dir)
@@ -1113,6 +1137,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
             domain = "People" if target == "user" else "Knowledge"
             with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
+                old_id = self._locate_mirror(engine, metadata) if action != "add" else None
+                if action == "remove":
+                    if old_id:
+                        engine.forget(old_id, confirm=True)
+                    return
+                if action == "replace" and old_id:
+                    # no stale mirrors: the old mirror goes, the new one lands
+                    engine.forget(old_id, confirm=True)
                 engine.remember(
                     content=content,
                     title=content[:60],
@@ -1123,6 +1155,30 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 )
         except Exception as e:
             logger.debug("EntropicMem on_memory_write mirror failed: %s", e)
+
+    def _locate_mirror(self, engine, metadata: Dict[str, Any]) -> Optional[str]:
+        """EM-110: find the mirror row for a replace/remove.
+
+        Primary: make_id(previous_content). Fallback: substring match of
+        old_text against facts tagged 'mirrored'.
+        """
+        from memory_engine import StoredFact
+
+        previous = str(metadata.get("previous_content") or "")
+        if previous:
+            mid = StoredFact.make_id(previous)
+            fact = engine.get_fact(mid)
+            if fact is not None and "mirrored" in (getattr(fact, "tags", None) or []):
+                return mid
+        needle = str(metadata.get("old_text") or "") or previous
+        needle = needle.strip()
+        if needle:
+            rows = engine.db.execute("SELECT id, content, tags FROM facts").fetchall()
+            for fid, row_content, tags in rows:
+                tag_list = [t.strip() for t in (tags or "").split(",")]
+                if "mirrored" in tag_list and needle in (row_content or ""):
+                    return fid
+        return None
 
     def on_session_switch(
         self,
