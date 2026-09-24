@@ -583,31 +583,50 @@ class EntropicMemMemoryProvider(MemoryProvider):
         *,
         session_id: str = "",
         messages: Optional[List[Dict[str, Any]]] = None,
+        turn_author: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Update conversation history and run background auto-extraction.
 
         Skipped entirely (no state change, no writes) for non-primary agent
         contexts — subagent/cron/flush turns must not pollute durable memory.
+
+        Multimodal payloads (list content) are normalised with
+        ``textutil.message_text`` so history stays ``{"role", "content": str}``
+        (EM-101/H2). ``turn_author`` is stored on the turn entries only.
         """
+        from textutil import message_text
+
         if not self._writes_allowed():
             return
         if messages:
-            self._conversation_history = messages[-(self._config.get("context_window_turns", 3) * 2):]
+            self._conversation_history = [
+                {"role": m.get("role", ""), "content": message_text(m)}
+                for m in messages[-(self._config.get("context_window_turns", 3) * 2):]
+                if isinstance(m, dict)
+            ]
+
+        user_text = message_text(user_content)
+        assistant_text = message_text(assistant_content)
 
         # P1 Slice 2 (A1/A5): bounded per-session turn buffer for digest flushes.
-        if user_content or assistant_content:
+        if user_text or assistant_text:
+            author = {"author": turn_author} if turn_author is not None else {}
             with self._prefetch_lock:
-                if user_content:
-                    self._session_turns.append({"role": "user", "content": user_content})
-                if assistant_content:
-                    self._session_turns.append({"role": "assistant", "content": assistant_content})
+                if user_text:
+                    self._session_turns.append(
+                        {"role": "user", "content": user_text, **author}
+                    )
+                if assistant_text:
+                    self._session_turns.append(
+                        {"role": "assistant", "content": assistant_text, **author}
+                    )
                 if len(self._session_turns) > 400:
                     del self._session_turns[:-400]
 
         # Auto-extract facts from conversation (non-blocking, regex-based)
         if self._config.get("auto_extract_enabled", False) and self._memory_db and self._scripts_dir:
             try:
-                self._auto_extract(user_content, assistant_content, session_id or self._session_id)
+                self._auto_extract(user_text, assistant_text, session_id or self._session_id)
             except Exception as e:
                 logger.debug("EntropicMem auto-extract failed: %s", e)
 
@@ -682,8 +701,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
     def _conversation_fingerprint(self) -> str:
         """Hash of the recent conversation (what the cache snapshot is compared against)."""
         import hashlib
+
+        from textutil import message_text
+
         recent_content = " ".join(
-            msg.get("content", "")[:100]
+            message_text(msg)[:100]
             for msg in self._conversation_history[-4:]
         )
         return hashlib.sha256(recent_content.encode()).hexdigest()[:16]
@@ -700,13 +722,15 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     def _build_context_query(self, query: str) -> str:
         """Build enhanced query using conversation context."""
+        from textutil import message_text
+
         if not self._conversation_history:
             return query
 
         # Extract recent user messages
         max_turns = self._config.get("context_window_turns", 3)
         recent_user_msgs = [
-            msg.get("content", "")[:200]
+            message_text(msg)[:200]
             for msg in self._conversation_history[-(max_turns * 2):]
             if msg.get("role") == "user"
         ]

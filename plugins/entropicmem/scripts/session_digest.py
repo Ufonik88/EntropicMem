@@ -16,6 +16,8 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from textutil import message_text as _message_text  # shared EM-101 normaliser
+
 _TITLE_MAX = 80
 _BULLET_MAX = 220
 _MAX_SCAN_CHARS = 20000  # per-role cap for the C1 extraction input
@@ -31,21 +33,6 @@ _MARKERS = re.compile(
 
 _WS = re.compile(r"\s+")
 
-
-def _message_text(msg: Dict[str, Any]) -> str:
-    """Flatten one OpenAI-style message to plain text ('' for non-text content)."""
-    content = msg.get("content")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):  # multipart content
-        parts = []
-        for item in content:
-            if isinstance(item, dict):
-                text = item.get("text")
-                if isinstance(text, str) and text:
-                    parts.append(text)
-        return " ".join(parts)
-    return ""
 
 
 def _turns(messages: Optional[List[Dict[str, Any]]]) -> List[Tuple[str, str]]:

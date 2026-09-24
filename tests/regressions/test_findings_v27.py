@@ -158,8 +158,6 @@ def test_f002_recall_updates_last_accessed(engine):
 # F-003 → EM-108: Multimodal list payload crashes prefetch (TypeError swallowed)
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-003 → EM-108: multimodal message with "
-          "list content raises TypeError: unhashable type 'list' in prefetch")
 def test_f003_prefetch_handles_multimodal_list_messages(make_provider, home_a):
     """A multimodal message (list content) in turn history should not crash
     prefetch. v2.7 raises TypeError on list payloads and silently swallows it,
@@ -171,13 +169,51 @@ def test_f003_prefetch_handles_multimodal_list_messages(make_provider, home_a):
         "entropicmem_remember",
         {"content": "The user's grocery list is milk, eggs, and bread", "domain": "Personal"},
     )
-    # send a turn with multimodal list content
-    block, latency = host.turn(
+    # a multimodal (list-content) message in the turn history must not crash
+    # the prefetch fingerprint (TypeError swallowed -> "" injection)
+    provider.sync_turn(
         "what is on my list",
-        extra_messages=[{"role": "user", "content": [{"type": "text", "text": "list item"}]}],
+        "checking the list now",
+        session_id="f003-session",
+        messages=[
+            {"role": "user", "content": [{"type": "text", "text": "list item"}]},
+        ],
     )
+    block, latency = host.turn("what is on my list")
     # should not crash, should still inject memory
     assert isinstance(block, str), "prefetch crashed on multimodal message"
+    assert "milk" in block, "memory injection stopped after multimodal message"
+    host.shutdown()
+
+
+def test_H2_multimodal_prefetch(make_provider, home_a):
+    """H2 (fixed by EM-101): multimodal list payloads anywhere in the turn
+    history must not stop memory injection. Includes mixed part keys
+    (text/input_text/output_text), nested content dicts, and a normalised
+    sync_turn store with turn_author."""
+    provider = make_provider()
+    host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA")
+    host.start()
+    provider.handle_tool_call(
+        "entropicmem_remember",
+        {"content": "The user's wifi network is named cedar-guest", "domain": "Infrastructure"},
+    )
+    provider.sync_turn(
+        [{"type": "text", "text": "what is my wifi network"}],
+        [{"type": "output_text", "text": "checking"}],
+        session_id="h2-session",
+        messages=[
+            {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "http://x/1.png"}}]},
+            {"role": "user", "content": {"content": [{"type": "input_text", "text": "and the wifi name"}]}},
+        ],
+        turn_author={"id": "user_one"},
+    )
+    block, latency = host.turn("what is my wifi network")
+    assert isinstance(block, str)
+    assert "cedar-guest" in block, "memory injection stopped on multimodal turns"
+    # store is normalised: string content, author captured
+    assert all(isinstance(t.get("content"), str) for t in provider._session_turns)
+    assert any(t.get("author") == {"id": "user_one"} for t in provider._session_turns)
     host.shutdown()
 
 
@@ -223,40 +259,43 @@ def test_f004_cross_user_isolation(make_provider, home_a):
     host_b.shutdown()
 
 
-@pytest.mark.xfail(strict=True, reason="F-004 → EM-109: per-profile config "
-          "overridden by default profile at initialize")
-def test_f004_per_profile_config_respected(make_provider, home_a, home_b):
-    """Each profile must use its own config, not the default profile's.
-    v2.7 overrides per-profile config at initialize."""
-    provider_a = make_provider()
-    provider_b = make_provider()
+@pytest.mark.xfail(strict=True, reason="F-004b → EM-102: register() passes the "
+          "default profile's file config as explicit constructor config, "
+          "overriding the real profile's file config at initialize (H4)")
+def test_f004_per_profile_config_respected(home_a, home_b, monkeypatch):
+    """Each profile's own file config must win over whatever config was loaded
+    from the default profile at register() time (H4)."""
+    import sys
+    import types
 
-    host_a = FakeHost(provider_a, hermes_home=home_a, agent_identity="homeA")
-    host_b = FakeHost(provider_b, hermes_home=home_b, agent_identity="homeB")
-    host_a.start()
-    host_b.start()
+    import plugins.entropicmem as emod
 
-    provider_a.handle_tool_call(
-        "entropicmem_remember",
-        {"content": "Profile A specific memory: alpha-omega-9", "domain": "Work"},
+    (home_a / "config.yaml").write_text(
+        "plugins:\n  entropicmem:\n    max_prefetch_results: 4\n    min_relevance_score: 0.11\n",
+        encoding="utf-8",
     )
-    provider_b.handle_tool_call(
-        "entropicmem_remember",
-        {"content": "Profile B specific memory: beta-prime-7", "domain": "Work"},
+    (home_b / "config.yaml").write_text(
+        "plugins:\n  entropicmem:\n    max_prefetch_results: 2\n    min_relevance_score: 0.22\n",
+        encoding="utf-8",
     )
+    # register() resolves the "default profile" home via hermes_constants
+    fake_hc = types.ModuleType("hermes_constants")
+    setattr(fake_hc, "get_hermes_home", lambda: home_a)
+    monkeypatch.setitem(sys.modules, "hermes_constants", fake_hc)
 
-    # A's profile should not see B's memories and vice versa
-    block_a, _ = host_a.turn("what specific memories exist for profile A")
-    block_b, _ = host_b.turn("what specific memories exist for profile B")
+    class _Ctx:
+        def register_memory_provider(self, provider):
+            self.provider = provider
 
-    assert "alpha-omega-9" in block_a
-    assert "beta-prime-7" not in block_a, "profile B memory leaked into profile A"
+    ctx = _Ctx()
+    emod.register_memory_provider(ctx)
+    ctx.provider.initialize("cfg-session", hermes_home=str(home_b), agent_identity="homeB")
 
-    assert "beta-prime-7" in block_b
-    assert "alpha-omega-9" not in block_b
-
-    host_a.shutdown()
-    host_b.shutdown()
+    assert ctx.provider._config["max_prefetch_results"] == 2, (
+        f"home_a (register-time) config overrode home_b file config: "
+        f"{ctx.provider._config['max_prefetch_results']} (H4/EM-102)"
+    )
+    assert ctx.provider._config["min_relevance_score"] == 0.22
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -406,41 +445,53 @@ def test_f007_consolidate_archives_low_importance_first(engine):
 # F-008 → EM-111: Prefetch synchronous on agent thread; core memory re-injected
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-008 → EM-111: prefetch runs "
-          "synchronously on the agent thread instead of a background worker")
+@pytest.mark.xfail(strict=True, reason="F-008a → S4 async prefetch: queue_prefetch "
+          "is a synchronous no-op stub; prefetch work runs inline on the caller")
 def test_f008_prefetch_runs_async(make_provider, home_a):
-    """Prefetch must run on a dedicated thread, not block the agent thread.
-    v2.7 runs all prefetch synchronously on the main thread."""
+    """queue_prefetch must schedule the recall work on a background thread
+    (H5). v2.7 only stashes the query string and runs prefetch inline."""
+    import threading
+    import time as _time
+
     provider = make_provider()
-    host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA",
-                    init_kwargs={"hermes_home": home_a})
+    host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA")
     host.start()
     provider.handle_tool_call(
         "entropicmem_remember",
         {"content": "test async prefetch", "domain": "Work"},
     )
-    block, latency = host.turn("tell me about the test")
+    caller_ident = threading.get_ident()
+    seen_ident = {}
+    original = provider._build_fact_block
 
-    # Prefetch should complete via queue_prefetch (async), not inline
-    # In v2.7, prefetch blocks the turn — latency includes full recall time
-    # The fix: prefetch is queued and runs on a FIFO background worker
-    metrics = host.summary()
-    assert metrics["prefetch_timeouts"] == 0
-    # If async: turn returns quickly, prefetch completes in background
-    # v2.7: turn latency includes full recall (synchronous)
-    # Check that prefetch didn't block the main thread by >50% of turn time
-    # (This is a heuristic; the real fix instruments the thread.)
-    assert latency > 0.0  # just verify we got a latency
+    def _probe(q):
+        seen_ident["ident"] = threading.get_ident()
+        return original(q)
 
+    provider._build_fact_block = _probe
+    provider.queue_prefetch("tell me about the async prefetch test")
+    deadline = _time.time() + 2.0
+    while _time.time() < deadline and "ident" not in seen_ident:
+        _time.sleep(0.05)
     host.shutdown()
+    assert seen_ident.get("ident") not in (None, caller_ident), (
+        "queue_prefetch did not run the recall work off the caller thread (H5)"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason="F-008 → EM-111: core memory "
-          "re-injected every turn, causing linear token growth")
+@pytest.mark.xfail(strict=True, reason="F-008b → EM-116: core memory block "
+          "re-injected on every prefetch, causing linear token growth (L8)")
 def test_f008_core_memory_not_reinjected_every_turn(make_provider, home_a):
-    """Core Memory (Persona + Profile) should be cached per session,
-    not re-injected every turn, to avoid linear prompt token growth."""
+    """Core Memory (Persona + Profile) should be injected once (system prompt
+    / delta), not repeated in every turn's prefetch block."""
+    from pathlib import Path
+
+    from vault import CoreMemory
+
     provider = make_provider()
+    # seed real Core Memory content so injection is non-empty
+    core = CoreMemory(Path(home_a) / "entropicmem" / "vault")
+    core.patch("persona", "## Identity", "## Identity\nPersona marker unit-alpha-7")
     host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA")
     host.start()
     provider.handle_tool_call(
@@ -450,16 +501,16 @@ def test_f008_core_memory_not_reinjected_every_turn(make_provider, home_a):
 
     blocks = []
     for i in range(5):
-        block, _ = host.turn(f"query {i}")
+        block, _ = host.turn(f"what do you know about my persona marker details round {i}")
         if block:
             blocks.append(block)
 
-    # Count how many blocks contain the full "EntropicMem Core Memory" section
-    core_count = sum(1 for b in blocks if "Core Memory" in b or "Persona" in b)
+    assert blocks, "prefetch returned nothing; repro cannot run"
+    core_count = sum(1 for b in blocks if "unit-alpha-7" in b or "Core Memory — Persona" in b)
     # Core memory should be injected once (session start), not every turn
     assert core_count <= 1, (
         f"Core memory re-injected {core_count} times across 5 turns; "
-        f"should be cached per session (F-008, EM-111)"
+        f"should be cached per session (L8/EM-116)"
     )
     host.shutdown()
 
