@@ -17,6 +17,62 @@ jobs:
       - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50"
       - run: pytest -q tests/
 
+  # EM-007: run the ci eval suite and compare against the committed baseline.
+  # Fails on any gated regression per §6.3 (recall@5, ndcg@5, abstain_correct,
+  # noise_rate, must_not_ok). The threshold warnings documented in §2.4 are
+  # informational pre-2.8.0 and do not fail the job (they xfail the whole suite).
+  evals-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50"
+      # The ci suite forces sentence_transformers/torch OFF (sys.meta_path
+      # blocker + engine flag), so no ML deps are needed here.
+      - run: PYTHONPATH="plugins/entropicmem/scripts" python3 -m evals run --suite ci --adapter v2 --compare evals/baselines/v2.7.0-ci.json
+
+  # EM-007: performance smoke test — 1k corpus, fail if prefetch warm p95
+  # exceeds 2× the §6.4 budget (20 ms → 40 ms p95).
+  perf-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50"
+      - run: PYTHONPATH="plugins/entropicmem/scripts" python3 -m evals.perf --sizes 1000 --probes 5 --out-dir /tmp
+      - name: Assert perf budget
+        run: |
+          python3 - <<'PY'
+          import glob, json, os
+          # perf.py writes perf-<UTC stamp>.json to --out-dir (/tmp)
+          files = sorted(glob.glob("/tmp/perf-*.json"), key=os.path.getmtime)
+          assert files, "no perf results found in /tmp"
+          # report structure: report["results"]["<size>"]["prefetch"]["warm"]["p95_ms"]
+          report = json.load(open(files[-1]))
+          # Use the 1k corpus result (perf-smoke runs --sizes 1000)
+          warm = report["results"]["1000"]["prefetch"]["warm"]["p95_ms"]
+          budget = 20.0  # 2× §6.4 budget of 10 ms (CI 2x slack already baked in)
+          assert warm <= budget, f"prefetch warm p95 {warm}ms exceeds {budget}ms budget (§6.4 × 2)"
+          print("perf-smoke OK:", warm, "ms")
+          PY
+
+  # EM-007: Windows import smoke — must not crash on import.
+  # Expected to fail until EM-202 fixes the Windows path-handling; keep
+  # continue-on-error so it never blocks the gate.
+  windows-import:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -c "import memory_engine"
+
   bench:
     runs-on: ubuntu-latest
     steps:
@@ -48,7 +104,7 @@ jobs:
       # install, the supported dev path (bump the commit as needed).
       - run: |
           git clone --quiet https://github.com/NousResearch/hermes-agent /tmp/hermes-agent
-          git -C /tmp/hermes-agent checkout --quiet 4094ab610dc7f8554461e7a9b3ffe5e419220949
+          git -C /tmp/hermes-agent checkout --quiet defb7033ff4e4507d38d769d20e406300f6a8790
           pip install -q uv
           uv pip install --system -e /tmp/hermes-agent
       # Exact command the Hermes plugin catalog runs at the pinned plugin SHA.
@@ -62,4 +118,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -q "ruff==0.16.2"
-      - run: ruff check skills/ plugins/ scripts/ tests/ benchmarks/
+      - run: ruff check skills/ plugins/ scripts/ tests/ benchmarks/ evals/
