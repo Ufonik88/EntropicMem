@@ -1,0 +1,5 @@
+# EM-001 full suite — runs in addition to `ci`; designed for semantic/vector
+# backends (paraphrase gaps FTS cannot bridge). Harmless under v2 (scores
+# reflect its lexical limits). Personas synthetic (public-repo rule §0.1).
+{"id":"semantic_paraphrase_01","category":"noise","memories":[{"content":"The user's home router assigns DHCP leases from 10.40.0.50 to 10.40.0.150","kind":"fact","age_days":6,"importance":0.7,"domain":"Infrastructure","scope_user":""}],"noise":{"generator":"filler","count":60,"seed":21},"turns":[{"query":"how many devices can grab an address before the pool runs dry?","expect_ids":["$0"],"expect_substrings":[],"must_not":["$noise"]}]}
+{"id":"semantic_intent_01","category":"ageing","memories":[{"content":"The user takes the evening express train from Calderbrook to Fenwick at 18:07","kind":"fact","age_days":30,"importance":0.8,"domain":"Routines","scope_user":""}],"noise":{"generator":"filler","count":80,"seed":22},"turns":[{"query":"when should the user head to the platform after work?","expect_ids":["$0"],"expect_substrings":["18:07"],"must_not":["$noise"]}]}

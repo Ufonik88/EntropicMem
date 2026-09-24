@@ -24,11 +24,14 @@ export/
 *.json
 !benchmarks/probes.json
 !export/graph.html
+!evals/baselines/*.json
+
+# Eval results are generated per run (baselines above are the committed ones)
+evals/results/
+
 # Perf bench results are generated artifacts (EM-005); allow them despite the
 # blanket *.json privacy guard. Never contains user data — seeded corpus only.
 !evals/results/perf-*.json
-
-# IDE / OS
 .vscode/
 .idea/
 *.swp
