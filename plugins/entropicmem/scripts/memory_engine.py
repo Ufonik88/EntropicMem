@@ -1096,6 +1096,34 @@ class MemoryEngine:
         self.audit("remember", actor=actor, session_id=session_id, fact_id=eid, detail=f"domain={domain};tier={tier}")
         return eid
 
+    BACKUP_KEEP_TOTAL = 10
+    BACKUP_KEEP_DAYS = 7
+
+    def _prune_backups(self) -> int:
+        """EM-113 retention: keep the last 10 backups + 1 per day for 7 days."""
+        backup_dir = self.db_path.parent / "backups"
+        if not backup_dir.is_dir():
+            return 0
+        backups = sorted(
+            (p for p in backup_dir.glob("memory_*.db") if p.is_file()),
+            key=lambda p: (p.stat().st_mtime, p.name),
+        )
+        keep = set(backups[-self.BACKUP_KEEP_TOTAL:])
+        cutoff = datetime.now(timezone.utc).timestamp() - self.BACKUP_KEEP_DAYS * 86400
+        newest_per_day: dict = {}
+        for p in backups:
+            if p.stat().st_mtime < cutoff:
+                continue
+            day = datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).date()
+            newest_per_day[day] = p  # ascending order: last write wins
+        keep.update(newest_per_day.values())
+        removed = 0
+        for p in backups:
+            if p not in keep:
+                p.unlink(missing_ok=True)
+                removed += 1
+        return removed
+
     def _backup(self) -> Path:
         """Create a timestamped backup of the memory DB (I4: auto-backup before destructive ops)."""
         self._acquire_write_lock()
@@ -1107,6 +1135,7 @@ class MemoryEngine:
             # Use SQLite backup API for consistency
             with sqlite3.connect(str(self.db_path)) as src, sqlite3.connect(str(backup_path)) as dst:
                 src.backup(dst)
+            self._prune_backups()
             return backup_path
         finally:
             self._release_write_lock()
