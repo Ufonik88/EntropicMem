@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from stopwords import STOPWORDS  # English stopword set for the FTS builder
 from vault import derive_title  # naming convention helper (stdlib-only, acyclic)
 
 logger = logging.getLogger(__name__)
@@ -52,34 +53,47 @@ _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 _FTS_PHRASE_RE = re.compile(r"\S+", re.UNICODE)
 
 
-def _fts_quote(token: str) -> str:
-    """Quote one token as a literal FTS5 prefix phrase (metacharacter-safe).
+def _fts_quote(token: str, star: bool = True) -> str:
+    """Quote one token as a literal FTS5 phrase (metacharacter-safe).
 
     The surrounding double quotes make the token a plain string (so barewords
-    like NEAR/AND/OR and leftover punctuation are literal), internal quotes
-    are doubled, and the trailing * keeps the historical prefix-match
-    semantics.
+    like NEAR/AND/OR and leftover punctuation are literal) and internal
+    quotes are doubled. ``star`` appends the trailing prefix ``*`` — only
+    terms of 4+ characters prefix-match, shorter ones are exact terms.
     """
-    return f'"{token.replace(chr(34), chr(34) * 2)}"*'
+    quoted = f'"{token.replace(chr(34), chr(34) * 2)}"'
+    return quoted + ("*" if star else "")
 
 
 def build_fts_query(
     query: str,
-    fields: Sequence[str] = ("title", "tags", "body"),
     max_terms: int = MAX_FTS_TERMS,
+    fields: Sequence[str] = ("title", "tags", "body"),
 ) -> str:
     """Build one shared FTS5 MATCH expression for a free-text query.
 
     Tokenizes the query into ``\\w+`` runs (dropping FTS5 metacharacters such
     as quotes, colons, parentheses, ^ and * so punctuation can never produce a
-    syntax error), quotes each token as a literal prefix phrase, OR-joins the
-    terms, and caps them at ``max_terms`` — longest (most discriminative)
-    tokens first — so a 150-word prefetch query cannot explode into hundreds
-    of OR-of-prefix terms. ``fields`` are grouped per term with the FTS5
-    ``{col ...}`` filter so every caller matches the same columns.
+    syntax error) and applies the term-quality rules (R2):
 
-    Returns '' when the query has no usable tokens — callers should skip
-    MATCH entirely (and use their LIKE fallback) in that case.
+    - stopword tokens and tokens shorter than 2 characters are dropped —
+      they appear in almost every document, so as terms they match
+      everything and drown the discriminative words;
+    - the prefix ``*`` goes only on tokens of 4+ characters; shorter tokens
+      are exact terms (a 1-2 character prefix matches almost everything);
+    - when every token was dropped (e.g. "who am I") the raw tokens come
+      back, with the length rules applied as far as possible without
+      emptying the query, so identity-style questions still match;
+    - the surviving terms are capped at ``max_terms`` — non-stopwords first,
+      then longest (most discriminative) first.
+
+    Every term is quoted as a literal FTS5 phrase (embedded quotes doubled).
+    ``fields`` are grouped per term with the FTS5 ``{col ...}`` filter so
+    every caller matches the same columns.
+
+    Returns '' when the query has no usable tokens — callers must treat ''
+    as 'no matches' (skip MATCH and the fallback sweep; never match
+    everything).
     """
     tokens: List[str] = []
     seen: Set[str] = set()
@@ -91,12 +105,18 @@ def build_fts_query(
         tokens.append(raw)
     if not tokens:
         return ""
-    # Longest first (stable), then cap — keeps the most discriminative terms.
-    tokens.sort(key=len, reverse=True)
-    tokens = tokens[:max_terms]
+    kept = [t for t in tokens if len(t) >= 2 and t.lower() not in STOPWORDS]
+    if not kept:
+        # All tokens were dropped (every one a stopword and/or too short) —
+        # fall back to the raw tokens and re-apply the length rules only as
+        # far as possible without emptying the query.
+        kept = [t for t in tokens if len(t) >= 2] or list(tokens)
+    # Selection order for the cap: non-stopwords first, then longest first.
+    kept.sort(key=lambda t: (t.lower() in STOPWORDS, -len(t)))
+    kept = kept[:max_terms]
     cols = "{" + " ".join(fields) + "}" if len(fields) > 1 else (fields[0] if fields else "")
     prefix = f"{cols}: " if cols else ""
-    return " OR ".join(f"{prefix}{_fts_quote(tok)}" for tok in tokens)
+    return " OR ".join(prefix + _fts_quote(t, star=len(t) >= 4) for t in kept)
 
 
 def phrase_query(text: str) -> str:
@@ -1442,6 +1462,12 @@ class MemoryEngine:
         # FTS5 MATCH (never raises: bad MATCH expressions → empty + reason)
         rows: list = []
         match_failed = False
+        if not fts_query:
+            # '' from the builder means 'no terms': 'no matches', never a
+            # sweep — for a term-less query the LIKE fallback degenerates to
+            # LIKE '%%' (match everything). Exact hits above still make a
+            # fact self-recallable.
+            return exact[:top_k]
         if fts_query:
             rows, fts_reason = run_fts_match(
                 self.db,
@@ -1752,6 +1778,10 @@ class MemoryEngine:
         # Shared FTS5 query builder — same fields (content/title/tags) as
         # recall() so prefetch and recall agree on what a query means.
         fts_query = build_fts_query(query, fields=("content", "title", "tags"))
+        if not fts_query:
+            # '' from the builder means 'no terms': 'no matches', never the
+            # LIKE '%%' sweep a term-less fallback query would produce.
+            return []
 
         where = ""
         params: tuple = ()
