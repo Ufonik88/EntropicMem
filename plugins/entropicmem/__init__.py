@@ -24,7 +24,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from agent.memory_provider import MemoryProvider
 
@@ -663,8 +663,26 @@ class EntropicMemMemoryProvider(MemoryProvider):
             finally:
                 self._extract_lock.release()
 
-        t = threading.Thread(target=_run, daemon=True)
-        t.start()
+        self._spawn(_run, "entropicmem-extract")
+
+    def _spawn(self, target: Callable[..., Any], name: str) -> None:
+        """Start *target* on a background thread, keeping the caller's context.
+
+        Prefers the host primitive ``agent.memory_provider.spawn_context_thread``
+        (contextvars-bound worker, EM-103/H3) so profile/secret scope crosses
+        into the thread; falls back to a plain named daemon thread when the host
+        is absent or the primitive is incompatible (TypeError/ImportError/
+        AttributeError).
+        """
+        try:
+            from agent.memory_provider import spawn_context_thread
+
+            thread = spawn_context_thread(target, name=name, daemon=True)
+            thread.start()
+            return
+        except (TypeError, ImportError, AttributeError):
+            pass
+        threading.Thread(target=target, name=name, daemon=True).start()
 
     # ── Smart Context Helpers ─────────────────────────────────────────────
 

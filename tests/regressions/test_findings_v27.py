@@ -11,7 +11,7 @@ Findings map (v2.7.0 defects → fixing EM task):
   F-002 → EM-107  Temporal decay from last_accessed; long-term facts forgotten
   F-003 → EM-108  Multimodal list payload crashes prefetch (TypeError swallowed)
   F-004 → EM-109  No user/chat scoping; cross-user memory bleed
-  F-005 → EM-110  os.environ check already clean (F-005a); bare threading.Thread still needed (F-005b)
+  F-005 → EM-103  os.environ check already clean (F-005a, EM-102); bare threading.Thread fixed (F-005b, H3)
   F-006 → EM-104  Near-duplicate dedup silently overwrites; no supersession record
   F-007 → EM-106  consolidate ignores importance; archives important facts
   F-008 → EM-111  Prefetch synchronous on agent thread; core memory re-injected every turn
@@ -317,31 +317,32 @@ def test_em102_memory_config_section_overrides_plugin_config(tmp_path):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-005 → EM-110: Bare threading.Thread; os.environ profile; config override
+# F-005 → EM-103: Bare threading.Thread; os.environ profile; config override
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-005 → EM-110: background threads use "
-          "bare threading.Thread instead of spawn_context_thread")
-def test_f005_uses_spawn_context_thread(make_provider, home_a):
-    """Background sync threads must be spawned via the host's
-    spawn_context_thread when running under Hermes, not bare threading.Thread."""
-    provider = make_provider()
-    host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA")
-    host.start()
-    provider.handle_tool_call(
-        "entropicmem_remember",
-        {"content": "test sync thread", "domain": "Work"},
+def test_f005_uses_spawn_context_thread():
+    """No call site may spawn a bare threading thread — every background job
+    goes through EntropicMemMemoryProvider._spawn (host spawn_context_thread
+    propagating contextvars, with one named-daemon fallback inside _spawn
+    itself) (F-005b, H3/EM-103)."""
+    init_py = Path("plugins/entropicmem/__init__.py")
+    if not init_py.is_file():
+        init_py = Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "__init__.py"
+    text = init_py.read_text(encoding="utf-8")
+    needle = "threading.Thread("
+    total = text.count(needle)
+    spawn_at = text.find("def _spawn(")
+    assert spawn_at != -1, "EntropicMemMemoryProvider._spawn is missing (F-005b, H3/EM-103)"
+    body = text[spawn_at:]
+    end = body.find("\n    def ")  # _spawn body stops at the next method
+    if end != -1:
+        body = body[:end]
+    in_spawn = body.count(needle)
+    assert total == in_spawn == 1, (
+        "background threads must go through _spawn's single named-daemon fallback — "
+        f"threading.Thread( occurrences: total={total}, in _spawn={in_spawn} "
+        "(F-005b, H3/EM-103)"
     )
-    host.turn("hello world")
-
-    # Check that spawn_context_thread was called (not bare Thread)
-    import threading
-    threads = [t for t in threading.enumerate() if "sync" in t.name.lower()]
-    # In the real fix, we check that spawn_context_thread was used.
-    # For now, xfail: v2.7 uses bare Thread.
-    assert not threads, "Bare threading.Thread detected; should use spawn_context_thread"
-
-    host.shutdown()
 
 
 def test_f005_no_os_environ_heremes_home_in_engine():
