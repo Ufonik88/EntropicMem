@@ -177,6 +177,8 @@ SMART_CONTEXT_DEFAULTS = {
     "reinforce_on_recall": False,
     # EM-108: agent-triggered real consolidation needs operator opt-in
     "allow_agent_consolidate": False,
+    # EM-116: core memory goes to the system prompt, not per-turn prefetch
+    "core_inject_mode": "system_prompt",
 
     # P1 Slice 2: lifecycle hooks (A1/A2/A5/C1)
     "session_end_capture": True,
@@ -467,6 +469,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "default": False,
             },
             {
+                "key": "core_inject_mode",
+                "description": "Where Core Memory is injected: system_prompt (default; prefetch carries only a change delta) | prefetch (legacy full block every turn)",
+                "default": "system_prompt",
+            },
+            {
                 "key": "reinforcement_boost",
                 "description": "Score boost per fact access (capped)",
                 "default": 0.1,
@@ -533,12 +540,22 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "Skill not installed. Run `/learn https://github.com/Ufonik88/EntropicMem` "
                 "then `entropicmem init`.\n"
             )
-        return (
+        base = (
             "# EntropicMem (active)\n"
             "Standalone memory: use `entropicmem_remember` for durable facts, "
             "`entropicmem_recall` for fact search, `entropicmem_query` for cited vault notes.\n"
             "CLI: `entropicmem lint`, `hotcache`, `graph export` for maintenance.\n"
         )
+        # EM-116: core memory lives in the system prompt, not per-turn prefetch
+        if self._config.get("core_inject_mode", "system_prompt") != "system_prompt":
+            return base
+        core = self._core_memory_block()
+        if not core:
+            return base
+        import hashlib
+
+        self._core_baseline = hashlib.sha256(core.encode("utf-8")).hexdigest()
+        return base + "\n\n" + core[:2800]
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         if query:
@@ -558,8 +575,13 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
         self._turn_counter += 1
         try:
-            # Phase 8: Core Memory always injected first (never cached)
-            core_block = self._core_memory_block()
+            # EM-116: core memory lives in the system prompt (default). Prefetch
+            # carries at most a one-line delta when core changed since session
+            # start; core_inject_mode "prefetch" keeps the legacy full block.
+            if self._config.get("core_inject_mode", "system_prompt") == "prefetch":
+                core_block = self._core_memory_block()
+            else:
+                core_block = self._core_delta_line()
 
             # Phase 2.3: Build context-aware query — also the cache key input
             enhanced_query = self._build_context_query(q)
@@ -599,6 +621,30 @@ class EntropicMemMemoryProvider(MemoryProvider):
         except Exception as e:
             logger.debug("EntropicMem core memory failed: %s", e)
         return ""
+
+    def _core_delta_line(self) -> str:
+        """EM-116: one-line delta when Core Memory changed since session start.
+
+        The baseline hash is recorded by system_prompt_block() — or by the
+        first prefetch when the host never asks for one. Unchanged core
+        produces '' (the full block lives in the system prompt).
+        """
+        core_block = self._core_memory_block()
+        if not core_block:
+            return ""
+        import hashlib
+
+        current = hashlib.sha256(core_block.encode("utf-8")).hexdigest()
+        if getattr(self, "_core_baseline", None) is None:
+            self._core_baseline = current
+            return ""
+        if current == self._core_baseline:
+            return ""
+        flat = " ".join(core_block.split())
+        flat = flat.replace("## Core Memory — Persona", "Persona:").replace(
+            "## Core Memory — User Profile", "User Profile:"
+        )
+        return f"[Core Memory changed since session start] {flat[:400]}"
 
     def _build_fact_block(self, enhanced_query: str) -> str:
         """Run the smart-context pipeline; return the formatted fact block ('' when nothing selected)."""

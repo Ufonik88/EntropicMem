@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -569,7 +569,7 @@ class CoreMemory:
 
     def __init__(self, vault_root: Path):
         self.core_dir = Path(vault_root) / "Core"
-        self.core_dir.mkdir(exist_ok=True)
+        self.core_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_files()
 
     def _ensure_files(self) -> None:
@@ -630,7 +630,14 @@ class CoreMemory:
             # Delete: remove the matched text + newline
             updated = content.replace(old_text + "\n", "", 1)
 
-        file_path.write_text(updated, encoding="utf-8")
+        # EM-116: pre-patch snapshot + atomic write
+        hist = self.core_dir / ".history"
+        hist.mkdir(exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        (hist / f"{file_path.name}.{stamp}").write_text(content, encoding="utf-8")
+        tmp = file_path.with_suffix(file_path.suffix + ".tmp")
+        tmp.write_text(updated, encoding="utf-8")
+        os.replace(tmp, file_path)
         return True
 
     def injection_block(self) -> str:

@@ -222,7 +222,9 @@ def test_get_payload_benign_fact_unmarked(tmp_path):
 
 
 def test_prefetch_core_memory_screened(tmp_path):
-    prov = _make_provider(tmp_path)
+    # EM-116: per-turn core injection is the legacy mode (default moved to
+    # system_prompt); screening must hold there.
+    prov = _make_provider(tmp_path, core_inject_mode="prefetch")
     core_dir = tmp_path / "vault" / "Core"
     core_dir.mkdir(parents=True)
     (core_dir / "Persona.md").write_text(f"# Persona\n\n{BEACON}\n", encoding="utf-8")
@@ -405,7 +407,9 @@ def test_prefetch_cache_keys_fact_block_by_query_hash(tmp_path):
 
 
 def test_core_memory_prepended_outside_cache(tmp_path):
-    prov = _make_provider(tmp_path)
+    # EM-116: the full per-turn core block is the legacy mode; its no-cache
+    # freshness contract is what this pins.
+    prov = _make_provider(tmp_path, core_inject_mode="prefetch")
     core_dir = tmp_path / "vault" / "Core"
     core_dir.mkdir(parents=True)
     (core_dir / "User_Profile.md").write_text("# User Profile\n\nbenign\n", encoding="utf-8")

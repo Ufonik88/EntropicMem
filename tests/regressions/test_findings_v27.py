@@ -563,8 +563,6 @@ def test_f008_prefetch_runs_async(make_provider, home_a):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-008b → EM-116: core memory block "
-          "re-injected on every prefetch, causing linear token growth (L8)")
 def test_f008_core_memory_not_reinjected_every_turn(make_provider, home_a):
     """Core Memory (Persona + Profile) should be injected once (system prompt
     / delta), not repeated in every turn's prefetch block."""
@@ -585,7 +583,7 @@ def test_f008_core_memory_not_reinjected_every_turn(make_provider, home_a):
 
     blocks = []
     for i in range(5):
-        block, _ = host.turn(f"what do you know about my persona marker details round {i}")
+        block, _ = host.turn(f"what do you know about the core memory system round {i}")
         if block:
             blocks.append(block)
 
