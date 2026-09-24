@@ -146,6 +146,17 @@ def escape_like(text: str) -> str:
 _WORD_RE = re.compile(r"[A-Za-z]")
 
 
+def _parse_ts(stamp: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO timestamp; naive values are read as UTC. None-safe."""
+    if not stamp:
+        return None
+    try:
+        dt = datetime.fromisoformat(stamp)
+    except (ValueError, TypeError):
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
 def _like_fallback_ok(query: str, match_failed: bool) -> bool:
     """Escaped literal LIKE fallback only for symbol/number queries (``%``,
     ``_``, ``8080``) or when the FTS MATCH itself errored. Word queries never
@@ -1511,7 +1522,7 @@ class MemoryEngine:
         if not query.strip():
             # empty query: 'no matches', never a LIKE '%%' sweep. Exact hits
             # above still make a fact self-recallable.
-            return exact[:top_k]
+            return self._served(exact[:top_k])
         if fts_query:
             rows, fts_reason = run_fts_match(
                 self.db,
@@ -1566,12 +1577,12 @@ class MemoryEngine:
 
         # P2 scope: merge the peer-shared projection for 'shared'/'all'.
         if scope == "own":
-            return local[:top_k]
+            return self._served(local[:top_k])
         shared = self._recall_shared(query, domain, top_k)
         if scope == "shared":
-            return shared[:top_k]
+            return self._served(shared[:top_k])
         seen = {f.id for f in local}
-        return (local + [f for f in shared if f.id not in seen])[:top_k]
+        return self._served((local + [f for f in shared if f.id not in seen])[:top_k])
 
     def _recall_shared(self, query: str, domain: Optional[str], top_k: int) -> List[StoredFact]:
         """Search the local shared_facts projection (peer-published facts)."""
@@ -1799,6 +1810,64 @@ class MemoryEngine:
             for r in rows
         ]
 
+    def _served(self, facts: List[StoredFact]) -> List[StoredFact]:
+        """R3/EM-106: serving a fact (``recall()`` returns it to the caller)
+        bumps ``last_accessed`` so actively-used facts stop decaying (one
+        batched UPDATE; f002 contract). Ranking (`recall_with_relevance`)
+        deliberately does NOT touch — ranking is not serving, and touching
+        there would rescue weak candidates from decay mid-pipeline. Prefetch
+        injection bumps via the provider's ``touch_on_inject`` write."""
+        if facts:
+            ts = datetime.now(timezone.utc).isoformat()
+            self.touch([f.id for f in facts])
+            for f in facts:
+                f.last_accessed = ts
+        return facts
+
+    def touch(self, fact_ids: Sequence[str]) -> int:
+        """Batched ``last_accessed`` bump for facts just served/injected."""
+        ids = [i for i in fact_ids if i]
+        if not ids:
+            return 0
+        ts = datetime.now(timezone.utc).isoformat()
+        marks = ",".join("?" * len(ids))
+        cur = self.db.execute(
+            f"UPDATE facts SET last_accessed = ? WHERE id IN ({marks})",
+            (ts, *ids),
+        )
+        self.db.commit()
+        return cur.rowcount
+
+    def _decay_factor(
+        self,
+        fact: StoredFact,
+        now_ts: datetime,
+        half_life_days: float,
+        decay_floor: float,
+        evergreen_domains: Set[str],
+    ) -> float:
+        """EM-106: decay that cannot erase durable memory.
+
+        1.0 when the fact is durable (importance ≥ 0.75, evergreen domain,
+        ``built_in_memory``/``promoted`` source, or a ``pinned`` tag).
+        Otherwise ``max(decay_floor, exp(-λ·age))`` with age from the most
+        recent of ``updated_at``/``last_accessed`` and λ = ln2/half_life —
+        floor default 0.5, half-life default 90 days.
+        """
+        if (
+            fact.importance >= 0.75
+            or fact.domain in evergreen_domains
+            or fact.source in ("built_in_memory", "promoted")
+            or "pinned" in (fact.tags or [])
+        ):
+            return 1.0
+        stamps = [s for s in (_parse_ts(fact.updated_at), _parse_ts(fact.last_accessed)) if s]
+        if not stamps:
+            return 1.0
+        age_days = max(0.0, (now_ts - max(stamps)).total_seconds() / 86400.0)
+        lam = math.log(2) / half_life_days if half_life_days > 0 else 0.0
+        return max(decay_floor, math.exp(-lam * age_days))
+
     def recall_with_relevance(
         self,
         query: str,
@@ -1806,15 +1875,17 @@ class MemoryEngine:
         domain: Optional[str] = None,
         min_relevance: float = 0.0,
         decay_enabled: bool = True,
-        decay_half_life_days: float = 30.0,
+        decay_half_life_days: float = 90.0,
+        decay_floor: float = 0.5,
+        evergreen_domains: Optional[Sequence[str]] = None,
         reinforcement_boost: float = 0.1,
         auto_reinforce: bool = False,
     ) -> List[StoredFact]:
-        """Full-text search with relevance scoring and temporal decay.
+        """Full-text search with absolute relevance scoring and EM-106 decay.
 
-        Returns facts ranked by combined relevance + decay score.
-        Uses FTS5 bm25() ranking normalized to 0-1 scale.
-        Applies exponential temporal decay to older, unreinforced facts.
+        Scores: relevance = 0.75*coverage + 0.25*rank_bonus; combined =
+        clip(relevance * decay_factor * (0.85 + 0.3*importance), 0, 1).
+        Decay never erases durable memory (see ``_decay_factor``).
         Auto-reinforce is opt-in (default False) to avoid write-on-read.
         """
         if not query.strip():
@@ -1865,8 +1936,8 @@ class MemoryEngine:
         # clipped to [0, 1]; min_relevance applies to combined.
         query_terms = coverage_terms(query)
 
-        # Compute decay factor
-        lambda_decay = math.log(2) / decay_half_life_days if decay_enabled else 0
+        # EM-106 decay config (defaults per plan: People evergreen, floor 0.5)
+        evergreen: Set[str] = set(evergreen_domains) if evergreen_domains is not None else {"People"}
         now_ts = datetime.now(timezone.utc)
 
         results = []
@@ -1880,19 +1951,14 @@ class MemoryEngine:
             rank_bonus = 1.0 / (1.0 + 0.15 * idx)
             relevance = 0.75 * lex + 0.25 * rank_bonus
 
-            # Compute temporal decay
-            if decay_enabled and fact.last_accessed:
-                try:
-                    last = datetime.fromisoformat(fact.last_accessed)
-                    # Handle timezone-naive datetimes
-                    if last.tzinfo is None:
-                        last = last.replace(tzinfo=timezone.utc)
-                    days_since = (now_ts - last).total_seconds() / 86400.0
-                    fact.decay_score = math.exp(-lambda_decay * days_since)
-                except (ValueError, OverflowError):
-                    fact.decay_score = 1.0
-            else:
-                fact.decay_score = 1.0
+            # EM-106: decay that cannot erase durable memory
+            fact.decay_score = (
+                self._decay_factor(
+                    fact, now_ts, decay_half_life_days, decay_floor, evergreen,
+                )
+                if decay_enabled
+                else 1.0
+            )
 
             combined_score = relevance * fact.decay_score * (0.85 + 0.3 * fact.importance)
             combined_score = min(1.0, max(0.0, combined_score))

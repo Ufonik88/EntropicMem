@@ -150,7 +150,10 @@ plugins:
 | `prefetch_denied_sources` | `["auto_extracted", "test", "phase1_verify", "phase1_cron_context", "phase5", "phase5_e2e", "h2_test", "cron_self_test", "cron_path_test", "cutover_verify"]` | Fact source tags excluded from prefetch |
 | `extraction_timeout` | `5.0` | Maximum seconds for background extraction per turn |
 | `decay_enabled` | `true` | Temporal decay scoring in recall |
-| `decay_half_life_days` | `30` | Half-life for memory decay |
+| `decay_half_life_days` | `90` | Half-life for memory decay |
+| `decay_floor` | `0.5` | Minimum decay factor; non-durable facts are never erased |
+| `evergreen_domains` | `["People"]` | Domains whose facts never decay |
+| `touch_on_inject` | `true` | Bump `last_accessed` for injected facts (background write) |
 | `reinforcement_boost` | `0.1` | Score boost per fact access (capped) |
 | `reinforce_on_recall` | `false` | Bump access count on recall hits |
 

@@ -148,6 +148,13 @@ SMART_CONTEXT_DEFAULTS = {
     # Domain filtering (empty = all domains)
     "enabled_domains": [],
 
+    # Decay & access tracking (EM-106): decay never erases durable memory
+    "decay_enabled": True,
+    "decay_half_life_days": 90,
+    "decay_floor": 0.5,
+    "evergreen_domains": ["People"],
+    "touch_on_inject": True,
+
     # Progressive disclosure thresholds
     "high_relevance_threshold": 0.7,
     "medium_relevance_threshold": 0.4,
@@ -421,7 +428,22 @@ class EntropicMemMemoryProvider(MemoryProvider):
             {
                 "key": "decay_half_life_days",
                 "description": "Half-life for memory decay in days",
-                "default": 30,
+                "default": 90,
+            },
+            {
+                "key": "decay_floor",
+                "description": "Minimum decay factor for non-durable facts (they are never erased)",
+                "default": 0.5,
+            },
+            {
+                "key": "evergreen_domains",
+                "description": "Domains whose facts never decay (default: People)",
+                "default": ["People"],
+            },
+            {
+                "key": "touch_on_inject",
+                "description": "Bump last_accessed for injected facts via background write",
+                "default": True,
             },
             {
                 "key": "reinforcement_boost",
@@ -579,7 +601,20 @@ class EntropicMemMemoryProvider(MemoryProvider):
         block = self._format_block(budgeted)
         # Track injected facts for deduplication
         self._track_injected(budgeted)
+        if self._config.get("touch_on_inject", True):
+            injected_ids = [f.id for f in budgeted]
+            self._spawn(lambda: self._touch_injected(injected_ids), "entropicmem-touch")
         return block
+
+    def _touch_injected(self, fact_ids: List[str]) -> None:
+        """EM-106: batched background last_accessed bump for injected facts."""
+        try:
+            from memory_engine import MemoryEngine
+
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
+                engine.touch(fact_ids)
+        except Exception as e:
+            logger.debug("EntropicMem touch_on_inject failed: %s", e)
 
     def sync_turn(
         self,
@@ -787,7 +822,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
             top_k=max_results * 2,
             min_relevance=min_relevance,
             decay_enabled=self._config.get("decay_enabled", True),
-            decay_half_life_days=self._config.get("decay_half_life_days", 30.0),
+            decay_half_life_days=self._config.get("decay_half_life_days", 90),
+            decay_floor=self._config.get("decay_floor", 0.5),
+            evergreen_domains=self._config.get("evergreen_domains") or ["People"],
             reinforcement_boost=self._config.get("reinforcement_boost", 0.1),
             auto_reinforce=self._config.get("reinforce_on_recall", False),
         )

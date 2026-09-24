@@ -168,12 +168,11 @@ def test_f001_progressive_disclosure_caps_results(make_provider, home_a):
 # F-002 (R3) → EM-106: Temporal decay from last_accessed; long-term facts forgotten
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-002 (R3) → EM-106: decay computed from "
-          "last_accessed crushes 120-day facts to 0.062 regardless of importance")
 def test_f002_old_important_fact_still_retrievable(engine):
     """A 120-day-old fact with importance 0.9 should still be retrieved at a
     useful relevance score on a relevant query. v2.7 decays it to ~0.062
-    (below the prefetch threshold), so long-term facts are forgotten."""
+    (below the prefetch threshold), so long-term facts are forgotten.
+    Fixed by EM-106 (durable-memory decay rules) — regression guard."""
     engine.remember(
         content="The user's display name is Alex Rivera",
         domain="People", importance=0.9,
@@ -189,8 +188,6 @@ def test_f002_old_important_fact_still_retrievable(engine):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-002 (R3) → EM-106: recall never "
-          "updates last_accessed, so actively-used facts keep decaying")
 def test_f002_recall_updates_last_accessed(engine):
     """Recalling a fact should update its last_accessed timestamp so it
     doesn't decay. v2.7 only updates via the opt-in reinforce path."""
