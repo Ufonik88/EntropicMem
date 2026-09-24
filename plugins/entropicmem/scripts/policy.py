@@ -60,7 +60,7 @@ def evaluate_write(
     """
     tier = normalize_sensitivity(sensitivity, domain)
     if tier == "secret" or detect_secret(content):
-        return "block", "secret_or_credential_pattern — use VaultKnox, not EntropicMem"
+        return "block", "secret_or_credential_pattern — store secrets in a secrets manager, not EntropicMem"
     # Auto-extract never lands directly in durable facts
     if source in ("auto_extracted", "auto_extract"):
         return "quarantine", "auto_extracted_requires_promotion"

@@ -64,7 +64,9 @@ class TestPIIDetection:
         assert any(f.pii_type == "email" for f in findings)
 
     def test_phone_detection(self):
-        findings = scan_pii("call me on 0820000000")
+        # EM-115: the SA phone format is the opt-in "za" locale pack
+        assert not any("phone" in f.pii_type for f in scan_pii("call me on 0820000000"))
+        findings = scan_pii("call me on 0820000000", locales=["za"])
         assert len(findings) >= 1
         assert any("phone" in f.pii_type for f in findings)
 

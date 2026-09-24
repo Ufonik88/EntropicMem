@@ -379,7 +379,8 @@ def test_config_schema_denied_sources_default_matches_defaults():
     schema = {s["key"]: s for s in prov.get_config_schema()}
     default = schema["prefetch_denied_sources"]["default"]
     assert default == SMART_CONTEXT_DEFAULTS["prefetch_denied_sources"]
-    assert len(default) == 10
+    # EM-115: product defaults deny only real content sources, not test scaffolding
+    assert default == ["auto_extracted", "test"]
 
 
 # ── Fix 9: prefetch cache keyed by enhanced-query hash ────────────────────────

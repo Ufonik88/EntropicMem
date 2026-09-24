@@ -184,6 +184,8 @@ SMART_CONTEXT_DEFAULTS = {
     "guest_hidden_domains": ["People", "Finance"],
     # EM-110: mirror built-in writes (background_review opt-in)
     "mirror": {"background_review": False},
+    # EM-115: region-specific PII locale packs (opt-in, default generic only)
+    "locale_packs": [],
 
     # P1 Slice 2: lifecycle hooks (A1/A2/A5/C1)
     "session_end_capture": True,
@@ -194,14 +196,6 @@ SMART_CONTEXT_DEFAULTS = {
     "prefetch_denied_sources": [
         "auto_extracted",
         "test",
-        "phase1_verify",
-        "phase1_cron_context",
-        "phase5",
-        "phase5_e2e",
-        "h2_test",
-        "cron_self_test",
-        "cron_path_test",
-        "cutover_verify",
     ],
 }
 
@@ -494,6 +488,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "default": False,
             },
             {
+                "key": "locale_packs",
+                "description": "EM-115: opt-in locale packs for region-specific PII patterns (e.g. [\"za\"]); default scans generic patterns only",
+                "default": [],
+            },
+            {
                 "key": "reinforcement_boost",
                 "description": "Score boost per fact access (capped)",
                 "default": 0.1,
@@ -688,7 +687,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         """Run the smart-context pipeline; return the formatted fact block ('' when nothing selected)."""
         from memory_engine import MemoryEngine
 
-        engine = MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home)
+        engine = MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or [])
         try:
             # Phase 1.2 & 2.2: candidates with relevance scoring and domain filtering
             candidates = self._get_candidates(engine, enhanced_query)
@@ -725,7 +724,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         try:
             from memory_engine import MemoryEngine
 
-            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
                 engine.touch(fact_ids)
         except Exception as e:
             logger.debug("EntropicMem touch_on_inject failed: %s", e)
@@ -799,7 +798,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             try:
                 ensure_scripts_on_path(self._scripts_dir)
                 from memory_engine import MemoryEngine
-                with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
+                with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
                     engine.extract_and_store(
                         user_text=user_content,
                         assistant_text=assistant_content,
@@ -1136,7 +1135,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             from memory_engine import MemoryEngine
 
             domain = "People" if target == "user" else "Knowledge"
-            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
                 old_id = self._locate_mirror(engine, metadata) if action != "add" else None
                 if action == "remove":
                     if old_id:
@@ -1296,7 +1295,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         from memory_engine import MemoryEngine
 
         sid = self._session_id or ""
-        with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
+        with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
             engine.add_episode(
                 title=f"Pre-compress constraints for session {sid or 'unknown'}"[:120],
                 summary=constraints,
@@ -1328,7 +1327,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 return  # empty / tool-only transcript, no-op
 
             sid = self._session_id or ""
-            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
                 # EM-112: cadence flushes get a fresh wave id (ep_sess_{sid}_w{n})
                 # so earlier waves are never overwritten; session end keeps the
                 # single ep_sess_{sid} covering the tail.
@@ -1392,7 +1391,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             from memory_engine import MemoryEngine
             from vault import Vault
 
-            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
                 # EM-118: guest writes are stamped with the gateway user and a
                 # guest_tool source for later scoping/auditing
                 write_source, write_actor, write_tags = "agent_tool", "agent_tool", []
@@ -1452,7 +1451,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             ensure_scripts_on_path(self._scripts_dir)
             from memory_engine import MemoryEngine
 
-            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
                 # v2.2.0 G3: hybrid retrieval — FTS5 BM25 + vector similarity
                 # fusion when embeddings exist; graceful FTS-only fallback.
                 rows = engine.recall_hybrid(
@@ -1577,7 +1576,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return None, _tool_error("EntropicMem not initialized")
         ensure_scripts_on_path(self._scripts_dir)
         from memory_engine import MemoryEngine
-        engine = MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home)
+        engine = MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or [])
         return engine, None
 
     def _stats(self, args: dict) -> str:

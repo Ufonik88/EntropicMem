@@ -484,7 +484,8 @@ class StoredFact:
 class MemoryEngine:
     """Standalone memory engine. One SQLite database, no external deps."""
 
-    def __init__(self, db_path: Path, profile_id: Optional[str] = None, publish_scope: Optional[str] = None, hermes_home: Optional[Path] = None):
+    def __init__(self, db_path: Path, profile_id: Optional[str] = None, publish_scope: Optional[str] = None, hermes_home: Optional[Path] = None, pii_locales: Optional[list] = None):
+        self.pii_locales = list(pii_locales or [])
         self.db_path = Path(db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._profile_id = profile_id
@@ -822,7 +823,7 @@ class MemoryEngine:
         # PII before the candidate is stored anywhere.
         content = self._sanitize_fact_text(content)
         if PII_AVAILABLE:
-            pii_result = check_pii(content, mode="redact")
+            pii_result = check_pii(content, mode="redact", locales=self.pii_locales)
             if pii_result["has_pii"]:
                 content = pii_result["text"]
         eid = StoredFact.make_id(content)
@@ -958,7 +959,7 @@ class MemoryEngine:
 
         # Phase 9: PII check
         if PII_AVAILABLE:
-            pii_result = check_pii(content, mode="redact")
+            pii_result = check_pii(content, mode="redact", locales=self.pii_locales)
             if pii_result["has_pii"]:
                 content = pii_result["text"]  # use redacted version
 

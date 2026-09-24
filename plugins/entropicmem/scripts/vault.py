@@ -57,16 +57,16 @@ def derive_title(content: str, max_len: int = 60) -> str:
     return text.strip()
 
 # ── domain list (seeded at init) ────────────────────────────────────────────
+# EM-115: generic defaults — user/employer/campaign-specific domains belong in
+# user config, not the product.
 DEFAULT_DOMAINS = [
-    "Infrastructure",
-    "Acme Corp",
-    "Content-Growth",
-    "Finance",
-    "Workflows",
-    "People",
     "Knowledge",
-    "Products-Research",
+    "People",
     "Projects",
+    "Procedures",
+    "Preferences",
+    "Events",
+    "Infrastructure",
 ]
 
 # ── data classes ────────────────────────────────────────────────────────────
