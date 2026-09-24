@@ -75,16 +75,14 @@ def _age_facts(eng, days: int) -> None:
 # query builder, progressive disclosure
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-001 (R1) → EM-105: min-max normalisation "
-          "inflates a lone partial-coverage hit to relevance=1.0")
 def test_f001_junk_query_returns_zero_relevance(engine):
     """R1 normalisation repro (rewritten: after the EM-104 query-builder fix a
     pure-junk query like 'zzqx nonsense a' legitimately returns zero hits, so
     the old junk repro was trivially satisfied).
 
     A fact matching only ONE term of a 5-term query (coverage 1/5) must not be
-    min-max normalised to relevance 1.0 — v2.7 normalises per result set, so a
-    lone hit always scores 1.0 and noise is injected on most turns."""
+    min-max normalised to relevance 1.0 (R1). Fixed by EM-105 — regression
+    guard."""
     engine.remember(
         content="The user has a pasta allergy",
         domain="Personal", importance=0.5,
@@ -116,8 +114,6 @@ def test_f001_single_token_query_does_not_match_everything(engine):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-001 (R1) → EM-105: min_relevance is "
-          "meaningless under min-max normalisation — weak hits inflate past it")
 def test_f001_min_relevance_score_actually_filters(engine):
     """min_relevance=0.5 should exclude facts below that threshold. Under
     min-max normalisation a lone weak-coverage hit scores 1.0, so nothing is

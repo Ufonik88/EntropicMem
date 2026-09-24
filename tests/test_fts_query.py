@@ -23,10 +23,10 @@ import pytest
 from memory_engine import MemoryEngine, build_fts_query
 from stopwords import STOPWORDS
 
-# Pinned reference output (EM-104): "what"/"is"/"a"/"to"/"do"/"it" are
-# stopwords, "good" (4 chars) gets the prefix star, "way" (3 chars) is an
-# exact term, longest-first order.
-PINNED_REFERENCE_QUERY = '{title tags body}: "good"* OR {title tags body}: "way"'
+# Pinned reference output (EM-104/EM-105): "what"/"is"/"a"/"to"/"do"/"it" are
+# stopwords; terms of 3+ chars get the prefix star ("good"*, "way"*),
+# longest-first order.
+PINNED_REFERENCE_QUERY = '{title tags body}: "good"* OR {title tags body}: "way"*'
 
 _TERM_RE = re.compile(r'\{[^}]+\}: "([^"]|"")*"\*?')
 
@@ -56,12 +56,12 @@ class TestBuildFtsQuery:
     def test_all_stopword_fallback_is_usable(self):
         # "who am I" drops to nothing as stopwords -> raw tokens come back,
         # then the length rules drop only "I" (would empty nothing else).
-        assert build_fts_query("who am I") == '{title tags body}: "who" OR {title tags body}: "am"'
+        assert build_fts_query("who am I") == '{title tags body}: "who"* OR {title tags body}: "am"'
 
     def test_max_terms_cap_prefers_non_stopwords_then_longest(self):
         # long stopwords ("through", "against") must not crowd out real terms
         assert build_fts_query("through against cat dog", max_terms=2) == \
-            '{title tags body}: "cat" OR {title tags body}: "dog"'
+            '{title tags body}: "cat"* OR {title tags body}: "dog"*'
         # and among real terms the longest (most discriminative) win
         assert build_fts_query("algorithm banana cherry", max_terms=2) == \
             '{title tags body}: "algorithm"* OR {title tags body}: "banana"*'

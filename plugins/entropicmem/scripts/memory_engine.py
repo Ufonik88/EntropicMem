@@ -58,8 +58,10 @@ def _fts_quote(token: str, star: bool = True) -> str:
 
     The surrounding double quotes make the token a plain string (so barewords
     like NEAR/AND/OR and leftover punctuation are literal) and internal
-    quotes are doubled. ``star`` appends the trailing prefix ``*`` — only
-    terms of 4+ characters prefix-match, shorter ones are exact terms.
+    quotes are doubled. ``star`` appends the trailing prefix ``*`` — terms
+    of 3+ characters prefix-match their derivational family (``use`` →
+    ``used``/``uses``); 1-2 character terms are exact (a prefix there would
+    match nearly every document).
     """
     quoted = f'"{token.replace(chr(34), chr(34) * 2)}"'
     return quoted + ("*" if star else "")
@@ -116,7 +118,7 @@ def build_fts_query(
     kept = kept[:max_terms]
     cols = "{" + " ".join(fields) + "}" if len(fields) > 1 else (fields[0] if fields else "")
     prefix = f"{cols}: " if cols else ""
-    return " OR ".join(prefix + _fts_quote(t, star=len(t) >= 4) for t in kept)
+    return " OR ".join(prefix + _fts_quote(t, star=len(t) >= 3) for t in kept)
 
 
 def phrase_query(text: str) -> str:
@@ -149,6 +151,40 @@ def _like_fallback_ok(query: str, match_failed: bool) -> bool:
     ``_``, ``8080``) or when the FTS MATCH itself errored. Word queries never
     substring-sweep: no FTS hits means no matches (R2 noise)."""
     return match_failed or _WORD_RE.search(query) is None
+
+
+_STEM_SUFFIXES = ("ing", "ed", "es", "s", "ly")
+
+
+def _stem(token: str) -> str:
+    """Conservative suffix strip for coverage matching.
+    # ponytail: crude suffix-list stemmer — covers plurals/verb forms; switch
+    to a real stemmer only if recall quality demonstrably needs it."""
+    for suf in _STEM_SUFFIXES:
+        if token.endswith(suf) and len(token) - len(suf) >= 3:
+            return token[: -len(suf)]
+    return token
+
+
+def coverage(query_terms: Sequence[str], text: str) -> float:
+    """Lexical coverage (EM-105): stemmed query terms present in text / total.
+
+    Absolute 0..1 per result — never normalised against the result set, so a
+    weak hit can no longer inflate to relevance 1.0 (R1).
+    """
+    terms = [t for t in (_stem(str(q).lower()) for q in query_terms) if t]
+    if not terms:
+        return 0.0
+    text_stems = {_stem(t) for t in _FTS_TOKEN_RE.findall(text.lower())}
+    return sum(1 for t in terms if t in text_stems) / len(terms)
+
+
+def coverage_terms(query: str) -> List[str]:
+    """Coverage-side query terms: lowercase tokens minus stopwords/1-char."""
+    return [
+        t for t in _FTS_TOKEN_RE.findall(query.lower())
+        if len(t) >= 2 and t not in STOPWORDS
+    ]
 
 
 def run_fts_match(db: sqlite3.Connection, sql: str, params: Tuple) -> Tuple[List, str]:
@@ -1483,7 +1519,7 @@ class MemoryEngine:
                 SELECT f.* FROM facts_fts
                 JOIN facts f ON facts_fts.rowid = f.rowid
                 WHERE facts_fts MATCH ? {where} {date_where}
-                ORDER BY f.importance DESC, rank
+                ORDER BY rank ASC, f.importance DESC
                 LIMIT ?
                 """,
                 (fts_query, *params, *date_params, top_k),
@@ -1822,25 +1858,27 @@ class MemoryEngine:
                 query, top_k, domain, min_relevance, match_error=match_failed,
             )
 
-        # Normalize bm25 scores to 0-1
-        ranks = [row["rank"] for row in rows]
-        min_rank = min(ranks)
-        max_rank = max(ranks)
-        rank_range = max_rank - min_rank if max_rank != min_rank else 1.0
+        # EM-105: absolute scoring (R1/R4) — replaces min-max normalisation.
+        # relevance = 0.75 * lexical coverage + 0.25 * rank_bonus where
+        # rank_bonus = 1/(1 + 0.15 * bm25_rank_index) (row order is bm25).
+        # combined = relevance * decay_factor * (0.85 + 0.3 * importance),
+        # clipped to [0, 1]; min_relevance applies to combined.
+        query_terms = coverage_terms(query)
 
         # Compute decay factor
         lambda_decay = math.log(2) / decay_half_life_days if decay_enabled else 0
         now_ts = datetime.now(timezone.utc)
 
         results = []
-        for row in rows:
+        for idx, row in enumerate(rows):
             fact = self._row_to_fact(row)
 
-            # Normalize relevance: 0 = least, 1 = most
-            if rank_range > 0:
-                fact.relevance_score = 1.0 - ((row["rank"] - min_rank) / rank_range)
-            else:
-                fact.relevance_score = 1.0
+            text = " ".join(
+                p for p in (fact.title, fact.content, " ".join(fact.tags or [])) if p
+            )
+            lex = coverage(query_terms, text)
+            rank_bonus = 1.0 / (1.0 + 0.15 * idx)
+            relevance = 0.75 * lex + 0.25 * rank_bonus
 
             # Compute temporal decay
             if decay_enabled and fact.last_accessed:
@@ -1856,27 +1894,22 @@ class MemoryEngine:
             else:
                 fact.decay_score = 1.0
 
-            # Reinforcement boost: cap at 10 accesses
-            boost = 1.0 + reinforcement_boost * min(fact.access_count, 10)
-            combined_score = fact.relevance_score * fact.decay_score * boost
+            combined_score = relevance * fact.decay_score * (0.85 + 0.3 * fact.importance)
+            combined_score = min(1.0, max(0.0, combined_score))
 
             # Apply min relevance filter
             if combined_score >= min_relevance:
-                # Override relevance_score with combined for sorting
                 fact.relevance_score = combined_score
+                fact.why_retrieved = self._build_reasons(
+                    fts_match=True,
+                    recency_applied=decay_enabled,
+                    importance_applied=True,
+                    domain_filtered=bool(domain),
+                ) + [{"signal": "coverage", "value": round(lex, 4)}]
                 results.append(fact)
 
         # Sort by combined score (descending)
         results.sort(key=lambda f: f.relevance_score, reverse=True)
-
-        # Populate why_retrieved for all results
-        for f in results:
-            f.why_retrieved = self._build_reasons(
-                fts_match=True,
-                recency_applied=decay_enabled,
-                importance_applied=True,
-                domain_filtered=bool(domain),
-            )
 
         # Auto-reinforce returned facts (opt-in)
         if auto_reinforce:

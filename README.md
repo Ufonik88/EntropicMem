@@ -129,7 +129,7 @@ plugins:
 | `vault_path` | `~/.hermes/entropicmem/vault` | Vault directory for Markdown notes |
 | `index_db` | `~/.hermes/entropicmem/index.db` | Vault index SQLite path (FTS + graph edges) |
 | `memory_db` | `~/.hermes/entropicmem/memory.db` | Memory engine SQLite path (facts, episodes, triples) |
-| `min_relevance_score` | `0.3` | Minimum relevance for prefetch injection (0.0 to 1.0) |
+| `min_relevance_score` | `0.35` | Minimum combined relevance for prefetch injection (0.0 to 1.0) |
 | `max_prefetch_results` | `5` | Maximum facts injected per turn |
 | `prefetch_token_budget` | `1500` | Maximum characters of prefetch context per turn |
 | `dedup_window` | `5` | Do not repeat a fact within N turns |

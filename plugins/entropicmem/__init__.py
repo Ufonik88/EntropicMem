@@ -136,7 +136,7 @@ CONSOLIDATE_SCHEMA = {
 
 SMART_CONTEXT_DEFAULTS = {
     # Relevance filtering
-    "min_relevance_score": 0.3,
+    "min_relevance_score": 0.35,
     "max_prefetch_results": 5,
 
     # Token budget (max characters per prefetch turn)
@@ -306,8 +306,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
             # Smart Context Management
             {
                 "key": "min_relevance_score",
-                "description": "Minimum FTS5 relevance score for prefetch (0.0-1.0)",
-                "default": 0.3,
+                "description": "Minimum combined relevance score for prefetch (0.0-1.0; absolute coverage-based since 2.8.0)",
+                "default": 0.35,
             },
             {
                 "key": "max_prefetch_results",
@@ -777,7 +777,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     def _get_candidates(self, engine, query: str) -> list:
         """Get candidate facts with relevance scoring, domain filtering, and temporal decay."""
-        min_relevance = self._config.get("min_relevance_score", 0.3)
+        min_relevance = self._config.get("min_relevance_score", 0.35)
         max_results = self._config.get("max_prefetch_results", 5)
         enabled_domains = self._config.get("enabled_domains", [])
 
