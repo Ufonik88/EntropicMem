@@ -2,7 +2,7 @@
 
 FakeHost must call the provider exactly the way Hermes MemoryManager does
 (pinned hermes-agent, agent/memory_manager.py, 2026-09-23):
-  initialize(full §2.3 kwarg set) -> on_turn_start -> prefetch (own thread, 8 s join)
+  initialize(full kwarg set) -> on_turn_start -> prefetch (own thread, 8 s join)
   -> sync_turn -> queue_prefetch (FIFO worker), in real order, with real signature
   filtering.
 """
@@ -160,6 +160,10 @@ def test_trivial_prompts_skip_prefetch(rec, home_a):
         block, _ = host.turn(prompt)
         assert block == ""
     assert "prefetch" not in rec.names()
+    # /new is still a lifecycle boundary, not an ordinary trivial turn:
+    # it must have swapped the session and rebuilt the frozen block.
+    assert host.session_id != "sess-harness-1"
+    assert rec.names().count("system_prompt_block") == 2
     host.shutdown()
 
 

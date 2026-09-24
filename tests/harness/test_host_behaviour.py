@@ -42,7 +42,7 @@ class Stub:
     def initialize(self, session_id, **kwargs):
         self._rec("initialize")
 
-    def system_prompt_block(self):
+    def system_prompt_block(self) -> str:
         return "STUB SYSTEM"
 
     def prefetch(self, query, *, session_id=""):
@@ -288,6 +288,219 @@ def test_shutdown_drains_fifo_within_5s_then_shuts_provider(home_a):
     assert stub.names().count("sync_turn") == 5
     assert time.monotonic() - t0 < 5.5
     host.shutdown()  # idempotent
+
+
+# --- review round-1 regressions (em-qa, PR #7 @ 5b07638) ----------------------
+
+
+def test_turn_new_routes_to_lifecycle_boundary(home_a):
+    """/new through turn() must run the real session boundary, not a trivial no-op."""
+    stub = Stub()
+    host = FakeHost(stub, hermes_home=home_a)
+    host.start()
+    host.turn("what about the zyx deploy")
+    old_id = host.session_id
+    block, latency = host.turn("/new")
+    assert block == ""
+    assert latency >= 0.0
+    assert host.session_id != old_id
+    assert host.drain(timeout=5)
+    names = stub.names()
+    assert names[-2:] == ["on_session_end", "on_session_switch"]
+    assert host.transcript == []
+    host.shutdown()
+
+
+def test_turn_undo_routes_to_truncating_undo(home_a):
+    """/undo through turn() must truncate the last exchange and forward rewound=True."""
+    stub = Stub()
+    host = FakeHost(stub, hermes_home=home_a)
+    host.start()
+    host.turn("first real question about zyx")
+    host.turn("second real question about zyx")
+    assert len(host.transcript) == 4
+    host.turn("/undo")
+    assert len(host.transcript) == 2
+    assert stub.switch_kwargs["rewound"] is True
+    host.shutdown()
+
+
+def test_turn_compress_routes_to_compression_boundary(home_a):
+    """/compress through turn() must fire the v2 checkpoint + switch(reason=compression)."""
+    stub = Stub()
+    host = FakeHost(stub, hermes_home=home_a)
+    host.start()
+    host.turn("remember the zyx rollout plan")
+    assert host.drain(timeout=5)
+    old_id = host.session_id
+    block, _ = host.turn("/compress")
+    assert block == ""
+    assert "on_pre_compress" in stub.names()
+    assert stub.switch_kwargs["reason"] == "compression"
+    assert host.session_id != old_id
+    host.shutdown()
+
+
+def test_queued_sync_tasks_snapshot_author_session_and_messages(home_a):
+    """Two turns queued without draining must each sync their OWN author, messages, session."""
+    seen = []
+
+    class SnapshotRec(Stub):
+        name = "snapshot"
+
+        def sync_turn(self, user_content, assistant_content, *, session_id="", messages=None,
+                      turn_author=None):
+            seen.append({"user": user_content, "session_id": session_id,
+                         "author": turn_author, "n_messages": len(messages or [])})
+
+    host = FakeHost(SnapshotRec(), hermes_home=home_a)
+    host.start()
+    old_id = host.session_id
+    host.turn("first authored question about zyx", author={"id": "u1", "name": "Ann"})
+    host.turn("second authored question about zyx", author={"id": "u2", "name": "Bob"})
+    host.new_session()  # queued sync work predates the boundary; it must keep the old session
+    assert host.drain(timeout=5)
+    assert [s["author"]["id"] for s in seen] == ["u1", "u2"], \
+        f"author snapshot lost: {[s['author'] for s in seen]}"
+    assert [s["n_messages"] for s in seen] == [2, 4], \
+        "messages must be snapshotted when the task is submitted"
+    assert all(s["session_id"] == old_id for s in seen), \
+        f"sync attributed to a later session: {[s['session_id'] for s in seen]}"
+    host.shutdown()
+
+
+def test_env_home_removed_after_shutdown_when_unset_before_start(home_a, monkeypatch):
+    """If HERMES_HOME was absent at start, shutdown must delete the decoy, not leak it."""
+    import os
+
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    host = FakeHost(Stub(), hermes_home=home_a)
+    host.start()
+    assert os.environ["HERMES_HOME"] == str(host._decoy_env_home)
+    host.shutdown()
+    assert "HERMES_HOME" not in os.environ, "decoy HERMES_HOME leaked into the process env"
+
+
+def test_env_home_restored_to_previous_value(home_a, monkeypatch):
+    import os
+
+    monkeypatch.setenv("HERMES_HOME", "/original/pre-existing/home")
+    host = FakeHost(Stub(), hermes_home=home_a)
+    host.start()
+    assert os.environ["HERMES_HOME"] == str(host._decoy_env_home)
+    host.shutdown()
+    assert os.environ["HERMES_HOME"] == "/original/pre-existing/home"
+
+
+def test_new_session_rebuilds_system_block_after_boundary(home_a):
+    """The frozen system block must be rebuilt AFTER on_session_switch ran, not before."""
+    block_calls = []
+
+    class SlowSwitch(Stub):
+        name = "slowswitch"
+        switched = False
+
+        def on_session_switch(self, new_session_id, **kwargs):
+            time.sleep(0.2)
+            self.switched = True
+            super().on_session_switch(new_session_id, **kwargs)
+
+        def system_prompt_block(self):
+            block_calls.append(self.switched)
+            return "NEW SESSION SYSTEM" if self.switched else "OLD SESSION SYSTEM"
+
+    stub = SlowSwitch()
+    host = FakeHost(stub, hermes_home=home_a)
+    host.start()
+    host.turn("a real question about zyx widgets")
+    host.new_session()
+    assert block_calls[-1] is True, \
+        f"system block rebuilt before the boundary finished: {block_calls}"
+    assert host.build_system_prompt() == "NEW SESSION SYSTEM"
+    host.shutdown()
+
+
+def test_undo_truncates_transcript_so_compression_evidence_excludes_it(home_a):
+    stub = Stub()
+    host = FakeHost(stub, hermes_home=home_a)
+    host.start()
+    host.turn("kept question about zyx")
+    host.turn("undone question about zyx")
+    assert host.drain(timeout=5)
+    host.undo()
+    assert len(host.transcript) == 2
+    host.compress()
+    assert len(stub.pre_compress_messages) == 2, \
+        "compression evidence must not re-feed supposedly-undone turns"
+    assert any("kept question" in m["content"] for m in stub.pre_compress_messages)
+    host.shutdown()
+
+
+def test_undo_on_empty_transcript_is_safe(home_a):
+    stub = Stub()
+    host = FakeHost(stub, hermes_home=home_a)
+    host.start()
+    host.undo()
+    assert host.transcript == []
+    assert stub.switch_kwargs["rewound"] is True
+    host.shutdown()
+
+
+# --- review round-2 regressions (em-qa, PR #8 @ b9a5883) ----------------------
+
+
+class BlockBoomer(Stub):
+    """system_prompt_block succeeds for the initial freeze, then always raises."""
+
+    name = "blockboomer"
+
+    def __init__(self):
+        super().__init__()
+        self.block_calls = 0
+
+    def system_prompt_block(self):
+        self.block_calls += 1
+        if self.block_calls > 1:
+            raise RuntimeError("block boom")
+        return "GOOD BLOCK"
+
+
+def test_new_session_survives_raising_system_prompt_block(home_a):
+    """A provider error in the boundary's block rebuild must be recorded fail-soft.
+
+    Regression (em-qa round 2): the exception escaped _boundary() before
+    boundary_done.set(), so new_session() waited the full 30 s and returned the
+    OLD session's frozen block — and the FIFO loop swallowed the error as
+    'fifo: ...' instead of a hook error.
+    """
+    stub = BlockBoomer()
+    host = FakeHost(stub, hermes_home=home_a)
+    host.start()
+    assert host.build_system_prompt() == "GOOD BLOCK"
+    t0 = time.monotonic()
+    new_id = host.new_session()
+    elapsed = time.monotonic() - t0
+    assert elapsed < 2.0, f"new_session waited {elapsed:.1f}s on a dead boundary"
+    assert new_id == host.session_id
+    assert any(e.startswith("system_prompt_block:") for e in host.errors), \
+        f"rebuild error not recorded fail-soft: {host.errors}"
+    host.shutdown()
+
+
+def test_compress_survives_raising_system_prompt_block(home_a):
+    """compress() must record the rebuild error like every other hook, not crash."""
+    stub = BlockBoomer()
+    host = FakeHost(stub, hermes_home=home_a)
+    host.start()
+    host.turn("a real question about zyx widgets")
+    assert host.drain(timeout=5)
+    t0 = time.monotonic()
+    out = host.compress()  # must not raise
+    assert time.monotonic() - t0 < 2.0
+    assert "stub constraints" in out
+    assert any(e.startswith("system_prompt_block:") for e in host.errors), \
+        f"rebuild error not recorded fail-soft: {host.errors}"
+    host.shutdown()
 
 
 def test_provider_reading_env_after_init_gets_the_decoy(home_a, monkeypatch):

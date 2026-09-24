@@ -20,7 +20,7 @@ FACTS = [
     ("The staging deploy target is host zeta-7 behind nginx.", "Infrastructure"),
     ("The quarterly budget review happens on the last Friday.", "Operations"),
     ("Project Falcon uses SQLite FTS5 for its search index.", "Engineering"),
-    ("The preferred meeting slot before noon is Rand time.", "Operations"),
+    ("The preferred meeting slot is late morning UTC.", "Operations"),
 ]
 
 TURNS = [

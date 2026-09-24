@@ -3,7 +3,7 @@
 Mirrors the host contract as verified against hermes-agent ``agent/memory_manager.py``
 and ``agent/memory_provider.py`` (2026-09-23):
 
-* ``initialize`` receives the full §2.3 kwarg set (platform, hermes_home,
+* ``initialize`` receives the full kwarg set (platform, hermes_home,
   agent_context, gateway identity, cwd, agent_identity, agent_workspace, ...).
 * ``prefetch`` runs on a dedicated thread per turn with an 8.0 s join; a stuck
   prefetch makes the provider skipped on later turns until it returns.
@@ -49,7 +49,8 @@ EXTERNAL_PREFETCH_TIMEOUT_S = 8.0
 SYNC_DRAIN_TIMEOUT_S = 5.0
 OUTPUT_SPILL_MAX_CHARS = 10_000  # hooks.output_spill.max_chars default
 
-# The full initialize() kwarg set the host produces (plan §2.3). Values here are
+# The full initialize() kwarg set the host produces (agent/memory_manager.py,
+# pinned 2026-09-23). Values here are
 # synthetic defaults; FakeHost callers may override any of them.
 FULL_INITIALIZE_KWARGS: Dict[str, Any] = {
     "platform": "telegram",
@@ -187,14 +188,15 @@ class FakeHost:
 
         self._context: contextvars.Context = contextvars.copy_context()
         self._home_token: Any = None
-        self._saved_env_home: Optional[str] = None
+        # Sentinel tracks "HERMES_HOME was absent before start()" so shutdown
+        # deletes the decoy instead of leaving it in the process env.
+        self._saved_env_home: Optional[Tuple[bool, Optional[str]]] = None
 
         self._system_block = ""
         self.transcript: List[Dict[str, Any]] = []  # OpenAI-style, user rows gain api_content
         self.turn_number = 0
         self._started = False
         self._closed = False
-        self._pending_author: Optional[Dict[str, Any]] = None
 
         # FIFO worker (host's mem-sync): single thread, sequential tasks.
         self._tasks: "queue.Queue[Optional[Callable[[], None]]]" = queue.Queue()
@@ -286,7 +288,9 @@ class FakeHost:
             "agent_identity": self.agent_identity,
             **self._extra_init_kwargs,
         }
-        self._saved_env_home = os_environ_snapshot().get("HERMES_HOME")
+        env_snap = os_environ_snapshot()
+        self._saved_env_home = (True, env_snap.get("HERMES_HOME")) \
+            if "HERMES_HOME" in env_snap else (False, None)
         self._in_host(lambda: self.provider.initialize(session_id=self._session_id, **kwargs))
         # Host contract: after initialize() the provider must never read
         # os.environ["HERMES_HOME"] again — poison it with a WRONG path so any
@@ -303,6 +307,18 @@ class FakeHost:
         """The session's frozen system prompt (rebuilt at compression / new sessions)."""
         return self._system_block
 
+    def _rebuild_system_block(self) -> None:
+        """Refreeze the session's system prompt, fail-soft like every other hook call.
+
+        A provider raising in system_prompt_block() must land in host.errors —
+        never a crash out of a public method, and never a dead boundary that
+        leaves new_session() waiting on its timeout.
+        """
+        try:
+            self._system_block = self._in_host(lambda: self.provider.system_prompt_block() or "")
+        except Exception as e:
+            self._record_error(f"system_prompt_block: {e}")
+
     # -- one conversation turn -------------------------------------------------
 
     def turn(
@@ -312,11 +328,15 @@ class FakeHost:
         author: Optional[Dict[str, Any]] = None,
         assistant_text: Optional[str] = None,
     ) -> Tuple[str, float]:
-        """Drive one full host turn; returns (injected <memory-context> block, latency_ms)."""
+        """Drive one full host turn; returns (injected <memory-context> block, latency_ms).
+
+        Slash lifecycle commands (/new, /undo, /compress) route to the matching
+        boundary method — the host never feeds them through prefetch/sync as
+        ordinary turns — and return an empty injected block.
+        """
         if not self._started:
             raise RuntimeError("FakeHost.start() must run before turn()")
         self.turn_number += 1
-        self._pending_author = author
         t0 = time.perf_counter()
 
         author = author or {}
@@ -339,6 +359,20 @@ class FakeHost:
                     self._record_error(f"on_turn_start: {e}")
 
             self._in_host(_tick)
+
+        cmd = user_text.strip().lower()
+        if cmd in ("/new", "/undo", "/compress"):
+            if cmd == "/new":
+                self.new_session()
+            elif cmd == "/undo":
+                self.undo()
+            else:
+                self.compress()
+            latency_ms = (time.perf_counter() - t0) * 1000.0
+            self.metrics["turns"] += 1
+            self.metrics["turn_total_latency_ms"].append(round(latency_ms, 3))
+            self.metrics["cumulative_prompt_tokens"].append(self.prompt_tokens())
+            return "", latency_ms
 
         # Host: trivial prompts skip prefetch entirely.
         if self._is_trivial(user_text):
@@ -366,7 +400,14 @@ class FakeHost:
         self.metrics["cumulative_prompt_tokens"].append(self.prompt_tokens())
         self.metrics["turn_total_latency_ms"].append(round(latency_ms, 3))
 
-        self._submit_background(self._sync_task(user_text, reply))
+        # Snapshot at submit time: the FIFO worker must sync THIS turn's
+        # session/messages/author even if later turns or boundaries mutate them.
+        self._submit_background(self._sync_task(
+            user_text, reply,
+            session_id=self._session_id,
+            messages=[dict(m) for m in self.transcript],
+            author=dict(author) if author else None,
+        ))
         return injected, latency_ms
 
     def _prefetch_turn(self, query: str) -> str:
@@ -418,29 +459,33 @@ class FakeHost:
             )
         return block
 
-    def _sync_task(self, user_text: str, reply: str) -> Callable[[], None]:
+    def _sync_task(
+        self,
+        user_text: str,
+        reply: str,
+        *,
+        session_id: str,
+        messages: List[Dict[str, Any]],
+        author: Optional[Dict[str, Any]],
+    ) -> Callable[[], None]:
         def _do() -> None:
             sync = self.provider.sync_turn
-            kwargs: Dict[str, Any] = {"session_id": self._session_id}
+            kwargs: Dict[str, Any] = {"session_id": session_id}
             if _accepts(sync, "messages"):
-                kwargs["messages"] = [dict(m) for m in self.transcript]
-            author = self._last_author()
+                kwargs["messages"] = [dict(m) for m in messages]
             if author is not None and _accepts(sync, "turn_author"):
-                kwargs["turn_author"] = author
+                kwargs["turn_author"] = dict(author)
             try:
                 sync(user_text, reply, **kwargs)
             except Exception as e:
                 self._record_error(f"sync_turn: {e}")
             if not self._is_trivial(user_text):
                 try:
-                    self.provider.queue_prefetch(user_text, session_id=self._session_id)
+                    self.provider.queue_prefetch(user_text, session_id=session_id)
                 except Exception as e:
                     self._record_error(f"queue_prefetch: {e}")
 
         return _do
-
-    def _last_author(self) -> Optional[Dict[str, Any]]:
-        return getattr(self, "_pending_author", None)
 
     # -- FIFO background worker (host's mem-sync, single worker) ----------------
 
@@ -472,29 +517,52 @@ class FakeHost:
     # -- session lifecycle -------------------------------------------------------
 
     def new_session(self, *, new_session_id: Optional[str] = None) -> str:
-        """/new: on_session_end then on_session_switch(reset) as ONE serialized FIFO task."""
+        """/new: on_session_end then on_session_switch(reset) as ONE serialized FIFO task.
+
+        The frozen system block is rebuilt by that same task AFTER the switch,
+        so the new session's prompt can never freeze old-session state; the
+        caller waits for the boundary to complete (the host's /new finishes
+        before the next turn's prompt is assembled).
+        """
         old = self._session_id
         new = new_session_id or f"{old}-next"
         snapshot = [dict(m) for m in self.transcript]
+        self.transcript = []
+        boundary_done = threading.Event()
 
         def _boundary() -> None:
             try:
-                self.provider.on_session_end(snapshot)
-            except Exception as e:
-                self._record_error(f"on_session_end: {e}")
-            try:
-                self.provider.on_session_switch(new, parent_session_id=old, reset=True, reason="new_session")
-            except Exception as e:
-                self._record_error(f"on_session_switch: {e}")
+                try:
+                    self.provider.on_session_end(snapshot)
+                except Exception as e:
+                    self._record_error(f"on_session_end: {e}")
+                try:
+                    self.provider.on_session_switch(new, parent_session_id=old, reset=True, reason="new_session")
+                except Exception as e:
+                    self._record_error(f"on_session_switch: {e}")
+                self._rebuild_system_block()
+            finally:
+                # The caller must never wait on a boundary that already died.
+                boundary_done.set()
 
-        self.transcript = []
         self._submit_background(_boundary)
         self._session_id = new
-        self._system_block = self._in_host(lambda: self.provider.system_prompt_block() or "")
+        if not boundary_done.wait(30.0):  # pragma: no cover - stuck provider
+            self._record_error("new_session: boundary did not complete within 30s")
         return new
 
     def undo(self) -> None:
-        """/undo: same session id, truncated transcript (host forwards rewound=True)."""
+        """/undo: same session id; the last exchange is truncated (host forwards rewound=True).
+
+        Mirrors the host rewinding the conversation: the undone user+assistant
+        rows are removed so later replay and compression evidence never re-feed
+        a turn the user withdrew.
+        """
+        if len(self.transcript) >= 2 and self.transcript[-2].get("role") == "user":
+            del self.transcript[-2:]
+        elif self.transcript and self.transcript[-1].get("role") == "assistant":
+            self.transcript.pop()
+
         def _switch() -> None:
             try:
                 self.provider.on_session_switch(
@@ -543,7 +611,7 @@ class FakeHost:
         self._in_host(_switch)
         self._session_id = child
         # The host freezes the system prompt per session and REBUILDS it on compression.
-        self._system_block = self._in_host(lambda: self.provider.system_prompt_block() or "")
+        self._rebuild_system_block()
         return "\n\n".join(parts)
 
     def evidence_snapshot(self) -> List[Dict[str, Any]]:
@@ -564,7 +632,7 @@ class FakeHost:
         self._in_host(_call)
 
     def tool(self, name: str, args: Dict[str, Any]) -> str:
-        """handle_tool_call on the agent thread — host passes NO kwargs (§2.3)."""
+        """handle_tool_call on the agent thread — host passes NO kwargs."""
         self.metrics["tool_calls"] += 1
         return self._in_host(lambda: self.provider.handle_tool_call(name, dict(args)))
 
@@ -587,7 +655,14 @@ class FakeHost:
         if self._saved_env_home is not None:
             import os
 
-            os.environ["HERMES_HOME"] = self._saved_env_home
+            was_present, saved_value = self._saved_env_home
+            # Only unwind OUR decoy: with overlapping hosts and out-of-order
+            # shutdown, the current value may belong to another still-live host.
+            if os.environ.get("HERMES_HOME") == str(self._decoy_env_home):
+                if was_present and saved_value is not None:
+                    os.environ["HERMES_HOME"] = saved_value
+                else:
+                    os.environ.pop("HERMES_HOME", None)
             self._saved_env_home = None
         self._revert_home_override()
         self._closed = True

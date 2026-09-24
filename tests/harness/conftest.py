@@ -19,7 +19,7 @@ SCRIPTS = ROOT / "plugins" / "entropicmem" / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-# Plan §6.1: no ML deps in the default test run. The optional embedding stack
+# No ML deps in the default test run. The optional embedding stack
 # is an external model download (non-deterministic, seconds); a None entry in
 # sys.modules makes `import sentence_transformers` raise ImportError exactly
 # like a machine without it (CI) — the engine then uses its FTS-only path.
