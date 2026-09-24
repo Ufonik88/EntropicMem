@@ -2298,6 +2298,24 @@ class MemoryEngine:
         self.audit("episode_add", fact_id=eid, detail=f"domain={domain};source={source}")
         return eid
 
+    def next_episode_wave(self, episode_base: str) -> int:
+        """Next cadence wave number for a session (EM-112, L5).
+
+        Returns max(existing ``{episode_base}_wN``) + 1 so cadence digests
+        never overwrite earlier waves — monotonic even across restarts and
+        deletions.
+        """
+        rows = self.db.execute(
+            "SELECT episode_id FROM episodes WHERE episode_id LIKE ?",
+            (episode_base + "_w%",),
+        ).fetchall()
+        n = 0
+        for (ep_id,) in rows:
+            m = re.search(r"_w(\d+)$", ep_id)
+            if m:
+                n = max(n, int(m.group(1)))
+        return n + 1
+
     def list_episodes(
         self,
         *,

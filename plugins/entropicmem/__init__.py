@@ -1187,13 +1187,22 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
             sid = self._session_id or ""
             with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
+                # EM-112: cadence flushes get a fresh wave id (ep_sess_{sid}_w{n})
+                # so earlier waves are never overwritten; session end keeps the
+                # single ep_sess_{sid} covering the tail.
+                if reason == "session_end":
+                    episode_id = episode_id_for(sid)
+                else:
+                    episode_id = episode_id_for(
+                        sid, wave=engine.next_episode_wave(episode_id_for(sid))
+                    )
                 engine.add_episode(
                     title=digest["title"] or f"session {sid or 'unknown'}",
                     summary=digest["summary"],
                     start_ts=digest.get("start_ts"),
                     end_ts=digest.get("end_ts"),
                     source_session=sid,
-                    episode_id=episode_id_for(sid),
+                    episode_id=episode_id,
                     importance=0.6,
                     source="session_end" if reason == "session_end" else "cadence",
                 )

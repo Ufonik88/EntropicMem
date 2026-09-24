@@ -13,7 +13,7 @@ Pure stdlib: no network, no LLM, no host state.
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from textutil import message_text as _message_text  # shared EM-101 normaliser
@@ -55,9 +55,16 @@ def _sanitize_session_id(session_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", (session_id or "").strip())[:80]
 
 
-def episode_id_for(session_id: str) -> str:
-    """Deterministic, idempotent episode id for a session digest (A1/A5)."""
-    return "ep_sess_" + (_sanitize_session_id(session_id) or "unknown")
+def episode_id_for(session_id: str, wave: Optional[int] = None) -> str:
+    """Deterministic episode id for a session digest (A1/A5).
+
+    EM-112: cadence flushes pass a monotonically increasing wave number and
+    get ``ep_sess_{sid}_w{n}`` (never overwriting earlier waves); the
+    session-end digest stays the single ``ep_sess_{sid}`` covering the tail
+    (idempotent re-fire replaces the same row).
+    """
+    base = "ep_sess_" + (_sanitize_session_id(session_id) or "unknown")
+    return base if wave is None else f"{base}_w{int(wave)}"
 
 
 def precompress_episode_id(session_id: str) -> str:
@@ -69,7 +76,8 @@ def _timestamp_of(msg: Dict[str, Any]) -> Optional[str]:
     ts = msg.get("timestamp")
     if isinstance(ts, (int, float)):
         try:
-            return datetime.fromtimestamp(ts).isoformat(timespec="seconds")
+            # EM-112: digest timestamps are UTC
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(timespec="seconds")
         except (OverflowError, OSError, ValueError):
             return None
     if isinstance(ts, str) and ts.strip():
@@ -150,7 +158,7 @@ def extractive_digest(
         (ts for ts in (_timestamp_of(m) for m in messages or [] if isinstance(m, dict)) if ts),
         None,
     )
-    end_ts = datetime.now().isoformat(timespec="seconds")
+    end_ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     return {
         "title": title,
         "summary": summary,
