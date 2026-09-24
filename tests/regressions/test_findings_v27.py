@@ -100,14 +100,11 @@ def test_f001_junk_query_returns_zero_relevance(engine):
         )
 
 
-@pytest.mark.xfail(strict=True, reason="F-001 (R2) → EM-104: single-token queries "
-          "over-match — FTS term rules landed, but the literal LIKE fallback "
-          "still substring-matches every fact containing the letter")
 def test_f001_single_token_query_does_not_match_everything(engine):
     """A single common token should not match facts that do not contain it as
     a term. v2.7 treated 'a' as a prefix match so it hit everything; the
-    FTS builder is fixed (EM-104) but the no-hit LIKE fallback still matches
-    'a' inside unrelated words like 'deadline'/'budget'."""
+    FTS builder fix (EM-104) plus the symbol-only LIKE fallback gate now
+    keep word queries on the FTS path only. Fixed — regression guard."""
     engine.remember(content="The project deadline is Friday", domain="Work", importance=0.9)
     engine.remember(content="The budget is approved for Q3", domain="Finance", importance=0.8)
     engine.remember(content="The server runs on port 9090", domain="Infrastructure", importance=0.7)

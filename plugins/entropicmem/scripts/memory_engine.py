@@ -141,6 +141,16 @@ def escape_like(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+_WORD_RE = re.compile(r"[A-Za-z]")
+
+
+def _like_fallback_ok(query: str, match_failed: bool) -> bool:
+    """Escaped literal LIKE fallback only for symbol/number queries (``%``,
+    ``_``, ``8080``) or when the FTS MATCH itself errored. Word queries never
+    substring-sweep: no FTS hits means no matches (R2 noise)."""
+    return match_failed or _WORD_RE.search(query) is None
+
+
 def run_fts_match(db: sqlite3.Connection, sql: str, params: Tuple) -> Tuple[List, str]:
     """Run an FTS5 MATCH query without ever raising on the MATCH expression.
 
@@ -1488,8 +1498,9 @@ class MemoryEngine:
         if fts_hits:
             seen = {f.id for f in exact}
             local = exact + [f for f in fts_hits if f.id not in seen]
-        else:
-            # LIKE fallback (wildcards in user input are matched literally)
+        elif _like_fallback_ok(query, match_failed):
+            # LIKE fallback (wildcards in user input are matched literally;
+            # symbol/number queries only — word queries never substring-sweep)
             like = f"%{escape_like(query)}%"
             like_params = (like, like, like)
             if domain:
@@ -1805,6 +1816,8 @@ class MemoryEngine:
             match_failed = fts_reason == FTS_REASON_MATCH_ERROR
 
         if not rows:
+            if not _like_fallback_ok(query, match_failed):
+                return []
             return self._recall_like_fallback(
                 query, top_k, domain, min_relevance, match_error=match_failed,
             )
