@@ -66,7 +66,7 @@ def engine(temp_db):
         ("JavaScript is used for web development", "Programming", 0.8),
         ("Machine learning uses Python extensively", "AI", 0.7),
         ("The user prefers dark mode", "People", 0.6),
-        ("Document is at ~/data-archive", "Finance", 0.5),
+        ("Document is at ~/data-archive.xlsx", "Finance", 0.5),
         ("Server runs Ubuntu 22.04", "Infrastructure", 0.4),
         ("Project deadline is next Friday", "Projects", 0.3),
         ("Coffee machine is in the kitchen", "Knowledge", 0.2),

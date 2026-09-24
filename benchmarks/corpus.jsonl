@@ -38,7 +38,7 @@
 {"content": "The weekly review process captures completed tasks and plans for the next week", "domain": "Workflows", "importance": 0.7}
 {"content": "Morning brief generation pulls weather, news, and calendar events for daily planning", "domain": "Workflows", "importance": 0.65}
 {"content": "Notion sync cron job mirrors Notion knowledge base into Hermes memory every 6 hours", "domain": "Workflows", "importance": 0.7}
-{"content": "The Document uses 50/30/20 rule for expense categorization and tracking", "domain": "Finance", "importance": 0.75}
+{"content": "The document uses 50/30/20 rule for expense categorization and tracking", "domain": "Finance", "importance": 0.75}
 {"content": "Bank transaction parsing extracts merchant, amount, and date from CSV statement exports", "domain": "Finance", "importance": 0.7}
 {"content": "Portfolio optimization uses Modern Portfolio Theory for asset allocation rebalancing", "domain": "Finance", "importance": 0.65}
 {"content": "The X growth strategy targets tech founders and AI engineers with daily content", "domain": "Content-Growth", "importance": 0.7}

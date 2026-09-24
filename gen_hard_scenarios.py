@@ -231,7 +231,7 @@ multimodal = [
                turn("what did the user buy this week?", ["$0"], ["apples", "bananas", "oranges", "spinach"]),
                turn("what is in the user's weekly grocery list?", ["$0"], ["apples", "bananas", "oranges", "spinach"])]},
     {"id": "multimodal_image_01", "category": "multimodal",
-     "memories": [mem("Screenshot of the Document showing Acme revenue at R10K/month", kind="fact", age_days=5, importance=0.8, domain="Finance"),
+     "memories": [mem("Screenshot of the document showing Acme revenue at R10K/month", kind="fact", age_days=5, importance=0.8, domain="Finance"),
                   mem("The budget uses Alpha/Beta/Gamma accounts for transactions", kind="fact", age_days=5, importance=0.7, domain="Finance")],
      "noise": {"generator": "filler", "count": 20, "seed": 504},
      "turns": [turn("what does the budget screenshot show?", ["$0"], ["R10K", "Acme"]),
