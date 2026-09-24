@@ -1462,11 +1462,9 @@ class MemoryEngine:
         # FTS5 MATCH (never raises: bad MATCH expressions → empty + reason)
         rows: list = []
         match_failed = False
-        if not fts_query:
-            # '' from the builder means 'no terms': 'no matches', never a
-            # sweep — for a term-less query the LIKE fallback degenerates to
-            # LIKE '%%' (match everything). Exact hits above still make a
-            # fact self-recallable.
+        if not query.strip():
+            # empty query: 'no matches', never a LIKE '%%' sweep. Exact hits
+            # above still make a fact self-recallable.
             return exact[:top_k]
         if fts_query:
             rows, fts_reason = run_fts_match(
@@ -1778,10 +1776,9 @@ class MemoryEngine:
         # Shared FTS5 query builder — same fields (content/title/tags) as
         # recall() so prefetch and recall agree on what a query means.
         fts_query = build_fts_query(query, fields=("content", "title", "tags"))
-        if not fts_query:
-            # '' from the builder means 'no terms': 'no matches', never the
-            # LIKE '%%' sweep a term-less fallback query would produce.
-            return []
+        # '' from the builder means no FTS terms: skip straight to the
+        # escaped LIKE fallback below (literal-substring search for symbol
+        # queries like "%"/"_"); only an empty query is 'no matches'.
 
         where = ""
         params: tuple = ()
