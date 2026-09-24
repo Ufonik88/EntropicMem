@@ -70,7 +70,12 @@ def resolve_paths(hermes_home: Path, plugin_config: dict) -> Tuple[Path, Path, P
 
 
 def load_plugin_config(hermes_home: Path) -> dict:
-    """Return the ``plugins.entropicmem`` section of ``{hermes_home}/config.yaml``.
+    """Return the EntropicMem config from ``{hermes_home}/config.yaml``.
+
+    Both ``memory.entropicmem`` and ``plugins.entropicmem`` are read, with
+    ``memory.entropicmem`` merged OVER ``plugins.entropicmem`` (the host-native
+    ``memory.*`` location wins; the plugin location stays for backward
+    compatibility).
 
     Returns ``{}`` when PyYAML is unavailable — but NEVER silently: the
     missing import is logged at WARNING level so a config that stops applying
@@ -93,7 +98,10 @@ def load_plugin_config(hermes_home: Path) -> dict:
         with open(config_path, encoding="utf-8-sig") as f:
             all_config = yaml.safe_load(f) or {}
         plugins = all_config.get("plugins") or {}
-        return dict(plugins.get("entropicmem") or {})
+        memory = all_config.get("memory") or {}
+        merged = dict(plugins.get("entropicmem") or {})
+        merged.update(memory.get("entropicmem") or {})
+        return merged
     except Exception as e:
         logger.debug("entropicmem: failed to parse plugin config %s: %s", config_path, e)
         return {}

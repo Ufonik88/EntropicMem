@@ -259,9 +259,6 @@ def test_f004_cross_user_isolation(make_provider, home_a):
     host_b.shutdown()
 
 
-@pytest.mark.xfail(strict=True, reason="F-004b → EM-102: register() passes the "
-          "default profile's file config as explicit constructor config, "
-          "overriding the real profile's file config at initialize (H4)")
 def test_f004_per_profile_config_respected(home_a, home_b, monkeypatch):
     """Each profile's own file config must win over whatever config was loaded
     from the default profile at register() time (H4)."""
@@ -298,6 +295,27 @@ def test_f004_per_profile_config_respected(home_a, home_b, monkeypatch):
     assert ctx.provider._config["min_relevance_score"] == 0.22
 
 
+def test_em102_memory_config_section_overrides_plugin_config(tmp_path):
+    """EM-102 item 5: a ``memory.entropicmem`` config section merges OVER
+    ``plugins.entropicmem`` (host-native location wins, plugin location kept
+    for backward compatibility)."""
+    from plugins.entropicmem import _backend
+
+    (tmp_path / "config.yaml").write_text(
+        "plugins:\n"
+        "  entropicmem:\n"
+        "    max_prefetch_results: 4\n"
+        "    min_relevance_score: 0.11\n"
+        "memory:\n"
+        "  entropicmem:\n"
+        "    max_prefetch_results: 2\n",
+        encoding="utf-8",
+    )
+    cfg = _backend.load_plugin_config(tmp_path)
+    assert cfg["max_prefetch_results"] == 2, "memory.entropicmem must win over plugins.entropicmem"
+    assert cfg["min_relevance_score"] == 0.11, "plugins.entropicmem keys must survive the merge"
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # F-005 → EM-110: Bare threading.Thread; os.environ profile; config override
 # ═════════════════════════════════════════════════════════════════════════════
@@ -327,18 +345,27 @@ def test_f005_uses_spawn_context_thread(make_provider, home_a):
 
 
 def test_f005_no_os_environ_heremes_home_in_engine():
-    """The engine must never read os.environ['HERMES_HOME'] — path/profile
-    must come from explicit initialize kwargs."""
-    # This test verifies by code inspection that the engine does not
-    # reference os.environ['HERMES_HOME'] after initialize.
-    me = Path("memory_engine.py")
-    if not me.exists():
-        # try the standard location
-        me = Path("plugins/entropicmem/scripts/memory_engine.py")
-    content = me.read_text()
-    assert 'os.environ["HERMES_HOME"]' not in content.replace("'", '"'), (
-        "Engine reads os.environ['HERMES_HOME'] — profile bleed in "
-        "multiplexed gateways (F-005, EM-110)"
+    """No runtime script may read os.environ['HERMES_HOME'] / os.environ.get
+    ('HERMES_HOME') — path/profile must come from explicit initialize kwargs
+    (H3/EM-102). Exception: scripts/entropicmem.py (CLI entry, runs outside a
+    host) and scripts/vault.py (the CLI's documented env-honouring shared
+    path resolver) may keep env reads."""
+    scripts = Path("plugins/entropicmem/scripts")
+    if not scripts.is_dir():
+        scripts = Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "scripts"
+    allowed = {"entropicmem.py", "vault.py"}
+    needles = ('os.environ["HERMES_HOME"]', 'os.environ.get("HERMES_HOME"')
+    offenders = []
+    for py in sorted(scripts.glob("*.py")):
+        if py.name in allowed:
+            continue
+        content = py.read_text(encoding="utf-8").replace("'", '"')
+        for needle in needles:
+            if needle in content:
+                offenders.append(f"{py.name}: {needle}")
+    assert not offenders, (
+        "scripts read os.environ['HERMES_HOME'] — profile bleed in "
+        f"multiplexed gateways (F-005, H3/EM-102): {offenders}"
     )
 
 

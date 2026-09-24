@@ -16,10 +16,10 @@ legacy triples) provides breadth; this module keeps the graph growing
 incrementally from new facts.
 """
 
-import os
 import re
 import sys
-from typing import Dict, List, Set, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 # ── known entity dictionary ────────────────────────────────────────────────
 # NOTE: This repo is public — keep this dict to GENERIC, non-personal names.
@@ -81,13 +81,14 @@ _ALIAS_TO_ENTITY.update(_EXTRA_ALIASES)
 # $HERMES_HOME/entropicmem/known_entities_local.json, and is gitignored by
 # virtue of not being in the repo. Shape:
 #   {"person": ["alice"], "company": ["acme corp"], "aliases": {"acme": "Acme Corp"}}
-def _load_local_entities() -> None:
+def _load_local_entities(home: Optional[Path] = None) -> None:
     global KNOWN_ENTITIES, _ALIAS_TO_ENTITY, _CANONICAL_TITLE
     try:
         import json as _json
-        from pathlib import Path as _Path
-        home = _Path(os.environ.get("HERMES_HOME", _Path.home() / ".hermes"))
-        local_file = home / "entropicmem" / "known_entities_local.json"
+        # H3/EM-102: HERMES_HOME env is never read — callers with a
+        # non-default profile pass ``home`` explicitly.
+        base = Path(home).expanduser() if home else Path.home() / ".hermes"
+        local_file = base / "entropicmem" / "known_entities_local.json"
         if not local_file.is_file():
             return
         data = _json.loads(local_file.read_text(encoding="utf-8"))

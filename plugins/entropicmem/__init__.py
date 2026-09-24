@@ -239,6 +239,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         self._config = {**SMART_CONTEXT_DEFAULTS, **self._explicit_config}
         self._scripts_dir: Optional[Path] = None
         self._hermes_home: Optional[Path] = None
+        self._profile_id: Optional[str] = None
         self._vault_path: Optional[Path] = None
         self._index_db: Optional[Path] = None
         self._memory_db: Optional[Path] = None
@@ -277,8 +278,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     def is_available(self) -> bool:
         try:
-            # HERMES_HOME env first, then ~/.hermes — never a hardcoded home.
-            hh = hermes_home_from_kwargs({})
+            # Stored profile home (initialize) first, then HERMES_HOME env,
+            # then ~/.hermes — never a hardcoded home.
+            hh = self._hermes_home or hermes_home_from_kwargs({})
             scripts = resolve_scripts_dir(hh)
             return scripts is not None
         except Exception:
@@ -462,6 +464,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
         # write path checks _writes_allowed() against this.
         self._agent_context = str(kwargs.get("agent_context") or "primary")
         self._hermes_home = hermes_home_from_kwargs(kwargs)
+        # Profile slug for provenance stamping (H3/EM-102): explicit host
+        # identity, never an env read at write time.
+        self._profile_id = str(kwargs.get("agent_identity") or "").strip() or None
         # Precedence: defaults < file config < explicit constructor config.
         self._config = {
             **SMART_CONTEXT_DEFAULTS,
@@ -556,7 +561,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         """Run the smart-context pipeline; return the formatted fact block ('' when nothing selected)."""
         from memory_engine import MemoryEngine
 
-        engine = MemoryEngine(self._memory_db)
+        engine = MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home)
         try:
             # Phase 1.2 & 2.2: candidates with relevance scoring and domain filtering
             candidates = self._get_candidates(engine, enhanced_query)
@@ -645,7 +650,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             try:
                 ensure_scripts_on_path(self._scripts_dir)
                 from memory_engine import MemoryEngine
-                with MemoryEngine(self._memory_db) as engine:
+                with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
                     engine.extract_and_store(
                         user_text=user_content,
                         assistant_text=assistant_content,
@@ -934,7 +939,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             from memory_engine import MemoryEngine
 
             domain = "People" if target == "user" else "Knowledge"
-            with MemoryEngine(self._memory_db) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
                 engine.remember(
                     content=content,
                     title=content[:60],
@@ -1047,7 +1052,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         from memory_engine import MemoryEngine
 
         sid = self._session_id or ""
-        with MemoryEngine(self._memory_db) as engine:
+        with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
             engine.add_episode(
                 title=f"Pre-compress constraints for session {sid or 'unknown'}"[:120],
                 summary=constraints,
@@ -1079,7 +1084,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 return  # empty / tool-only transcript, no-op
 
             sid = self._session_id or ""
-            with MemoryEngine(self._memory_db) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
                 engine.add_episode(
                     title=digest["title"] or f"session {sid or 'unknown'}",
                     summary=digest["summary"],
@@ -1133,7 +1138,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             from memory_engine import MemoryEngine
             from vault import Vault
 
-            with MemoryEngine(self._memory_db) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
                 eid = engine.remember(
                     content=content,
                     title=Vault.make_title(content) or "Fact",
@@ -1186,7 +1191,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             ensure_scripts_on_path(self._scripts_dir)
             from memory_engine import MemoryEngine
 
-            with MemoryEngine(self._memory_db) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
                 # v2.2.0 G3: hybrid retrieval — FTS5 BM25 + vector similarity
                 # fusion when embeddings exist; graceful FTS-only fallback.
                 rows = engine.recall_hybrid(
@@ -1306,7 +1311,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return None, _tool_error("EntropicMem not initialized")
         ensure_scripts_on_path(self._scripts_dir)
         from memory_engine import MemoryEngine
-        engine = MemoryEngine(self._memory_db)
+        engine = MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home)
         return engine, None
 
     def _stats(self, args: dict) -> str:
@@ -1390,15 +1395,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
 
 def register_memory_provider(ctx) -> None:
-    """Memory provider discovery entry point."""
-    cfg = {}
-    try:
-        from hermes_constants import get_hermes_home
+    """Memory provider discovery entry point.
 
-        cfg = load_plugin_config(get_hermes_home())
-    except Exception:
-        pass
-    ctx.register_memory_provider(EntropicMemMemoryProvider(config=cfg))
+    H4/EM-102: constructed with NO config — anything loaded at register()
+    time belongs to whatever profile the loader runs under and would
+    override the real profile's file config at initialize(). Explicit
+    constructor config is reserved for callers that genuinely mean it.
+    """
+    ctx.register_memory_provider(EntropicMemMemoryProvider())
 
 
 def register(ctx) -> None:

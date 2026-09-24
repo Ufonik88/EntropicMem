@@ -419,10 +419,11 @@ class StoredFact:
 class MemoryEngine:
     """Standalone memory engine. One SQLite database, no external deps."""
 
-    def __init__(self, db_path: Path, profile_id: Optional[str] = None, publish_scope: Optional[str] = None):
+    def __init__(self, db_path: Path, profile_id: Optional[str] = None, publish_scope: Optional[str] = None, hermes_home: Optional[Path] = None):
         self.db_path = Path(db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._profile_id = profile_id
+        self._hermes_home = Path(hermes_home).expanduser() if hermes_home else None
         self.publish_scope = (
             publish_scope or os.environ.get("ENTROPICMEM_PUBLISH_SCOPE") or "shared"
         ).lower()
@@ -479,12 +480,16 @@ class MemoryEngine:
     )
 
     def profile_id(self) -> str:
-        """Resolve the owning profile slug: explicit > HERMES_HOME basename > 'default'."""
+        """Resolve the owning profile slug: explicit > hermes_home basename > 'default'.
+
+        H3/EM-102: the HERMES_HOME env var is never read — in a multiplexed
+        gateway it can be poisoned by another profile after initialize,
+        which stamped every write with the wrong slug.
+        """
         if self._profile_id:
             return self._profile_id
-        env = os.environ.get("HERMES_HOME")
-        if env:
-            name = Path(env).expanduser().resolve().name
+        if self._hermes_home:
+            name = self._hermes_home.resolve().name
             if name and name != ".hermes":
                 return name
         return "default"
@@ -1181,19 +1186,22 @@ class MemoryEngine:
     # ── P2 controlled sync (shared store) ───────────────────────────────────
 
     @staticmethod
-    def shared_path() -> Path:
+    def shared_path(hermes_home: Optional[Path] = None) -> Path:
         """Resolve the shared sync store path (env override or default).
 
         The shared log is anchored at the ROOT hermes home, not the active
-        profile home: profile mode sets HERMES_HOME=<root>/profiles/<name>,
-        and the shared store must stay at <root>/entropicmem-shared/ so all
-        profiles converge on one log. Mirrors get_default_hermes_root().
+        profile home: profile mode uses <root>/profiles/<name>, and the
+        shared store must stay at <root>/entropicmem-shared/ so all
+        profiles converge on one log.
+
+        H3/EM-102: HERMES_HOME is never read — callers pass ``hermes_home``
+        explicitly (the engine forwards its own); without it the default is
+        ~/.hermes.
         """
         env = os.environ.get("ENTROPICMEM_SHARED_DB")
         if env:
             return Path(env).expanduser().resolve()
-        hh = os.environ.get("HERMES_HOME", "")
-        base = Path(hh).expanduser() if hh else Path.home() / ".hermes"
+        base = Path(hermes_home).expanduser() if hermes_home else Path.home() / ".hermes"
         if base.parent.name == "profiles":
             base = base.parent.parent  # profile mode: climb back to <root>
         return (base / "entropicmem-shared" / "memory.db").resolve()
@@ -1226,7 +1234,7 @@ class MemoryEngine:
             ).fetchall()
             if not rows:
                 return {"published": 0, "profile": self.profile_id()}
-            shared = sqlite3.connect(str(shared_db or self.shared_path()), timeout=30)
+            shared = sqlite3.connect(str(shared_db or self.shared_path(self._hermes_home)), timeout=30)
             shared.row_factory = sqlite3.Row
             try:
                 new_events = 0
@@ -1262,7 +1270,7 @@ class MemoryEngine:
         self._check_migration_lock()
         self._acquire_write_lock()
         try:
-            shared = sqlite3.connect(str(shared_db or self.shared_path()), timeout=30)
+            shared = sqlite3.connect(str(shared_db or self.shared_path(self._hermes_home)), timeout=30)
             shared.row_factory = sqlite3.Row
             try:
                 last = self.db.execute(
@@ -1335,7 +1343,7 @@ class MemoryEngine:
                 "SELECT id, content, title, domain, tags, importance, sensitivity, "
                 "fact_timestamp, version FROM facts WHERE deleted=0"
             ).fetchall()
-            shared = sqlite3.connect(str(shared_db or self.shared_path()), timeout=30)
+            shared = sqlite3.connect(str(shared_db or self.shared_path(self._hermes_home)), timeout=30)
             shared.row_factory = sqlite3.Row
             try:
                 emitted = 0
