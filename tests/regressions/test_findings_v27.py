@@ -274,11 +274,13 @@ def test_H2_multimodal_prefetch(make_provider, home_a):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-004 → EM-109: No user/chat scoping; cross-user memory bleed
+# F-004 → S4 (known limitation): No user/chat scoping; cross-user memory bleed. S1 interim = EM-118 owner/guest guard
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-004 → EM-109: gateway user_id/chat_id "
-          "ignored; all users share one memory pool")
+@pytest.mark.xfail(strict=True, reason="F-004 → S4 known limitation: full "
+          "per-user scoping (alice/bob isolation) is Sprint 4 work. S1 ships "
+          "the interim owner/guest guard (EM-118) — owner_user_ids + guest "
+          "exclusions — see tests/test_privacy_guard.py")
 def test_f004_cross_user_isolation(make_provider, home_a):
     """Two users (different user_ids) sharing a profile must not see each
     other's memories."""

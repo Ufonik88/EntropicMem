@@ -640,10 +640,12 @@ class CoreMemory:
         os.replace(tmp, file_path)
         return True
 
-    def injection_block(self) -> str:
+    def injection_block(self, persona_only: bool = False) -> str:
         """Return a formatted block for system prompt injection.
 
         Always returns Persona first, then User Profile, with clear markers.
+        persona_only (EM-118): guests receive Persona but never the User
+        Profile.
         """
         persona = self.persona
         profile = self.user_profile
@@ -658,6 +660,8 @@ class CoreMemory:
             if idx != -1:
                 profile = profile[idx + 3:].strip()
 
+        if persona_only:
+            return f"## Core Memory — Persona\n\n{persona}"
         return (
             f"## Core Memory — Persona\n\n{persona}\n\n"
             f"## Core Memory — User Profile\n\n{profile}"

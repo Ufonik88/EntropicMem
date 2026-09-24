@@ -179,6 +179,9 @@ SMART_CONTEXT_DEFAULTS = {
     "allow_agent_consolidate": False,
     # EM-116: core memory goes to the system prompt, not per-turn prefetch
     "core_inject_mode": "system_prompt",
+    # EM-118: interim gateway privacy guard (owner/guest separation)
+    "owner_user_ids": [],
+    "guest_hidden_domains": ["People", "Finance"],
 
     # P1 Slice 2: lifecycle hooks (A1/A2/A5/C1)
     "session_end_capture": True,
@@ -474,6 +477,16 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "default": "system_prompt",
             },
             {
+                "key": "owner_user_ids",
+                "description": "EM-118: gateway user_ids that own this profile; anyone else is a guest (empty = shared pool + one-time warning)",
+                "default": [],
+            },
+            {
+                "key": "guest_hidden_domains",
+                "description": "EM-118: domains never prefetched for guest users",
+                "default": ["People", "Finance"],
+            },
+            {
                 "key": "reinforcement_boost",
                 "description": "Score boost per fact access (capped)",
                 "default": 0.1,
@@ -524,6 +537,17 @@ class EntropicMemMemoryProvider(MemoryProvider):
             **self._explicit_config,
         }
         self._scripts_dir = resolve_scripts_dir(self._hermes_home)
+        # EM-118: gateway identity for the interim owner/guest privacy guard
+        self._gateway_user_id = str(kwargs.get("user_id") or "").strip() or None
+        self._gateway_chat_type = str(kwargs.get("chat_type") or "").strip() or None
+        owners = [str(u).strip() for u in (self._config.get("owner_user_ids") or []) if str(u).strip()]
+        if self._gateway_user_id and not owners and not getattr(self.__class__, "_owner_warned", False):
+            self.__class__._owner_warned = True
+            logger.warning(
+                "EntropicMem: gateway user_id present but owner_user_ids is empty — "
+                "all users share one memory pool (set plugins.entropicmem.owner_user_ids). "
+                "Full per-user scoping remains a known limitation (S4)."
+            )
         if not self._scripts_dir:
             logger.warning("EntropicMem skill scripts not found — run /learn EntropicMem")
             return
@@ -602,6 +626,12 @@ class EntropicMemMemoryProvider(MemoryProvider):
             logger.debug("EntropicMem prefetch failed: %s", e)
             return ""
 
+    def _is_guest(self) -> bool:
+        """EM-118: gateway user is not in the (non-empty) owner list."""
+        owners = [str(u).strip() for u in (self._config.get("owner_user_ids") or []) if str(u).strip()]
+        uid = getattr(self, "_gateway_user_id", None)
+        return bool(uid) and bool(owners) and uid not in owners
+
     def _core_memory_block(self) -> str:
         """Core Memory (Persona / User Profile) injection block, screened. '' when disabled or missing."""
         if not (
@@ -614,7 +644,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
             ensure_scripts_on_path(self._scripts_dir)
             from vault import CoreMemory
             core = CoreMemory(Path(self._vault_path))
-            core_block = core.injection_block()
+            # EM-118: guests get Persona only — never the User Profile
+            core_block = core.injection_block(persona_only=self._is_guest())
             if core_block:
                 screened, _ = _screen_for_injection(core_block)
                 return screened
@@ -654,6 +685,15 @@ class EntropicMemMemoryProvider(MemoryProvider):
         try:
             # Phase 1.2 & 2.2: candidates with relevance scoring and domain filtering
             candidates = self._get_candidates(engine, enhanced_query)
+            # EM-118: guest mode — never surface sensitive/secret facts or
+            # guest_hidden_domains to a non-owner gateway user
+            if self._is_guest():
+                hidden = set(self._config.get("guest_hidden_domains") or [])
+                candidates = [
+                    f for f in candidates
+                    if (getattr(f, "sensitivity", None) or "internal") not in ("sensitive", "secret")
+                    and (getattr(f, "domain", None) or "") not in hidden
+                ]
             # Phase 2.1: Apply deduplication
             deduplicated = self._apply_deduplication(candidates)
             # Phase 3.1: Apply progressive disclosure
@@ -1297,14 +1337,21 @@ class EntropicMemMemoryProvider(MemoryProvider):
             from vault import Vault
 
             with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home) as engine:
+                # EM-118: guest writes are stamped with the gateway user and a
+                # guest_tool source for later scoping/auditing
+                write_source, write_actor, write_tags = "agent_tool", "agent_tool", []
+                if self._is_guest():
+                    write_source = write_actor = "guest_tool"
+                    write_tags = [f"user:{self._gateway_user_id}"]
                 eid = engine.remember(
                     content=content,
                     title=Vault.make_title(content) or "Fact",
                     domain=domain,
-                    source="agent_tool",
+                    source=write_source,
+                    tags=write_tags,
                     importance=importance,
                     sensitivity=args.get("sensitivity"),
-                    actor="agent_tool",
+                    actor=write_actor,
                     session_id=self._session_id,
                 )
             vault_note = None
@@ -1414,6 +1461,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     def _patch_core(self, args: dict) -> str:
         """Handle entropicmem_patch_core tool call."""
+        # EM-118: guests may never modify Core Memory
+        if self._is_guest():
+            return _tool_error(
+                "entropicmem_patch_core refused: guest users may not modify Core Memory (EM-118)"
+            )
         if not self._writes_allowed():
             return _tool_error(
                 f"entropicmem_patch_core skipped: writes disabled in non-primary "
