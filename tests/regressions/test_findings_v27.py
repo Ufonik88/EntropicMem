@@ -60,7 +60,7 @@ def test_f001_junk_query_returns_zero_relevance(engine):
     """A gibberish query matching no real fact should never return relevance
     1.0. v2.7 min-max normalises per-result-set so even filler ranks at 1.0."""
     engine.remember(
-        content="The user works at Acme Corp as a Product Manager.",
+        content="The user works at a large company as a manager.",
         domain="Work", importance=0.9,
     )
     # gibberish with no real overlap
