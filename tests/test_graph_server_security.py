@@ -275,7 +275,7 @@ def test_malformed_host_never_500s_when_url_parsing_raises(client, mod, monkeypa
     """Starlette < 1.7 raises ValueError("Invalid IPv6 URL") while parsing a
     malformed bracketed Host (e.g. "[::1") before the allowlist runs, turning a
     client error into a 500. The middleware must fail closed with 400 even if
-    any layer it calls raises that way."""
+    the allowlist check itself raises that way."""
     def _boom(*args, **kwargs):
         raise ValueError("Invalid IPv6 URL")
 
@@ -286,6 +286,21 @@ def test_malformed_host_never_500s_when_url_parsing_raises(client, mod, monkeypa
     assert r.json() == {"detail": "invalid Host header"}
     # fail-closed: security headers still present on the error response
     assert r.headers.get("x-content-type-options") == "nosniff"
+
+
+def test_downstream_valueerror_surfaces_as_500_not_host_400(mod, client, tmp_path):
+    """The Host guard must NOT swallow a handler's own ValueError. A corrupt
+    graph.json makes json.loads raise JSONDecodeError (a ValueError subclass);
+    with a VALID Host the route must surface an honest 500, not be masked as a
+    400 "invalid Host header"."""
+    corrupt = tmp_path / "graph_export" / "graph.json"
+    corrupt.write_text("{ this is not json", encoding="utf-8")
+    # raise_server_exceptions=False so the 500 is returned, not re-raised
+    plain = TestClient(mod.app, base_url="http://127.0.0.1:8075",
+                       raise_server_exceptions=False)
+    r = plain.get("/graph.json", headers={"host": "127.0.0.1:8075"})
+    assert r.status_code == 500, (r.status_code, r.text)
+    assert "invalid Host header" not in r.text
 
 
 def test_host_allowlist_uses_the_actual_listening_port(mod, client):
