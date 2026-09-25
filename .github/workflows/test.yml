@@ -33,7 +33,7 @@ jobs:
       - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50"
       # The ci suite forces sentence_transformers/torch OFF (sys.meta_path
       # blocker + engine flag), so no ML deps are needed here.
-      - run: PYTHONPATH="plugins/entropicmem/scripts" python3 -m evals run --suite ci --adapter v2 --compare evals/baselines/v2.7.0-ci.json
+      - run: PYTHONPATH="plugins/entropicmem/scripts" python3 -m evals run --suite ci --adapter v2 --compare evals/baselines/v2.8.0-ci.json
 
   # EM-007: performance smoke test — 1k corpus, fail if prefetch warm p95
   # exceeds 2× the §6.4 prefetch-hit budget (10 ms → 20 ms p95).
