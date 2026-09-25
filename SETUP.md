@@ -81,4 +81,4 @@ python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py --check-deps
 |---------|---------|
 | Semantic re-rank | `sentence-transformers` |
 | DOT export | `graphviz` |
-| Graph server (`graph serve`) | `fastapi`, `uvicorn` |
+| Graph server (`scripts/graph_server`, API + `/refresh`) | `fastapi`, `uvicorn` (`graph serve` itself is stdlib-only) |

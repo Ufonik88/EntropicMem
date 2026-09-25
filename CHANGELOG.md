@@ -4,6 +4,10 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 ## [Unreleased]
 
+### Changed
+
+- **Documentation aligned with 2.8.0 behaviour (EM-117).** The README config table gains the S1 keys (`core_inject_mode`, `locale_packs`, `owner_user_ids`, `guest_hidden_domains`, `allow_agent_consolidate`, `mirror.background_review`) and corrects the `prefetch_denied_sources` default (EM-115) and the `core_memory_enabled` description (EM-116). The README security bullet, `docs/ARCHITECTURE.md` and both `SETUP.md` copies now describe the real graph servers (FastAPI server: Host allowlist, CSP, static or per-run token; stdlib `graph serve`). A new README "Known Limitations (2.8.0)" section covers lexical-only synonym recall (hard-suite ageing 0.733, S3), the interim per-user guard (S4), synchronous prefetch (S4), episode recall (S3) and EM-212/213 (S2). The smart-context section of `HERMES_INTEGRATION.md` now matches the S1 retrieval: absolute scoring with a coverage gate, a 0.35 threshold, a current-turn query, disclosure off, and whole-fact packing with provenance.
+
 ### Added
 
 - **Hermes host harness (`tests/harness/`).** `FakeHost` drives a memory provider exactly the way Hermes `MemoryManager` does — full `initialize()` kwarg set, `prefetch` on its own thread with the 8 s join and stuck-provider skip, `sync_turn`/`queue_prefetch` on a single FIFO worker, `<memory-context>` wrapping with 10k-char spill, byte-identical replay of prior blocks (cumulative prompt-token accounting), and the real hook order for normal turns, `/new`, `/undo`, compression (checkpoint API v2, fail-closed), delegation, and shutdown with the 5 s drain. Profile scoping is context-local (real `hermes_constants` override when importable, ContextVar simulation otherwise) and `HERMES_HOME` is poisoned with a decoy after `initialize`, so post-init env reads are caught. Ships the EM-003 acceptance tests: a 20-turn smoke run with metrics, and a two-profile bleed test (xfail strict until EM-102).

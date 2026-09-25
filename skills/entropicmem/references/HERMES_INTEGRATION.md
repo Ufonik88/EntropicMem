@@ -57,12 +57,12 @@ EntropicMem now includes intelligent context management to optimize token usage 
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| **Relevance Filtering** | Only inject facts above relevance threshold | 0.3 |
+| **Relevance Filtering** | Only inject facts above an absolute relevance threshold (query-term coverage gate) | 0.35 |
 | **Token Budget** | Limit total context per turn | 1500 chars |
 | **Deduplication** | Don't repeat facts within N turns | 5 turns |
 | **Domain Filtering** | Filter by knowledge domain | All domains |
-| **Progressive Disclosure** | High → medium → low relevance tiers | 0.7 / 0.4 |
-| **Conversation Context** | Use recent messages for relevance | 3 turns |
+| **Progressive Disclosure** | High → medium → low relevance tiers (opt-in) | off (0.7 / 0.4 when on) |
+| **Conversation Context** | `context_query_mode: concat` appends recent user turns to the query (opt-in) | `current` |
 | **Smart Cache** | Conversation-aware caching | 300s TTL |
 
 ### Configuration
@@ -73,7 +73,7 @@ Add to `~/.hermes/config.yaml` under `plugins.entropicmem`:
 plugins:
   entropicmem:
     # Relevance filtering
-    min_relevance_score: 0.3  # 0-1, higher = stricter
+    min_relevance_score: 0.35  # 0-1, higher = stricter
     max_prefetch_results: 5
 
     # Token budget
@@ -85,11 +85,13 @@ plugins:
     # Domain filtering (empty = all domains)
     enabled_domains: []  # e.g., ["People", "Finance", "Projects"]
 
-    # Progressive disclosure thresholds
+    # Progressive disclosure (off by default) and its thresholds
+    progressive_disclosure: false
     high_relevance_threshold: 0.7
     medium_relevance_threshold: 0.4
 
-    # Conversation context
+    # Conversation context ("current" = this turn's query only)
+    context_query_mode: current
     context_window_turns: 3
     max_context_query_length: 1000
 
@@ -100,12 +102,12 @@ plugins:
 
 ### How It Works
 
-1. **Relevance Scoring**: FTS5 bm25() ranking normalized to 0-1 scale
-2. **Query Enhancement**: Recent conversation messages appended to query
+1. **Relevance Scoring**: absolute score from FTS5 bm25() plus query-term coverage (no per-result-set min-max, so a lone weak hit no longer scores 1.0); stopwords are dropped from the FTS query and an empty query matches nothing
+2. **Query Enhancement**: the current turn's query by default; `context_query_mode: concat` appends recent user turns
 3. **Domain Filtering**: Optional filter by knowledge domain
 4. **Deduplication**: Tracks recently injected facts, avoids repeats
-5. **Progressive Disclosure**: High-relevance first, then medium, then low
-6. **Token Budget**: Truncates or drops facts to fit budget
+5. **Progressive Disclosure** (opt-in): High-relevance first, then medium, then low
+6. **Token Budget**: packs whole facts (never cuts one mid-word) and drops the rest; each bullet carries its provenance
 7. **Smart Cache**: Invalidates on conversation evolution
 
 ### Token Usage Optimization
