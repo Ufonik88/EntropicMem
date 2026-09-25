@@ -45,13 +45,35 @@ __all__ = [
     "ensure_schema",
     "migration_lock",
     "open_db",
+    "resolve_latest_user_version",
     "write_txn",
 ]
 
-# Schema version this build understands. 0 = no v3 migrations registered yet
-# (EM-203 owns the registry and will derive LATEST from it; EM-204's
-# migration 0002 moves the version forward).
+# Schema version this build understands. Kept in sync with the migration
+# registry by :mod:`em.store.migrations` at import time, and resolved lazily
+# by :func:`ensure_schema` so it is correct even when ``db`` is imported
+# alone (see :func:`resolve_latest_user_version`).
 LATEST_USER_VERSION = 0
+
+
+def resolve_latest_user_version() -> int:
+    """The registry's highest version, resolved on demand.
+
+    ``em.store.migrations`` owns the registry and pushes ``LATEST`` into
+    ``LATEST_USER_VERSION`` when it is imported. Relying on that side effect
+    alone is a trap: ``import em.store.db`` by itself would leave the constant
+    at 0, and a DB already at version 1 would then be rejected as a
+    "downgrade". Importing lazily here avoids that without creating a circular
+    import (migrations depends on db, never the reverse at module scope).
+    """
+    global LATEST_USER_VERSION
+    try:
+        from em.store import migrations as _migrations
+
+        LATEST_USER_VERSION = _migrations.LATEST
+    except Exception:  # pragma: no cover - registry missing/unimportable
+        pass
+    return LATEST_USER_VERSION
 
 MIGRATION_LOCK_NAME = "migration.lock"
 MIGRATION_LOCK_STALE_S = 10 * 60
@@ -228,7 +250,7 @@ def ensure_schema(
     ``migrate`` receives the connection and must leave ``user_version`` at
     the new latest itself (EM-203's runner does this per migration).
     """
-    target = LATEST_USER_VERSION if latest is None else latest
+    target = resolve_latest_user_version() if latest is None else latest
     user_version = conn.execute("PRAGMA user_version").fetchone()[0]
     if user_version > target:
         raise DowngradeError(

@@ -19,6 +19,12 @@ build/
 *.sqlite
 *.sqlite3
 
+# ...except the committed migration fixtures (EM-203). They are tiny synthetic
+# v2.x databases the migration tests need, and CI must not have to regenerate
+# them from git history. The parent directory is not itself excluded, so this
+# negation is effective.
+!tests/fixtures/db/*.db
+
 # Exports (generated)
 export/
 *.json
