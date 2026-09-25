@@ -427,9 +427,10 @@ async def _request_hardening(request: Request, call_next):
     the Host header, and Starlette < 1.7 raises ``ValueError("Invalid IPv6
     URL")`` there for a malformed bracketed host (``[::1``) before the
     allowlist ever runs, turning a client error into a 500. Scope reads never
-    parse, so the allowlist sees every malformed header and answers 400; the
-    ``call_next`` guard keeps the same fail-closed answer if any downstream
-    layer still parses the header.
+    parse, so the allowlist sees every malformed header and answers 400. The
+    ValueError guard covers ONLY the allowlist check itself — downstream
+    handler errors (e.g. a corrupt graph.json failing json.loads, itself a
+    ValueError) must surface honestly, not as a Host rejection.
     """
     try:
         host_ok = request.scope.get("path") == "/health" or _host_allowed(
@@ -440,10 +441,7 @@ async def _request_hardening(request: Request, call_next):
     if not host_ok:
         response = JSONResponse({"detail": "invalid Host header"}, status_code=400)
     else:
-        try:
-            response = await call_next(request)
-        except ValueError:
-            response = JSONResponse({"detail": "invalid Host header"}, status_code=400)
+        response = await call_next(request)
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
     return response
