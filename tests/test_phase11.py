@@ -169,7 +169,10 @@ class TestCapsule:
 
         # Import
         with tarfile.open(str(capsule_path), "r:gz") as tar:
-            tar.extract("memory.db", path=str(db_path.parent))
+            if hasattr(tarfile, "data_filter"):
+                tar.extract("memory.db", path=str(db_path.parent), filter="data")
+            else:  # pragma: no cover - Python < 3.12
+                tar.extract("memory.db", path=str(db_path.parent))
 
         # Verify
         eng2 = MemoryEngine(db_path)

@@ -109,7 +109,7 @@ EntropicMem/
 ├── benchmarks/                  # Frozen recall benchmark (corpus, probes, runner)
 ├── docs/                        # User-facing docs (see index below)
 ├── tests/                       # 900+ tests
-└── .github/workflows/test.yml   # CI: pytest (3.10 to 3.12) + ruff + plugin validate
+└── .github/workflows/test.yml   # CI: pytest (3.10 to 3.13) + ruff + plugin validate
 ```
 
 The engine lives under `plugins/entropicmem/scripts/` so the plugin directory is self-contained: a catalog install (`hermes plugins install entropicmem`) carries the full engine with it. The skill directory holds only instructions, references, and vault templates.
