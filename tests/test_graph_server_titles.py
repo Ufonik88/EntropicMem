@@ -49,7 +49,9 @@ def client(tmp_path, monkeypatch):
         index.upsert_edges_for_note(vault, note)
     index.close()
 
-    return TestClient(mod.app)
+    # EM-114 Host allowlist: requests must name a loopback host on the
+    # server's actual port (TestClient's default Host 'testserver' is refused).
+    return TestClient(mod.app, base_url="http://127.0.0.1:8075")
 
 
 def test_by_title_exact_match(client):
