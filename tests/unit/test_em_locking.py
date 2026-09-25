@@ -13,6 +13,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "scripts"))
 
 from em.store.locking import FileLock  # noqa: E402
@@ -87,6 +89,59 @@ def test_blocking_acquire_honours_timeout(tmp_path):
     a.release()
     a.close()
     b.close()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only mechanism")
+def test_posix_blocking_acquire_uses_kernel_call_not_poll_loop(tmp_path, monkeypatch):
+    """Regression (EM-202 perf-smoke): the POSIX blocking path must use the
+    kernel-blocking ``flock(LOCK_EX)`` call, not a poll loop.
+
+    The first implementation polled every 50 ms, so a contended engine
+    write waited up to one poll interval and blew the prefetch p95 budget
+    (CI: 55.9 ms against a 20 ms gate). Timing assertions cannot pin this
+    reliably — a poll loop occasionally wins the race — so this asserts the
+    mechanism deterministically: exactly one blocking ``flock(LOCK_EX)``
+    call and zero sleeps.
+    """
+    from em.store import locking as locking_mod
+
+    a = FileLock(tmp_path / "x.lock")
+    assert a.acquire(blocking=False) is True
+
+    b = FileLock(tmp_path / "x.lock")
+    calls: list = []
+    sleeps: list = []
+
+    def _record_sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) >= 3:
+            # Fail fast instead of spinning forever if the kernel-blocking
+            # branch is ever replaced by an unbounded poll loop.
+            raise AssertionError(
+                f"POSIX blocking acquire polled {len(sleeps)} times "
+                "(kernel-blocking flock required)"
+            )
+
+    # Simulate permanent contention on the non-blocking probe, and record
+    # whatever the blocking branch does instead of really blocking.
+    monkeypatch.setattr(locking_mod, "_try_lock", lambda fd: False)
+    monkeypatch.setattr(
+        locking_mod.fcntl, "flock", lambda fd, flags: calls.append(flags)
+    )
+    monkeypatch.setattr(locking_mod.time, "sleep", _record_sleep)
+
+    assert b.acquire(blocking=True) is True
+    assert calls == [locking_mod.fcntl.LOCK_EX], (
+        f"expected one kernel-blocking flock(LOCK_EX), got {calls}"
+    )
+    assert sleeps == [], f"POSIX blocking acquire must not poll, slept {sleeps}"
+    assert b.held
+
+    # b never really took the lock (flock was faked), so drop the flag and
+    # just close its handle.
+    b._held = False
+    b.close()
+    a.close()
 
 
 def test_close_releases_the_lock(tmp_path):

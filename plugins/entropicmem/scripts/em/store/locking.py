@@ -105,16 +105,20 @@ class FileLock:
     def acquire(
         self,
         blocking: bool = True,
-        poll: float = 0.05,
+        poll: float = 0.005,
         timeout: Optional[float] = None,
     ) -> bool:
         """Take the lock. Returns True on success, False if unavailable.
 
-        Non-blocking mode tries once. Blocking mode retries every ``poll``
-        seconds until ``timeout`` (None = forever). Polling (instead of the
-        OS blocking call) keeps the semantics identical on both platforms
-        and makes ``timeout`` portable — Windows' LK_LOCK has a fixed
-        10-second retry window that cannot be shortened.
+        Non-blocking mode tries once. Blocking mode without ``timeout`` uses
+        the kernel-blocking call on POSIX (``flock(LOCK_EX)`` — immediate
+        wakeup on release, matching the pre-EM-202 engine exactly; a poll
+        loop here cost the contended write path up to one poll interval and
+        blew the perf-smoke p95 budget). Windows and any ``timeout`` use a
+        poll loop every ``poll`` seconds until the deadline (None on Windows
+        = forever): ``msvcrt``'s blocking LK_LOCK has a fixed 10-second CRT
+        retry window that cannot be shortened, so polling keeps the
+        ``timeout`` semantics identical on both platforms.
         """
         if self._held:
             return True
@@ -123,6 +127,10 @@ class FileLock:
             return True
         if not blocking:
             return False
+        if not _IS_WINDOWS and timeout is None:
+            fcntl.flock(self._fd, fcntl.LOCK_EX)  # type: ignore[union-attr]
+            self._held = True
+            return True
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             time.sleep(poll)
