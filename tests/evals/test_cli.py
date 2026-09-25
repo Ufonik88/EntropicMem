@@ -58,3 +58,29 @@ def test_cli_unknown_suite_fails(tmp_path):
     )
     assert out.returncode != 0
     assert "unknown suite" in (out.stderr + out.stdout).lower()
+
+
+def _compare_rc(tmp_path, metrics):
+    base = tmp_path / "base.json"
+    base.write_text(json.dumps({"suite": "ci", "adapter": "v2", "git_sha": "0" * 8, "k": 5,
+                                "metrics": metrics, "by_category": {}, "turns": []}),
+                    encoding="utf-8")
+    out = subprocess.run(
+        [sys.executable, "-m", "evals", "run", "--suite", "ci", "--adapter", "v2",
+         "--results-dir", str(tmp_path / "res"), "--compare", str(base)],
+        cwd=REPO, capture_output=True, text=True, timeout=180,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path / "home")},
+    )
+    return out
+
+
+def test_cli_compare_ignores_non_gated_worsening(tmp_path):
+    out = _compare_rc(tmp_path, {"prefetch_tokens": 1.0, "latency_ms": 0.0001})
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "| info |" in out.stdout
+
+
+def test_cli_compare_fails_on_gated_regression(tmp_path):
+    out = _compare_rc(tmp_path, {"noise_rate": 0.0})
+    assert out.returncode == 1, out.stdout + out.stderr
+    assert "REGRESSION vs baseline" in out.stderr

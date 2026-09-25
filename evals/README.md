@@ -15,7 +15,10 @@ python -m evals run --suite ci --adapter v2 --compare evals/baselines/v2.7.0-ci.
 `evals/results/<suite>-<git-sha>.json` (generated, gitignored) and prints a
 Markdown metrics table. With `--compare <baseline.json>` it also prints
 per-metric deltas and exits **1** if any gated metric regressed by more than
-0.02 (§6.3 — the hard CI gate). Absolute §6.3 thresholds
+0.02 (§6.3 — the hard CI gate). Gated: `recall@5`, `ndcg@5`,
+`abstain_correct`, `noise_rate`, `must_not_ok` (`evals.runner.GATED_METRICS`);
+the other metrics are shown, marked `info` when they worsen (`prefetch_tokens`
+belongs to the token/perf budgets and `latency_ms` is runner noise). Absolute §6.3 thresholds
 (`recall@5 >= 0.75`, `noise_rate <= 0.25`, `abstain_correct >= 0.90`) are
 printed as warnings pre-2.8.0: S0's job is measuring the known-broken v2
 baseline, and those numbers are S1+ fix targets.
