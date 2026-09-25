@@ -356,6 +356,8 @@ def _measure_concurrent(db_path: Path, home: Path, provider,
                         seed: int) -> Dict[str, Any]:
     """CLI writer process + provider reader: prefetch p95 under write load,
     then verify every concurrent write landed."""
+    if not queries:
+        raise ValueError("_measure_concurrent needs at least one probe query")
     rng = random.Random(seed + 99)
     facts = [_fact_text(rng, _WRITER_BASE + i) for i in range(writer_facts)]
     before = _fact_count(db_path)
@@ -407,7 +409,13 @@ def run_perf(
 
     ``workdir`` is where temp homes/DBs live; pass one to keep scratch under
     your own tree. Defaults to a temp dir.
+
+    Raises ValueError for ``probes < 1`` before touching disk: the CLI's
+    ``positive_int`` guard does not cover programmatic callers, and zero
+    probes would divide by zero in ``_measure_concurrent``.
     """
+    if not isinstance(probes, int) or probes < 1:
+        raise ValueError(f"probes must be a positive int, got {probes!r}")
     out_dir = Path(out_dir) if out_dir else _REPO_ROOT / "evals" / "results"
     out_dir.mkdir(parents=True, exist_ok=True)
     if workdir:

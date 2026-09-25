@@ -392,6 +392,55 @@ def test_env_home_restored_to_previous_value(home_a, monkeypatch):
     assert os.environ["HERMES_HOME"] == "/original/pre-existing/home"
 
 
+@pytest.mark.parametrize("order", ["fifo", "lifo"])
+@pytest.mark.parametrize("shared_decoy", [False, True], ids=["own-decoy", "shared-decoy"])
+def test_env_home_unwinds_with_overlapping_hosts(tmp_path, monkeypatch, order, shared_decoy):
+    """Two live hosts, shut down in either order: while one is still live the
+    env holds a decoy (never the original), and afterwards the original value
+    is back instead of a dead host's decoy."""
+    import os
+
+    monkeypatch.setenv("HERMES_HOME", "/original/pre-existing/home")
+    homes = [tmp_path / "a" / "home", tmp_path / "b" / "home"]
+    for h in homes:
+        h.mkdir(parents=True)
+    decoy = (lambda i: tmp_path / "decoy") if shared_decoy else (lambda i: tmp_path / f"decoy-{i}")
+    a = FakeHost(Stub(), hermes_home=homes[0], decoy_env_home=decoy(0)).start()
+    b = FakeHost(Stub(), hermes_home=homes[1], decoy_env_home=decoy(1)).start()
+    assert os.environ["HERMES_HOME"] == str(b._decoy_env_home)
+
+    first, second = (a, b) if order == "fifo" else (b, a)
+    first.shutdown()
+    assert os.environ["HERMES_HOME"] == str(second._decoy_env_home), \
+        "a still-live host lost its decoy"
+    second.shutdown()
+    assert os.environ["HERMES_HOME"] == "/original/pre-existing/home"
+
+
+def test_prefetch_thread_uses_session_bound_at_submit(home_a, monkeypatch):
+    """The prefetch worker must use the session that was current when the
+    turn was submitted, not whatever self._session_id says when it runs."""
+    seen = []
+
+    class Rec(Stub):
+        def prefetch(self, query, *, session_id=""):
+            seen.append(session_id)
+            return ""
+
+    host = FakeHost(Rec(), hermes_home=home_a, session_id="sess-1").start()
+    real_spawn = host._spawn_bound
+
+    def spawn_after_switch(fn, *, name):
+        host._session_id = "sess-2"  # a session switch lands before the thread runs
+        return real_spawn(fn, name=name)
+
+    monkeypatch.setattr(host, "_spawn_bound", spawn_after_switch)
+    host._prefetch_turn("anything")
+    host._session_id = "sess-1"
+    host.shutdown()
+    assert seen == ["sess-1"], seen
+
+
 def test_new_session_rebuilds_system_block_after_boundary(home_a):
     """The frozen system block must be rebuilt AFTER on_session_switch ran, not before."""
     block_calls = []

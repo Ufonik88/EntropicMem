@@ -99,6 +99,18 @@ class _MLBlocker:
         return None
 
 
+# Original values of everything force_no_embeddings() patched, so
+# restore_embeddings() can put the interpreter back. Keys are
+# (module name, attribute); only filled while the lockdown is active.
+_PATCHED: Dict[tuple, Any] = {}
+_MISSING = object()
+
+
+def _patch(mod: Any, modname: str, attr: str, value: Any) -> None:
+    _PATCHED.setdefault((modname, attr), getattr(mod, attr, _MISSING))
+    setattr(mod, attr, value)
+
+
 def force_no_embeddings() -> bool:
     """Block the optional ML stack so the engine takes its FTS-only path.
 
@@ -116,8 +128,19 @@ def force_no_embeddings() -> bool:
        ``EMBEDDER_AVAILABLE`` / ``EMBEDDINGS_AVAILABLE`` off and stub
        ``embed_text`` before any corpus is loaded.
 
+    Raises RuntimeError if an ML package is already imported: a loaded
+    module cannot be un-imported, so the "no ML stack" contract could not be
+    honoured and the run would silently measure something else.
+
+    Every change is recorded; ``restore_embeddings()`` undoes them.
     Returns True if anything was changed. Idempotent.
     """
+    loaded = [m for m in _ML_MODULES if sys.modules.get(m) is not None]
+    if loaded:
+        raise RuntimeError(
+            f"cannot lock embeddings off: {', '.join(loaded)} already imported "
+            "(run the ci/hard suites in a fresh interpreter)")
+
     changed = False
 
     if not any(isinstance(f, _MLBlocker) for f in sys.meta_path):
@@ -130,20 +153,49 @@ def force_no_embeddings() -> bool:
 
     emb = sys.modules.get("embeddings")
     if emb is not None and getattr(emb, "EMBEDDER_AVAILABLE", False):
-        emb.EMBEDDER_AVAILABLE = False
+        _patch(emb, "embeddings", "EMBEDDER_AVAILABLE", False)
         changed = True
 
     engine_mod = sys.modules.get("memory_engine")
     if engine_mod is not None:
         if getattr(engine_mod, "EMBEDDINGS_AVAILABLE", False):
-            engine_mod.EMBEDDINGS_AVAILABLE = False
+            _patch(engine_mod, "memory_engine", "EMBEDDINGS_AVAILABLE", False)
             changed = True
         if getattr(engine_mod, "EMBEDDINGS_IMPORTABLE", False):
-            engine_mod.EMBEDDINGS_IMPORTABLE = False
-            engine_mod.embed_text = lambda text: None
+            _patch(engine_mod, "memory_engine", "EMBEDDINGS_IMPORTABLE", False)
+            _patch(engine_mod, "memory_engine", "embed_text", lambda text: None)
             changed = True
 
     return changed
+
+
+def restore_embeddings() -> bool:
+    """Undo force_no_embeddings(): remove the meta_path blocker and put back
+    every module flag / function it patched. Modules first imported while the
+    blocker was active keep the FTS-only state they imported with.
+
+    Returns True if anything was changed. Idempotent.
+    """
+    before = len(sys.meta_path)
+    sys.meta_path[:] = [f for f in sys.meta_path if not isinstance(f, _MLBlocker)]
+    changed = len(sys.meta_path) != before
+
+    for (modname, attr), original in list(_PATCHED.items()):
+        mod = sys.modules.get(modname)
+        if mod is not None:
+            if original is _MISSING:
+                if hasattr(mod, attr):
+                    delattr(mod, attr)
+            else:
+                setattr(mod, attr, original)
+        changed = True
+    _PATCHED.clear()
+    return changed
+
+
+# EngineV2Adapter instances currently holding the lockdown; the last one to
+# shut down restores the interpreter.
+_LOCK_HOLDERS = 0
 
 
 class EngineV2Adapter(AdapterBase):
@@ -158,9 +210,13 @@ class EngineV2Adapter(AdapterBase):
     name = "v2"
 
     def __init__(self, disable_embeddings: bool = True) -> None:
+        global _LOCK_HOLDERS
         self.disable_embeddings = disable_embeddings
+        self._holds_lock = False
         if disable_embeddings:
             force_no_embeddings()
+            _LOCK_HOLDERS += 1
+            self._holds_lock = True
         self._module = _load_provider_module()
         self._tmpdirs: List[tempfile.TemporaryDirectory] = []
         self._handles: List[Dict[str, Any]] = []
@@ -239,6 +295,16 @@ class EngineV2Adapter(AdapterBase):
             except Exception:
                 pass
         self._tmpdirs.clear()
+        self._release_lock()
+
+    def _release_lock(self) -> None:
+        global _LOCK_HOLDERS
+        if not self._holds_lock:
+            return
+        self._holds_lock = False
+        _LOCK_HOLDERS = max(0, _LOCK_HOLDERS - 1)
+        if _LOCK_HOLDERS == 0:
+            restore_embeddings()
 
     # ── internals ───────────────────────────────────────────────────────
 

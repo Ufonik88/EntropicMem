@@ -11,6 +11,8 @@
 - promote_pending keeps the pending row's domain-derived sensitivity.
 """
 
+import hashlib
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -93,8 +95,13 @@ class TestPatternHygiene:
         """AC G1: no employer/campaign/product strings in scripts/."""
         blocklist = ["acme", "roadshow", "webinar", "distributor",
                      "alarm panel", "installer", "certification"]
+        # The employer name is matched by SHA-256 so this file does not
+        # re-publish it (same convention as tests/evals/test_no_personal_data.py).
+        employer_sha256 = {"0000000000000000000000000000000000000000000000000000000000000000"}
         src = (SCRIPTS / "memory_engine.py").read_text(encoding="utf-8").lower()
         hits = [w for w in blocklist if w in src]
+        hits += [f"<employer token {w[:1]}...>" for w in set(re.findall(r"[a-z0-9]+", src))
+                 if hashlib.sha256(w.encode()).hexdigest() in employer_sha256]
         assert not hits, (
             f"employer/campaign/product strings still in memory_engine.py: {hits}"
         )

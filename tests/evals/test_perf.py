@@ -113,3 +113,19 @@ def test_run_perf_small(home, tmp_path, capsys):
     printed = capsys.readouterr().out
     assert "remember" in printed and "prefetch" in printed
     assert "120" in printed
+
+
+@pytest.mark.parametrize("probes", [0, -1])
+def test_run_perf_rejects_non_positive_probes(tmp_path, probes):
+    """Programmatic callers bypass the CLI's positive_int check; run_perf
+    must refuse up front instead of dividing by zero mid-bench."""
+    with pytest.raises(ValueError, match="probes must be a positive int"):
+        perf.run_perf([10], probes=probes, out_dir=tmp_path / "out", workdir=tmp_path / "w")
+    assert not (tmp_path / "out").exists()
+    assert not (tmp_path / "w").exists()
+
+
+def test_measure_concurrent_rejects_empty_queries(tmp_path):
+    with pytest.raises(ValueError, match="at least one probe query"):
+        perf._measure_concurrent(tmp_path / "m.db", tmp_path, provider=None,
+                                 queries=[], writer_facts=1, seed=0)
