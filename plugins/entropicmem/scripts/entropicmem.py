@@ -13,7 +13,7 @@ Usage:
   entropicmem moc [--domain DOMAIN]
   entropicmem hotcache
   entropicmem graph export [--format FORMAT] [--max-nodes N] [--domain D]
-  entropicmem graph serve [--port N]
+  entropicmem graph serve [--port N] [--bind HOST] [--dir DIR]
   entropicmem remember "fact" [--domain D] [--tags t1,t2]
   entropicmem forget <entropic_id>
   entropicmem open <note_id>
@@ -965,18 +965,30 @@ def cmd_graph(args) -> int:
             print(f"Error: graph.html not found in {out_dir}. Run 'graph export' first.", file=sys.stderr)
             index.close()
             return 1
-        import http.server
-        import socketserver
+        # EM-114: loopback-only unless ENTROPICMEM_GRAPH_EXPOSE=1, Host
+        # allowlist, CSP, and only graph.html/graph.json are served.
+        from graph_static import is_loopback_host, make_server
+
         port = args.port
         bind = getattr(args, "bind", "127.0.0.1") or "127.0.0.1"
-        os.chdir(str(out_dir))
-        handler = http.server.SimpleHTTPRequestHandler
-        print(f"Serving graph at http://{bind}:{port}/graph.html (Ctrl+C to stop)")
+        index.close()
         try:
-            with socketserver.TCPServer((bind, port), handler) as httpd:
+            httpd = make_server(out_dir, bind, port)
+        except PermissionError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+        host, actual_port = httpd.server_address[:2]
+        shown = f"[{host}]" if ":" in str(host) else host
+        if not is_loopback_host(bind):
+            print("Warning: serving WITHOUT authentication on a non-loopback address "
+                  "(ENTROPICMEM_GRAPH_EXPOSE=1).", file=sys.stderr)
+        print(f"Serving graph at http://{shown}:{actual_port}/graph.html (Ctrl+C to stop)")
+        try:
+            with httpd:
                 httpd.serve_forever()
         except KeyboardInterrupt:
             print()
+        return 0
     elif args.graph_command == "show":
         # Phase 10: graph-aware note connections (unified graph_edges table)
         import sqlite3 as _sqlite

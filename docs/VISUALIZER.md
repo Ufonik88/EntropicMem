@@ -84,6 +84,10 @@ The read endpoints (`/`, `/graph.json`, `/api/note/*`, `/api/search`, `/api/path
 - **Security headers on every response**, errors included: a `Content-Security-Policy` that allows only what `graph.html` loads (inline script/style, D3 from `d3js.org`, `marked` from `cdn.jsdelivr.net`, Google Fonts, `data:` images for PNG export) with `connect-src 'self'` (vault content cannot be fetched out to another origin), no remote images, `frame-ancestors 'none'`; plus `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
 - **`GET /health`** stays open (no token, no Host check; it carries no vault content) and reports the active bind policy, whether the token is required, and `token_source` (`env` or `per-run`).
 
+### `entropicmem graph serve` (static CLI server)
+
+`graph serve` is a small stdlib server for an exported directory; it needs no FastAPI and has no API endpoints (vault search and path tracing report the server as unavailable). It applies the same rules where they fit: a non-loopback `--bind` is refused unless `ENTROPICMEM_GRAPH_EXPOSE=1`, the same Host allowlist (`ENTROPICMEM_GRAPH_ALLOWED_HOSTS` when exposed) and the same security headers, and only `/`, `/graph.html` and `/graph.json` are served (no directory listing, no other files from `--dir`). It has **no token**: with `ENTROPICMEM_GRAPH_EXPOSE=1` anyone who can reach the address can read the export, so use the FastAPI server for authenticated remote access.
+
 ## Markdown sanitization (stored-XSS guard)
 
 Note bodies are untrusted content. The modal renders markdown with `marked`, which passes raw HTML through and emits link hrefs verbatim, so every rendered result also passes a client-side `sanitizeRenderedHtml` pass before touching the DOM. This covers both bodies embedded at export time and raw lazy-fetched bodies from `/api/note/*`. Static export CLI defaults to metadata-only bodies (`--include-bodies` to embed); the local authenticated server pins bodies on (drop them only with `ENTROPICMEM_GRAPH_LEAN=1`).
