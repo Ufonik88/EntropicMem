@@ -101,9 +101,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         scenarios.extend(dataset_mod.load_scenarios(p))
 
     try:
-        # ci must never touch the ML stack (plan line 704); the vector
-        # backend belongs to suite full (plan line 1269).
-        adapter = make_adapter(args.adapter, disable_embeddings=(args.suite == "ci"))
+        # ci and hard must never touch the ML stack (plan line 704); the
+        # vector backend belongs to suite full (plan line 1269).
+        adapter = make_adapter(args.adapter, disable_embeddings=(args.suite in ("ci", "hard")))
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
@@ -153,7 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="python -m evals", description="EntropicMem eval framework")
     sub = ap.add_subparsers(dest="command", required=True)
     run_p = sub.add_parser("run", help="run a suite and write results")
-    run_p.add_argument("--suite", default="ci", help="ci | full | external")
+    run_p.add_argument("--suite", default="ci", help="ci | full | hard | external")
     run_p.add_argument("--adapter", default="v2", help="engine adapter (v2; v3 in S2)")
     run_p.add_argument("--k", type=int, default=5, help="ranking depth for recall/ndcg")
     run_p.add_argument("--compare", default=None, metavar="FILE",

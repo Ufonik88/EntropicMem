@@ -13,16 +13,19 @@ Usage:
 """
 
 import json
-import os
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
 def _hermes_base() -> Path:
-    """Hermes home honoring HERMES_HOME (matches vault.hermes_home_path)."""
-    env = os.environ.get("HERMES_HOME", "")
-    return Path(env) if env else Path.home() / ".hermes"
+    """Default Hermes home (~/.hermes).
+
+    H3/EM-102: no HERMES_HOME env read (parity_audit runs as a library too);
+    callers with a non-default home pass explicit --canonical/--shared/
+    --profiles-dir paths.
+    """
+    return Path.home() / ".hermes"
 
 DEFAULT_CANONICAL = _hermes_base() / "entropicmem" / "memory.db"
 DEFAULT_SHARED = _hermes_base() / "entropicmem-shared" / "memory.db"

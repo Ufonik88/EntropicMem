@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -57,16 +57,16 @@ def derive_title(content: str, max_len: int = 60) -> str:
     return text.strip()
 
 # ── domain list (seeded at init) ────────────────────────────────────────────
+# EM-115: generic defaults — user/employer/campaign-specific domains belong in
+# user config, not the product.
 DEFAULT_DOMAINS = [
-    "Infrastructure",
-    "Acme Corp",
-    "Content-Growth",
-    "Finance",
-    "Workflows",
-    "People",
     "Knowledge",
-    "Products-Research",
+    "People",
     "Projects",
+    "Procedures",
+    "Preferences",
+    "Events",
+    "Infrastructure",
 ]
 
 # ── data classes ────────────────────────────────────────────────────────────
@@ -569,7 +569,7 @@ class CoreMemory:
 
     def __init__(self, vault_root: Path):
         self.core_dir = Path(vault_root) / "Core"
-        self.core_dir.mkdir(exist_ok=True)
+        self.core_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_files()
 
     def _ensure_files(self) -> None:
@@ -630,13 +630,22 @@ class CoreMemory:
             # Delete: remove the matched text + newline
             updated = content.replace(old_text + "\n", "", 1)
 
-        file_path.write_text(updated, encoding="utf-8")
+        # EM-116: pre-patch snapshot + atomic write
+        hist = self.core_dir / ".history"
+        hist.mkdir(exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        (hist / f"{file_path.name}.{stamp}").write_text(content, encoding="utf-8")
+        tmp = file_path.with_suffix(file_path.suffix + ".tmp")
+        tmp.write_text(updated, encoding="utf-8")
+        os.replace(tmp, file_path)
         return True
 
-    def injection_block(self) -> str:
+    def injection_block(self, persona_only: bool = False) -> str:
         """Return a formatted block for system prompt injection.
 
         Always returns Persona first, then User Profile, with clear markers.
+        persona_only (EM-118): guests receive Persona but never the User
+        Profile.
         """
         persona = self.persona
         profile = self.user_profile
@@ -651,6 +660,8 @@ class CoreMemory:
             if idx != -1:
                 profile = profile[idx + 3:].strip()
 
+        if persona_only:
+            return f"## Core Memory — Persona\n\n{persona}"
         return (
             f"## Core Memory — Persona\n\n{persona}\n\n"
             f"## Core Memory — User Profile\n\n{profile}"

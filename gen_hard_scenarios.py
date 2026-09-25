@@ -2,12 +2,18 @@
 """
 Generate hard scenario dataset for EM-002.
 Target: ≥60 scenarios, ≥150 queries (5 scenarios * 12 categories * 3 queries = 180)
+
+This module is the source of truth for ``evals/datasets_hard/*.jsonl``:
+``python3 gen_hard_scenarios.py`` rewrites them, and
+``tests/evals/test_hard_dataset.py`` fails if the committed files drift from
+what ``render()`` produces. All content is synthetic (phone numbers use the
+reserved fictional range +1 555 0100 to +1 555 0199, email addresses use
+example.* domains).
 """
 import json
 from pathlib import Path
 
-HARD_DIR = Path("evals/datasets_hard")
-HARD_DIR.mkdir(exist_ok=True)
+HARD_DIR = Path(__file__).resolve().parent / "evals" / "datasets_hard"
 
 def mem(content, kind="fact", age_days=30, importance=0.7, domain="General", scope_user=""):
     return {"content": content, "kind": kind, "age_days": age_days,
@@ -57,35 +63,35 @@ paraphrase = [
 ageing = [
     {"id": "ageing_name_30d_01", "category": "ageing",
      "memories": [mem("The user's current display name is Alex Rivera", kind="profile", age_days=30, importance=0.8, domain="People"),
-                  mem("The user previously went by the name Alexander", kind="fact", age_days=5, importance=0.6, domain="People")],
+                  mem("The user previously went by the name Alexander", kind="fact", age_days=120, importance=0.6, domain="People")],
      "noise": {"generator": "filler", "count": 20, "seed": 101},
      "turns": [turn("what is the user's display name?", ["$0"], ["Alex Rivera"]),
                turn("what name do I currently use?", ["$0"], ["Alex Rivera"]),
                turn("my current display name is?", ["$0"], ["Alex Rivera"])]},
     {"id": "ageing_name_120d_01", "category": "ageing",
      "memories": [mem("The user's current display name is Alex Rivera", kind="profile", age_days=120, importance=0.8, domain="People"),
-                  mem("The user previously went by the name Alexander", kind="fact", age_days=5, importance=0.6, domain="People")],
+                  mem("The user previously went by the name Alexander", kind="fact", age_days=210, importance=0.6, domain="People")],
      "noise": {"generator": "filler", "count": 20, "seed": 102},
      "turns": [turn("what is the user's display name?", ["$0"], ["Alex Rivera"]),
                turn("what name do I currently use?", ["$0"], ["Alex Rivera"]),
                turn("my current display name is?", ["$0"], ["Alex Rivera"])]},
     {"id": "ageing_city_30d_01", "category": "ageing",
      "memories": [mem("The user lives in Cape Town, South Africa", kind="fact", age_days=30, importance=0.9, domain="People"),
-                  mem("The user previously resided in Johannesburg", kind="fact", age_days=10, importance=0.7, domain="People")],
+                  mem("The user previously resided in Johannesburg", kind="fact", age_days=120, importance=0.7, domain="People")],
      "noise": {"generator": "filler", "count": 20, "seed": 104},
      "turns": [turn("where does the user live?", ["$0"], ["Cape Town"]),
                turn("what city am I based in?", ["$0"], ["Cape Town"]),
                turn("my location is?", ["$0"], ["Cape Town"])]},
     {"id": "ageing_city_120d_01", "category": "ageing",
      "memories": [mem("The user lives in Cape Town, South Africa", kind="fact", age_days=120, importance=0.9, domain="People"),
-                  mem("The user previously resided in Johannesburg", kind="fact", age_days=10, importance=0.7, domain="People")],
+                  mem("The user previously resided in Johannesburg", kind="fact", age_days=210, importance=0.7, domain="People")],
      "noise": {"generator": "filler", "count": 20, "seed": 105},
      "turns": [turn("where does the user live?", ["$0"], ["Cape Town"]),
                turn("what city am I based in?", ["$0"], ["Cape Town"]),
                turn("my location is?", ["$0"], ["Cape Town"])]},
     {"id": "ageing_name_400d_01", "category": "ageing",
      "memories": [mem("The user's current display name is Alex Rivera", kind="profile", age_days=400, importance=0.8, domain="People"),
-                  mem("The user previously went by the name Alexander", kind="fact", age_days=5, importance=0.6, domain="People")],
+                  mem("The user previously went by the name Alexander", kind="fact", age_days=490, importance=0.6, domain="People")],
      "noise": {"generator": "filler", "count": 20, "seed": 103},
      "turns": [turn("what is the user's display name?", ["$0"], ["Alex Rivera"]),
                turn("what name do I currently use?", ["$0"], ["Alex Rivera"]),
@@ -98,8 +104,7 @@ update = [
      "memories": [mem("The API gateway used to listen on port 8080 behind the load balancer during early bringup", kind="fact", age_days=200, importance=0.7, domain="Infrastructure"),
                   mem("Since the migration the API gateway listens on port 9090 with TLS termination", kind="fact", age_days=2, importance=0.7, domain="Infrastructure")],
      "noise": {"generator": "filler", "count": 120, "seed": 11},
-     "turns": [turn("which port does the API gateway listen on now?", ["$1"], ["9090"], ["$noise"]) for _ in range(0)] +
-              [turn("which port does the API gateway listen on now?", ["$1"], ["9090"]),
+     "turns": [turn("which port does the API gateway listen on now?", ["$1"], ["9090"]),
                turn("what is the current API gateway port?", ["$1"], ["9090"]),
                turn("which port is the API gateway bound to today?", ["$1"], ["9090"])]},
     {"id": "update_preference_01", "category": "update",
@@ -117,19 +122,59 @@ update = [
                turn("which theme and accent colors do I use now?", ["$1"], ["light", "green"]),
                turn("what did the user change their desktop theme to?", ["$1"], ["light", "green"])]},
     {"id": "update_email_01", "category": "update",
-     "memories": [mem("The user's primary email is gws at work@company.com", kind="preference", age_days=300, importance=0.9, domain="Communication"),
-                  mem("The email was changed to gws at personal@newdomain.com last week", kind="preference", age_days=5, importance=0.8, domain="Communication")],
+     "memories": [mem("The user's primary email is gws at work@example.com", kind="preference", age_days=300, importance=0.9, domain="Communication"),
+                  mem("The email was changed to gws at personal@example.org last week", kind="preference", age_days=5, importance=0.8, domain="Communication")],
      "noise": {"generator": "filler", "count": 120, "seed": 12},
-     "turns": [turn("what is the user's email address?", ["$1"], ["personal@newdomain.com"]),
-               turn("what email does the user use for gws?", ["$1"], ["personal@newdomain.com"]),
-               turn("what was the recent email change?", ["$1"], ["personal@newdomain.com"])]},
+     "turns": [turn("what is the user's email address?", ["$1"], ["personal@example.org"]),
+               turn("what email does the user use for gws?", ["$1"], ["personal@example.org"]),
+               turn("what was the recent email change?", ["$1"], ["personal@example.org"])]},
     {"id": "update_phone_01", "category": "update",
-     "memories": [mem("The Signal phone number is +27 00 000 0001", kind="preference", age_days=200, importance=0.9, domain="Communication"),
-                  mem("The Signal phone number was updated to +27 00 000 0000 for security reasons", kind="preference", age_days=10, importance=0.9, domain="Communication")],
+     "memories": [mem("The Signal phone number is +1 555 0100", kind="preference", age_days=200, importance=0.9, domain="Communication"),
+                  mem("The Signal phone number was updated to +1 555 0199 for security reasons", kind="preference", age_days=10, importance=0.9, domain="Communication")],
      "noise": {"generator": "filler", "count": 120, "seed": 16},
-     "turns": [turn("what is the Signal phone number?", ["$1"], ["+27 00 000 0000"]),
-               turn("what number is used for Signal delivery?", ["$1"], ["+27 00 000 0000"]),
-               turn("what was the phone number changed to recently?", ["$1"], ["+27 00 000 0000"])]},
+     "turns": [turn("what is the Signal phone number?", ["$1"], ["+1 555 0199"]),
+               turn("what number is used for Signal delivery?", ["$1"], ["+1 555 0199"]),
+               turn("what was the phone number changed to recently?", ["$1"], ["+1 555 0199"])]},
+]
+
+# ─── Temporal (5 scenarios) ───
+_T = ["$noise"]
+temporal = [
+    {"id": "temporal_last_week_01", "category": "temporal",
+     "memories": [mem("We decided to adopt Kubernetes for orchestration on 2024-09-10", kind="fact", age_days=10, importance=0.9, domain="Work"),
+                  mem("The team attended a conference on 2024-08-25", kind="fact", age_days=20, importance=0.6, domain="Work")],
+     "noise": {"generator": "filler", "count": 20, "seed": 301},
+     "turns": [turn("what did we decide last week?", ["$0"], ["Kubernetes"], _T),
+               turn("what decision did we make 7 days ago?", ["$0"], ["Kubernetes"], _T),
+               turn("what was our decision from the previous week?", ["$0"], ["Kubernetes"], _T)]},
+    {"id": "temporal_meeting_01", "category": "temporal",
+     "memories": [mem("The daily standup happens at 9:15 AM", kind="fact", age_days=5, importance=0.7, domain="Work"),
+                  mem("The sprint planning meeting is on Mondays at 2:00 PM", kind="fact", age_days=15, importance=0.8, domain="Work")],
+     "noise": {"generator": "filler", "count": 20, "seed": 302},
+     "turns": [turn("what time is our daily standup?", ["$0"], ["9:15"], _T),
+               turn("when does the daily standup occur?", ["$0"], ["9:15"], _T),
+               turn("what is the start time for our daily standup?", ["$0"], ["9:15"], _T)]},
+    {"id": "temporal_release_01", "category": "temporal",
+     "memories": [mem("Version 2.7.0 was released on 2024-09-20", kind="fact", age_days=5, importance=0.8, domain="Work"),
+                  mem("The release schedule shows version 2.8.0 planned for 2024-12-15", kind="fact", age_days=60, importance=0.7, domain="Work")],
+     "noise": {"generator": "filler", "count": 20, "seed": 303},
+     "turns": [turn("when was version 2.7.0 released?", ["$0"], ["2024-09-20"], _T),
+               turn("what is the release date of version 2.7.0?", ["$0"], ["2024-09-20"], _T),
+               turn("what version was released on 2024-09-20?", ["$0"], ["2.7.0"], _T)]},
+    {"id": "temporal_budget_01", "category": "temporal",
+     "memories": [mem("The Q3 budget was approved at $1.2M on 2024-07-15", kind="fact", age_days=40, importance=0.85, domain="Finance"),
+                  mem("The Q4 budget forecast shows $1.5M needed for new hires", kind="fact", age_days=5, importance=0.7, domain="Finance")],
+     "noise": {"generator": "filler", "count": 20, "seed": 304},
+     "turns": [turn("what was the Q3 budget approved for?", ["$0"], ["$1.2M"], _T),
+               turn("what is the Q3 budget amount?", ["$0"], ["$1.2M"], _T),
+               turn("how much was approved for Q3 spending?", ["$0"], ["$1.2M"], _T)]},
+    {"id": "temporal_holiday_01", "category": "temporal",
+     "memories": [mem("The company holiday party is scheduled for December 20, 2024", kind="fact", age_days=50, importance=0.6, domain="Work"),
+                  mem("The team building retreat happened on February 14, 2024", kind="fact", age_days=120, importance=0.5, domain="Work")],
+     "noise": {"generator": "filler", "count": 20, "seed": 305},
+     "turns": [turn("when is the company holiday party?", ["$0"], ["December 20, 2024"], _T),
+               turn("what date is the holiday party scheduled for?", ["$0"], ["December 20, 2024"], _T),
+               turn("what is the date of the annual holiday party?", ["$0"], ["December 20, 2024"], _T)]},
 ]
 
 # ─── Contradiction (5 scenarios) ───
@@ -188,12 +233,12 @@ multi_user = [
                turn("does charlie use dark or light mode?", ["$0"], ["dark"]),
                turn("what color scheme does charlie prefer?", ["$0"], ["dark"])]},
     {"id": "multi_user_contact_01", "category": "multi_user",
-     "memories": [mem("User eve's emergency contact is her sister at +27 82 123 4567", kind="fact", age_days=30, importance=0.9, domain="Personal", scope_user="eve"),
-                  mem("User frank's emergency contact is his brother at +27 71 987 6543", kind="fact", age_days=30, importance=0.9, domain="Personal", scope_user="frank")],
+     "memories": [mem("User eve's emergency contact is her sister at +1 555 0142", kind="fact", age_days=30, importance=0.9, domain="Personal", scope_user="eve"),
+                  mem("User frank's emergency contact is his brother at +1 555 0173", kind="fact", age_days=30, importance=0.9, domain="Personal", scope_user="frank")],
      "noise": {"generator": "filler", "count": 20, "seed": 403},
-     "turns": [turn("what is eve's emergency contact number?", ["$0"], ["+27 82 123 4567"]),
-               turn("what is frank's emergency contact?", ["$0"], ["+27 71 987 6543"]),
-               turn("who should I call in case of emergency for eve?", ["$0"], ["+27 82 123 4567"])]},
+     "turns": [turn("what is eve's emergency contact number?", ["$0"], ["+1 555 0142"]),
+               turn("what is frank's emergency contact?", ["$0"], ["+1 555 0173"]),
+               turn("who should I call in case of emergency for eve?", ["$0"], ["+1 555 0142"])]},
     {"id": "multi_user_shared_01", "category": "multi_user",
      "memories": [mem("Dana and Robin share a wedding planning vault under Projects/Wedding", kind="fact", age_days=40, importance=0.8, domain="Projects", scope_user="Dana Robin"),
                   mem("The event date is set for June 1, 2030", kind="fact", age_days=20, importance=0.9, domain="Projects", scope_user="Dana Robin")],
@@ -431,6 +476,7 @@ datasets = {
     "paraphrase": paraphrase,
     "ageing": ageing,
     "update": update,
+    "temporal": temporal,
     "contradiction": contradiction,
     "multi_user": multi_user,
     "multimodal": multimodal,
@@ -441,14 +487,26 @@ datasets = {
     "abstention": abstention,
 }
 
-for cat, scenarios in datasets.items():
-    filepath = HARD_DIR / f"{cat}.jsonl"
-    with open(filepath, "w") as f:
-        for s in scenarios:
-            f.write(json.dumps(s, ensure_ascii=False) + "\n")
-    print(f"Written {len(scenarios)} scenarios to {filepath}")
 
-total = sum(len(s) for s in datasets.values())
-queries = total * 3
-print(f"\nTotal scenarios: {total} ({len(datasets)} categories)")
-print(f"Total queries: {queries}")
+
+def render(scenarios):
+    """The exact JSONL text written for one category."""
+    return "".join(json.dumps(s, ensure_ascii=False) + "\n" for s in scenarios)
+
+
+def write(out_dir=HARD_DIR):
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for cat, scenarios in datasets.items():
+        filepath = out_dir / f"{cat}.jsonl"
+        filepath.write_text(render(scenarios), encoding="utf-8")
+        print(f"Written {len(scenarios)} scenarios to {filepath}")
+
+    total = sum(len(s) for s in datasets.values())
+    queries = sum(len(s["turns"]) for scenarios in datasets.values() for s in scenarios)
+    print(f"\nTotal scenarios: {total} ({len(datasets)} categories)")
+    print(f"Total queries: {queries}")
+
+
+if __name__ == "__main__":
+    write()

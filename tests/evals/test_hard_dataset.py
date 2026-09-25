@@ -6,11 +6,19 @@ acceptance criteria:
 - ≥60 scenarios
 - ≥150 queries across ≥12 categories
 - all JSON valid, all scenario IDs unique
+- the committed JSONL is exactly what gen_hard_scenarios.py generates
+- contact data is obviously synthetic (privacy guard)
 """
+import importlib.util
 import json
+import re
 from pathlib import Path
 
-HARD_DIR = Path(__file__).resolve().parent.parent.parent / "evals" / "datasets_hard"
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+HARD_DIR = ROOT / "evals" / "datasets_hard"
+GENERATOR = ROOT / "gen_hard_scenarios.py"
 
 REQUIRED_CATEGORIES = {
     "paraphrase", "ageing", "update", "contradiction", "abstention",
@@ -30,7 +38,7 @@ def _load_all():
     scenarios = []
     files = sorted(f for f in HARD_DIR.glob("*.jsonl") if not f.name.startswith("placeholder"))
     for fpath in files:
-        with open(fpath) as f:
+        with open(fpath, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
@@ -62,7 +70,7 @@ class TestHardDatasetCompleteness:
             if fpath.name.startswith("placeholder"):
                 continue
             cat = fpath.name.replace(".jsonl", "")
-            with open(fpath) as f:
+            with open(fpath, encoding="utf-8") as f:
                 scenarios = [json.loads(line) for line in f if line.strip() and not line.startswith("#")]
             assert len(scenarios) >= EXPECTED_SCENARIOS_PER_CATEGORY, (
                 f"Category '{cat}' has {len(scenarios)} scenarios, expected >= {EXPECTED_SCENARIOS_PER_CATEGORY}"
@@ -121,9 +129,92 @@ class TestHardDatasetWellFormed:
             n_memories = len(s["memories"])
             for t in s["turns"]:
                 for eid in t["expect_ids"]:
-                    assert eid.startswith("$"), f"Invalid expect_id '{eid}' in '{s['id']}'"
-                    idx = int(eid[1:])
-                    assert idx < n_memories, (
+                    m = re.fullmatch(r"\$(\d+)", eid)
+                    assert m, f"Invalid expect_id '{eid}' in '{s['id']}'"
+                    idx = int(m.group(1))
+                    assert 0 <= idx < n_memories, (
                         f"expect_id '{eid}' in '{s['id']}' references memory {idx}, "
                         f"only {n_memories} memories exist"
                     )
+
+
+def _load_generator():
+    spec = importlib.util.spec_from_file_location("gen_hard_scenarios", GENERATOR)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestHardDatasetGenerator:
+    """gen_hard_scenarios.py is the source of truth for datasets_hard/."""
+
+    def test_import_has_no_side_effects(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        before = {p.name: p.stat().st_mtime_ns for p in HARD_DIR.glob("*.jsonl")}
+        _load_generator()
+        after = {p.name: p.stat().st_mtime_ns for p in HARD_DIR.glob("*.jsonl")}
+        assert before == after, "importing the generator rewrote datasets_hard/"
+        assert not any(tmp_path.iterdir()), "importing the generator wrote into cwd"
+
+    def test_generator_covers_every_committed_category(self):
+        gen = _load_generator()
+        committed = {p.stem for p in HARD_DIR.glob("*.jsonl")}
+        assert set(gen.datasets) == committed == REQUIRED_CATEGORIES
+        assert sum(len(v) for v in gen.datasets.values()) == 60
+
+    def test_regenerate_matches_committed(self, tmp_path):
+        gen = _load_generator()
+        gen.write(tmp_path)
+        for committed in sorted(HARD_DIR.glob("*.jsonl")):
+            fresh = tmp_path / committed.name
+            assert fresh.exists(), f"generator did not produce {committed.name}"
+            assert fresh.read_text(encoding="utf-8") == committed.read_text(encoding="utf-8"), (
+                f"{committed.name} drifted from gen_hard_scenarios.py; "
+                "run `python3 gen_hard_scenarios.py` and commit the result"
+            )
+
+    def test_ageing_previous_fact_is_older_than_current(self):
+        """An ageing fixture's superseded fact must predate the current one."""
+        gen = _load_generator()
+        for s in gen.ageing:
+            current, previous = s["memories"][0], s["memories"][1]
+            assert "previous" in previous["content"], s["id"]
+            assert previous["age_days"] > current["age_days"], (
+                f"{s['id']}: previous fact ({previous['age_days']}d) is newer than "
+                f"the current one ({current['age_days']}d)"
+            )
+
+
+# Anything shaped like an international phone number, and any email address.
+_PHONE_RE = re.compile(r"\+\d[\d\s().-]{5,}\d")
+# NANP reserves 555-0100..555-0199 for fiction.
+_FICTIONAL_PHONE_RE = re.compile(r"\+1[\s-]?555[\s-]?01\d\d")
+_EMAIL_RE = re.compile(r"[\w.+-]+@([\w-]+(?:\.[\w-]+)+)")
+# RFC 2606 reserved domains.
+_RESERVED_EMAIL_DOMAIN_RE = re.compile(r"(?:[\w-]+\.)*example\.(?:com|org|net)")
+
+
+def _privacy_sources():
+    return [*sorted(HARD_DIR.glob("*.jsonl")), GENERATOR]
+
+
+@pytest.mark.parametrize("path", _privacy_sources(), ids=lambda p: p.name)
+def test_contact_data_is_obviously_synthetic(path):
+    text = path.read_text(encoding="utf-8")
+    bad_phones = [m.group() for m in _PHONE_RE.finditer(text)
+                  if not _FICTIONAL_PHONE_RE.fullmatch(m.group())]
+    bad_emails = [m.group() for m in _EMAIL_RE.finditer(text)
+                  if not _RESERVED_EMAIL_DOMAIN_RE.fullmatch(m.group(1))]
+    assert not bad_phones, f"{path.name}: use +1 555 01xx for phone numbers: {bad_phones}"
+    assert not bad_emails, f"{path.name}: use example.com/.org/.net for emails: {bad_emails}"
+
+
+def test_privacy_guard_is_not_vacuous():
+    """The guard patterns really do catch real-looking contact data."""
+    assert _PHONE_RE.search("call +27 82 000 0000 now")
+    assert not _FICTIONAL_PHONE_RE.fullmatch("+27 82 000 0000")
+    assert _FICTIONAL_PHONE_RE.fullmatch("+1 555 0142")
+    assert not _RESERVED_EMAIL_DOMAIN_RE.fullmatch("company.com")
+    assert _RESERVED_EMAIL_DOMAIN_RE.fullmatch("example.org")
+    total = sum(len(_PHONE_RE.findall(p.read_text(encoding="utf-8"))) for p in _privacy_sources())
+    assert total > 0, "no phone numbers scanned; the guard would pass vacuously"

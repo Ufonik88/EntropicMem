@@ -23,10 +23,11 @@ import sqlite3
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from stopwords import STOPWORDS  # English stopword set for the FTS builder
 from vault import derive_title  # naming convention helper (stdlib-only, acyclic)
 
 logger = logging.getLogger(__name__)
@@ -52,34 +53,49 @@ _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 _FTS_PHRASE_RE = re.compile(r"\S+", re.UNICODE)
 
 
-def _fts_quote(token: str) -> str:
-    """Quote one token as a literal FTS5 prefix phrase (metacharacter-safe).
+def _fts_quote(token: str, star: bool = True) -> str:
+    """Quote one token as a literal FTS5 phrase (metacharacter-safe).
 
     The surrounding double quotes make the token a plain string (so barewords
-    like NEAR/AND/OR and leftover punctuation are literal), internal quotes
-    are doubled, and the trailing * keeps the historical prefix-match
-    semantics.
+    like NEAR/AND/OR and leftover punctuation are literal) and internal
+    quotes are doubled. ``star`` appends the trailing prefix ``*`` — terms
+    of 3+ characters prefix-match their derivational family (``use`` →
+    ``used``/``uses``); 1-2 character terms are exact (a prefix there would
+    match nearly every document).
     """
-    return f'"{token.replace(chr(34), chr(34) * 2)}"*'
+    quoted = f'"{token.replace(chr(34), chr(34) * 2)}"'
+    return quoted + ("*" if star else "")
 
 
 def build_fts_query(
     query: str,
-    fields: Sequence[str] = ("title", "tags", "body"),
     max_terms: int = MAX_FTS_TERMS,
+    fields: Sequence[str] = ("title", "tags", "body"),
 ) -> str:
     """Build one shared FTS5 MATCH expression for a free-text query.
 
     Tokenizes the query into ``\\w+`` runs (dropping FTS5 metacharacters such
     as quotes, colons, parentheses, ^ and * so punctuation can never produce a
-    syntax error), quotes each token as a literal prefix phrase, OR-joins the
-    terms, and caps them at ``max_terms`` — longest (most discriminative)
-    tokens first — so a 150-word prefetch query cannot explode into hundreds
-    of OR-of-prefix terms. ``fields`` are grouped per term with the FTS5
-    ``{col ...}`` filter so every caller matches the same columns.
+    syntax error) and applies the term-quality rules (R2):
 
-    Returns '' when the query has no usable tokens — callers should skip
-    MATCH entirely (and use their LIKE fallback) in that case.
+    - stopword tokens and tokens shorter than 2 characters are dropped —
+      they appear in almost every document, so as terms they match
+      everything and drown the discriminative words;
+    - the prefix ``*`` goes only on tokens of 4+ characters; shorter tokens
+      are exact terms (a 1-2 character prefix matches almost everything);
+    - when every token was dropped (e.g. "who am I") the raw tokens come
+      back, with the length rules applied as far as possible without
+      emptying the query, so identity-style questions still match;
+    - the surviving terms are capped at ``max_terms`` — non-stopwords first,
+      then longest (most discriminative) first.
+
+    Every term is quoted as a literal FTS5 phrase (embedded quotes doubled).
+    ``fields`` are grouped per term with the FTS5 ``{col ...}`` filter so
+    every caller matches the same columns.
+
+    Returns '' when the query has no usable tokens — callers must treat ''
+    as 'no matches' (skip MATCH and the fallback sweep; never match
+    everything).
     """
     tokens: List[str] = []
     seen: Set[str] = set()
@@ -91,12 +107,18 @@ def build_fts_query(
         tokens.append(raw)
     if not tokens:
         return ""
-    # Longest first (stable), then cap — keeps the most discriminative terms.
-    tokens.sort(key=len, reverse=True)
-    tokens = tokens[:max_terms]
+    kept = [t for t in tokens if len(t) >= 2 and t.lower() not in STOPWORDS]
+    if not kept:
+        # All tokens were dropped (every one a stopword and/or too short) —
+        # fall back to the raw tokens and re-apply the length rules only as
+        # far as possible without emptying the query.
+        kept = [t for t in tokens if len(t) >= 2] or list(tokens)
+    # Selection order for the cap: non-stopwords first, then longest first.
+    kept.sort(key=lambda t: (t.lower() in STOPWORDS, -len(t)))
+    kept = kept[:max_terms]
     cols = "{" + " ".join(fields) + "}" if len(fields) > 1 else (fields[0] if fields else "")
     prefix = f"{cols}: " if cols else ""
-    return " OR ".join(f"{prefix}{_fts_quote(tok)}" for tok in tokens)
+    return " OR ".join(prefix + _fts_quote(t, star=len(t) >= 3) for t in kept)
 
 
 def phrase_query(text: str) -> str:
@@ -119,6 +141,61 @@ def escape_like(text: str) -> str:
     underscore are matched literally instead of acting as wildcards.
     """
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+_WORD_RE = re.compile(r"[A-Za-z]")
+
+
+def _parse_ts(stamp: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO timestamp; naive values are read as UTC. None-safe."""
+    if not stamp:
+        return None
+    try:
+        dt = datetime.fromisoformat(stamp)
+    except (ValueError, TypeError):
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _like_fallback_ok(query: str, match_failed: bool) -> bool:
+    """Escaped literal LIKE fallback only for symbol/number queries (``%``,
+    ``_``, ``8080``) or when the FTS MATCH itself errored. Word queries never
+    substring-sweep: no FTS hits means no matches (R2 noise)."""
+    return match_failed or _WORD_RE.search(query) is None
+
+
+_STEM_SUFFIXES = ("ing", "ed", "es", "s", "ly")
+
+
+def _stem(token: str) -> str:
+    """Conservative suffix strip for coverage matching.
+    # ponytail: crude suffix-list stemmer — covers plurals/verb forms; switch
+    to a real stemmer only if recall quality demonstrably needs it."""
+    for suf in _STEM_SUFFIXES:
+        if token.endswith(suf) and len(token) - len(suf) >= 3:
+            return token[: -len(suf)]
+    return token
+
+
+def coverage(query_terms: Sequence[str], text: str) -> float:
+    """Lexical coverage (EM-105): stemmed query terms present in text / total.
+
+    Absolute 0..1 per result — never normalised against the result set, so a
+    weak hit can no longer inflate to relevance 1.0 (R1).
+    """
+    terms = [t for t in (_stem(str(q).lower()) for q in query_terms) if t]
+    if not terms:
+        return 0.0
+    text_stems = {_stem(t) for t in _FTS_TOKEN_RE.findall(text.lower())}
+    return sum(1 for t in terms if t in text_stems) / len(terms)
+
+
+def coverage_terms(query: str) -> List[str]:
+    """Coverage-side query terms: lowercase tokens minus stopwords/1-char."""
+    return [
+        t for t in _FTS_TOKEN_RE.findall(query.lower())
+        if len(t) >= 2 and t not in STOPWORDS
+    ]
 
 
 def run_fts_match(db: sqlite3.Connection, sql: str, params: Tuple) -> Tuple[List, str]:
@@ -357,33 +434,21 @@ CREATE TABLE IF NOT EXISTS shared_facts (
 # Each pattern produces (content, domain, importance) tuples.
 
 _EXTRACTION_PATTERNS: List[Tuple[str, str, float, str]] = [
-    # Pattern                     Domain           Imp  Description
-    (r"(the|my)\s+(\w+\s+){0,4}(budget|account|salary|income|expense|financ)",
-     "Finance",        0.7, "financial"),
-    (r"(security|alarm|detector|hub|camera|sensor)\s{1,3}(systems?|app|device|migration)",
-     "Acme Corp",   0.8, "alarm"),
-    (r"(hermes|agent|plugin|skill|tool|model|provider)\s{1,3}(config|setup|install|error|memory)",
-     "Infrastructure", 0.7, "hermes"),
-    (r"(entropicmem|memory|vault|engine|index|retrieval)",
-     "Infrastructure", 0.6, "entropicmem"),
-    (r"(obsidian|vault|note|logseq)\s{1,3}(sync|backup|cleanup|migrat)",
-     "Infrastructure", 0.6, "obsidian"),
-    (r"(prefer|want|like|need|don't want|hate|dislike)\s{1,3}(to\s+)?(\w+\s+){1,6}\.",
-     "People",         0.5, "preference"),
-    (r"(customer|partner|installer|distributor)\s{1,3}(call|meeting|demo|pitch|follow)",
-     "Projects",       0.6, "customer"),
-    (r"(roadshow|webinar|certification|training|event)\s{1,3}(2026|\d{1,2}\s*\w+\s*2026)",
-     "Projects",       0.7, "event"),
-    (r"(twitter|x\s*post|social|content|viral|growth|follow)",
-     "Content-Growth",       0.6, "social"),
-    (r"(fix|bug|error|crash|fail|broken)\s{1,3}(\w+\s+){1,5}(in|on|with)",
-     "Infrastructure", 0.5, "bug"),
-    (r"(python|node|rust|golang?|typescript|bash)\s{1,3}(version|update|upgrade|install)",
-     "Infrastructure", 0.5, "dev-env"),
-    (r"(email|gmail|google\s*workspace|calendar)\s{1,3}(setup|sync|config|problem)",
-     "Workflows",      0.6, "productivity"),
-    (r"(release|shipped|launched|deployed|merged|pr\s*#?\d+)",
-     "Projects",       0.5, "release"),
+    # EM-111 (G1): generic first-person patterns ONLY. The old
+    # domain-specific keyword lists (finance/alarm/hermes/obsidian/social/
+    # events) encoded one employer's world into a generic engine, missed
+    # everything outside it, and leaked employer/campaign/product strings
+    # into the shipped scripts.
+    (r"\b(?:i|we)\s+(?:always |usually |often |also |still |really |generally "
+     r"|typically |prefer to |tend to )?(?:prefer|like|love|want|need|hate|dislike"
+     r"|use|using|keep|choose|avoid|work with|work on|live in|run|manage|maintain"
+     r"|build|drive|own)\b[^.!?\n]{3,120}",
+     "Preferences", 0.5, "first-person"),
+    (r"\bmy\s+[a-z][\w\- ]{2,40}?\s+(?:is|are|was|has|have|runs|uses|stays|needs"
+     r"|works)\b[^.!?\n]{2,120}",
+     "Preferences", 0.5, "first-person"),
+    (r"\b(?:i|we)\s+(?:always |never |must |should |have to |need to )\w+[^.!?\n]{3,120}",
+     "Preferences", 0.5, "constraint"),
 ]
 
 # ── data types ──────────────────────────────────────────────────────────────
@@ -419,10 +484,12 @@ class StoredFact:
 class MemoryEngine:
     """Standalone memory engine. One SQLite database, no external deps."""
 
-    def __init__(self, db_path: Path, profile_id: Optional[str] = None, publish_scope: Optional[str] = None):
+    def __init__(self, db_path: Path, profile_id: Optional[str] = None, publish_scope: Optional[str] = None, hermes_home: Optional[Path] = None, pii_locales: Optional[list] = None):
+        self.pii_locales = list(pii_locales or [])
         self.db_path = Path(db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._profile_id = profile_id
+        self._hermes_home = Path(hermes_home).expanduser() if hermes_home else None
         self.publish_scope = (
             publish_scope or os.environ.get("ENTROPICMEM_PUBLISH_SCOPE") or "shared"
         ).lower()
@@ -479,12 +546,16 @@ class MemoryEngine:
     )
 
     def profile_id(self) -> str:
-        """Resolve the owning profile slug: explicit > HERMES_HOME basename > 'default'."""
+        """Resolve the owning profile slug: explicit > hermes_home basename > 'default'.
+
+        H3/EM-102: the HERMES_HOME env var is never read — in a multiplexed
+        gateway it can be poisoned by another profile after initialize,
+        which stamped every write with the wrong slug.
+        """
         if self._profile_id:
             return self._profile_id
-        env = os.environ.get("HERMES_HOME")
-        if env:
-            name = Path(env).expanduser().resolve().name
+        if self._hermes_home:
+            name = self._hermes_home.resolve().name
             if name and name != ".hermes":
                 return name
         return "default"
@@ -591,6 +662,8 @@ class MemoryEngine:
                     self.db.execute("ALTER TABLE facts_archive ADD COLUMN profile_id TEXT DEFAULT ''")
                 if "version" not in arch_cols:
                     self.db.execute("ALTER TABLE facts_archive ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+                if "sensitivity" not in arch_cols:
+                    self.db.execute("ALTER TABLE facts_archive ADD COLUMN sensitivity TEXT DEFAULT 'internal'")
             self.db.execute("""
                 CREATE TABLE IF NOT EXISTS audit_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -746,6 +819,13 @@ class MemoryEngine:
         reason: str = "",
     ) -> str:
         """Store a candidate fact in pending_facts (not durable recall)."""
+        # EM-111: quarantine hygiene — sanitize injection markers and redact
+        # PII before the candidate is stored anywhere.
+        content = self._sanitize_fact_text(content)
+        if PII_AVAILABLE:
+            pii_result = check_pii(content, mode="redact", locales=self.pii_locales)
+            if pii_result["has_pii"]:
+                content = pii_result["text"]
         eid = StoredFact.make_id(content)
         tags_str = ", ".join(tags) if tags else ""
         self._acquire_write_lock()
@@ -786,7 +866,8 @@ class MemoryEngine:
             domain=row["domain"] or "Knowledge",
             tags=tags + ["promoted"],
             session_id=row["session_id"] or "",
-            sensitivity="internal",
+            # EM-111: keep the pending row's domain-derived sensitivity
+            sensitivity=None,
             actor=actor,
         )
         self._acquire_write_lock()
@@ -803,6 +884,27 @@ class MemoryEngine:
         self.db.commit()
         self.audit("discard_pending", fact_id=pending_id, ok=cur.rowcount > 0)
         return cur.rowcount > 0
+
+    def prune_pending(self, older_than_days: int = 30) -> int:
+        """TTL purge of the pending quarantine (EM-111).
+
+        Deletes pending rows older than ``older_than_days`` and returns the
+        count. Runs on demand (CLI `pending prune --older-than 30d`) and
+        automatically at session end.
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
+        self._acquire_write_lock()
+        try:
+            cur = self.db.execute(
+                "DELETE FROM pending_facts WHERE created_at < ?", (cutoff,)
+            )
+            self.db.commit()
+            n = cur.rowcount
+        finally:
+            self._release_write_lock()
+        if n:
+            self.audit("pending_prune", detail=f"pruned {n} older than {older_than_days}d")
+        return n
 
     def remember(
         self,
@@ -857,7 +959,7 @@ class MemoryEngine:
 
         # Phase 9: PII check
         if PII_AVAILABLE:
-            pii_result = check_pii(content, mode="redact")
+            pii_result = check_pii(content, mode="redact", locales=self.pii_locales)
             if pii_result["has_pii"]:
                 content = pii_result["text"]  # use redacted version
 
@@ -888,11 +990,23 @@ class MemoryEngine:
                      domain, tags_str, session_id, now, tier, pid, fact_timestamp, eid),
                 )
             else:
-                # I1: Fuzzy deduplication — check for near-duplicate content
+                # I1: Fuzzy deduplication — check for near-duplicate content.
+                # EM-109 (L1): a fuzzy UPDATE in place is allowed only when the
+                # pair passes _safe_fuzzy_update (Jaccard >= 0.95 AND identical
+                # numbers/versions/IPs/dates AND identical negation tokens).
+                # Otherwise the write inserts as a NEW fact and the pair is
+                # audited as possible_duplicate — no more silent overwrites.
                 fuzzy_id = self._find_fuzzy_duplicate(content)
+                old_content = ""
                 if fuzzy_id and fuzzy_id != eid:
+                    row = self.db.execute(
+                        "SELECT content FROM facts WHERE id = ?", (fuzzy_id,)
+                    ).fetchone()
+                    old_content = row[0] if row else ""
+                if fuzzy_id and fuzzy_id != eid and self._safe_fuzzy_update(content, old_content):
                     # Phase 11.3: snapshot before fuzzy update
                     self.snapshot_version(fuzzy_id, source="fuzzy_dedup_update")
+                    before_hash = hashlib.sha256(old_content.encode("utf-8")).hexdigest()
                     # Update the existing near-duplicate instead of creating a new fact
                     self.db.execute(
                         """UPDATE facts SET content=?, title=?, importance=?, domain=?,
@@ -901,6 +1015,13 @@ class MemoryEngine:
                            WHERE id=?""",
                         (content, title or self._make_title(content), importance,
                          domain, tags_str, session_id, now, tier, pid, fact_timestamp, fuzzy_id),
+                    )
+                    # EM-109: allowed fuzzy updates are audited with the
+                    # before-content hash
+                    self.audit(
+                        "fuzzy_update",
+                        fact_id=fuzzy_id,
+                        detail=json.dumps({"before_sha256": before_hash}),
                     )
                     eid = fuzzy_id  # Return the existing fact's ID
                 else:
@@ -914,6 +1035,14 @@ class MemoryEngine:
                          pid, ft),
                     )
                     is_create = True
+                    if fuzzy_id and fuzzy_id != eid:
+                        # EM-109: near-duplicate that failed the safe rule —
+                        # both facts stay, and the pair is audited
+                        self.audit(
+                            "possible_duplicate",
+                            fact_id=eid,
+                            detail=json.dumps({"new": eid, "duplicate_of": fuzzy_id}),
+                        )
 
             # Upsert FTS — must use the same rowid as the facts table
             # Get the rowid of the fact we just inserted/updated
@@ -967,6 +1096,34 @@ class MemoryEngine:
         self.audit("remember", actor=actor, session_id=session_id, fact_id=eid, detail=f"domain={domain};tier={tier}")
         return eid
 
+    BACKUP_KEEP_TOTAL = 10
+    BACKUP_KEEP_DAYS = 7
+
+    def _prune_backups(self) -> int:
+        """EM-113 retention: keep the last 10 backups + 1 per day for 7 days."""
+        backup_dir = self.db_path.parent / "backups"
+        if not backup_dir.is_dir():
+            return 0
+        backups = sorted(
+            (p for p in backup_dir.glob("memory_*.db") if p.is_file()),
+            key=lambda p: (p.stat().st_mtime, p.name),
+        )
+        keep = set(backups[-self.BACKUP_KEEP_TOTAL:])
+        cutoff = datetime.now(timezone.utc).timestamp() - self.BACKUP_KEEP_DAYS * 86400
+        newest_per_day: dict = {}
+        for p in backups:
+            if p.stat().st_mtime < cutoff:
+                continue
+            day = datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).date()
+            newest_per_day[day] = p  # ascending order: last write wins
+        keep.update(newest_per_day.values())
+        removed = 0
+        for p in backups:
+            if p not in keep:
+                p.unlink(missing_ok=True)
+                removed += 1
+        return removed
+
     def _backup(self) -> Path:
         """Create a timestamped backup of the memory DB (I4: auto-backup before destructive ops)."""
         self._acquire_write_lock()
@@ -978,6 +1135,7 @@ class MemoryEngine:
             # Use SQLite backup API for consistency
             with sqlite3.connect(str(self.db_path)) as src, sqlite3.connect(str(backup_path)) as dst:
                 src.backup(dst)
+            self._prune_backups()
             return backup_path
         finally:
             self._release_write_lock()
@@ -1041,28 +1199,77 @@ class MemoryEngine:
         finally:
             self._release_write_lock()
 
-    def consolidate(self, max_age_days: int = 90, min_access_count: int = 0, dry_run: bool = True, confirm: bool = False) -> dict:
-        """Archive old, low-value facts (I3: memory consolidation).
+    def consolidate(
+        self,
+        max_age_days: int = 90,
+        min_access_count: int = 0,
+        dry_run: bool = True,
+        confirm: bool = False,
+        evergreen_domains: Optional[Sequence[str]] = None,
+    ) -> dict:
+        """Archive old, low-value facts (I3; safe selection per EM-108/L2).
 
-        Facts older than max_age_days with access_count <= min_access_count
-        are moved to an archive table. Returns stats.
+        A fact is a candidate only when ALL hold:
+        - importance < 0.6 (durable memory is never archived)
+        - domain not in ``evergreen_domains`` (default ["People"])
+        - source not in ("built_in_memory", "promoted")
+        - no "pinned" tag
+        - age from ``max(updated_at, last_accessed)`` >= ``max_age_days``
+        - access_count <= ``min_access_count``
+
+        Candidates archive lowest-importance first (oldest first within a
+        tier); archive rows keep the fact's sensitivity.
 
         If dry_run=True, reports what would be archived without modifying anything.
         """
-        cutoff = datetime.now(timezone.utc).timestamp() - (max_age_days * 86400)
-        cutoff_iso = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
+        evergreen: Set[str] = set(evergreen_domains) if evergreen_domains is not None else {"People"}
+        now = datetime.now(timezone.utc)
 
-        # Find candidates
-        candidates = self.db.execute(
-            """SELECT id FROM facts
-               WHERE created_at < ? AND access_count <= ?""",
-            (cutoff_iso, min_access_count),
-        ).fetchall()
+        # Find candidates (EM-108: durable facts are never candidates)
+        candidates = []
+        for row in self.db.execute(
+            """SELECT id, title, source, importance, domain, tags, created_at,
+                      updated_at, last_accessed
+               FROM facts WHERE access_count <= ?""",
+            (min_access_count,),
+        ).fetchall():
+            fid, title, source, importance, domain, tags, created_at, updated_at, last_accessed = row
+            if (importance or 0.0) >= 0.6:
+                continue
+            if (domain or "Knowledge") in evergreen:
+                continue
+            if (source or "agent") in ("built_in_memory", "promoted"):
+                continue
+            tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
+            if "pinned" in tag_list:
+                continue
+            stamps = [s for s in (_parse_ts(updated_at), _parse_ts(last_accessed)) if s]
+            newest = max(stamps) if stamps else _parse_ts(created_at)
+            if newest is None:
+                continue
+            age_days = (now - newest).total_seconds() / 86400.0
+            if age_days < max_age_days:
+                continue
+            candidates.append((importance or 0.0, newest, fid, title or "", age_days))
+
+        # Lowest importance first, oldest first within a tier
+        candidates.sort(key=lambda c: (c[0], c[1]))
+        candidate_ids = [fid for _, _, fid, _, _ in candidates]
 
         if dry_run or not confirm:
             return {
                 "archived": 0,
-                "would_archive": len(candidates),
+                "would_archive": len(candidate_ids),
+                # EM-108: dry-run reports the candidate list, not just a count
+                "candidates": [
+                    {
+                        "id": fid,
+                        "title": title,
+                        "age": round(age_days, 1),
+                        "importance": importance,
+                    }
+                    for importance, _, fid, title, age_days in candidates
+                ],
                 "cutoff_days": max_age_days,
                 "dry_run": True,
                 "confirm_required": not confirm,
@@ -1092,20 +1299,23 @@ class MemoryEngine:
                     access_count INTEGER DEFAULT 0,
                     profile_id TEXT DEFAULT '',
                     version INTEGER NOT NULL DEFAULT 1,
+                    sensitivity TEXT DEFAULT 'internal',
                     archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
             archived = 0
             has_embeddings = self._has_embeddings_table()
-            for (fid,) in candidates:
-                # Copy to archive
+            for fid in candidate_ids:
+                # Copy to archive (sensitivity preserved — EM-108)
                 self.db.execute(
                     """INSERT OR REPLACE INTO facts_archive
                        (id, content, title, source, importance, domain, tags,
-                        session_id, created_at, updated_at, last_accessed, access_count)
+                        session_id, created_at, updated_at, last_accessed, access_count,
+                        sensitivity)
                        SELECT id, content, title, source, importance, domain, tags,
-                              session_id, created_at, updated_at, last_accessed, access_count
+                              session_id, created_at, updated_at, last_accessed, access_count,
+                              sensitivity
                        FROM facts WHERE id = ?""",
                     (fid,),
                 )
@@ -1181,19 +1391,22 @@ class MemoryEngine:
     # ── P2 controlled sync (shared store) ───────────────────────────────────
 
     @staticmethod
-    def shared_path() -> Path:
+    def shared_path(hermes_home: Optional[Path] = None) -> Path:
         """Resolve the shared sync store path (env override or default).
 
         The shared log is anchored at the ROOT hermes home, not the active
-        profile home: profile mode sets HERMES_HOME=<root>/profiles/<name>,
-        and the shared store must stay at <root>/entropicmem-shared/ so all
-        profiles converge on one log. Mirrors get_default_hermes_root().
+        profile home: profile mode uses <root>/profiles/<name>, and the
+        shared store must stay at <root>/entropicmem-shared/ so all
+        profiles converge on one log.
+
+        H3/EM-102: HERMES_HOME is never read — callers pass ``hermes_home``
+        explicitly (the engine forwards its own); without it the default is
+        ~/.hermes.
         """
         env = os.environ.get("ENTROPICMEM_SHARED_DB")
         if env:
             return Path(env).expanduser().resolve()
-        hh = os.environ.get("HERMES_HOME", "")
-        base = Path(hh).expanduser() if hh else Path.home() / ".hermes"
+        base = Path(hermes_home).expanduser() if hermes_home else Path.home() / ".hermes"
         if base.parent.name == "profiles":
             base = base.parent.parent  # profile mode: climb back to <root>
         return (base / "entropicmem-shared" / "memory.db").resolve()
@@ -1226,7 +1439,7 @@ class MemoryEngine:
             ).fetchall()
             if not rows:
                 return {"published": 0, "profile": self.profile_id()}
-            shared = sqlite3.connect(str(shared_db or self.shared_path()), timeout=30)
+            shared = sqlite3.connect(str(shared_db or self.shared_path(self._hermes_home)), timeout=30)
             shared.row_factory = sqlite3.Row
             try:
                 new_events = 0
@@ -1262,7 +1475,7 @@ class MemoryEngine:
         self._check_migration_lock()
         self._acquire_write_lock()
         try:
-            shared = sqlite3.connect(str(shared_db or self.shared_path()), timeout=30)
+            shared = sqlite3.connect(str(shared_db or self.shared_path(self._hermes_home)), timeout=30)
             shared.row_factory = sqlite3.Row
             try:
                 last = self.db.execute(
@@ -1335,7 +1548,7 @@ class MemoryEngine:
                 "SELECT id, content, title, domain, tags, importance, sensitivity, "
                 "fact_timestamp, version FROM facts WHERE deleted=0"
             ).fetchall()
-            shared = sqlite3.connect(str(shared_db or self.shared_path()), timeout=30)
+            shared = sqlite3.connect(str(shared_db or self.shared_path(self._hermes_home)), timeout=30)
             shared.row_factory = sqlite3.Row
             try:
                 emitted = 0
@@ -1434,6 +1647,10 @@ class MemoryEngine:
         # FTS5 MATCH (never raises: bad MATCH expressions → empty + reason)
         rows: list = []
         match_failed = False
+        if not query.strip():
+            # empty query: 'no matches', never a LIKE '%%' sweep. Exact hits
+            # above still make a fact self-recallable.
+            return self._served(exact[:top_k])
         if fts_query:
             rows, fts_reason = run_fts_match(
                 self.db,
@@ -1441,7 +1658,7 @@ class MemoryEngine:
                 SELECT f.* FROM facts_fts
                 JOIN facts f ON facts_fts.rowid = f.rowid
                 WHERE facts_fts MATCH ? {where} {date_where}
-                ORDER BY f.importance DESC, rank
+                ORDER BY rank ASC, f.importance DESC
                 LIMIT ?
                 """,
                 (fts_query, *params, *date_params, top_k),
@@ -1456,8 +1673,9 @@ class MemoryEngine:
         if fts_hits:
             seen = {f.id for f in exact}
             local = exact + [f for f in fts_hits if f.id not in seen]
-        else:
-            # LIKE fallback (wildcards in user input are matched literally)
+        elif _like_fallback_ok(query, match_failed):
+            # LIKE fallback (wildcards in user input are matched literally;
+            # symbol/number queries only — word queries never substring-sweep)
             like = f"%{escape_like(query)}%"
             like_params = (like, like, like)
             if domain:
@@ -1487,12 +1705,12 @@ class MemoryEngine:
 
         # P2 scope: merge the peer-shared projection for 'shared'/'all'.
         if scope == "own":
-            return local[:top_k]
+            return self._served(local[:top_k])
         shared = self._recall_shared(query, domain, top_k)
         if scope == "shared":
-            return shared[:top_k]
+            return self._served(shared[:top_k])
         seen = {f.id for f in local}
-        return (local + [f for f in shared if f.id not in seen])[:top_k]
+        return self._served((local + [f for f in shared if f.id not in seen])[:top_k])
 
     def _recall_shared(self, query: str, domain: Optional[str], top_k: int) -> List[StoredFact]:
         """Search the local shared_facts projection (peer-published facts)."""
@@ -1572,16 +1790,20 @@ class MemoryEngine:
         session_id: str = "",
         source: str = "auto_extracted",
         min_confidence: float = 0.4,
+        promote: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Extract candidate facts from conversation text using heuristic patterns.
 
-        QUARANTINE SEMANTICS: extracted candidates are stored in the
-        pending_facts quarantine via quarantine_fact() — they are NEVER written
-        to durable recall (remember()) automatically. Promote a candidate with
-        promote_pending() (CLI: `entropicmem pending promote <id>`) or drop it
-        with discard_pending(). Returns the list of quarantined candidates
-        ({id, content, domain, importance, tag, pending: True}).
+        QUARANTINE SEMANTICS: every extracted candidate is recorded in the
+        pending_facts quarantine via quarantine_fact(). When the write policy
+        allows the candidate, it is ALSO promoted to durable facts (EM-111 —
+        extraction now has a promotion path); the pending row remains as the
+        extraction record until the TTL purge (prune_pending). Promote or drop
+        a candidate explicitly with promote_pending() (CLI: `entropicmem
+        pending promote <id>`) or discard_pending(). Returns the list of
+        quarantined candidates ({id, content, domain, importance, tag,
+        pending: True}).
 
         This is a regex-based extraction — no LLM required.
         Designed for zero-cost, zero-latency background extraction.
@@ -1603,7 +1825,7 @@ class MemoryEngine:
                     continue
                 self._quarantine_candidate(
                     extracted, content, source, session_id,
-                    importance, domain, tag, "auto_extract",
+                    importance, domain, tag, "auto_extract", promote,
                 )
 
         # Preference detection via common patterns
@@ -1619,7 +1841,7 @@ class MemoryEngine:
                     continue
                 self._quarantine_candidate(
                     extracted, content, source, session_id,
-                    importance, domain, "preference", "auto_extract_preference",
+                    importance, domain, "preference", "auto_extract_preference", promote,
                 )
 
         return extracted
@@ -1634,6 +1856,7 @@ class MemoryEngine:
         domain: str,
         tag: str,
         reason: str,
+        promote: bool = True,
     ) -> None:
         """Dedup + quarantine one candidate; append to ``extracted`` if stored."""
         eid = StoredFact.make_id(content)
@@ -1642,7 +1865,7 @@ class MemoryEngine:
         if self.db.execute("SELECT 1 FROM pending_facts WHERE id = ?", (eid,)).fetchone():
             return
 
-        # Quarantine — never auto-promote into durable facts
+        # Quarantine — every extraction is recorded in pending_facts
         stored_id = self.quarantine_fact(
             content=content,
             source=source,
@@ -1652,6 +1875,23 @@ class MemoryEngine:
             session_id=session_id,
             reason=reason,
         )
+        # EM-111: extraction now has a promotion path — when the write policy
+        # allows the candidate it goes to durable facts too; the pending row
+        # stays as the extraction record (TTL-pruned by prune_pending).
+        # Background paths (session-end capture) pass promote=False and stay
+        # pending-only.
+        if promote:
+            try:
+                self.remember(
+                    content=content,
+                    source="promoted",
+                    importance=importance,
+                    domain=domain,
+                    tags=[tag],
+                    session_id=session_id,
+                )
+            except ValueError:
+                pass  # policy-blocked or empty after sanitize: stays quarantined
         extracted.append({
             "id": stored_id,
             "content": content,
@@ -1720,6 +1960,64 @@ class MemoryEngine:
             for r in rows
         ]
 
+    def _served(self, facts: List[StoredFact]) -> List[StoredFact]:
+        """R3/EM-106: serving a fact (``recall()`` returns it to the caller)
+        bumps ``last_accessed`` so actively-used facts stop decaying (one
+        batched UPDATE; f002 contract). Ranking (`recall_with_relevance`)
+        deliberately does NOT touch — ranking is not serving, and touching
+        there would rescue weak candidates from decay mid-pipeline. Prefetch
+        injection bumps via the provider's ``touch_on_inject`` write."""
+        if facts:
+            ts = datetime.now(timezone.utc).isoformat()
+            self.touch([f.id for f in facts])
+            for f in facts:
+                f.last_accessed = ts
+        return facts
+
+    def touch(self, fact_ids: Sequence[str]) -> int:
+        """Batched ``last_accessed`` bump for facts just served/injected."""
+        ids = [i for i in fact_ids if i]
+        if not ids:
+            return 0
+        ts = datetime.now(timezone.utc).isoformat()
+        marks = ",".join("?" * len(ids))
+        cur = self.db.execute(
+            f"UPDATE facts SET last_accessed = ? WHERE id IN ({marks})",
+            (ts, *ids),
+        )
+        self.db.commit()
+        return cur.rowcount
+
+    def _decay_factor(
+        self,
+        fact: StoredFact,
+        now_ts: datetime,
+        half_life_days: float,
+        decay_floor: float,
+        evergreen_domains: Set[str],
+    ) -> float:
+        """EM-106: decay that cannot erase durable memory.
+
+        1.0 when the fact is durable (importance ≥ 0.75, evergreen domain,
+        ``built_in_memory``/``promoted`` source, or a ``pinned`` tag).
+        Otherwise ``max(decay_floor, exp(-λ·age))`` with age from the most
+        recent of ``updated_at``/``last_accessed`` and λ = ln2/half_life —
+        floor default 0.5, half-life default 90 days.
+        """
+        if (
+            fact.importance >= 0.75
+            or fact.domain in evergreen_domains
+            or fact.source in ("built_in_memory", "promoted")
+            or "pinned" in (fact.tags or [])
+        ):
+            return 1.0
+        stamps = [s for s in (_parse_ts(fact.updated_at), _parse_ts(fact.last_accessed)) if s]
+        if not stamps:
+            return 1.0
+        age_days = max(0.0, (now_ts - max(stamps)).total_seconds() / 86400.0)
+        lam = math.log(2) / half_life_days if half_life_days > 0 else 0.0
+        return max(decay_floor, math.exp(-lam * age_days))
+
     def recall_with_relevance(
         self,
         query: str,
@@ -1727,15 +2025,17 @@ class MemoryEngine:
         domain: Optional[str] = None,
         min_relevance: float = 0.0,
         decay_enabled: bool = True,
-        decay_half_life_days: float = 30.0,
+        decay_half_life_days: float = 90.0,
+        decay_floor: float = 0.5,
+        evergreen_domains: Optional[Sequence[str]] = None,
         reinforcement_boost: float = 0.1,
         auto_reinforce: bool = False,
     ) -> List[StoredFact]:
-        """Full-text search with relevance scoring and temporal decay.
+        """Full-text search with absolute relevance scoring and EM-106 decay.
 
-        Returns facts ranked by combined relevance + decay score.
-        Uses FTS5 bm25() ranking normalized to 0-1 scale.
-        Applies exponential temporal decay to older, unreinforced facts.
+        Scores: relevance = 0.75*coverage + 0.25*rank_bonus; combined =
+        clip(relevance * decay_factor * (0.85 + 0.3*importance), 0, 1).
+        Decay never erases durable memory (see ``_decay_factor``).
         Auto-reinforce is opt-in (default False) to avoid write-on-read.
         """
         if not query.strip():
@@ -1744,6 +2044,9 @@ class MemoryEngine:
         # Shared FTS5 query builder — same fields (content/title/tags) as
         # recall() so prefetch and recall agree on what a query means.
         fts_query = build_fts_query(query, fields=("content", "title", "tags"))
+        # '' from the builder means no FTS terms: skip straight to the
+        # escaped LIKE fallback below (literal-substring search for symbol
+        # queries like "%"/"_"); only an empty query is 'no matches'.
 
         where = ""
         params: tuple = ()
@@ -1770,65 +2073,59 @@ class MemoryEngine:
             match_failed = fts_reason == FTS_REASON_MATCH_ERROR
 
         if not rows:
+            if not _like_fallback_ok(query, match_failed):
+                return []
             return self._recall_like_fallback(
                 query, top_k, domain, min_relevance, match_error=match_failed,
             )
 
-        # Normalize bm25 scores to 0-1
-        ranks = [row["rank"] for row in rows]
-        min_rank = min(ranks)
-        max_rank = max(ranks)
-        rank_range = max_rank - min_rank if max_rank != min_rank else 1.0
+        # EM-105: absolute scoring (R1/R4) — replaces min-max normalisation.
+        # relevance = 0.75 * lexical coverage + 0.25 * rank_bonus where
+        # rank_bonus = 1/(1 + 0.15 * bm25_rank_index) (row order is bm25).
+        # combined = relevance * decay_factor * (0.85 + 0.3 * importance),
+        # clipped to [0, 1]; min_relevance applies to combined.
+        query_terms = coverage_terms(query)
 
-        # Compute decay factor
-        lambda_decay = math.log(2) / decay_half_life_days if decay_enabled else 0
+        # EM-106 decay config (defaults per plan: People evergreen, floor 0.5)
+        evergreen: Set[str] = set(evergreen_domains) if evergreen_domains is not None else {"People"}
         now_ts = datetime.now(timezone.utc)
 
         results = []
-        for row in rows:
+        for idx, row in enumerate(rows):
             fact = self._row_to_fact(row)
 
-            # Normalize relevance: 0 = least, 1 = most
-            if rank_range > 0:
-                fact.relevance_score = 1.0 - ((row["rank"] - min_rank) / rank_range)
-            else:
-                fact.relevance_score = 1.0
+            text = " ".join(
+                p for p in (fact.title, fact.content, " ".join(fact.tags or [])) if p
+            )
+            lex = coverage(query_terms, text)
+            rank_bonus = 1.0 / (1.0 + 0.15 * idx)
+            relevance = 0.75 * lex + 0.25 * rank_bonus
 
-            # Compute temporal decay
-            if decay_enabled and fact.last_accessed:
-                try:
-                    last = datetime.fromisoformat(fact.last_accessed)
-                    # Handle timezone-naive datetimes
-                    if last.tzinfo is None:
-                        last = last.replace(tzinfo=timezone.utc)
-                    days_since = (now_ts - last).total_seconds() / 86400.0
-                    fact.decay_score = math.exp(-lambda_decay * days_since)
-                except (ValueError, OverflowError):
-                    fact.decay_score = 1.0
-            else:
-                fact.decay_score = 1.0
+            # EM-106: decay that cannot erase durable memory
+            fact.decay_score = (
+                self._decay_factor(
+                    fact, now_ts, decay_half_life_days, decay_floor, evergreen,
+                )
+                if decay_enabled
+                else 1.0
+            )
 
-            # Reinforcement boost: cap at 10 accesses
-            boost = 1.0 + reinforcement_boost * min(fact.access_count, 10)
-            combined_score = fact.relevance_score * fact.decay_score * boost
+            combined_score = relevance * fact.decay_score * (0.85 + 0.3 * fact.importance)
+            combined_score = min(1.0, max(0.0, combined_score))
 
             # Apply min relevance filter
             if combined_score >= min_relevance:
-                # Override relevance_score with combined for sorting
                 fact.relevance_score = combined_score
+                fact.why_retrieved = self._build_reasons(
+                    fts_match=True,
+                    recency_applied=decay_enabled,
+                    importance_applied=True,
+                    domain_filtered=bool(domain),
+                ) + [{"signal": "coverage", "value": round(lex, 4)}]
                 results.append(fact)
 
         # Sort by combined score (descending)
         results.sort(key=lambda f: f.relevance_score, reverse=True)
-
-        # Populate why_retrieved for all results
-        for f in results:
-            f.why_retrieved = self._build_reasons(
-                fts_match=True,
-                recency_applied=decay_enabled,
-                importance_applied=True,
-                domain_filtered=bool(domain),
-            )
 
         # Auto-reinforce returned facts (opt-in)
         if auto_reinforce:
@@ -2030,6 +2327,24 @@ class MemoryEngine:
             self._release_write_lock()
         self.audit("episode_add", fact_id=eid, detail=f"domain={domain};source={source}")
         return eid
+
+    def next_episode_wave(self, episode_base: str) -> int:
+        """Next cadence wave number for a session (EM-112, L5).
+
+        Returns max(existing ``{episode_base}_wN``) + 1 so cadence digests
+        never overwrite earlier waves — monotonic even across restarts and
+        deletions.
+        """
+        rows = self.db.execute(
+            "SELECT episode_id FROM episodes WHERE episode_id LIKE ?",
+            (episode_base + "_w%",),
+        ).fetchall()
+        n = 0
+        for (ep_id,) in rows:
+            m = re.search(r"_w(\d+)$", ep_id)
+            if m:
+                n = max(n, int(m.group(1)))
+        return n + 1
 
     def list_episodes(
         self,
@@ -2445,6 +2760,52 @@ class MemoryEngine:
         intersection = set_a & set_b
         union = set_a | set_b
         return len(intersection) / len(union)
+
+    # EM-109: critical tokens whose change must block a fuzzy in-place update
+    _NUMBER_WORDS = {
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+        "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+        "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty",
+        "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred",
+        "thousand", "million", "half", "quarter", "first", "second", "third",
+    }
+    _NEGATION_TOKENS = {
+        "no", "not", "never", "without", "none", "nobody", "nothing",
+        "cannot", "cant", "dont", "doesnt", "isnt", "arent", "wasnt",
+        "werent", "wont", "wouldnt", "shouldnt", "couldnt", "didnt",
+    }
+    _TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9.\-_:]*")
+
+    @classmethod
+    def _critical_tokens(cls, text: str) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+        """(numbers/versions/IPs/dates, negations) as sorted tuples.
+
+        Tokens are split on separators first so embedded number words in
+        identifiers ("alpha-seven.internal") count too.
+        """
+        numbers: Set[str] = set()
+        negations: Set[str] = set()
+        for token in cls._TOKEN_RE.findall(text.lower()):
+            for part in re.split(r"[.\-_:]+", token):
+                if not part:
+                    continue
+                if any(ch.isdigit() for ch in part) or part in cls._NUMBER_WORDS:
+                    numbers.add(part)
+                if part in cls._NEGATION_TOKENS:
+                    negations.add(part)
+        return tuple(sorted(numbers)), tuple(sorted(negations))
+
+    @classmethod
+    def _safe_fuzzy_update(cls, content: str, old_content: str) -> bool:
+        """EM-109: may a fuzzy near-duplicate update in place?
+
+        Only when Jaccard >= 0.95 AND the numbers/versions/IPs/dates are
+        identical AND the negation tokens are identical. Anything else must
+        insert as a new fact (never a silent overwrite).
+        """
+        if cls._jaccard_similarity(content, old_content) < 0.95:
+            return False
+        return cls._critical_tokens(content) == cls._critical_tokens(old_content)
 
     def _find_fuzzy_duplicate(self, content: str, threshold: float = 0.8) -> Optional[str]:
         """Find an existing fact with Jaccard similarity >= threshold.

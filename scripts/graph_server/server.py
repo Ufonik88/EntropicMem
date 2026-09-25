@@ -17,9 +17,19 @@ import json
 # Bind policy: the read endpoints below serve full vault content, so serving
 # on a non-loopback bind is refused at startup unless
 # ENTROPICMEM_GRAPH_EXPOSE=1 explicitly opts in; whenever the process is not
-# loopback-bound, the body-bearing read endpoints require the same
-# ENTROPICMEM_GRAPH_TOKEN as /refresh (loopback stays tokenless — the local
-# trust plane).
+# loopback-bound, the body-bearing read endpoints require the same token as
+# /refresh (loopback stays tokenless — the local trust plane).
+#
+# EM-114 request hardening (every route except /health):
+#   * Host allowlist — the Host header must name a loopback host (or, with
+#     ENTROPICMEM_GRAPH_EXPOSE=1, a bind host / ENTROPICMEM_GRAPH_ALLOWED_HOSTS
+#     entry) on the port this server actually listens on. Defeats DNS
+#     rebinding against the tokenless loopback trust plane.
+#   * Content-Security-Policy + nosniff/no-referrer on every response.
+#   * Token: ENTROPICMEM_GRAPH_TOKEN when set, otherwise a random per-run
+#     token written (0600) to HERMES_HOME/entropicmem/graph_server.token at
+#     startup, so /refresh works without a static secret yet a browser page
+#     can never obtain it.
 #
 # Path resolution (portable - no hard-coded user home paths):
 #   HERMES_HOME                 default ~/.hermes; override via env
@@ -35,13 +45,14 @@ import json
 #   GET /api/note/{note_id} lazy-loads body when the embedded export omitted
 #   it (or for notes opened after a lean export).
 import os
+import secrets
 import sqlite3
 import sys
 from collections import deque
 from pathlib import Path
 from urllib.parse import unquote
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 HERE = Path(__file__).resolve().parent
@@ -114,21 +125,64 @@ DEFAULT_VAULT = HERMES_HOME / "entropicmem" / "vault"
 
 app = FastAPI(title="EntropicMem Graph")
 
+# Random per-run token (EM-114): the credential whenever no static
+# ENTROPICMEM_GRAPH_TOKEN is configured. New on every process start.
+RUN_TOKEN = secrets.token_urlsafe(32)
+RUN_TOKEN_FILE = HERMES_HOME / "entropicmem" / "graph_server.token"
 
-def _refresh_token() -> str:
+
+def _env_token() -> str:
     return (os.environ.get("ENTROPICMEM_GRAPH_TOKEN") or "").strip()
 
 
+def _refresh_token() -> str:
+    """The one accepted token: the configured static one, else the per-run one."""
+    return _env_token() or RUN_TOKEN
+
+
 def _require_token(x_entropicmem_token: str | None) -> None:
-    expected = _refresh_token()
-    if not expected:
+    provided = (x_entropicmem_token or "").strip()
+    if not provided and not _env_token():
+        # No static token configured: only the per-run token opens this.
         raise HTTPException(
             status_code=403,
-            detail="Access disabled: set ENTROPICMEM_GRAPH_TOKEN to enable",
+            detail=(
+                "Token required: send X-EntropicMem-Token with the per-run token "
+                "from HERMES_HOME/entropicmem/graph_server.token, or set "
+                "ENTROPICMEM_GRAPH_TOKEN"
+            ),
         )
-    provided = (x_entropicmem_token or "").strip()
-    if not provided or not hmac.compare_digest(provided, expected):
+    if not provided or not hmac.compare_digest(
+        provided.encode(), _refresh_token().encode()
+    ):
         raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+
+def _write_run_token_file() -> None:
+    """Publish the per-run token to its owner-only file (only when it is the
+    active credential); drop a stale file when a static token is configured."""
+    if _env_token():
+        _remove_run_token_file(force=True)
+        return
+    RUN_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = RUN_TOKEN_FILE.with_name(RUN_TOKEN_FILE.name + ".tmp")
+    try:
+        tmp.unlink()
+    except FileNotFoundError:
+        pass
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="ascii") as fh:
+        fh.write(RUN_TOKEN + "\n")
+    os.replace(tmp, RUN_TOKEN_FILE)
+
+
+def _remove_run_token_file(*, force: bool = False) -> None:
+    """Remove the token file if it still holds this run's token (or always)."""
+    try:
+        if force or RUN_TOKEN_FILE.read_text(encoding="ascii").strip() == RUN_TOKEN:
+            RUN_TOKEN_FILE.unlink()
+    except (FileNotFoundError, OSError):
+        pass
 
 
 # ── bind policy (enforces the loopback-only claim) ──────────────────────────
@@ -253,6 +307,113 @@ def _require_token_if_exposed(x_entropicmem_token: str | None) -> None:
         _require_token(x_entropicmem_token)
 
 
+# ── Host allowlist (DNS-rebinding guard) ────────────────────────────────────
+
+_WILDCARD_HOSTS = {"0.0.0.0", "::", "*", ""}
+
+
+def _norm_host(host: str) -> str:
+    return (host or "").strip().lower().strip("[]")
+
+
+def _allowed_host_names() -> set:
+    """Host-header names this server answers to.
+
+    Loopback names always (plus any loopback bind address). Non-loopback
+    names only when ENTROPICMEM_GRAPH_EXPOSE=1: the concrete bind hosts and
+    ENTROPICMEM_GRAPH_ALLOWED_HOSTS (comma-separated; needed for a wildcard
+    bind, whose address no client sends). Wildcards are never allowed.
+    """
+    names = {"127.0.0.1", "localhost", "::1"}
+    binds = {_norm_host(h) for h in (_bind_hosts() or set())}
+    names |= {h for h in binds if _is_loopback_host(h)}
+    if _expose_override():
+        names |= binds
+        extra = os.environ.get("ENTROPICMEM_GRAPH_ALLOWED_HOSTS") or ""
+        names |= {_norm_host(h) for h in extra.split(",")}
+    return names - _WILDCARD_HOSTS
+
+
+def _split_host_header(value: str) -> tuple[str, int | None] | None:
+    """(hostname, port) from a Host header; None if malformed."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    if value.startswith("["):
+        end = value.find("]")
+        if end < 0:
+            return None
+        host, rest = value[1:end], value[end + 1:]
+        if rest and not rest.startswith(":"):
+            return None
+        port_s = rest[1:] if rest else ""
+    elif value.count(":") == 1:
+        host, port_s = value.split(":", 1)
+    elif ":" in value:
+        return None  # bare IPv6 must be bracketed
+    else:
+        host, port_s = value, ""
+    if port_s and not port_s.isdigit():
+        return None
+    return _norm_host(host), (int(port_s) if port_s else None)
+
+
+def _host_allowed(host_header: str, server: tuple | None) -> bool:
+    """True if the Host header names an allowed host on the actual port.
+
+    ``server`` is the ASGI scope's (host, port) of the listening socket. A
+    Host without a port means :80. When the listening port is unknown (e.g. a
+    unix socket) only the hostname is checked.
+    """
+    parsed = _split_host_header(host_header)
+    if parsed is None:
+        return False
+    name, port = parsed
+    if name not in _allowed_host_names():
+        return False
+    actual_port = server[1] if server and len(server) > 1 else None
+    if actual_port is None:
+        return True
+    return (port if port is not None else 80) == actual_port
+
+
+# ── security headers ────────────────────────────────────────────────────────
+
+# graph.html loads D3 (d3js.org), marked (jsdelivr) and Google Fonts, runs
+# inline script/style, and fetches only its own origin. connect-src 'self'
+# keeps vault content from being sent anywhere else; img-src excludes remote
+# images so rendered markdown cannot beacon out.
+CSP = (
+    "default-src 'none'; "
+    "script-src 'self' 'unsafe-inline' https://d3js.org https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+)
+SECURITY_HEADERS = {
+    "Content-Security-Policy": CSP,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+@app.middleware("http")
+async def _request_hardening(request: Request, call_next):
+    """Host allowlist on every route but /health, then security headers on
+    every response (errors included)."""
+    if request.url.path != "/health" and not _host_allowed(
+        request.headers.get("host", ""), request.scope.get("server")
+    ):
+        response = JSONResponse({"detail": "invalid Host header"}, status_code=400)
+    else:
+        response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
 def _enforce_bind_policy() -> None:
     """Startup gate: refuse a non-loopback bind without the explicit override.
 
@@ -274,6 +435,12 @@ def _enforce_bind_policy() -> None:
 @app.on_event("startup")
 async def _startup_bind_guard() -> None:
     _enforce_bind_policy()
+    _write_run_token_file()
+
+
+@app.on_event("shutdown")
+async def _shutdown_token_cleanup() -> None:
+    _remove_run_token_file()
 
 
 def _vault_root() -> Path:
@@ -418,7 +585,12 @@ def health():
         policy = "non-loopback without ENTROPICMEM_GRAPH_EXPOSE=1 (refused at startup)"
     if _expose_override() and "ENTROPICMEM_GRAPH_EXPOSE" not in policy:
         policy += "; ENTROPICMEM_GRAPH_EXPOSE=1 set"
-    return {"ok": True, "bind_policy": policy, "token_required": not loopback}
+    return {
+        "ok": True,
+        "bind_policy": policy,
+        "token_required": not loopback,
+        "token_source": "env" if _env_token() else "per-run",
+    }
 
 
 @app.post("/refresh")

@@ -4,9 +4,9 @@
    and record metrics (prefetch latency distribution, injection sizes,
    cumulative prompt tokens with host replay, spill/timeout counters).
 2. Two-profile: two FakeHosts with different HERMES_HOMEs in one process must
-   not see each other's memories. v2.7 bleeds (engine resolves the profile from
-   os.environ['HERMES_HOME'] — the decoy the harness sets post-initialize) →
-   xfail until EM-102.
+   not see each other's memories (regression guard for the v2.7 bleed, fixed
+   in EM-102: the engine resolved the profile from os.environ['HERMES_HOME'],
+   the decoy the harness sets post-initialize).
 """
 
 import time
@@ -104,10 +104,10 @@ def test_smoke_20_turns(make_provider, home_a, smoke_metrics_path):
 def test_two_profiles_do_not_bleed(make_provider, home_a, home_b):
     """AC-2: distinct homes in ONE process must not share memories.
 
-    Demonstrates the v2.7 profile bleed: the engine resolves `profile_id` from
-    os.environ['HERMES_HOME'] — which the harness poisons with a decoy after
-    initialize — so facts written under profile A land stamped as the decoy/
-    wrong profile, and A's recall can surface B's rows. xfail until EM-102.
+    Demonstrates the v2.7 profile bleed (fixed by EM-102): the engine resolved
+    `profile_id` from os.environ['HERMES_HOME'] — which the harness poisons
+    with a decoy after initialize — so facts written under profile A landed
+    stamped as the decoy/wrong profile, and A's recall could surface B's rows.
     """
     provider_a = make_provider()
     provider_b = make_provider()
@@ -152,8 +152,3 @@ def test_two_profiles_do_not_bleed(make_provider, home_a, home_b):
     host_a.shutdown()
     host_b.shutdown()
 
-
-# Mark the bleed demonstration as expected-to-fail until EM-102 lands.
-test_two_profiles_do_not_bleed = pytest.mark.xfail(
-    strict=True, reason="profile bleed via os.environ['HERMES_HOME'] post-init (EM-102 fixes)"
-)(test_two_profiles_do_not_bleed)

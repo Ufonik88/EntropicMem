@@ -26,8 +26,11 @@ export/
 !export/graph.html
 !evals/baselines/*.json
 
-# Eval results are generated per run (baselines above are the committed ones)
-evals/results/
+# Eval results are generated per run (baselines above are the committed ones).
+# Ignore the directory's *contents*, not the directory itself: git cannot
+# re-include a file whose parent directory is excluded, so `evals/results/`
+# would make the perf-*.json negation below a silent no-op.
+evals/results/*
 
 # Perf bench results are generated artifacts (EM-005); allow them despite the
 # blanket *.json privacy guard. Never contains user data — seeded corpus only.

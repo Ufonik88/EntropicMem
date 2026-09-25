@@ -154,7 +154,8 @@ class TestTokenBudget:
         assert total_chars <= 1000
 
     def test_budget_with_truncation(self):
-        """Test that facts are truncated when needed."""
+        """EM-107(c): facts are never truncated mid-fact — an oversized fact
+        is skipped whole and packing continues."""
         facts = [
             StoredFact(id="1", content="A" * 800, importance=0.9),
             StoredFact(id="2", content="B" * 800, importance=0.8),
@@ -163,26 +164,24 @@ class TestTokenBudget:
         provider = EntropicMemMemoryProvider(config={"prefetch_token_budget": 1000})
         result = provider._apply_token_budget(facts)
 
-        # Should have first fact and truncated second
-        assert len(result) == 2
-        assert len(result[0].content) == 800
-        assert len(result[1].content) < 800
-        assert result[1].content.endswith("...")
+        # First fact fits whole; the second is skipped, not cut
+        assert len(result) == 1
+        assert result[0].content == "A" * 800
 
     def test_importance_priority(self):
-        """Test that higher importance facts are kept first."""
+        """EM-107(c): packing priority is the combined score, not importance."""
         facts = [
-            StoredFact(id="1", content="A" * 500, importance=0.3),
-            StoredFact(id="2", content="B" * 500, importance=0.9),
-            StoredFact(id="3", content="C" * 500, importance=0.6),
+            StoredFact(id="1", content="A" * 500, importance=0.3, relevance_score=0.3),
+            StoredFact(id="2", content="B" * 500, importance=0.9, relevance_score=0.9),
+            StoredFact(id="3", content="C" * 500, importance=0.6, relevance_score=0.6),
         ]
 
         provider = EntropicMemMemoryProvider(config={"prefetch_token_budget": 800})
         result = provider._apply_token_budget(facts)
 
-        # Should keep highest importance fact
+        # Only one fits; the highest combined score must win
         kept_ids = [f.id for f in result]
-        assert "2" in kept_ids  # Highest importance
+        assert "2" in kept_ids
 
 
 # ── Test Deduplication ────────────────────────────────────────────────────
@@ -300,8 +299,9 @@ class TestProgressiveDisclosure:
     """Test tiered relevance filtering."""
 
     def test_high_relevance_tier(self):
-        """Test high relevance tier selection."""
+        """Test high relevance tier selection (opt-in; EM-107(b) default off)."""
         provider = EntropicMemMemoryProvider(config={
+            "progressive_disclosure": True,
             "high_relevance_threshold": 0.7,
             "medium_relevance_threshold": 0.4,
         })
@@ -318,8 +318,9 @@ class TestProgressiveDisclosure:
         assert all(f.relevance_score >= 0.7 for f in result)
 
     def test_medium_relevance_tier(self):
-        """Test medium relevance tier fallback."""
+        """Test medium relevance tier fallback (opt-in; EM-107(b) default off)."""
         provider = EntropicMemMemoryProvider(config={
+            "progressive_disclosure": True,
             "high_relevance_threshold": 0.7,
             "medium_relevance_threshold": 0.4,
         })
@@ -357,8 +358,12 @@ class TestConversationContext:
     """Test conversation context awareness."""
 
     def test_context_query_building(self):
-        """Test context-enhanced query building."""
-        provider = EntropicMemMemoryProvider(config={"context_window_turns": 2})
+        """Test context-enhanced query building (concat mode; EM-107(a) made
+        'current' the default, 'concat' keeps this behaviour)."""
+        provider = EntropicMemMemoryProvider(config={
+            "context_query_mode": "concat",
+            "context_window_turns": 2,
+        })
         provider._conversation_history = [
             {"role": "user", "content": "Tell me about Python"},
             {"role": "assistant", "content": "Python is great"},
@@ -466,14 +471,17 @@ class TestFormatting:
         assert result == ""
 
     def test_format_truncation(self):
-        """Test long content truncation."""
+        """EM-107(d): _format_block never truncates — the budget stage already
+        caps the block, and the second 300-char cut ended bullets mid-word."""
         provider = EntropicMemMemoryProvider()
+        content = "A" * 400
         facts = [
-            StoredFact(id="abc", content="A" * 400, relevance_score=0.5),
+            StoredFact(id="abc", content=content, relevance_score=0.5),
         ]
 
         result = provider._format_block(facts)
-        assert "..." in result
+        assert content in result
+        assert "..." not in result
 
 
 # ── Integration Test ──────────────────────────────────────────────────────

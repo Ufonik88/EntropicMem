@@ -135,6 +135,15 @@ _SIM_HERMES_HOME: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar
 )
 
 
+# Live (started, not yet shut down) hosts in start order. Each host's
+# ``_saved_env_home`` is the HERMES_HOME it found at start(), which may be an
+# earlier host's decoy; shutdown() splices the host out of that chain so
+# overlapping hosts can shut down in any order and the process env still
+# unwinds to the value from before the first host started.
+_ENV_LOCK = threading.Lock()
+_LIVE_ENV_HOSTS: List["FakeHost"] = []
+
+
 def get_simulated_hermes_home() -> Optional[str]:
     """The context-local fake HERMES_HOME (test providers may read this instead of env)."""
     return _SIM_HERMES_HOME.get()
@@ -297,7 +306,9 @@ class FakeHost:
         # env-based resolution visibly lands on the decoy.
         import os
 
-        os.environ["HERMES_HOME"] = str(self._decoy_env_home)
+        with _ENV_LOCK:
+            os.environ["HERMES_HOME"] = str(self._decoy_env_home)
+            _LIVE_ENV_HOSTS.append(self)
         self._system_block = self._in_host(lambda: self.provider.system_prompt_block() or "")
         self._worker.start()
         self._started = True
@@ -419,10 +430,13 @@ class FakeHost:
                 return ""
 
         box: Dict[str, Any] = {}
+        # Bind the session now: the worker thread must not read the live
+        # attribute, which new_session()/compress() may change before it runs.
+        session_id = self._session_id
 
         def _run() -> None:
             try:
-                box["value"] = self.provider.prefetch(query, session_id=self._session_id) or ""
+                box["value"] = self.provider.prefetch(query, session_id=session_id) or ""
             except Exception as e:
                 box["error"] = e
 
@@ -653,20 +667,37 @@ class FakeHost:
         except Exception as e:
             self._record_error(f"shutdown: {e}")
         if self._saved_env_home is not None:
-            import os
+            self._unwind_env_home()
+        self._revert_home_override()
+        self._closed = True
+        return state
 
-            was_present, saved_value = self._saved_env_home
-            # Only unwind OUR decoy: with overlapping hosts and out-of-order
-            # shutdown, the current value may belong to another still-live host.
-            if os.environ.get("HERMES_HOME") == str(self._decoy_env_home):
+    def _unwind_env_home(self) -> None:
+        """Undo this host's HERMES_HOME decoy without clobbering live hosts.
+
+        If a still-live host started while our decoy was in the env, it saved
+        our decoy as its "previous" value: hand it OUR saved value instead
+        (splice us out of the chain) and leave the env alone, since it holds
+        that host's decoy (or ours, when both share a decoy path). Otherwise
+        restore our saved value, but only if the env still holds our decoy.
+        """
+        import os
+
+        mine = str(self._decoy_env_home)
+        with _ENV_LOCK:
+            if self in _LIVE_ENV_HOSTS:
+                _LIVE_ENV_HOSTS.remove(self)
+            successor = next((h for h in _LIVE_ENV_HOSTS
+                              if h._saved_env_home == (True, mine)), None)
+            if successor is not None:
+                successor._saved_env_home = self._saved_env_home
+            elif os.environ.get("HERMES_HOME") == mine:
+                was_present, saved_value = self._saved_env_home
                 if was_present and saved_value is not None:
                     os.environ["HERMES_HOME"] = saved_value
                 else:
                     os.environ.pop("HERMES_HOME", None)
             self._saved_env_home = None
-        self._revert_home_override()
-        self._closed = True
-        return state
 
     # -- prompt / replay accounting -----------------------------------------------
 

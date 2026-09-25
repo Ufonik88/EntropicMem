@@ -24,7 +24,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from agent.memory_provider import MemoryProvider
 
@@ -136,7 +136,7 @@ CONSOLIDATE_SCHEMA = {
 
 SMART_CONTEXT_DEFAULTS = {
     # Relevance filtering
-    "min_relevance_score": 0.3,
+    "min_relevance_score": 0.35,
     "max_prefetch_results": 5,
 
     # Token budget (max characters per prefetch turn)
@@ -148,6 +148,13 @@ SMART_CONTEXT_DEFAULTS = {
     # Domain filtering (empty = all domains)
     "enabled_domains": [],
 
+    # Decay & access tracking (EM-106): decay never erases durable memory
+    "decay_enabled": True,
+    "decay_half_life_days": 90,
+    "decay_floor": 0.5,
+    "evergreen_domains": ["People"],
+    "touch_on_inject": True,
+
     # Progressive disclosure thresholds
     "high_relevance_threshold": 0.7,
     "medium_relevance_threshold": 0.4,
@@ -155,6 +162,10 @@ SMART_CONTEXT_DEFAULTS = {
     # Conversation context awareness
     "context_window_turns": 3,
     "max_context_query_length": 1000,
+    # EM-107: 'current' (query only) or 'concat' (prior user turns, old F-006)
+    "context_query_mode": "current",
+    # EM-107: tiered disclosure off by default (old max-2 cap, F-007/R7)
+    "progressive_disclosure": False,
 
     # Cache behavior
     "cache_conversation_context": True,
@@ -164,6 +175,17 @@ SMART_CONTEXT_DEFAULTS = {
     "auto_extract_enabled": False,
     "core_memory_writable": False,
     "reinforce_on_recall": False,
+    # EM-108: agent-triggered real consolidation needs operator opt-in
+    "allow_agent_consolidate": False,
+    # EM-116: core memory goes to the system prompt, not per-turn prefetch
+    "core_inject_mode": "system_prompt",
+    # EM-118: interim gateway privacy guard (owner/guest separation)
+    "owner_user_ids": [],
+    "guest_hidden_domains": ["People", "Finance"],
+    # EM-110: mirror built-in writes (background_review opt-in)
+    "mirror": {"background_review": False},
+    # EM-115: region-specific PII locale packs (opt-in, default generic only)
+    "locale_packs": [],
 
     # P1 Slice 2: lifecycle hooks (A1/A2/A5/C1)
     "session_end_capture": True,
@@ -174,14 +196,6 @@ SMART_CONTEXT_DEFAULTS = {
     "prefetch_denied_sources": [
         "auto_extracted",
         "test",
-        "phase1_verify",
-        "phase1_cron_context",
-        "phase5",
-        "phase5_e2e",
-        "h2_test",
-        "cron_self_test",
-        "cron_path_test",
-        "cutover_verify",
     ],
 }
 
@@ -239,6 +253,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         self._config = {**SMART_CONTEXT_DEFAULTS, **self._explicit_config}
         self._scripts_dir: Optional[Path] = None
         self._hermes_home: Optional[Path] = None
+        self._profile_id: Optional[str] = None
         self._vault_path: Optional[Path] = None
         self._index_db: Optional[Path] = None
         self._memory_db: Optional[Path] = None
@@ -277,8 +292,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     def is_available(self) -> bool:
         try:
-            # HERMES_HOME env first, then ~/.hermes — never a hardcoded home.
-            hh = hermes_home_from_kwargs({})
+            # Stored profile home (initialize) first, then HERMES_HOME env,
+            # then ~/.hermes — never a hardcoded home.
+            hh = self._hermes_home or hermes_home_from_kwargs({})
             scripts = resolve_scripts_dir(hh)
             return scripts is not None
         except Exception:
@@ -304,8 +320,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
             # Smart Context Management
             {
                 "key": "min_relevance_score",
-                "description": "Minimum FTS5 relevance score for prefetch (0.0-1.0)",
-                "default": 0.3,
+                "description": "Minimum combined relevance score for prefetch (0.0-1.0; absolute coverage-based since 2.8.0)",
+                "default": 0.35,
             },
             {
                 "key": "max_prefetch_results",
@@ -346,6 +362,16 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "key": "max_context_query_length",
                 "description": "Maximum length of context-enhanced query",
                 "default": 1000,
+            },
+            {
+                "key": "context_query_mode",
+                "description": "Enhanced query mode: 'current' (query only) or 'concat' (prior user turns)",
+                "default": "current",
+            },
+            {
+                "key": "progressive_disclosure",
+                "description": "Tiered relevance caps in prefetch (off by default since 2.8.0)",
+                "default": False,
             },
             {
                 "key": "cache_conversation_context",
@@ -419,7 +445,52 @@ class EntropicMemMemoryProvider(MemoryProvider):
             {
                 "key": "decay_half_life_days",
                 "description": "Half-life for memory decay in days",
-                "default": 30,
+                "default": 90,
+            },
+            {
+                "key": "decay_floor",
+                "description": "Minimum decay factor for non-durable facts (they are never erased)",
+                "default": 0.5,
+            },
+            {
+                "key": "evergreen_domains",
+                "description": "Domains whose facts never decay (default: People)",
+                "default": ["People"],
+            },
+            {
+                "key": "touch_on_inject",
+                "description": "Bump last_accessed for injected facts via background write",
+                "default": True,
+            },
+            {
+                "key": "allow_agent_consolidate",
+                "description": "Allow entropicmem_consolidate to archive for real (confirm=true still required)",
+                "default": False,
+            },
+            {
+                "key": "core_inject_mode",
+                "description": "Where Core Memory is injected: system_prompt (default; prefetch carries only a change delta) | prefetch (legacy full block every turn)",
+                "default": "system_prompt",
+            },
+            {
+                "key": "owner_user_ids",
+                "description": "EM-118: gateway user_ids that own this profile; anyone else is a guest (empty = shared pool + one-time warning)",
+                "default": [],
+            },
+            {
+                "key": "guest_hidden_domains",
+                "description": "EM-118: domains never prefetched for guest users",
+                "default": ["People", "Finance"],
+            },
+            {
+                "key": "mirror.background_review",
+                "description": "EM-110: mirror built-in writes with write_origin=background_review (default off)",
+                "default": False,
+            },
+            {
+                "key": "locale_packs",
+                "description": "EM-115: opt-in locale packs for region-specific PII patterns (e.g. [\"za\"]); default scans generic patterns only",
+                "default": [],
             },
             {
                 "key": "reinforcement_boost",
@@ -462,6 +533,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
         # write path checks _writes_allowed() against this.
         self._agent_context = str(kwargs.get("agent_context") or "primary")
         self._hermes_home = hermes_home_from_kwargs(kwargs)
+        # Profile slug for provenance stamping (H3/EM-102): explicit host
+        # identity, never an env read at write time.
+        self._profile_id = str(kwargs.get("agent_identity") or "").strip() or None
         # Precedence: defaults < file config < explicit constructor config.
         self._config = {
             **SMART_CONTEXT_DEFAULTS,
@@ -469,6 +543,17 @@ class EntropicMemMemoryProvider(MemoryProvider):
             **self._explicit_config,
         }
         self._scripts_dir = resolve_scripts_dir(self._hermes_home)
+        # EM-118: gateway identity for the interim owner/guest privacy guard
+        self._gateway_user_id = str(kwargs.get("user_id") or "").strip() or None
+        self._gateway_chat_type = str(kwargs.get("chat_type") or "").strip() or None
+        owners = [str(u).strip() for u in (self._config.get("owner_user_ids") or []) if str(u).strip()]
+        if self._gateway_user_id and not owners and not getattr(self.__class__, "_owner_warned", False):
+            self.__class__._owner_warned = True
+            logger.warning(
+                "EntropicMem: gateway user_id present but owner_user_ids is empty — "
+                "all users share one memory pool (set plugins.entropicmem.owner_user_ids). "
+                "Full per-user scoping remains a known limitation (S4)."
+            )
         if not self._scripts_dir:
             logger.warning("EntropicMem skill scripts not found — run /learn EntropicMem")
             return
@@ -485,12 +570,22 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 "Skill not installed. Run `/learn https://github.com/Ufonik88/EntropicMem` "
                 "then `entropicmem init`.\n"
             )
-        return (
+        base = (
             "# EntropicMem (active)\n"
             "Standalone memory: use `entropicmem_remember` for durable facts, "
             "`entropicmem_recall` for fact search, `entropicmem_query` for cited vault notes.\n"
             "CLI: `entropicmem lint`, `hotcache`, `graph export` for maintenance.\n"
         )
+        # EM-116: core memory lives in the system prompt, not per-turn prefetch
+        if self._config.get("core_inject_mode", "system_prompt") != "system_prompt":
+            return base
+        core = self._core_memory_block()
+        if not core:
+            return base
+        import hashlib
+
+        self._core_baseline = hashlib.sha256(core.encode("utf-8")).hexdigest()
+        return base + "\n\n" + core[:2800]
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         if query:
@@ -510,8 +605,13 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
         self._turn_counter += 1
         try:
-            # Phase 8: Core Memory always injected first (never cached)
-            core_block = self._core_memory_block()
+            # EM-116: core memory lives in the system prompt (default). Prefetch
+            # carries at most a one-line delta when core changed since session
+            # start; core_inject_mode "prefetch" keeps the legacy full block.
+            if self._config.get("core_inject_mode", "system_prompt") == "prefetch":
+                core_block = self._core_memory_block()
+            else:
+                core_block = self._core_delta_line()
 
             # Phase 2.3: Build context-aware query — also the cache key input
             enhanced_query = self._build_context_query(q)
@@ -532,6 +632,12 @@ class EntropicMemMemoryProvider(MemoryProvider):
             logger.debug("EntropicMem prefetch failed: %s", e)
             return ""
 
+    def _is_guest(self) -> bool:
+        """EM-118: gateway user is not in the (non-empty) owner list."""
+        owners = [str(u).strip() for u in (self._config.get("owner_user_ids") or []) if str(u).strip()]
+        uid = getattr(self, "_gateway_user_id", None)
+        return bool(uid) and bool(owners) and uid not in owners
+
     def _core_memory_block(self) -> str:
         """Core Memory (Persona / User Profile) injection block, screened. '' when disabled or missing."""
         if not (
@@ -544,7 +650,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
             ensure_scripts_on_path(self._scripts_dir)
             from vault import CoreMemory
             core = CoreMemory(Path(self._vault_path))
-            core_block = core.injection_block()
+            # EM-118: guests get Persona only — never the User Profile
+            core_block = core.injection_block(persona_only=self._is_guest())
             if core_block:
                 screened, _ = _screen_for_injection(core_block)
                 return screened
@@ -552,14 +659,47 @@ class EntropicMemMemoryProvider(MemoryProvider):
             logger.debug("EntropicMem core memory failed: %s", e)
         return ""
 
+    def _core_delta_line(self) -> str:
+        """EM-116: one-line delta when Core Memory changed since session start.
+
+        The baseline hash is recorded by system_prompt_block() — or by the
+        first prefetch when the host never asks for one. Unchanged core
+        produces '' (the full block lives in the system prompt).
+        """
+        core_block = self._core_memory_block()
+        if not core_block:
+            return ""
+        import hashlib
+
+        current = hashlib.sha256(core_block.encode("utf-8")).hexdigest()
+        if getattr(self, "_core_baseline", None) is None:
+            self._core_baseline = current
+            return ""
+        if current == self._core_baseline:
+            return ""
+        flat = " ".join(core_block.split())
+        flat = flat.replace("## Core Memory — Persona", "Persona:").replace(
+            "## Core Memory — User Profile", "User Profile:"
+        )
+        return f"[Core Memory changed since session start] {flat[:400]}"
+
     def _build_fact_block(self, enhanced_query: str) -> str:
         """Run the smart-context pipeline; return the formatted fact block ('' when nothing selected)."""
         from memory_engine import MemoryEngine
 
-        engine = MemoryEngine(self._memory_db)
+        engine = MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or [])
         try:
             # Phase 1.2 & 2.2: candidates with relevance scoring and domain filtering
             candidates = self._get_candidates(engine, enhanced_query)
+            # EM-118: guest mode — never surface sensitive/secret facts or
+            # guest_hidden_domains to a non-owner gateway user
+            if self._is_guest():
+                hidden = set(self._config.get("guest_hidden_domains") or [])
+                candidates = [
+                    f for f in candidates
+                    if (getattr(f, "sensitivity", None) or "internal") not in ("sensitive", "secret")
+                    and (getattr(f, "domain", None) or "") not in hidden
+                ]
             # Phase 2.1: Apply deduplication
             deduplicated = self._apply_deduplication(candidates)
             # Phase 3.1: Apply progressive disclosure
@@ -574,7 +714,20 @@ class EntropicMemMemoryProvider(MemoryProvider):
         block = self._format_block(budgeted)
         # Track injected facts for deduplication
         self._track_injected(budgeted)
+        if self._config.get("touch_on_inject", True):
+            injected_ids = [f.id for f in budgeted]
+            self._spawn(lambda: self._touch_injected(injected_ids), "entropicmem-touch")
         return block
+
+    def _touch_injected(self, fact_ids: List[str]) -> None:
+        """EM-106: batched background last_accessed bump for injected facts."""
+        try:
+            from memory_engine import MemoryEngine
+
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
+                engine.touch(fact_ids)
+        except Exception as e:
+            logger.debug("EntropicMem touch_on_inject failed: %s", e)
 
     def sync_turn(
         self,
@@ -583,31 +736,50 @@ class EntropicMemMemoryProvider(MemoryProvider):
         *,
         session_id: str = "",
         messages: Optional[List[Dict[str, Any]]] = None,
+        turn_author: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Update conversation history and run background auto-extraction.
 
         Skipped entirely (no state change, no writes) for non-primary agent
         contexts — subagent/cron/flush turns must not pollute durable memory.
+
+        Multimodal payloads (list content) are normalised with
+        ``textutil.message_text`` so history stays ``{"role", "content": str}``
+        (EM-101/H2). ``turn_author`` is stored on the turn entries only.
         """
+        from textutil import message_text
+
         if not self._writes_allowed():
             return
         if messages:
-            self._conversation_history = messages[-(self._config.get("context_window_turns", 3) * 2):]
+            self._conversation_history = [
+                {"role": m.get("role", ""), "content": message_text(m)}
+                for m in messages[-(self._config.get("context_window_turns", 3) * 2):]
+                if isinstance(m, dict)
+            ]
+
+        user_text = message_text(user_content)
+        assistant_text = message_text(assistant_content)
 
         # P1 Slice 2 (A1/A5): bounded per-session turn buffer for digest flushes.
-        if user_content or assistant_content:
+        if user_text or assistant_text:
+            author = {"author": turn_author} if turn_author is not None else {}
             with self._prefetch_lock:
-                if user_content:
-                    self._session_turns.append({"role": "user", "content": user_content})
-                if assistant_content:
-                    self._session_turns.append({"role": "assistant", "content": assistant_content})
+                if user_text:
+                    self._session_turns.append(
+                        {"role": "user", "content": user_text, **author}
+                    )
+                if assistant_text:
+                    self._session_turns.append(
+                        {"role": "assistant", "content": assistant_text, **author}
+                    )
                 if len(self._session_turns) > 400:
                     del self._session_turns[:-400]
 
         # Auto-extract facts from conversation (non-blocking, regex-based)
         if self._config.get("auto_extract_enabled", False) and self._memory_db and self._scripts_dir:
             try:
-                self._auto_extract(user_content, assistant_content, session_id or self._session_id)
+                self._auto_extract(user_text, assistant_text, session_id or self._session_id)
             except Exception as e:
                 logger.debug("EntropicMem auto-extract failed: %s", e)
 
@@ -626,21 +798,40 @@ class EntropicMemMemoryProvider(MemoryProvider):
             try:
                 ensure_scripts_on_path(self._scripts_dir)
                 from memory_engine import MemoryEngine
-                with MemoryEngine(self._memory_db) as engine:
+                with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
                     engine.extract_and_store(
                         user_text=user_content,
                         assistant_text=assistant_content,
                         session_id=session_id,
                         source="auto_extracted",
                         min_confidence=0.4,
+                        promote=False,  # background extraction stays pending-only
                     )
             except Exception:
                 pass  # Non-blocking; failures are silent
             finally:
                 self._extract_lock.release()
 
-        t = threading.Thread(target=_run, daemon=True)
-        t.start()
+        self._spawn(_run, "entropicmem-extract")
+
+    def _spawn(self, target: Callable[..., Any], name: str) -> None:
+        """Start *target* on a background thread, keeping the caller's context.
+
+        Prefers the host primitive ``agent.memory_provider.spawn_context_thread``
+        (contextvars-bound worker, EM-103/H3) so profile/secret scope crosses
+        into the thread; falls back to a plain named daemon thread when the host
+        is absent or the primitive is incompatible (TypeError/ImportError/
+        AttributeError).
+        """
+        try:
+            from agent.memory_provider import spawn_context_thread
+
+            thread = spawn_context_thread(target, name=name, daemon=True)
+            thread.start()
+            return
+        except (TypeError, ImportError, AttributeError):
+            pass
+        threading.Thread(target=target, name=name, daemon=True).start()
 
     # ── Smart Context Helpers ─────────────────────────────────────────────
 
@@ -682,8 +873,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
     def _conversation_fingerprint(self) -> str:
         """Hash of the recent conversation (what the cache snapshot is compared against)."""
         import hashlib
+
+        from textutil import message_text
+
         recent_content = " ".join(
-            msg.get("content", "")[:100]
+            message_text(msg)[:100]
             for msg in self._conversation_history[-4:]
         )
         return hashlib.sha256(recent_content.encode()).hexdigest()[:16]
@@ -699,14 +893,23 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return self._conversation_fingerprint() != self._last_conversation_hash
 
     def _build_context_query(self, query: str) -> str:
-        """Build enhanced query using conversation context."""
+        """Build enhanced query using conversation context.
+
+        EM-107(a): ``context_query_mode`` defaults to ``current`` (the query
+        alone — concatenating prior user turns poisoned retrieval with stale
+        terms, F-006); ``concat`` keeps the old multi-turn behaviour.
+        """
+        from textutil import message_text
+
+        if self._config.get("context_query_mode", "current") == "current":
+            return query
         if not self._conversation_history:
             return query
 
         # Extract recent user messages
         max_turns = self._config.get("context_window_turns", 3)
         recent_user_msgs = [
-            msg.get("content", "")[:200]
+            message_text(msg)[:200]
             for msg in self._conversation_history[-(max_turns * 2):]
             if msg.get("role") == "user"
         ]
@@ -730,7 +933,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     def _get_candidates(self, engine, query: str) -> list:
         """Get candidate facts with relevance scoring, domain filtering, and temporal decay."""
-        min_relevance = self._config.get("min_relevance_score", 0.3)
+        min_relevance = self._config.get("min_relevance_score", 0.35)
         max_results = self._config.get("max_prefetch_results", 5)
         enabled_domains = self._config.get("enabled_domains", [])
 
@@ -740,7 +943,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
             top_k=max_results * 2,
             min_relevance=min_relevance,
             decay_enabled=self._config.get("decay_enabled", True),
-            decay_half_life_days=self._config.get("decay_half_life_days", 30.0),
+            decay_half_life_days=self._config.get("decay_half_life_days", 90),
+            decay_floor=self._config.get("decay_floor", 0.5),
+            evergreen_domains=self._config.get("evergreen_domains") or ["People"],
             reinforcement_boost=self._config.get("reinforcement_boost", 0.1),
             auto_reinforce=self._config.get("reinforce_on_recall", False),
         )
@@ -778,9 +983,15 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return fresh
 
     def _apply_progressive_disclosure(self, facts: list) -> list:
-        """Apply tiered relevance filtering."""
+        """Apply tiered relevance filtering.
+
+        EM-107(b): default OFF — the max-2 tier fired whenever any score was
+        'high' (>= 0.7), collapsing full high-relevance sets to 2 (F-007/R7).
+        """
         if not facts:
             return []
+        if not self._config.get("progressive_disclosure", False):
+            return list(facts)
 
         high_threshold = self._config.get("high_relevance_threshold", 0.7)
         medium_threshold = self._config.get("medium_relevance_threshold", 0.4)
@@ -799,14 +1010,19 @@ class EntropicMemMemoryProvider(MemoryProvider):
         return facts[:5]
 
     def _apply_token_budget(self, facts: list) -> list:
-        """Apply token budget constraint."""
+        """Apply token budget constraint.
+
+        EM-107(c): pack in combined-score order (was importance-first) and
+        never truncate mid-fact — a fact that does not fit is skipped whole
+        and packing continues with the smaller ones.
+        """
         budget = self._config.get("prefetch_token_budget", 1500)
 
         selected = []
         char_count = 0
 
-        # Sort by importance to keep most important facts
-        sorted_facts = sorted(facts, key=lambda f: f.importance, reverse=True)
+        # Pack by combined relevance score (relevance_score holds combined)
+        sorted_facts = sorted(facts, key=lambda f: f.relevance_score, reverse=True)
 
         for fact in sorted_facts:
             fact_chars = len(fact.content)
@@ -814,16 +1030,6 @@ class EntropicMemMemoryProvider(MemoryProvider):
             if char_count + fact_chars <= budget:
                 selected.append(fact)
                 char_count += fact_chars
-            else:
-                # Try truncated version
-                remaining = budget - char_count
-                if remaining >= 100:  # Minimum useful size
-                    # dataclasses.replace preserves every field (sensitivity,
-                    # decay_score, access_count, ...) — only content changes.
-                    from dataclasses import replace
-                    truncated = replace(fact, content=fact.content[:remaining] + "...")
-                    selected.append(truncated)
-                break
 
         return selected
 
@@ -862,10 +1068,12 @@ class EntropicMemMemoryProvider(MemoryProvider):
             except Exception:
                 pass
             body, _ = _screen_for_injection(body)
-            content_preview = body[:300]
-            if len(body) > 300:
-                content_preview += "..."
-            lines.append(f"- [{fact.id}] {content_preview}{score_str}")
+            # EM-107(d)/(e): no second truncation here (budget already caps
+            # the block and cutting at 300 ended bullets mid-word) and each
+            # line carries its provenance: (domain · YYYY-MM-DD).
+            date_str = (fact.created_at or fact.updated_at or "")[:10] or "unknown"
+            prov = f" ({fact.domain} · {date_str})"
+            lines.append(f"- [{fact.id}] {body}{prov}{score_str}")
 
         return "\n".join(lines)
 
@@ -900,17 +1108,42 @@ class EntropicMemMemoryProvider(MemoryProvider):
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Mirror a built-in memory-tool write. Skipped for non-primary agent contexts (write path)."""
+        """Mirror a built-in memory-tool write (EM-110: add/replace/remove).
+
+        replace/remove locate the mirror by make_id(previous_content), falling
+        back to a substring match of old_text against facts tagged 'mirrored'.
+        Writes with write_origin == "background_review" are skipped unless
+        mirror.background_review is enabled. Skipped for non-primary agent
+        contexts (write path).
+        """
         if not self._writes_allowed():
             return
-        if action != "add" or not content or not self._memory_db or not self._scripts_dir:
+        metadata = metadata or {}
+        if (
+            str(metadata.get("write_origin") or "") == "background_review"
+            and not (self._config.get("mirror") or {}).get("background_review", False)
+        ):
+            return
+        if not self._memory_db or not self._scripts_dir:
+            return
+        if action not in ("add", "replace", "remove"):
+            return
+        if action in ("add", "replace") and not content:
             return
         try:
             ensure_scripts_on_path(self._scripts_dir)
             from memory_engine import MemoryEngine
 
             domain = "People" if target == "user" else "Knowledge"
-            with MemoryEngine(self._memory_db) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
+                old_id = self._locate_mirror(engine, metadata) if action != "add" else None
+                if action == "remove":
+                    if old_id:
+                        engine.forget(old_id, confirm=True)
+                    return
+                if action == "replace" and old_id:
+                    # no stale mirrors: the old mirror goes, the new one lands
+                    engine.forget(old_id, confirm=True)
                 engine.remember(
                     content=content,
                     title=content[:60],
@@ -921,6 +1154,30 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 )
         except Exception as e:
             logger.debug("EntropicMem on_memory_write mirror failed: %s", e)
+
+    def _locate_mirror(self, engine, metadata: Dict[str, Any]) -> Optional[str]:
+        """EM-110: find the mirror row for a replace/remove.
+
+        Primary: make_id(previous_content). Fallback: substring match of
+        old_text against facts tagged 'mirrored'.
+        """
+        from memory_engine import StoredFact
+
+        previous = str(metadata.get("previous_content") or "")
+        if previous:
+            mid = StoredFact.make_id(previous)
+            fact = engine.get_fact(mid)
+            if fact is not None and "mirrored" in (getattr(fact, "tags", None) or []):
+                return mid
+        needle = str(metadata.get("old_text") or "") or previous
+        needle = needle.strip()
+        if needle:
+            rows = engine.db.execute("SELECT id, content, tags FROM facts").fetchall()
+            for fid, row_content, tags in rows:
+                tag_list = [t.strip() for t in (tags or "").split(",")]
+                if "mirrored" in tag_list and needle in (row_content or ""):
+                    return fid
+        return None
 
     def on_session_switch(
         self,
@@ -952,11 +1209,26 @@ class EntropicMemMemoryProvider(MemoryProvider):
         try:
             if self._config.get("session_end_capture", True):
                 self._flush_session_digest(messages, reason="session_end")
+            # EM-111: auto TTL purge of the pending quarantine
+            self._prune_pending_quarantine()
         except Exception as e:  # _flush already fails soft; belt and braces
             logger.debug("EntropicMem on_session_end failed: %s", e)
         finally:
             with self._prefetch_lock:
                 self._session_turns = []
+
+    def _prune_pending_quarantine(self) -> None:
+        """EM-111: TTL purge pending_facts (30d) at session end. Fail-soft."""
+        if not self._writes_allowed():
+            return
+        try:
+            engine, error = self._memory_engine()
+            if error:
+                return
+            with engine:
+                engine.prune_pending(older_than_days=30)
+        except Exception as e:
+            logger.debug("EntropicMem pending prune failed: %s", e)
 
     def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
         """A5: periodic partial digest flush for always-on sessions.
@@ -1023,7 +1295,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         from memory_engine import MemoryEngine
 
         sid = self._session_id or ""
-        with MemoryEngine(self._memory_db) as engine:
+        with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
             engine.add_episode(
                 title=f"Pre-compress constraints for session {sid or 'unknown'}"[:120],
                 summary=constraints,
@@ -1055,14 +1327,23 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 return  # empty / tool-only transcript, no-op
 
             sid = self._session_id or ""
-            with MemoryEngine(self._memory_db) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
+                # EM-112: cadence flushes get a fresh wave id (ep_sess_{sid}_w{n})
+                # so earlier waves are never overwritten; session end keeps the
+                # single ep_sess_{sid} covering the tail.
+                if reason == "session_end":
+                    episode_id = episode_id_for(sid)
+                else:
+                    episode_id = episode_id_for(
+                        sid, wave=engine.next_episode_wave(episode_id_for(sid))
+                    )
                 engine.add_episode(
                     title=digest["title"] or f"session {sid or 'unknown'}",
                     summary=digest["summary"],
                     start_ts=digest.get("start_ts"),
                     end_ts=digest.get("end_ts"),
                     source_session=sid,
-                    episode_id=episode_id_for(sid),
+                    episode_id=episode_id,
                     importance=0.6,
                     source="session_end" if reason == "session_end" else "cadence",
                 )
@@ -1074,6 +1355,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                         session_id=sid,
                         source="auto_extracted",
                         min_confidence=0.4,
+                        promote=False,  # C1: background capture stays pending-only
                     )
         except Exception as e:
             logger.debug("EntropicMem session digest flush failed: %s", e)
@@ -1109,15 +1391,22 @@ class EntropicMemMemoryProvider(MemoryProvider):
             from memory_engine import MemoryEngine
             from vault import Vault
 
-            with MemoryEngine(self._memory_db) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
+                # EM-118: guest writes are stamped with the gateway user and a
+                # guest_tool source for later scoping/auditing
+                write_source, write_actor, write_tags = "agent_tool", "agent_tool", []
+                if self._is_guest():
+                    write_source = write_actor = "guest_tool"
+                    write_tags = [f"user:{self._gateway_user_id}"]
                 eid = engine.remember(
                     content=content,
                     title=Vault.make_title(content) or "Fact",
                     domain=domain,
-                    source="agent_tool",
+                    source=write_source,
+                    tags=write_tags,
                     importance=importance,
                     sensitivity=args.get("sensitivity"),
-                    actor="agent_tool",
+                    actor=write_actor,
                     session_id=self._session_id,
                 )
             vault_note = None
@@ -1162,7 +1451,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             ensure_scripts_on_path(self._scripts_dir)
             from memory_engine import MemoryEngine
 
-            with MemoryEngine(self._memory_db) as engine:
+            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
                 # v2.2.0 G3: hybrid retrieval — FTS5 BM25 + vector similarity
                 # fusion when embeddings exist; graceful FTS-only fallback.
                 rows = engine.recall_hybrid(
@@ -1227,6 +1516,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     def _patch_core(self, args: dict) -> str:
         """Handle entropicmem_patch_core tool call."""
+        # EM-118: guests may never modify Core Memory
+        if self._is_guest():
+            return _tool_error(
+                "entropicmem_patch_core refused: guest users may not modify Core Memory (EM-118)"
+            )
         if not self._writes_allowed():
             return _tool_error(
                 f"entropicmem_patch_core skipped: writes disabled in non-primary "
@@ -1282,7 +1576,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return None, _tool_error("EntropicMem not initialized")
         ensure_scripts_on_path(self._scripts_dir)
         from memory_engine import MemoryEngine
-        engine = MemoryEngine(self._memory_db)
+        engine = MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or [])
         return engine, None
 
     def _stats(self, args: dict) -> str:
@@ -1352,6 +1646,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
         min_access = args.get("min_access_count", 0)
         dry_run = args.get("dry_run", True)
         confirm = bool(args.get("confirm", False))
+        # EM-108: agent-triggered real runs require an explicit confirm AND the
+        # operator opt-in (allow_agent_consolidate, default false) — otherwise
+        # the call stays a dry-run no matter what the args say.
+        if not dry_run and not (confirm and self._config.get("allow_agent_consolidate", False)):
+            dry_run = True
         try:
             with engine:
                 result = engine.consolidate(
@@ -1359,6 +1658,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     min_access_count=min_access,
                     dry_run=dry_run,
                     confirm=confirm,
+                    evergreen_domains=self._config.get("evergreen_domains") or ["People"],
                 )
             return json.dumps(result)
         except Exception as e:
@@ -1366,15 +1666,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
 
 def register_memory_provider(ctx) -> None:
-    """Memory provider discovery entry point."""
-    cfg = {}
-    try:
-        from hermes_constants import get_hermes_home
+    """Memory provider discovery entry point.
 
-        cfg = load_plugin_config(get_hermes_home())
-    except Exception:
-        pass
-    ctx.register_memory_provider(EntropicMemMemoryProvider(config=cfg))
+    H4/EM-102: constructed with NO config — anything loaded at register()
+    time belongs to whatever profile the loader runs under and would
+    override the real profile's file config at initialize(). Explicit
+    constructor config is reserved for callers that genuinely mean it.
+    """
+    ctx.register_memory_provider(EntropicMemMemoryProvider())
 
 
 def register(ctx) -> None:

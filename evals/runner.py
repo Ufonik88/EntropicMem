@@ -16,6 +16,12 @@ from evals.dataset import Scenario, Turn, resolve_refs
 # Metrics where a smaller number is better; all others are higher-is-better.
 LOWER_IS_BETTER = {"noise_rate", "prefetch_tokens", "latency_ms"}
 
+# §6.3 gated metrics: only these fail `--compare`. prefetch_tokens is a
+# deliberate trade-off metric (e.g. EM-107 provenance bullets) and belongs to
+# the perf/token budgets; latency_ms is wall-clock noise on shared runners.
+# Both still appear in the delta table, marked "info" when they worsen.
+GATED_METRICS = frozenset({"recall@5", "ndcg@5", "abstain_correct", "noise_rate", "must_not_ok"})
+
 _BULLET_RE = re.compile(r"^- \[([^\]]+)\]", re.MULTILINE)
 
 _SCORED_KEYS = (
@@ -137,7 +143,10 @@ def compare_deltas(
     threshold: float = 0.02,
 ) -> List[Dict[str, Any]]:
     """Deltas between two metric dicts; flag regressed per direction (§6.3:
-    'no drop > 0.02' — for lower-is-better metrics, a rise beyond the gate)."""
+    'no drop > 0.02' — for lower-is-better metrics, a rise beyond the gate).
+
+    ``worsened`` is the raw direction check for every metric; ``regressed``
+    (the hard gate) is ``worsened`` restricted to GATED_METRICS."""
     rows: List[Dict[str, Any]] = []
     for key in sorted(set(baseline) | set(current)):
         b, c = baseline.get(key), current.get(key)
@@ -145,15 +154,18 @@ def compare_deltas(
             continue
         delta = c - b
         if key in LOWER_IS_BETTER:
-            regressed = delta > threshold
+            worsened = delta > threshold
         else:
-            regressed = delta < -threshold
+            worsened = delta < -threshold
+        gated = key in GATED_METRICS
         rows.append({
             "metric": key,
             "baseline": round(b, 4),
             "current": round(c, 4),
             "delta": round(delta, 4),
-            "regressed": regressed,
+            "gated": gated,
+            "worsened": worsened,
+            "regressed": worsened and gated,
         })
     return rows
 
@@ -174,6 +186,7 @@ def render_compare_markdown(rows: Sequence[Dict[str, Any]]) -> str:
     for r in rows:
         lines.append(
             f"| {r['metric']} | {r['baseline']:.3f} | {r['current']:.3f} "
-            f"| {r['delta']:+.3f} | {'YES' if r['regressed'] else 'no'} |"
+            f"| {r['delta']:+.3f} | "
+            f"{'YES' if r['regressed'] else ('info' if r.get('worsened') else 'no')} |"
         )
     return "\n".join(lines)

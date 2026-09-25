@@ -23,12 +23,19 @@ def full_suite_path() -> Path:
     return _HERE / "full.jsonl"
 
 
+def hard_suite_paths():
+    """The 12-category hard scenario suite (EM-002)."""
+    return sorted((_HERE.parent / "datasets_hard").glob("*.jsonl"))
+
+
 def suite_paths(name: str):
     """Scenario files belonging to a suite name."""
     if name == "ci":
         return [ci_suite_path()]
     if name == "full":
         return [ci_suite_path(), full_suite_path()]
+    if name == "hard":
+        return hard_suite_paths()
     if name == "external":
         return []  # EM-006 will register external datasets here
-    raise ValueError(f"unknown suite: {name!r} (choose ci|full|external)")
+    raise ValueError(f"unknown suite: {name!r} (choose ci|full|hard|external)")

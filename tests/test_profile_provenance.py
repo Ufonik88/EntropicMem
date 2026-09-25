@@ -146,11 +146,18 @@ def test_migrate_is_fresh_store_safe(tmp_path, monkeypatch):
 
 
 def test_profile_id_resolves_from_hermes_home(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "profiles" / "delta"))
-    eng = MemoryEngine(tmp_path / "resolved.db")
-    assert eng.profile_id() == "delta"
+    """H3/EM-102: the slug comes from explicit constructor args only — the
+    HERMES_HOME env var is never read (a poisoned env must not re-stamp
+    another profile's rows). Precedence: explicit profile_id >
+    hermes_home basename > 'default'."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "profiles" / "decoy"))
+    eng = MemoryEngine(tmp_path / "resolved.db", hermes_home=tmp_path / "profiles" / "delta")
+    assert eng.profile_id() == "delta"  # hermes_home basename, NOT the env decoy
     eng.close()
-    monkeypatch.delenv("HERMES_HOME")
-    eng2 = MemoryEngine(tmp_path / "resolved2.db")
-    assert eng2.profile_id() == "default"
+    eng2 = MemoryEngine(tmp_path / "resolved2.db", profile_id="epsilon")
+    assert eng2.profile_id() == "epsilon"  # explicit wins
     eng2.close()
+    monkeypatch.delenv("HERMES_HOME")
+    eng3 = MemoryEngine(tmp_path / "resolved3.db")
+    assert eng3.profile_id() == "default"
+    eng3.close()

@@ -94,6 +94,7 @@ EntropicMem/
 │   │   ├── index.py             # Vault FTS5 index + graph edges
 │   │   ├── retrieval.py         # Composed retrieval stack
 │   │   ├── graph_export.py      # D3 galaxy visual graph
+│   │   ├── graph_static.py      # Hardened stdlib server for `graph serve`
 │   │   ├── policy.py / pii.py   # Write policy + PII redaction
 │   │   ├── embeddings.py        # Vector search (optional)
 │   │   └── entropicmem.py       # CLI
@@ -103,10 +104,11 @@ EntropicMem/
 │   ├── SETUP.md                 # First-run bootstrap checklist
 │   ├── references/              # Agent-facing docs (memory model, integration)
 │   └── templates/vault/         # Seed vault skeleton used by `init`
-├── scripts/graph_server/        # FastAPI graph server (token-gated)
+├── scripts/graph_server/        # FastAPI graph server (Host allowlist, CSP, token)
+├── evals/                       # Eval framework: ci + hard suites, baselines, perf bench
 ├── benchmarks/                  # Frozen recall benchmark (corpus, probes, runner)
 ├── docs/                        # User-facing docs (see index below)
-├── tests/                       # 600+ tests
+├── tests/                       # 900+ tests
 └── .github/workflows/test.yml   # CI: pytest (3.10 to 3.12) + ruff + plugin validate
 ```
 
@@ -129,7 +131,7 @@ plugins:
 | `vault_path` | `~/.hermes/entropicmem/vault` | Vault directory for Markdown notes |
 | `index_db` | `~/.hermes/entropicmem/index.db` | Vault index SQLite path (FTS + graph edges) |
 | `memory_db` | `~/.hermes/entropicmem/memory.db` | Memory engine SQLite path (facts, episodes, triples) |
-| `min_relevance_score` | `0.3` | Minimum relevance for prefetch injection (0.0 to 1.0) |
+| `min_relevance_score` | `0.35` | Minimum combined relevance for prefetch injection (0.0 to 1.0) |
 | `max_prefetch_results` | `5` | Maximum facts injected per turn |
 | `prefetch_token_budget` | `1500` | Maximum characters of prefetch context per turn |
 | `dedup_window` | `5` | Do not repeat a fact within N turns |
@@ -137,6 +139,8 @@ plugins:
 | `high_relevance_threshold` | `0.7` | High tier for progressive disclosure |
 | `medium_relevance_threshold` | `0.4` | Medium tier for progressive disclosure |
 | `context_window_turns` | `3` | Recent turns used to build the context-aware query |
+| `context_query_mode` | `current` | Enhanced query: `current` (query only) or `concat` (prior user turns) |
+| `progressive_disclosure` | `false` | Tiered relevance caps in prefetch (max 2/3/5) |
 | `max_context_query_length` | `1000` | Maximum length of the context-enhanced query |
 | `cache_conversation_context` | `true` | Cache prefetch results with conversation awareness |
 | `cache_ttl_seconds` | `300` | Prefetch cache TTL |
@@ -145,12 +149,21 @@ plugins:
 | `turn_cadence_flush_turns` | `40` | Flush a partial digest every N turns (0 disables) |
 | `turn_cadence_min_interval_sec` | `1800` | Minimum seconds between cadence digest flushes |
 | `session_extract_pending` | `true` | Run quarantine-first extraction at session end |
-| `core_memory_enabled` | `true` | Inject Core Memory (Persona / User Profile) in prefetch |
+| `core_memory_enabled` | `true` | Inject Core Memory (Persona / User Profile); where is set by `core_inject_mode` |
+| `core_inject_mode` | `system_prompt` | `system_prompt`: Core Memory goes into the system prompt once and prefetch carries only a change delta; `prefetch`: legacy full block every turn |
 | `core_memory_writable` | `false` | Allow `entropicmem_patch_core` to modify Core Memory |
-| `prefetch_denied_sources` | `["auto_extracted", "test", "phase1_verify", "phase1_cron_context", "phase5", "phase5_e2e", "h2_test", "cron_self_test", "cron_path_test", "cutover_verify"]` | Fact source tags excluded from prefetch |
+| `prefetch_denied_sources` | `["auto_extracted", "test"]` | Fact source tags excluded from prefetch (add your own internal tags in config) |
+| `locale_packs` | `[]` | Opt-in region-specific PII patterns (e.g. `["za"]`); empty scans the generic patterns only |
+| `owner_user_ids` | `[]` | Gateway `user_id`s that own this profile; any other user runs in guest mode (no `sensitive`/`secret` facts, no `guest_hidden_domains`). Empty = shared pool with a one-time warning. Interim guard, not full per-user isolation |
+| `guest_hidden_domains` | `["People", "Finance"]` | Domains never prefetched for guest users |
+| `allow_agent_consolidate` | `false` | Let the `entropicmem_consolidate` tool archive for real (`confirm=true` still required); otherwise the tool is dry-run only |
+| `mirror.background_review` | `false` | Also mirror built-in `memory` writes whose origin is `background_review` |
 | `extraction_timeout` | `5.0` | Maximum seconds for background extraction per turn |
 | `decay_enabled` | `true` | Temporal decay scoring in recall |
-| `decay_half_life_days` | `30` | Half-life for memory decay |
+| `decay_half_life_days` | `90` | Half-life for memory decay |
+| `decay_floor` | `0.5` | Minimum decay factor; non-durable facts are never erased |
+| `evergreen_domains` | `["People"]` | Domains whose facts never decay |
+| `touch_on_inject` | `true` | Bump `last_accessed` for injected facts (background write) |
 | `reinforcement_boost` | `0.1` | Score boost per fact access (capped) |
 | `reinforce_on_recall` | `false` | Bump access count on recall hits |
 
@@ -208,10 +221,20 @@ memory:
 - **Prompt-injection screen:** vault retrieval and prefetch, `recall`, and `get` tool payloads pass a local injection screen. Flagged content ships with a prominent warning marker rather than being dropped (flag-with-warning, fail-open by design: if the screen itself fails, text ships unmarked).
 - **Vault path containment:** vault writes are confined to the resolved vault root.
 - **Graph viewer:** note markdown is sanitized against stored XSS (rendered HTML from `marked` and lazy-fetched bodies pass a client-side sanitize pass).
-- **Graph server:** loopback-only bind enforced at startup. Serving on a non-loopback address is refused unless `ENTROPICMEM_GRAPH_EXPOSE=1` explicitly opts in and `ENTROPICMEM_GRAPH_TOKEN` is set; read endpoints then require the `X-EntropicMem-Token` header. See [docs/VISUALIZER.md](docs/VISUALIZER.md).
+- **Graph server:** loopback-only bind enforced at startup; a non-loopback bind is refused unless `ENTROPICMEM_GRAPH_EXPOSE=1` explicitly opts in, and read endpoints then require the `X-EntropicMem-Token` header. `/refresh` always requires the token. The token is `ENTROPICMEM_GRAPH_TOKEN` or, when unset, a random per-run token written owner-only to `~/.hermes/entropicmem/graph_server.token`. A Host-header allowlist (DNS-rebinding guard) and a strict Content-Security-Policy apply to every response. `entropicmem graph serve` (stdlib, no token) enforces the same bind rule, Host allowlist and CSP, and serves only `graph.html`/`graph.json`. See [docs/VISUALIZER.md](docs/VISUALIZER.md).
 - **Destructive gates:** `forget` and `consolidate` require `--confirm`; both auto-backup before running.
 - **Audit log:** every write is append-only audited.
 - **Backups:** AES-256-CBC encrypted before cloud upload. See [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md).
+
+## Known Limitations (2.8.0)
+
+- **Synonym / paraphrase recall.** Retrieval is lexical (FTS5) unless the optional semantic stack is installed. A query that shares no words with the stored fact ("what city am I based in?" against "The user lives in Cape Town") returns nothing. The hard eval suite's ageing category scores 0.733 recall@5 for exactly this reason; semantic retrieval is Sprint 3 (EM-303).
+- **Per-user isolation.** `owner_user_ids` is an interim owner/guest guard. Fully scoped per-user storage (Alice cannot recall Bob's facts) is Sprint 4.
+- **Prefetch is synchronous.** `queue_prefetch` is a no-op; prefetch runs inline on the caller (async prefetch is Sprint 4).
+- **Episodes are stored but not recalled.** Session digests land in the timeline, but `recall()` does not surface them yet (Sprint 3).
+- **Plugin namespace and manifest.** The backend still bare-imports its script modules on `sys.path`, and `plugin.yaml` still declares `provides_tools`/`provides_hooks` (EM-212 / EM-213, Sprint 2).
+
+These are pinned by strict `xfail` tests in `tests/regressions/test_findings_v27.py`, which will start failing (xpass) once each is fixed.
 
 ## Documentation
 

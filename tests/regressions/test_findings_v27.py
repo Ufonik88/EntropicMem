@@ -6,18 +6,25 @@ fails today but is expected to pass once the fixing task (EM-1xx) lands.
 When the fix ships, the xfail marker is removed so the test becomes a
 regression guard.
 
-Findings map (v2.7.0 defects → fixing EM task):
-  F-001 → EM-105  Relevance normalisation / junk-query noise amplification
-  F-002 → EM-107  Temporal decay from last_accessed; long-term facts forgotten
-  F-003 → EM-108  Multimodal list payload crashes prefetch (TypeError swallowed)
-  F-004 → EM-109  No user/chat scoping; cross-user memory bleed
-  F-005 → EM-110  os.environ check already clean (F-005a); bare threading.Thread still needed (F-005b)
-  F-006 → EM-104  Near-duplicate dedup silently overwrites; no supersession record
-  F-007 → EM-106  consolidate ignores importance; archives important facts
-  F-008 → EM-111  Prefetch synchronous on agent thread; core memory re-injected every turn
-  F-009 → EM-112  Learning loop dead; regex extraction only, nothing promoted
+Findings map (v2.7.0 defects → fixing EM task; corrected mapping):
+  F-001 (R1 relevance normalisation) → EM-105  min-max inflation: partial-coverage hits score 1.0
+  F-001 (R2 query builder)          → EM-104  single/stopword tokens over-match — FIXED, regression guard
+  F-001 (R7 progressive disclosure) → EM-107  max-2 tier fires whenever any score is 'high'
+  F-002 (R3 temporal decay)         → EM-106  decay from last_accessed; long-term facts forgotten
+  F-003 (H2 multimodal payloads)    → EM-101  FIXED — regression guard
+  F-004 (H1 user/chat scoping)      → EM-118  No user/chat scoping; cross-user memory bleed
+  F-005 (H3 threading/env)          → EM-103 (+EM-102)  FIXED — regression guard
+  F-006 (L1 silent fuzzy overwrite) → EM-109  near-duplicate dedup silently overwrites; no supersession record
+  F-007 (L2 safe consolidate)       → EM-108  consolidate ignores importance; archives important facts
+  F-008 (L8/H5 prefetch + core mem) → EM-116 (+EM-107)  queue_prefetch stub; core memory re-injected
+  F-009 (L4 learning loop)          → EM-111  regex extraction only; candidates never promoted from quarantine
+  F-009 (R8 episodes in recall)     → S3 retrieval v3 (out of S1 scope)
   F-010 → EM-212  Plugin namespace isolation: _backend bare-imports vault/index/etc
   F-011 → EM-213  Stale provides_tools/provides_hooks in plugin.yaml
+
+Note: test_f004_cross_user_isolation's inline xfail reason still cites EM-109
+(pre-correction numbering) — that test is kept untouched; the canonical fix for
+F-004/H1 is EM-118.
 
 | # | Finding | Category | EM-fixing |
 |---|---|---|---|
@@ -27,6 +34,7 @@ Findings map (v2.7.0 defects → fixing EM task):
 AC: ≥ 20 xfail tests; each references the fixing task id.
 """
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -43,123 +51,169 @@ def db_path(tmp_path):
 
 @pytest.fixture()
 def engine(db_path):
-    eng = MemoryEngine(str(db_path))
-    eng.initialize(profile_id="regression_test",
-                   vault_root=str(db_path.parent / "vault"))
+    # Real API: constructor only (schema built in __init__), no initialize().
+    eng = MemoryEngine(db_path, profile_id="regression_test")
     yield eng
     eng.close()
 
+def _age_facts(eng, days: int) -> None:
+    """Age every fact by N days.
 
-# ═════════════════════════════════════════════════════════════════════════════
-# F-001 → EM-105: Relevance normalisation / junk-query noise amplification
-# ═════════════════════════════════════════════════════════════════════════════
-
-@pytest.mark.xfail(strict=True, reason="F-001 → EM-105: min-max normalisation "
-          "gives junk queries relevance=1.0; noise injected on most turns")
-def test_f001_junk_query_returns_zero_relevance(engine):
-    """A gibberish query matching no real fact should never return relevance
-    1.0. v2.7 min-max normalises per-result-set so even filler ranks at 1.0."""
-    engine.remember(
-        content="The user works at a large company as a manager.",
-        domain="Work", importance=0.9,
+    facts.created_at / facts.updated_at / facts.last_accessed are ISO-8601
+    strings, so time travel must write ISO strings — integer epochs break
+    both the decay parser (datetime.fromisoformat) and string comparisons.
+    All three stamps are aged: age is derived from max(updated_at,
+    last_accessed) since EM-106/EM-108, so a fresh updated_at would keep
+    the fact young.
+    """
+    then = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    eng.db.execute(
+        "UPDATE facts SET created_at = ?, updated_at = ?, last_accessed = ?",
+        (then, then, then),
     )
-    # gibberish with no real overlap
-    results = engine.recall_with_relevance("zzqx nonsense a query", top_k=10)
-    for _, _, score, _ in results:
-        assert score < 0.3, f"junk query returned relevance {score} (>= 0.3)"
+    eng.db.commit()
 
 
-@pytest.mark.xfail(strict=True, reason="F-001 → EM-105: 1-letter FTS prefix terms "
-          "make every token match; no real filtering")
+# ═════════════════════════════════════════════════════════════════════════════
+# F-001 (R1/R2/R7) → EM-105 / EM-104 / EM-107: relevance normalisation,
+# query builder, progressive disclosure
+# ═════════════════════════════════════════════════════════════════════════════
+
+def test_f001_junk_query_returns_zero_relevance(engine):
+    """R1 normalisation repro (rewritten: after the EM-104 query-builder fix a
+    pure-junk query like 'zzqx nonsense a' legitimately returns zero hits, so
+    the old junk repro was trivially satisfied).
+
+    A fact matching only ONE term of a 5-term query (coverage 1/5) must not be
+    min-max normalised to relevance 1.0 (R1). Fixed by EM-105 — regression
+    guard."""
+    engine.remember(
+        content="The user has a pasta allergy",
+        domain="Personal", importance=0.5,
+    )
+    results = engine.recall_with_relevance(
+        "homemade italian pasta recipe ideas", top_k=10
+    )
+    assert results, "repro cannot run: the weak-coverage fact was not returned at all"
+    for fact in results:
+        assert fact.relevance_score <= 0.5, (
+            f"1/5-term partial match '{fact.content}' inflated to relevance "
+            f"{fact.relevance_score:.3f} (R1 min-max normalisation, EM-105)"
+        )
+
+
 def test_f001_single_token_query_does_not_match_everything(engine):
-    """A single common token should not match all facts in the DB.
-    v2.7 treats 'a' as a prefix match so it hits everything."""
+    """A single common token should not match facts that do not contain it as
+    a term. v2.7 treated 'a' as a prefix match so it hit everything; the
+    FTS builder fix (EM-104) plus the symbol-only LIKE fallback gate now
+    keep word queries on the FTS path only. Fixed — regression guard."""
     engine.remember(content="The project deadline is Friday", domain="Work", importance=0.9)
     engine.remember(content="The budget is approved for Q3", domain="Finance", importance=0.8)
     engine.remember(content="The server runs on port 9090", domain="Infrastructure", importance=0.7)
     results = engine.recall_with_relevance("a", top_k=10)
-    # should match at most the fact containing "a" (if any), not all 3
-    assert len(results) <= 1, f"single token 'a' matched {len(results)} facts"
+    # should match at most the fact containing the term "a" (if any), not all 3
+    assert len(results) <= 1, (
+        f"single token 'a' matched {len(results)} facts: "
+        f"{[f.content for f in results]} (R2, EM-104)"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason="F-001 → EM-105: min_relevance_score "
-          "is meaningless under min-max normalisation")
 def test_f001_min_relevance_score_actually_filters(engine):
-    """min_relevance_score=0.5 should exclude facts below that threshold.
-    Under min-max normalisation the minimum is always 0.0 so nothing is filtered."""
-    engine.remember(content="The user likes rooibos tea", domain="Personal", importance=0.6)
+    """min_relevance=0.5 should exclude facts below that threshold. Under
+    min-max normalisation a lone weak-coverage hit scores 1.0, so nothing is
+    ever filtered and weak noise is injected regardless of the threshold."""
+    engine.remember(content="The user has a pasta allergy", domain="Personal", importance=0.5)
     engine.remember(content="Project Falcon uses SQLite FTS5", domain="Engineering", importance=0.85)
     results = engine.recall_with_relevance(
-        "what tea does the user like", top_k=10, min_relevance_score=0.5
+        "homemade italian pasta recipe ideas", top_k=10, min_relevance=0.5
     )
-    for _, _, score, _ in results:
-        assert score >= 0.5, f"fact with relevance {score} below min_relevance_score=0.5"
+    assert not any("pasta" in fact.content for fact in results), (
+        "min_relevance=0.5 failed to exclude a 1/5-term partial match "
+        f"{[(f.content, round(f.relevance_score, 3)) for f in results]} — "
+        "min-max inflation pushes weak hits past any threshold (R1, EM-105)"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason="F-001 → EM-105: progressive disclosure "
-          "max-2/3/5 tiers are meaningless")
-def test_f001_progressive_disclosure_caps_results(engine):
-    """With 5 facts all scoring >=0.7, progressive disclosure should cap at 2,
-    not return all 5."""
-    for i in range(5):
-        engine.remember(
-            content=f"Fact number {i} about the project deadline on Friday",
-            domain="Work", importance=0.9,
+def test_f001_progressive_disclosure_caps_results(make_provider, home_a):
+    """Provider-level repro: 5 facts all strongly matching the query must all
+    be surfaced (max_prefetch_results=5). v2.7's disclosure tiers are
+    meaningless: the max-2 tier fires whenever any score >= 0.7, and R1
+    inflation makes every score 'high', so a full high-relevance set is
+    always collapsed to 2."""
+    provider = make_provider()
+    host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA")
+    host.start()
+    # Distinct-enough facts (pairwise Jaccard 0.67 < 0.8, so L1 fuzzy dedup
+    # cannot collapse them) that all strongly match "project deadline".
+    markers = ["orchid", "harbor", "lantern", "meadow", "quartz"]
+    tails = ["morning", "evening", "noon", "weekly", "promptly"]
+    for marker, tail in zip(markers, tails):
+        provider.handle_tool_call(
+            "entropicmem_remember",
+            {"content": f"The {marker} project deadline review is scheduled "
+                        f"for Friday {tail}",
+             "domain": "Work"},
         )
-    results = engine.prefetch("project deadline", session_id="regress_f001")
-    # progressive disclosure: max 2 if any >= 0.7
-    assert len(results) <= 2, f"returned {len(results)} facts, progressive disclosure cap is 2"
+    block = provider.prefetch("what is the project deadline", session_id="regress_f001")
+    host.shutdown()
+    count = sum(1 for marker in markers if marker in block)
+    assert count >= 5, (
+        f"progressive disclosure surfaced {count}/5 strongly-relevant facts — "
+        "the max-2 tier fires whenever any score is 'high' (>= 0.7), which R1 "
+        "inflation makes always true; a full high-relevance set must not be "
+        "capped at 2 (R7, EM-107)"
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-002 → EM-107: Temporal decay from last_accessed; long-term facts forgotten
+# F-002 (R3) → EM-106: Temporal decay from last_accessed; long-term facts forgotten
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-002 → EM-107: decay computed from "
-          "last_accessed (never updated by default); 120-day facts decayed to 0.062")
 def test_f002_old_important_fact_still_retrievable(engine):
-    """A 120-day-old fact with importance 0.9 should still be retrieved
-    on a relevant query. v2.7 decays it to ~0.062 and never prefetches."""
-    import time as _time
+    """A 120-day-old fact with importance 0.9 should still be retrieved at a
+    useful relevance score on a relevant query. v2.7 decays it to ~0.062
+    (below the prefetch threshold), so long-term facts are forgotten.
+    Fixed by EM-106 (durable-memory decay rules) — regression guard."""
     engine.remember(
         content="The user's display name is Alex Rivera",
-        domain="People", importance=0.9, age_days=120,
+        domain="People", importance=0.9,
     )
-    # simulate time having passed
-    engine.db.execute(
-        "UPDATE facts SET created_at = ?, last_accessed = ?",
-        (int(_time.time()) - 120 * 86400, int(_time.time()) - 120 * 86400),
-    )
-    engine.db.commit()
+    _age_facts(engine, 120)
     results = engine.recall_with_relevance("what is the user's display name", top_k=10)
-    found = any("Alex Rivera" in r for _, r, _, _ in results)
-    assert found, "120-day-old important fact was not retrieved"
+    found = [f for f in results if "Alex Rivera" in f.content]
+    assert found, "repro cannot run: the relevant fact was not returned at all"
+    assert found[0].relevance_score >= 0.5, (
+        f"120-day-old importance-0.9 fact decayed to relevance "
+        f"{found[0].relevance_score:.4f} (< 0.5) — decay runs off last_accessed "
+        "and crushes long-term facts (R3, EM-106)"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason="F-002 → EM-107: last_accessed never "
-          "updated by default reinforce path")
 def test_f002_recall_updates_last_accessed(engine):
     """Recalling a fact should update its last_accessed timestamp so it
-    doesn't decay. v2.7 only updates via opt-in reinforce."""
+    doesn't decay. v2.7 only updates via the opt-in reinforce path."""
     engine.remember(
         content="The user prefers dark mode in all applications",
-        domain="Preferences", importance=0.8, age_days=90,
+        domain="Preferences", importance=0.8,
     )
-    engine.recall("what is the user's theme preference")
+    _age_facts(engine, 90)
+    results = engine.recall("what is the user's theme preference")
+    assert results, "repro cannot run: the fact was not retrieved"
     # last_accessed should be within the last few seconds (just recalled)
-    import time as _time
     stored = engine.db.execute(
         "SELECT last_accessed FROM facts WHERE content LIKE '%dark mode%'"
     ).fetchone()
-    assert stored[0] > _time.time() - 5, f"last_accessed={stored[0]} not updated after recall"
+    last = datetime.fromisoformat(stored[0])
+    assert last > datetime.now(timezone.utc) - timedelta(seconds=5), (
+        f"last_accessed={stored[0]} not updated by recall — actively-used "
+        "facts keep decaying (R3, EM-106)"
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 # F-003 → EM-108: Multimodal list payload crashes prefetch (TypeError swallowed)
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-003 → EM-108: multimodal message with "
-          "list content raises TypeError: unhashable type 'list' in prefetch")
 def test_f003_prefetch_handles_multimodal_list_messages(make_provider, home_a):
     """A multimodal message (list content) in turn history should not crash
     prefetch. v2.7 raises TypeError on list payloads and silently swallows it,
@@ -171,22 +225,62 @@ def test_f003_prefetch_handles_multimodal_list_messages(make_provider, home_a):
         "entropicmem_remember",
         {"content": "The user's grocery list is milk, eggs, and bread", "domain": "Personal"},
     )
-    # send a turn with multimodal list content
-    block, latency = host.turn(
+    # a multimodal (list-content) message in the turn history must not crash
+    # the prefetch fingerprint (TypeError swallowed -> "" injection)
+    provider.sync_turn(
         "what is on my list",
-        extra_messages=[{"role": "user", "content": [{"type": "text", "text": "list item"}]}],
+        "checking the list now",
+        session_id="f003-session",
+        messages=[
+            {"role": "user", "content": [{"type": "text", "text": "list item"}]},
+        ],
     )
+    block, latency = host.turn("what is on my list")
     # should not crash, should still inject memory
     assert isinstance(block, str), "prefetch crashed on multimodal message"
+    assert "milk" in block, "memory injection stopped after multimodal message"
+    host.shutdown()
+
+
+def test_H2_multimodal_prefetch(make_provider, home_a):
+    """H2 (fixed by EM-101): multimodal list payloads anywhere in the turn
+    history must not stop memory injection. Includes mixed part keys
+    (text/input_text/output_text), nested content dicts, and a normalised
+    sync_turn store with turn_author."""
+    provider = make_provider()
+    host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA")
+    host.start()
+    provider.handle_tool_call(
+        "entropicmem_remember",
+        {"content": "The user's wifi network is named cedar-guest", "domain": "Infrastructure"},
+    )
+    provider.sync_turn(
+        [{"type": "text", "text": "what is my wifi network"}],
+        [{"type": "output_text", "text": "checking"}],
+        session_id="h2-session",
+        messages=[
+            {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "http://x/1.png"}}]},
+            {"role": "user", "content": {"content": [{"type": "input_text", "text": "and the wifi name"}]}},
+        ],
+        turn_author={"id": "user_one"},
+    )
+    block, latency = host.turn("what is my wifi network")
+    assert isinstance(block, str)
+    assert "cedar-guest" in block, "memory injection stopped on multimodal turns"
+    # store is normalised: string content, author captured
+    assert all(isinstance(t.get("content"), str) for t in provider._session_turns)
+    assert any(t.get("author") == {"id": "user_one"} for t in provider._session_turns)
     host.shutdown()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-004 → EM-109: No user/chat scoping; cross-user memory bleed
+# F-004 → S4 (known limitation): No user/chat scoping; cross-user memory bleed. S1 interim = EM-118 owner/guest guard
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-004 → EM-109: gateway user_id/chat_id "
-          "ignored; all users share one memory pool")
+@pytest.mark.xfail(strict=True, reason="F-004 → S4 known limitation: full "
+          "per-user scoping (alice/bob isolation) is Sprint 4 work. S1 ships "
+          "the interim owner/guest guard (EM-118) — owner_user_ids + guest "
+          "exclusions — see tests/test_privacy_guard.py")
 def test_f004_cross_user_isolation(make_provider, home_a):
     """Two users (different user_ids) sharing a profile must not see each
     other's memories."""
@@ -223,182 +317,213 @@ def test_f004_cross_user_isolation(make_provider, home_a):
     host_b.shutdown()
 
 
-@pytest.mark.xfail(strict=True, reason="F-004 → EM-109: per-profile config "
-          "overridden by default profile at initialize")
-def test_f004_per_profile_config_respected(make_provider, home_a, home_b):
-    """Each profile must use its own config, not the default profile's.
-    v2.7 overrides per-profile config at initialize."""
-    provider_a = make_provider()
-    provider_b = make_provider()
+def test_f004_per_profile_config_respected(home_a, home_b, monkeypatch):
+    """Each profile's own file config must win over whatever config was loaded
+    from the default profile at register() time (H4)."""
+    import sys
+    import types
 
-    host_a = FakeHost(provider_a, hermes_home=home_a, agent_identity="homeA")
-    host_b = FakeHost(provider_b, hermes_home=home_b, agent_identity="homeB")
-    host_a.start()
-    host_b.start()
+    import plugins.entropicmem as emod
 
-    provider_a.handle_tool_call(
-        "entropicmem_remember",
-        {"content": "Profile A specific memory: alpha-omega-9", "domain": "Work"},
+    (home_a / "config.yaml").write_text(
+        "plugins:\n  entropicmem:\n    max_prefetch_results: 4\n    min_relevance_score: 0.11\n",
+        encoding="utf-8",
     )
-    provider_b.handle_tool_call(
-        "entropicmem_remember",
-        {"content": "Profile B specific memory: beta-prime-7", "domain": "Work"},
+    (home_b / "config.yaml").write_text(
+        "plugins:\n  entropicmem:\n    max_prefetch_results: 2\n    min_relevance_score: 0.22\n",
+        encoding="utf-8",
     )
+    # register() resolves the "default profile" home via hermes_constants
+    fake_hc = types.ModuleType("hermes_constants")
+    setattr(fake_hc, "get_hermes_home", lambda: home_a)
+    monkeypatch.setitem(sys.modules, "hermes_constants", fake_hc)
 
-    # A's profile should not see B's memories and vice versa
-    block_a, _ = host_a.turn("what specific memories exist for profile A")
-    block_b, _ = host_b.turn("what specific memories exist for profile B")
+    class _Ctx:
+        def register_memory_provider(self, provider):
+            self.provider = provider
 
-    assert "alpha-omega-9" in block_a
-    assert "beta-prime-7" not in block_a, "profile B memory leaked into profile A"
+    ctx = _Ctx()
+    emod.register_memory_provider(ctx)
+    ctx.provider.initialize("cfg-session", hermes_home=str(home_b), agent_identity="homeB")
 
-    assert "beta-prime-7" in block_b
-    assert "alpha-omega-9" not in block_b
+    assert ctx.provider._config["max_prefetch_results"] == 2, (
+        f"home_a (register-time) config overrode home_b file config: "
+        f"{ctx.provider._config['max_prefetch_results']} (H4/EM-102)"
+    )
+    assert ctx.provider._config["min_relevance_score"] == 0.22
 
-    host_a.shutdown()
-    host_b.shutdown()
+
+def test_em102_memory_config_section_overrides_plugin_config(tmp_path):
+    """EM-102 item 5: a ``memory.entropicmem`` config section merges OVER
+    ``plugins.entropicmem`` (host-native location wins, plugin location kept
+    for backward compatibility)."""
+    from plugins.entropicmem import _backend
+
+    (tmp_path / "config.yaml").write_text(
+        "plugins:\n"
+        "  entropicmem:\n"
+        "    max_prefetch_results: 4\n"
+        "    min_relevance_score: 0.11\n"
+        "memory:\n"
+        "  entropicmem:\n"
+        "    max_prefetch_results: 2\n",
+        encoding="utf-8",
+    )
+    cfg = _backend.load_plugin_config(tmp_path)
+    assert cfg["max_prefetch_results"] == 2, "memory.entropicmem must win over plugins.entropicmem"
+    assert cfg["min_relevance_score"] == 0.11, "plugins.entropicmem keys must survive the merge"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-005 → EM-110: Bare threading.Thread; os.environ profile; config override
+# F-005 → EM-103: Bare threading.Thread; os.environ profile; config override
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-005 → EM-110: background threads use "
-          "bare threading.Thread instead of spawn_context_thread")
-def test_f005_uses_spawn_context_thread(make_provider, home_a):
-    """Background sync threads must be spawned via the host's
-    spawn_context_thread when running under Hermes, not bare threading.Thread."""
-    provider = make_provider()
-    host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA")
-    host.start()
-    provider.handle_tool_call(
-        "entropicmem_remember",
-        {"content": "test sync thread", "domain": "Work"},
+def test_f005_uses_spawn_context_thread():
+    """No call site may spawn a bare threading thread — every background job
+    goes through EntropicMemMemoryProvider._spawn (host spawn_context_thread
+    propagating contextvars, with one named-daemon fallback inside _spawn
+    itself) (F-005b, H3/EM-103)."""
+    init_py = Path("plugins/entropicmem/__init__.py")
+    if not init_py.is_file():
+        init_py = Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "__init__.py"
+    text = init_py.read_text(encoding="utf-8")
+    needle = "threading.Thread("
+    total = text.count(needle)
+    spawn_at = text.find("def _spawn(")
+    assert spawn_at != -1, "EntropicMemMemoryProvider._spawn is missing (F-005b, H3/EM-103)"
+    body = text[spawn_at:]
+    end = body.find("\n    def ")  # _spawn body stops at the next method
+    if end != -1:
+        body = body[:end]
+    in_spawn = body.count(needle)
+    assert total == in_spawn == 1, (
+        "background threads must go through _spawn's single named-daemon fallback — "
+        f"threading.Thread( occurrences: total={total}, in _spawn={in_spawn} "
+        "(F-005b, H3/EM-103)"
     )
-    host.turn("hello world")
-
-    # Check that spawn_context_thread was called (not bare Thread)
-    import threading
-    threads = [t for t in threading.enumerate() if "sync" in t.name.lower()]
-    # In the real fix, we check that spawn_context_thread was used.
-    # For now, xfail: v2.7 uses bare Thread.
-    assert not threads, "Bare threading.Thread detected; should use spawn_context_thread"
-
-    host.shutdown()
 
 
 def test_f005_no_os_environ_heremes_home_in_engine():
-    """The engine must never read os.environ['HERMES_HOME'] — path/profile
-    must come from explicit initialize kwargs."""
-    # This test verifies by code inspection that the engine does not
-    # reference os.environ['HERMES_HOME'] after initialize.
-    me = Path("memory_engine.py")
-    if not me.exists():
-        # try the standard location
-        me = Path("plugins/entropicmem/scripts/memory_engine.py")
-    content = me.read_text()
-    assert 'os.environ["HERMES_HOME"]' not in content.replace("'", '"'), (
-        "Engine reads os.environ['HERMES_HOME'] — profile bleed in "
-        "multiplexed gateways (F-005, EM-110)"
+    """No runtime script may read os.environ['HERMES_HOME'] / os.environ.get
+    ('HERMES_HOME') — path/profile must come from explicit initialize kwargs
+    (H3/EM-102). Exception: scripts/entropicmem.py (CLI entry, runs outside a
+    host) and scripts/vault.py (the CLI's documented env-honouring shared
+    path resolver) may keep env reads."""
+    scripts = Path("plugins/entropicmem/scripts")
+    if not scripts.is_dir():
+        scripts = Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "scripts"
+    allowed = {"entropicmem.py", "vault.py"}
+    needles = ('os.environ["HERMES_HOME"]', 'os.environ.get("HERMES_HOME"')
+    offenders = []
+    for py in sorted(scripts.glob("*.py")):
+        if py.name in allowed:
+            continue
+        content = py.read_text(encoding="utf-8").replace("'", '"')
+        for needle in needles:
+            if needle in content:
+                offenders.append(f"{py.name}: {needle}")
+    assert not offenders, (
+        "scripts read os.environ['HERMES_HOME'] — profile bleed in "
+        f"multiplexed gateways (F-005, H3/EM-102): {offenders}"
     )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-006 → EM-104: Near-duplicate dedup silently overwrites; no supersession
+# F-006 (L1) → EM-109: Near-duplicate dedup silently overwrites; no supersession
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-006 → EM-104: Jaccard >=0.8 dedup "
-          "silently overwrites without supersession record")
 def test_f006_dedup_preserves_supersession_record(engine):
     """When a near-duplicate fact is remembered, the old fact must be
-    preserved as a superseded version, not silently overwritten."""
+    preserved as a superseded version, not silently overwritten. The pair
+    below has Jaccard 0.82, so v2.7's fuzzy dedup updates the old row in
+    place and '...five minutes' disappears from recall entirely."""
     engine.remember(
-        content="The API gateway listens on port 8080",
+        content="The project dashboard refresh interval is set to five minutes",
         domain="Infrastructure", importance=0.8,
     )
     engine.remember(
-        content="The API gateway listens on port 9090",
+        content="The project dashboard refresh interval is set to ten minutes",
         domain="Infrastructure", importance=0.8,
     )
     # Both should be retrievable: old as superseded, new as current
-    rows = engine.db.execute(
-        "SELECT content, superseded_by FROM facts ORDER BY created_at"
-    ).fetchall()
-    assert len(rows) >= 1
-    old_row = rows[0]
-    # The old fact must have a supersession record
-    assert old_row[1] is not None, (
-        f"Old fact '{old_row[0]}' was silently overwritten — "
-        "no supersession record (F-006, EM-104)"
+    results = engine.recall("The project dashboard refresh interval")
+    contents = [f.content for f in results]
+    assert any("five minutes" in c for c in contents) \
+        and any("ten minutes" in c for c in contents), (
+        f"near-duplicate write silently overwrote '...five minutes' (Jaccard "
+        f"0.82 fuzzy dedup) — both versions must stay retrievable, old as "
+        f"superseded (L1, EM-109): recall={contents}"
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-006 → EM-104: recall surfaces only the "
-          "newest without a way to query superseded versions")
 def test_f006_recall_returns_superseded_with_reason(engine):
     """When querying a superseded concept, recall should indicate that a
     newer version exists rather than returning only the new fact."""
     engine.remember(
-        content="The server address is host alpha-seven.internal",
+        content="The primary application server hostname is set to alpha-seven.internal now",
         domain="Infrastructure", importance=0.9,
     )
     engine.remember(
-        content="The server address is host beta-nine.internal",
+        content="The primary application server hostname is set to beta-nine.internal now",
         domain="Infrastructure", importance=0.9,
     )
-    # Recall should mention both facts or at least note the supersession
     results = engine.recall("what is the server address")
-    # At minimum, the response should not silently drop the old fact
-    assert "alpha-seven" in results or "superseded" in results.lower(), (
-        "Superseded fact alpha-seven was silently dropped (F-006, EM-104)"
+    old_visible = any("alpha-seven" in f.content for f in results)
+    supersession_flagged = any(
+        "superseded" in str(f.why_retrieved).lower() for f in results
+    )
+    assert old_visible or supersession_flagged, (
+        "superseded fact alpha-seven.internal was silently dropped — recall "
+        "must surface the superseded version or flag the supersession "
+        f"(L1, EM-109): results={[f.content for f in results]}"
     )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-007 → EM-106: consolidate ignores importance; archives important facts
+# F-007 (L2) → EM-108: consolidate ignores importance; archives important facts
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-007 → EM-106: consolidate archives by "
-          "created_at + access_count, ignoring importance")
 def test_f007_consolidate_respects_importance(engine):
     """A high-importance fact (>0.8) older than 90 days must NOT be archived
-    by consolidate. v2.7 uses access_count (always 0 by default) + created_at."""
+    by consolidate. v2.7 selects candidates on created_at + access_count
+    (always 0 by default), so importance is ignored."""
     engine.remember(
-        content="The user's emergency contact is 911",
-        domain="Personal", importance=0.95, age_days=120,
+        content="The user's emergency contact is a close family member",
+        domain="Personal", importance=0.95,
     )
-    engine.consolidate(max_age_days=90, min_access_count=0)
+    _age_facts(engine, 120)
+    # dry_run=False + confirm=True is the only combination that archives
+    engine.consolidate(max_age_days=90, min_access_count=0, dry_run=False, confirm=True)
     rows = engine.db.execute(
         "SELECT content FROM facts_archive WHERE content LIKE '%emergency contact%'"
     ).fetchall()
     assert len(rows) == 0, (
-        f"High-importance fact was archived by consolidate (F-007, EM-106): "
-        f"{rows}"
+        f"High-importance (0.95) fact was archived by consolidate — "
+        f"importance must shield facts from archiving (L2, EM-108): {rows}"
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-007 → EM-106: consolidate archives "
-          "low-importance facts first, not oldest")
 def test_f007_consolidate_archives_low_importance_first(engine):
     """When consolidating, low-importance facts should be archived before
     high-importance ones, even if they're the same age."""
     engine.remember(
-        content="Low importance fact: the user once saw a blue car",
-        domain="Personal", importance=0.1, age_days=120,
+        content="Low importance note: the user once saw a blue car on the street",
+        domain="Personal", importance=0.1,
     )
     engine.remember(
-        content="High importance fact: the user has a medical allergy to penicillin",
-        domain="Personal", importance=0.95, age_days=120,
+        content="The user has a severe medical allergy to penicillin",
+        domain="Personal", importance=0.95,
     )
-    engine.consolidate(max_age_days=90, min_access_count=0)
+    _age_facts(engine, 120)
+    engine.consolidate(max_age_days=90, min_access_count=0, dry_run=False, confirm=True)
     archived = engine.db.execute("SELECT content FROM facts_archive").fetchall()
     archived_text = " ".join(r[0] for r in archived)
     # High-importance fact must NOT be archived when low-importance exists
     assert "medical allergy" not in archived_text, (
-        "High-importance fact was archived before low-importance (F-007, EM-106)"
+        "High-importance fact was archived before low-importance (L2, EM-108)"
     )
     assert "blue car" in archived_text, (
-        "Low-importance fact was not archived (F-007, EM-106)"
+        "Low-importance fact was not archived (L2, EM-108)"
     )
 
 
@@ -406,41 +531,51 @@ def test_f007_consolidate_archives_low_importance_first(engine):
 # F-008 → EM-111: Prefetch synchronous on agent thread; core memory re-injected
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-008 → EM-111: prefetch runs "
-          "synchronously on the agent thread instead of a background worker")
+@pytest.mark.xfail(strict=True, reason="F-008a → S4 async prefetch: queue_prefetch "
+          "is a synchronous no-op stub; prefetch work runs inline on the caller")
 def test_f008_prefetch_runs_async(make_provider, home_a):
-    """Prefetch must run on a dedicated thread, not block the agent thread.
-    v2.7 runs all prefetch synchronously on the main thread."""
+    """queue_prefetch must schedule the recall work on a background thread
+    (H5). v2.7 only stashes the query string and runs prefetch inline."""
+    import threading
+    import time as _time
+
     provider = make_provider()
-    host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA",
-                    init_kwargs={"hermes_home": home_a})
+    host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA")
     host.start()
     provider.handle_tool_call(
         "entropicmem_remember",
         {"content": "test async prefetch", "domain": "Work"},
     )
-    block, latency = host.turn("tell me about the test")
+    caller_ident = threading.get_ident()
+    seen_ident = {}
+    original = provider._build_fact_block
 
-    # Prefetch should complete via queue_prefetch (async), not inline
-    # In v2.7, prefetch blocks the turn — latency includes full recall time
-    # The fix: prefetch is queued and runs on a FIFO background worker
-    metrics = host.summary()
-    assert metrics["prefetch_timeouts"] == 0
-    # If async: turn returns quickly, prefetch completes in background
-    # v2.7: turn latency includes full recall (synchronous)
-    # Check that prefetch didn't block the main thread by >50% of turn time
-    # (This is a heuristic; the real fix instruments the thread.)
-    assert latency > 0.0  # just verify we got a latency
+    def _probe(q):
+        seen_ident["ident"] = threading.get_ident()
+        return original(q)
 
+    provider._build_fact_block = _probe
+    provider.queue_prefetch("tell me about the async prefetch test")
+    deadline = _time.time() + 2.0
+    while _time.time() < deadline and "ident" not in seen_ident:
+        _time.sleep(0.05)
     host.shutdown()
+    assert seen_ident.get("ident") not in (None, caller_ident), (
+        "queue_prefetch did not run the recall work off the caller thread (H5)"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason="F-008 → EM-111: core memory "
-          "re-injected every turn, causing linear token growth")
 def test_f008_core_memory_not_reinjected_every_turn(make_provider, home_a):
-    """Core Memory (Persona + Profile) should be cached per session,
-    not re-injected every turn, to avoid linear prompt token growth."""
+    """Core Memory (Persona + Profile) should be injected once (system prompt
+    / delta), not repeated in every turn's prefetch block."""
+    from pathlib import Path
+
+    from vault import CoreMemory
+
     provider = make_provider()
+    # seed real Core Memory content so injection is non-empty
+    core = CoreMemory(Path(home_a) / "entropicmem" / "vault")
+    core.patch("persona", "## Identity", "## Identity\nPersona marker unit-alpha-7")
     host = FakeHost(provider, hermes_home=home_a, agent_identity="homeA")
     host.start()
     provider.handle_tool_call(
@@ -450,85 +585,85 @@ def test_f008_core_memory_not_reinjected_every_turn(make_provider, home_a):
 
     blocks = []
     for i in range(5):
-        block, _ = host.turn(f"query {i}")
+        block, _ = host.turn(f"what do you know about the core memory system round {i}")
         if block:
             blocks.append(block)
 
-    # Count how many blocks contain the full "EntropicMem Core Memory" section
-    core_count = sum(1 for b in blocks if "Core Memory" in b or "Persona" in b)
+    assert blocks, "prefetch returned nothing; repro cannot run"
+    core_count = sum(1 for b in blocks if "unit-alpha-7" in b or "Core Memory — Persona" in b)
     # Core memory should be injected once (session start), not every turn
     assert core_count <= 1, (
         f"Core memory re-injected {core_count} times across 5 turns; "
-        f"should be cached per session (F-008, EM-111)"
+        f"should be cached per session (L8/EM-116)"
     )
     host.shutdown()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-009 → EM-112: Learning loop dead; regex extraction only, nothing promoted
+# F-009 (L4/R8) → EM-111 / S3: Learning loop dead; nothing promoted; episodes
+# never reach recall
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-009 → EM-112: extraction is regex-only; "
-          "extracted facts land in quarantine, nothing promotes to active")
 def test_f009_extraction_promotes_from_quarantine(engine):
-    """Extracted facts from session digests should be promoted from
-    quarantine to active facts. v2.7 lands everything in quarantine."""
-    engine.sync_turn(
-        messages=[{"role": "user", "content": "Remember: my new laptop is a MacBook Pro M3"},
-                  {"role": "assistant", "content": "I'll remember that."}],
-        turn_author="test_user",
+    """Extracted facts from conversation text should be promoted from
+    quarantine to active facts. v2.7's extract_and_store() lands everything
+    in pending_facts and nothing auto-promotes."""
+    engine.extract_and_store(
+        "I use a MacBook Pro M3 as my new laptop for work.",
+        session_id="regress_f009",
     )
-    # The extraction regex should pull "MacBook Pro M3" as a fact
-    # and it should be promoted (not stuck in quarantine)
     quarantined = engine.db.execute(
-        "SELECT content FROM pending_facts WHERE content LIKE '%MacBook%'"
+        "SELECT content FROM pending_facts WHERE content LIKE '%laptop%'"
     ).fetchall()
+    assert quarantined, "repro cannot run: nothing was extracted into pending_facts"
     active = engine.db.execute(
-        "SELECT content FROM facts WHERE content LIKE '%MacBook%'"
+        "SELECT content FROM facts WHERE content LIKE '%laptop%'"
     ).fetchall()
     assert len(active) > 0, (
-        f"Extracted fact stuck in quarantine, not promoted to facts "
-        f"(F-009, EM-112): active={len(active)}, quarantined={len(quarantined)}"
+        f"extracted candidate stuck in pending_facts quarantine, not promoted "
+        f"to active facts (L4, EM-111): active={len(active)}, "
+        f"quarantined={len(quarantined)}"
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-009 → EM-112: no semantic "
-          "extraction; regex patterns are domain-specific")
 def test_f009_semantic_extraction_of_new_patterns(engine):
     """Extraction should handle generic constraint statements, not just
-    domain-specific regex patterns."""
-    engine.sync_turn(
-        messages=[{"role": "user", "content": "My security protocol requires rotating the API key every 90 days"},
-                  {"role": "assistant", "content": "Noted."}],
-        turn_author="test_user",
+    domain-specific regex patterns. (Repro note: the original statement here
+    was 'rotating the API key every 90 days' — secret words trip the write
+    policy and pollute the repro, so a non-secret generic constraint is used.)
+    """
+    engine.extract_and_store(
+        "I always prefer the office thermostat kept at 21 degrees.",
+        session_id="regress_f009",
     )
     rows = engine.db.execute(
-        "SELECT content FROM facts WHERE content LIKE '%API key%'"
+        "SELECT content FROM facts WHERE content LIKE '%thermostat%'"
     ).fetchall()
     assert len(rows) > 0, (
-        "Constraint statement 'rotating API key every 90 days' was not "
-        "extracted — regex-only patterns miss generic statements (F-009, EM-112)"
+        "generic constraint statement 'I always prefer the office thermostat "
+        "kept at 21 degrees' was not extracted into facts — regex-only "
+        "patterns miss generic statements (L4, EM-111)"
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-009 → EM-112: episodes and triples "
-          "never reach prefetch")
+@pytest.mark.xfail(strict=True, reason="F-009 (R8) → S3 retrieval v3: episodes "
+          "are stored in the timeline layer but recall() never surfaces them "
+          "(out of S1 scope)")
 def test_f009_episodes_reach_recall(engine):
-    """Episodic memories (conversations) should be retrievable alongside
-    facts. v2.7 extracts them but they never reach prefetch."""
-    engine.remember(
-        content="The user asked about Kubernetes deployment on Tuesday",
-        domain="Work", importance=0.7, age_days=3,
-    )
-    engine.sync_turn(
-        messages=[{"role": "user", "content": "what did we discuss about Kubernetes?"},
-                  {"role": "assistant", "content": "We discussed deployment."}],
-        turn_author="test_user",
+    """Episodic memories (conversation records) should be retrievable
+    alongside facts. v2.7 stores them via add_episode() but the standard
+    recall() path never surfaces them."""
+    engine.add_episode(
+        title="Kubernetes deployment discussion",
+        summary="The user asked about Kubernetes deployment on Tuesday; "
+                "we discussed deployment strategies.",
+        source_session="regress_f009",
     )
     results = engine.recall("kubernetes deployment")
-    assert "Kubernetes" in results, (
-        "Episodic memory not surfaced in recall (F-009, EM-112): "
-        f"results={results[:100]}"
+    assert any("Kubernetes" in f.content or "Kubernetes" in f.title for f in results), (
+        "episodic memory not surfaced by recall() — episodes must be "
+        f"retrievable alongside facts (R8 → S3 retrieval v3): "
+        f"results={[f.content for f in results]}"
     )
 
 
@@ -598,16 +733,17 @@ def test_em004_ac_minimum_xfail_count():
 
 
 # Reference the fixing task IDs so they're discoverable in the test file
+# (canonical master-plan numbering — the pre-correction map swapped several)
 FIXING_TASK_IDS = {
-    "F-001": "EM-105",
-    "F-002": "EM-107",
-    "F-003": "EM-108",
-    "F-004": "EM-109",
-    "F-005": "EM-110",
-    "F-006": "EM-104",
-    "F-007": "EM-106",
-    "F-008": "EM-111",
-    "F-009": "EM-112",
+    "F-001": "EM-105 (R1) / EM-104 (R2, fixed) / EM-107 (R7)",
+    "F-002": "EM-106",
+    "F-003": "EM-101 (fixed)",
+    "F-004": "EM-118",
+    "F-005": "EM-103 (+EM-102, fixed)",
+    "F-006": "EM-109",
+    "F-007": "EM-108",
+    "F-008": "EM-116 (+EM-107)",
+    "F-009": "EM-111 (R8 episodes → S3 retrieval v3)",
     "F-010": "EM-212",
     "F-011": "EM-213",
 }

@@ -13,7 +13,7 @@ Usage:
   entropicmem moc [--domain DOMAIN]
   entropicmem hotcache
   entropicmem graph export [--format FORMAT] [--max-nodes N] [--domain D]
-  entropicmem graph serve [--port N]
+  entropicmem graph serve [--port N] [--bind HOST] [--dir DIR]
   entropicmem remember "fact" [--domain D] [--tags t1,t2]
   entropicmem forget <entropic_id>
   entropicmem open <note_id>
@@ -26,15 +26,18 @@ Standalone memory: vault + MemoryEngine + graph.
 """
 
 import argparse
+import hashlib
+import io
 import json
 import os
 import re
 import shutil
 import sqlite3
 import sys
+import tempfile
 import time
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # ── path setup (support both repo-root and ~/.hermes/plugins/entropicmem/scripts/) ──
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -54,7 +57,7 @@ from vault import (  # noqa: E402
     resolve_vault_path,
 )
 
-__version__ = "2.7.0"
+__version__ = "2.8.0"
 
 # ── input validation helpers ────────────────────────────────────────────────
 
@@ -962,18 +965,30 @@ def cmd_graph(args) -> int:
             print(f"Error: graph.html not found in {out_dir}. Run 'graph export' first.", file=sys.stderr)
             index.close()
             return 1
-        import http.server
-        import socketserver
+        # EM-114: loopback-only unless ENTROPICMEM_GRAPH_EXPOSE=1, Host
+        # allowlist, CSP, and only graph.html/graph.json are served.
+        from graph_static import is_loopback_host, make_server
+
         port = args.port
         bind = getattr(args, "bind", "127.0.0.1") or "127.0.0.1"
-        os.chdir(str(out_dir))
-        handler = http.server.SimpleHTTPRequestHandler
-        print(f"Serving graph at http://{bind}:{port}/graph.html (Ctrl+C to stop)")
+        index.close()
         try:
-            with socketserver.TCPServer((bind, port), handler) as httpd:
+            httpd = make_server(out_dir, bind, port)
+        except PermissionError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+        host, actual_port = httpd.server_address[:2]
+        shown = f"[{host}]" if ":" in str(host) else host
+        if not is_loopback_host(bind):
+            print("Warning: serving WITHOUT authentication on a non-loopback address "
+                  "(ENTROPICMEM_GRAPH_EXPOSE=1).", file=sys.stderr)
+        print(f"Serving graph at http://{shown}:{actual_port}/graph.html (Ctrl+C to stop)")
+        try:
+            with httpd:
                 httpd.serve_forever()
         except KeyboardInterrupt:
             print()
+        return 0
     elif args.graph_command == "show":
         # Phase 10: graph-aware note connections (unified graph_edges table)
         import sqlite3 as _sqlite
@@ -1485,60 +1500,222 @@ def cmd_security(args) -> int:
         return 1
 
 
-# ── subcommand: export / import (Phase 11.2) ────────────────────────────────
+# ── subcommand: export / import (Phase 11.2; EM-113 hardening) ──────────────
 
-def cmd_export(args) -> int:
-    """Export memory capsule (DB + vault + config) as tar.gz."""
+MANIFEST_VERSION = 2
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _sqlite_snapshot(src: Path, dest: Path) -> None:
+    """Live-copy a SQLite DB via the backup API (safe under concurrent writes)."""
+    with sqlite3.connect(str(src)) as src_conn, sqlite3.connect(str(dest)) as dest_conn:
+        src_conn.backup(dest_conn)
+
+
+def _db_schema_versions(db_file: Path) -> dict:
+    """Schema markers for the manifest: schema_info stamp + SQLite user_version."""
+    conn = sqlite3.connect(str(db_file))
+    try:
+        user_version = conn.execute("PRAGMA user_version").fetchone()[0]
+        try:
+            row = conn.execute(
+                "SELECT schema_version, phase FROM schema_info ORDER BY rowid DESC LIMIT 1"
+            ).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        return {
+            "user_version": int(user_version),
+            "schema_version": int(row[0]) if row else None,
+            "phase": int(row[1]) if row else None,
+        }
+    finally:
+        conn.close()
+
+
+def export_capsule(output: Path) -> dict:
+    """Export memory capsule (live DB copies + vault + manifest v2) as tar.gz.
+
+    EM-113: memory.db/index.db are copied through the SQLite backup API (a
+    live-copy that stays consistent under concurrent writes), the vault is
+    exported from its RESOLVED path, and the manifest carries schema versions
+    plus a sha256 per exported file.
+    """
     import tarfile
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     db_path = _memory_db_path()
-    output = Path(args.output).resolve()
+    vault_path, index_db = _resolve_env()
+    output = Path(output).expanduser().resolve()
 
     if not db_path.exists():
-        print(f"Error: memory DB not found at {db_path}", file=sys.stderr)
-        return 1
+        raise ValueError(f"memory DB not found at {db_path}")
 
     # Check if encrypted
     from security import is_encrypted
     if is_encrypted(db_path):
-        print("Error: DB is encrypted. Decrypt first with 'security disable'.", file=sys.stderr)
-        return 1
+        raise ValueError("DB is encrypted. Decrypt first with 'security disable'.")
 
-    files_added = 0
-    with tarfile.open(str(output), "w:gz") as tar:
-        # Add DB
-        tar.add(str(db_path), arcname="memory.db")
-        files_added += 1
+    files: dict = {}
+    with tarfile.open(str(output), "w:gz") as tar, tempfile.TemporaryDirectory() as staging:
+        staging = Path(staging)
+        for arcname, src in (("memory.db", db_path), ("index.db", index_db)):
+            if not src.is_file():
+                continue
+            snap = staging / arcname
+            _sqlite_snapshot(src, snap)
+            tar.add(str(snap), arcname=arcname)
+            files[arcname] = {"sha256": _sha256_file(snap), "size": snap.stat().st_size}
 
-        # Add vault directory
-        vault_dir = db_path.parent / "vault"
-        if vault_dir.exists():
-            tar.add(str(vault_dir), arcname="vault")
-            files_added += 1
+        has_vault = vault_path.is_dir()
+        if has_vault:
+            for p in sorted(vault_path.rglob("*")):
+                if not p.is_file() or p.is_symlink():
+                    continue
+                arcname = "vault/" + p.relative_to(vault_path).as_posix()
+                tar.add(str(p), arcname=arcname)
+                files[arcname] = {"sha256": _sha256_file(p), "size": p.stat().st_size}
 
-        # Add manifest
         manifest = {
-            "version": 1,
-            "exported_at": datetime.now().isoformat(),
+            "version": MANIFEST_VERSION,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
             "db_path": str(db_path),
-            "has_vault": vault_dir.exists(),
+            "has_vault": has_vault,
+            "schema_versions": {
+                "memory": _db_schema_versions(staging / "memory.db") if (staging / "memory.db").is_file() else None,
+                "index": _db_schema_versions(staging / "index.db") if (staging / "index.db").is_file() else None,
+            },
+            "files": files,
         }
-        import io
         manifest_bytes = json.dumps(manifest, indent=2).encode()
         info = tarfile.TarInfo(name="manifest.json")
         info.size = len(manifest_bytes)
         tar.addfile(info, io.BytesIO(manifest_bytes))
-        files_added += 1
 
-    print(f"Capsule exported: {output} ({files_added} items)")
+    return {"output": str(output), "manifest": manifest}
+
+
+def _validate_capsule_member(member) -> None:
+    """EM-113: only plain regular files at safe relative paths may be extracted.
+
+    Rejects symlinks, hardlinks, device files, absolute paths and any '..'
+    component (zip-slip / tar-slip).
+    """
+    name = member.name
+    parts = PurePosixPath(name).parts
+    if not member.isfile() or name.startswith("/") or not parts or ".." in parts:
+        raise ValueError(f"unsafe member in capsule: {name!r}")
+
+
+def _provider_running(db_path: Path) -> bool:
+    """Best-effort live check: a running engine/provider holds the write flock."""
+    import fcntl
+
+    lock_path = db_path.parent / f"{db_path.name}.lock"
+    if not lock_path.exists():
+        return False
+    fd = os.open(str(lock_path), os.O_RDWR)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return True
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def import_capsule(capsule_path: Path) -> dict:
+    """Import a memory capsule from tar.gz.
+
+    EM-113: fail-closed — refuses while a lock file exists or the provider is
+    running, validates every member BEFORE extracting anything, verifies the
+    manifest v2 sha256s, and extracts with tarfile's ``data`` filter.
+    """
+    import tarfile
+
+    capsule_path = Path(capsule_path).expanduser().resolve()
+    if not capsule_path.is_file():
+        raise ValueError(f"capsule not found: {capsule_path}")
+
+    db_path = _memory_db_path()
+    vault_path, index_db = _resolve_env()
+
+    lock = db_path.parent / MemoryEngine.MIGRATION_LOCK_FILENAME
+    if lock.exists():
+        raise ValueError(f"import refused: {lock.name} present (entropicmem migrate running)")
+    if _provider_running(db_path):
+        raise ValueError("import refused: provider is running")
+
+    with tarfile.open(str(capsule_path), "r:gz") as tar:
+        members = tar.getmembers()
+        for member in members:
+            _validate_capsule_member(member)
+
+        by_name = {m.name: m for m in members}
+        manifest_file = tar.extractfile(by_name.get("manifest.json"))
+        if manifest_file is None:
+            raise ValueError("invalid capsule (missing manifest.json)")
+        manifest = json.loads(manifest_file.read())
+        expected = manifest.get("files") or {}
+
+        with tempfile.TemporaryDirectory() as staging:
+            staging = Path(staging)
+            if hasattr(tarfile, "data_filter"):
+                tar.extractall(path=str(staging), members=members, filter="data")
+            else:  # pragma: no cover - Python < 3.12
+                tar.extractall(path=str(staging), members=members)  # nosec B202 -- members validated above
+
+            # Verify checksums BEFORE anything reaches its final target
+            for member in members:
+                if member.name == "manifest.json":
+                    continue
+                want = (expected.get(member.name) or {}).get("sha256")
+                if want and _sha256_bytes((staging / member.name).read_bytes()) != want:
+                    raise ValueError(f"checksum mismatch for {member.name!r}")
+
+            for member in members:
+                name = member.name
+                if name == "manifest.json":
+                    continue
+                if name == "memory.db":
+                    target = db_path
+                elif name == "index.db":
+                    target = index_db
+                elif name.startswith("vault/"):
+                    target = vault_path / name[len("vault/"):]
+                else:
+                    raise ValueError(f"unexpected member in capsule: {name!r}")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(staging / name), str(target))
+
+    return {"imported_from": str(capsule_path), "manifest": manifest}
+
+
+def cmd_export(args) -> int:
+    """Export memory capsule (DB + vault + config) as tar.gz."""
+    try:
+        result = export_capsule(Path(args.output))
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    print(f"Capsule exported: {result['output']} ({len(result['manifest']['files']) + 1} items)")
     return 0
 
 
 def cmd_import(args) -> int:
     """Import a memory capsule from tar.gz."""
-    import tarfile
-
     capsule_path = Path(args.input).resolve()
     if not capsule_path.exists():
         print(f"Error: capsule not found: {capsule_path}", file=sys.stderr)
@@ -1554,37 +1731,15 @@ def cmd_import(args) -> int:
             print("Import cancelled.")
             return 0
 
-    with tarfile.open(str(capsule_path), "r:gz") as tar:
-        # Validate manifest
-        try:
-            manifest_file = tar.extractfile("manifest.json")
-            manifest = json.loads(manifest_file.read())
-        except (KeyError, json.JSONDecodeError):
-            print("Error: invalid capsule (missing manifest.json)", file=sys.stderr)
-            return 1
-
-        # Extract DB
-        tar.extract("memory.db", path=str(db_path.parent))
-        extracted_db = db_path.parent / "memory.db"
-        if extracted_db != db_path:
-            extracted_db.rename(db_path)
-
-        # Extract vault
-        if manifest.get("has_vault"):
-            # Security: members are filtered to the vault/ prefix AND must be
-            # free of path traversal (".." segments) so a crafted capsule
-            # cannot write outside the target directory (zip-slip / tar-slip).
-            members = [
-                m for m in tar.getmembers()
-                if m.name.startswith("vault/")
-                and ".." not in m.name.split("/")
-            ]
-            tar.extractall(path=str(db_path.parent), members=members)  # nosec B202 -- members filtered above (vault/ prefix, no "..")
+    try:
+        result = import_capsule(capsule_path)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     print(f"Capsule imported to {db_path.parent}")
-    print(f"Exported at: {manifest.get('exported_at', 'unknown')}")
+    print(f"Exported at: {result['manifest'].get('exported_at', 'unknown')}")
     return 0
-
 
 # ── subcommand: history (Phase 11.3) ────────────────────────────────────────
 
@@ -1672,6 +1827,13 @@ def cmd_pending(args) -> int:
             ok = engine.discard_pending(args.id)
             print(json.dumps({"ok": ok}))
             return 0 if ok else 1
+        if action == "prune":
+            # EM-111: TTL purge, e.g. --older-than 30d
+            raw = str(getattr(args, "older_than", "30d"))
+            days = int(raw[:-1]) if raw.lower().endswith("d") else int(raw)
+            n = engine.prune_pending(older_than_days=days)
+            print(json.dumps({"pruned": n, "older_than_days": days}))
+            return 0
     print("unknown pending action", file=sys.stderr)
     return 1
 
@@ -2002,6 +2164,8 @@ def main() -> int:
     p_pp.add_argument("id", help="Pending fact id")
     p_pd = p_pending_sub.add_parser("discard", help="Discard pending fact")
     p_pd.add_argument("id", help="Pending fact id")
+    p_pr = p_pending_sub.add_parser("prune", help="TTL-purge old pending facts (EM-111)")
+    p_pr.add_argument("--older-than", default="30d", help="TTL, e.g. 30d (default)")
 
     args = parser.parse_args()
 

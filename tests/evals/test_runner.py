@@ -171,3 +171,21 @@ def test_run_suite_end_to_end_with_factory(tmp_path):
     out = tmp_path / "ci-deadbeef.json"
     out.write_text(json.dumps(result), encoding="utf-8")
     assert json.loads(out.read_text())["metrics"]["mrr"] >= 0.0
+
+
+def test_compare_gates_only_section_6_3_metrics():
+    """prefetch_tokens / latency_ms / mrr can worsen without failing the
+    gate; each §6.3 gated metric fails it on its own."""
+    base = {"prefetch_tokens": 20.0, "latency_ms": 1.0, "mrr": 0.9,
+            "recall@5": 0.9, "ndcg@5": 0.9, "abstain_correct": 0.9,
+            "noise_rate": 0.1, "must_not_ok": 0.9}
+    cur = {"prefetch_tokens": 40.0, "latency_ms": 9.0, "mrr": 0.5,
+           "recall@5": 0.8, "ndcg@5": 0.8, "abstain_correct": 0.8,
+           "noise_rate": 0.2, "must_not_ok": 0.8}
+    flags = {r["metric"]: r for r in runner.compare_deltas(base, cur, threshold=0.02)}
+    for info_only in ("prefetch_tokens", "latency_ms", "mrr"):
+        assert flags[info_only]["worsened"] is True
+        assert flags[info_only]["regressed"] is False, info_only
+    assert {m for m, r in flags.items() if r["regressed"]} == set(runner.GATED_METRICS)
+    table = runner.render_compare_markdown(list(flags.values()))
+    assert "| prefetch_tokens |" in table and "| info |" in table

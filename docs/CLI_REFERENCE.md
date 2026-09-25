@@ -56,7 +56,7 @@ All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd
 | `index rebuild [--include-archive]` | Full or incremental rebuild: reindex vault notes + graph edges |
 | `index status` | Report index freshness without touching anything |
 | `graph export [--format json\|dot\|html\|canvas] [--output-dir DIR] [--max-nodes N] [--domain D] [--min-importance F] [--include-bodies\|--no-bodies]` | Export visual graph (default `html`, `./export`, 500 nodes; bodies on by default, `--no-bodies` for a lean shell) |
-| `graph serve [--port 8069] [--bind 127.0.0.1] [--dir DIR]` | HTTP serve export dir (loopback bind enforced, see [VISUALIZER.md](VISUALIZER.md)) |
+| `graph serve [--port 8069] [--bind 127.0.0.1] [--dir DIR]` | Serve `graph.html`/`graph.json` from DIR (non-loopback bind refused unless `ENTROPICMEM_GRAPH_EXPOSE=1`; Host allowlist + CSP; no token, see [VISUALIZER.md](VISUALIZER.md)) |
 | `graph show <target> [--depth N]` | Show connected notes for a target (default depth 1) |
 
 ## Vectors, time, security

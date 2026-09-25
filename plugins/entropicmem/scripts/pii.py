@@ -32,21 +32,32 @@ class PIIFinding:
 
 # ── detection patterns ──────────────────────────────────────────────────────
 
-_PII_PATTERNS: List[tuple] = [
+# EM-115: region-specific patterns live in opt-in locale packs; the default
+# scan (locales=()) sees only the generic set.
+_GENERIC_PATTERNS: List[tuple] = [
     # (name, regex, confidence)
     ("email", r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", 0.95),
-    ("phone", r"\b(?:\+?27|0)[6-8][0-9]{8}\b", 0.85),  # South African format
     ("phone_intl", r"\b\+?[1-9]\d{1,2}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}\b", 0.7),
-    ("id_number", r"\b\d{13}\b", 0.6),  # SA ID number (13 digits)
     ("api_key", r"\b(?:sk|pk|api|key|token)[_-][A-Za-z0-9]{20,}\b", 0.9),
     ("password", r"(?:password|passwd|pwd|secret)\s*[=:]\s*\S+", 0.85),
     ("ip_address", r"\b(?:\d{1,3}\.){3}\d{1,3}\b", 0.5),
     ("credit_card", r"\b(?:\d[ -]*?){13,16}\b", 0.6),
 ]
 
-# Compile patterns once
-_COMPILED_PATTERNS = [(name, re.compile(pattern, re.IGNORECASE), conf)
-                      for name, pattern, conf in _PII_PATTERNS]
+LOCALE_PACKS: dict = {
+    "za": [
+        ("phone", r"\b(?:\+?27|0)[6-8][0-9]{8}\b", 0.85),  # South African format
+        ("id_number", r"\b\d{13}\b", 0.6),  # SA ID number (13 digits)
+    ],
+}
+
+def _compiled_for(locales: Sequence[str] = ()) -> List[tuple]:
+    """Effective (name, compiled, confidence) set for the enabled locale packs."""
+    patterns = list(_GENERIC_PATTERNS)
+    for loc in locales or ():
+        patterns.extend(LOCALE_PACKS.get(str(loc).lower(), ()))
+    return [(name, re.compile(pattern, re.IGNORECASE), conf)
+            for name, pattern, conf in patterns]
 
 # ── write-time redaction policy ──────────────────────────────────────────────
 # Write-time redaction (check_pii mode="redact") is intentionally narrow: only
@@ -59,10 +70,10 @@ AUTO_REDACT_MIN_CONFIDENCE = 0.8
 MATCH_PLACEHOLDER = "[REDACTED]"
 
 
-def _raw_findings(text: str) -> List[PIIFinding]:
-    """All raw matches across the patterns, in pattern order (overlaps kept)."""
+def _raw_findings(text: str, locales: Sequence[str] = ()) -> List[PIIFinding]:
+    """All raw matches across the enabled patterns, in pattern order (overlaps kept)."""
     findings: List[PIIFinding] = []
-    for name, pattern, confidence in _COMPILED_PATTERNS:
+    for name, pattern, confidence in _compiled_for(locales):
         for m in pattern.finditer(text):
             findings.append(PIIFinding(
                 pii_type=name,
@@ -115,18 +126,20 @@ def _merge_findings(findings: Sequence[PIIFinding], text: str) -> List[PIIFindin
     return merged
 
 
-def scan_pii(text: str) -> List[PIIFinding]:
+def scan_pii(text: str, locales: Sequence[str] = ()) -> List[PIIFinding]:
     """
     Scan text for PII patterns. Returns findings sorted by position, with
     intersecting spans interval-merged so a nested match never survives on its
-    own and downstream splices can never see stale offsets.
+    own and downstream splices can never see stale offsets. Region-specific
+    patterns require their locale pack (EM-115; default = generic only).
     """
-    return _merge_findings(_raw_findings(text), text)
+    return _merge_findings(_raw_findings(text, locales), text)
 
 
 def redact_pii(text: str, replacement: str = "[REDACTED]",
                types: Optional[frozenset] = None,
-               min_confidence: float = 0.0) -> str:
+               min_confidence: float = 0.0,
+               locales: Sequence[str] = ()) -> str:
     """
     Replace detected PII with a replacement string. Returns the redacted text.
 
@@ -136,7 +149,7 @@ def redact_pii(text: str, replacement: str = "[REDACTED]",
     Selected spans are interval-merged and spliced in a single pass from the
     end: text outside the redacted spans is never dropped.
     """
-    selected = [f for f in _raw_findings(text)
+    selected = [f for f in _raw_findings(text, locales)
                 if (types is None or f.pii_type in types)
                 and f.confidence >= min_confidence]
     result = text
@@ -147,7 +160,8 @@ def redact_pii(text: str, replacement: str = "[REDACTED]",
 
 def check_pii(text: str, mode: str = "warn",
               redact_types: Optional[frozenset] = SECRET_TYPES,
-              min_confidence: float = AUTO_REDACT_MIN_CONFIDENCE) -> dict:
+              min_confidence: float = AUTO_REDACT_MIN_CONFIDENCE,
+              locales: Sequence[str] = ()) -> dict:
     """
     Check text for PII and act according to mode.
 
@@ -173,7 +187,7 @@ def check_pii(text: str, mode: str = "warn",
         "blocked": bool,
       }
     """
-    findings = scan_pii(text)
+    findings = scan_pii(text, locales)
     has_pii = len(findings) > 0
 
     result = {
