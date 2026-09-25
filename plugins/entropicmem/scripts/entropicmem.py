@@ -47,6 +47,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 # EM-201: single source of truth is em/__init__.py (pyproject reads it via
 # [tool.setuptools.dynamic]; plugin.yaml is kept in sync by a test).
 from em import __version__  # noqa: E402
+from em.store.locking import FileLock  # noqa: E402 (EM-202: portable lock probe)
 from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 from index import VaultIndex  # noqa: E402
 from memory_engine import MemoryEngine  # noqa: E402
@@ -1619,22 +1620,13 @@ def _validate_capsule_member(member) -> None:
 
 
 def _provider_running(db_path: Path) -> bool:
-    """Best-effort live check: a running engine/provider holds the write flock."""
-    import fcntl
+    """Best-effort live check: a running engine/provider holds the write lock.
 
-    lock_path = db_path.parent / f"{db_path.name}.lock"
-    if not lock_path.exists():
-        return False
-    fd = os.open(str(lock_path), os.O_RDWR)
-    try:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            return True
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        return False
-    finally:
-        os.close(fd)
+    EM-202: delegates to ``FileLock.probe`` so the check uses the same
+    mechanism as the holder on every platform (fcntl on POSIX, msvcrt on
+    Windows) and never creates the lock file.
+    """
+    return FileLock.probe(db_path.parent / f"{db_path.name}.lock")
 
 
 def import_capsule(capsule_path: Path) -> dict:

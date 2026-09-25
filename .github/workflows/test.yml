@@ -62,18 +62,22 @@ jobs:
           print("perf-smoke OK:", warm, "ms")
           PY
 
-  # EM-007: Windows import smoke — must not crash on import.
-  # Expected to fail until EM-202 fixes the Windows path-handling; keep
-  # continue-on-error so it never blocks the gate.
+  # Windows import smoke (EM-007) + portable store tests (EM-202).
+  # EM-202: Windows is a supported platform. The job is blocking: it imports
+  # the modules that used to hard-import fcntl and runs the portable store
+  # tests (locking, db, concurrency AC) on windows-latest.
   windows-import:
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -c "import memory_engine"
+      - run: pip install -q "pytest==9.0.3"
+      - run: python -c "import memory_engine, entropicmem"
+        env:
+          PYTHONPATH: plugins/entropicmem/scripts
+      - run: python -m pytest tests/unit -q
         env:
           PYTHONPATH: plugins/entropicmem/scripts
 

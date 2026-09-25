@@ -69,7 +69,7 @@ Prefetch (system-injected `<memory-context>`) runs the same retrieval pipeline u
 ## Concurrency & integrity
 
 - WAL mode on both SQLite stores; `busy_timeout=30s` on every connection.
-- Cross-process write lock: the engine takes an `fcntl` exclusive lock on `<db>.lock` for writes, so gateway, CLI, and cron writers serialize.
+- Cross-process write lock: the engine takes an exclusive advisory lock on `<db>.lock` for writes, so gateway, CLI, and cron writers serialize. EM-202: the lock is portable — `fcntl.flock` on POSIX, `msvcrt.locking` on Windows — and lives in `em.store.locking` (no direct platform imports elsewhere). The v3 storage core (`em.store.db`) relies on SQLite's own serialisation instead: `BEGIN IMMEDIATE` + `busy_timeout` under WAL, with advisory locks reserved for what SQLite cannot see (migrations, capsule imports).
 - Auto-backup before destructive operations (`forget`, `consolidate`).
 - Confirm gates: destructive APIs require `confirm=True`.
 - Orphan guards: `forget`/`consolidate` remove embeddings by plain SQL (schema-probed), never gated on optional dependency availability.
