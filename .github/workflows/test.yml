@@ -118,6 +118,46 @@ jobs:
       # Exact command the Hermes plugin catalog runs at the pinned plugin SHA.
       - run: hermes plugins validate --install-deps plugins/entropicmem
 
+  # Commit-identity guard. Fails when any commit in range carries an author or
+  # committer email that is not a noreply address.
+  #
+  # The push-to-main trigger is the important one: a GitHub web merge only
+  # creates its merge commit AFTER CI has run on the PR, so the PR check cannot
+  # see it. On 2026-09-26 five public merge commits on main were authored with a
+  # personal work email (GitHub takes the merge author from the merging
+  # account's email, not the repo's git config) and repairing that required
+  # rewriting published history. See scripts/check_commit_identity.sh.
+  identity-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need the base history to compute base..head on a pull_request, and
+          # the before/after range on a push. fetch-depth: 0 is the safe default.
+          fetch-depth: 0
+      - name: Resolve commit range
+        id: range
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.after }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            echo "range=$BASE_SHA..$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          else
+            # before can be all-zeros on the first push to a new branch.
+            BEFORE="$BEFORE_SHA"
+            if printf '%s' "$BEFORE" | grep -qE '^0+$'; then
+              BEFORE="$(git rev-list --max-parents=0 HEAD | tail -1)"
+            fi
+            echo "range=$BEFORE..$AFTER_SHA" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check every commit is authored/committed by a noreply address
+        run: scripts/check_commit_identity.sh "${{ steps.range.outputs.range }}"
+
   lint:
     runs-on: ubuntu-latest
     steps:
