@@ -18,6 +18,12 @@ jobs:
       # read config.yaml, so the EM-102 config-precedence tests fail.
       - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50" "pyyaml>=6,<7"
       - run: pytest -q tests/
+        env:
+          # Private identifier denylist (SHA-256 digests). Never committed, not
+          # even hashed. Secrets exist on pushes and same-repo PRs, and there a
+          # missing list fails the privacy guard; fork PRs get no secrets and skip.
+          ENTROPICMEM_PRIVACY_DIGESTS: ${{ secrets.ENTROPICMEM_PRIVACY_DIGESTS }}
+          ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && '1' || '0' }}
 
   # EM-007: run the ci eval suite and compare against the committed baseline.
   # Fails on any gated regression per §6.3 (recall@5, ndcg@5, abstain_correct,
@@ -141,19 +147,16 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BEFORE_SHA: ${{ github.event.before }}
-          AFTER_SHA: ${{ github.after }}
+          AFTER_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "pull_request" ]; then
             echo "range=$BASE_SHA..$HEAD_SHA" >> "$GITHUB_OUTPUT"
           else
-            # before can be all-zeros on the first push to a new branch.
-            BEFORE="$BEFORE_SHA"
-            if printf '%s' "$BEFORE" | grep -qE '^0+$'; then
-              BEFORE="$(git rev-list --max-parents=0 HEAD | tail -1)"
-            fi
-            echo "range=$BEFORE..$AFTER_SHA" >> "$GITHUB_OUTPUT"
+            # Push: check the WHOLE history reachable from the pushed commit.
+            # A before..after range breaks after a force-push (before no longer
+            # exists) and would miss rewritten commits; full history is cheap.
+            echo "range=$AFTER_SHA" >> "$GITHUB_OUTPUT"
           fi
       - name: Check every commit is authored/committed by a noreply address
         run: scripts/check_commit_identity.sh "${{ steps.range.outputs.range }}"

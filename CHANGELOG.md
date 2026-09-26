@@ -4,6 +4,11 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 ## [Unreleased]
 
+### Security
+
+- **Private identifier denylist (privacy guard v2).** The privacy guard no longer ships any identifier list, not even as SHA-256 digests: unsalted hashes of short words (names, a company, a bank) are reversible with a word list, so a public hash list republished what it was meant to protect. Digests now come from the `ENTROPICMEM_PRIVACY_DIGESTS` Actions secret (CI) or a local file (`~/.config/entropicmem/privacy-digests.txt`); where secrets exist CI sets `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1`, so a missing list fails instead of skipping. Failure output names file, line and list position only, never the word (CI logs are public). The scan now also reads fixture databases (`.db`/`.sqlite`) as raw bytes, and a test fails if a digest list is committed again. The phone-number rule stays public.
+- **Identity guard fails closed.** `scripts/check_commit_identity.sh` no longer swallows `git rev-list` errors (an unresolvable range used to report "nothing to check" and pass); on push it now checks the whole history reachable from the pushed commit, which also covers force-pushes.
+
 ### Added
 
 - **EM-204: migration `0002_v3_core` — the v3 schema and the lossless move of every v2 row into it.** Creates the v3 tables (`memories`, `relations`, `entities`, `episodes`, `jobs`, `audit_log`, `meta`, plus external-content `memories_fts`/`episodes_fts` with their sync triggers), renames each v2 source table to `v2_<name>` and keeps it for one release, then copies the data across with new type-prefixed ULIDs while remembering the old id in `legacy_id`. The original ids stay readable: the migration never commits, and a fresh v2 store ends up on `user_version=2` with all v3 tables.
