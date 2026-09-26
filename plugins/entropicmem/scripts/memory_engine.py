@@ -237,6 +237,7 @@ try:
         cosine_similarity,  # noqa: F401 (availability probe)
         embed_text,
         embedding_coverage,
+        embeddings_enabled,
         hybrid_rank,
         init_embeddings_schema,
         invalidate_vector_cache,
@@ -248,6 +249,18 @@ try:
 except ImportError:
     EMBEDDINGS_IMPORTABLE = False
     EMBEDDINGS_AVAILABLE = False
+
+    def embeddings_enabled() -> bool:  # type: ignore[misc]
+        return False
+
+
+def _embeddings_active() -> bool:
+    """Embeddings are used only when installed AND explicitly enabled.
+
+    ``EMBEDDINGS_AVAILABLE`` means "importable"; that alone is not consent
+    to load a model (first use downloads it). See ``embeddings.embeddings_enabled``.
+    """
+    return EMBEDDINGS_AVAILABLE and embeddings_enabled()
 
 # ── temporal query parsing (Phase 8) ────────────────────────────────────────
 
@@ -966,6 +979,16 @@ class MemoryEngine:
         # P1 fail-closed migration guard (no durable writes mid-migration)
         self._check_migration_lock()
 
+        # Embed BEFORE taking the write lock: encoding (and a first-use model
+        # download) can take seconds, and no other writer may proceed while the
+        # lock is held. Only when explicitly enabled (_embeddings_active).
+        vec = None
+        if _embeddings_active():
+            try:
+                vec = embed_text(content)
+            except Exception as exc:  # noqa: BLE001 - third-party embedder
+                logger.warning("embedding generation failed: %s", exc)
+
         self._acquire_write_lock()
         try:
             eid = StoredFact.make_id(content)
@@ -1083,14 +1106,12 @@ class MemoryEngine:
                     sensitivity=tier,
                 )
             self.db.commit()
-            # Phase 7: generate and store embedding (best-effort, non-blocking)
-            if EMBEDDINGS_AVAILABLE:
+            # Phase 7: store the embedding computed above (best-effort)
+            if vec:
                 try:
-                    vec = embed_text(content)
-                    if vec:
-                        store_embedding(self.db, eid, vec)
-                except Exception as exc:  # noqa: BLE001 - third-party embedder
-                    logger.warning("embedding generation failed for %s: %s", eid, exc)
+                    store_embedding(self.db, eid, vec)
+                except Exception as exc:  # noqa: BLE001 - storage is best-effort
+                    logger.warning("embedding storage failed for %s: %s", eid, exc)
         finally:
             self._release_write_lock()
         self.audit("remember", actor=actor, session_id=session_id, fact_id=eid, detail=f"domain={domain};tier={tier}")
@@ -2151,7 +2172,7 @@ class MemoryEngine:
         Phase 10.2: when expand_links=True, traverses the wikilink graph
         and appends connected vault notes as low-score context facts.
         """
-        if not EMBEDDINGS_AVAILABLE:
+        if not _embeddings_active():
             results = self.recall_with_relevance(query, top_k=top_k, domain=domain)
         else:
             # FTS5 pass (get more candidates for fusion)
@@ -2250,6 +2271,10 @@ class MemoryEngine:
         if not EMBEDDINGS_AVAILABLE:
             return {"total": 0, "embedded": 0, "skipped": 0, "errors": 0,
                     "message": "sentence-transformers not installed"}
+        if not _embeddings_active():
+            return {"total": 0, "embedded": 0, "skipped": 0, "errors": 0,
+                    "message": "embeddings are disabled: set embeddings_enabled: true "
+                               "(provider config) or ENTROPICMEM_EMBEDDINGS=1 (CLI)"}
 
         facts = self.list_facts(limit=10000)
         embedded = 0
@@ -2275,7 +2300,9 @@ class MemoryEngine:
         """Report embedding coverage and availability (Phase 7.3)."""
         if not EMBEDDINGS_AVAILABLE:
             return {"available": False, "message": "sentence-transformers not installed"}
-        return embedding_coverage(self.db)
+        stats = embedding_coverage(self.db)
+        stats["enabled"] = _embeddings_active()
+        return stats
 
     # ── v2.2.0 G1: episodic memory ──────────────────────────────────────────────
 

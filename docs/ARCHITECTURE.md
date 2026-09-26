@@ -14,7 +14,7 @@ All engine code lives under `plugins/entropicmem/scripts/`, inside the plugin di
 | Write policy | `plugins/entropicmem/scripts/policy.py` | Sensitivity tiers, secret blocking, quarantine decisions, prefetch redaction |
 | PII | `plugins/entropicmem/scripts/pii.py` | Detection + redaction on the write path |
 | Injection screen | `plugins/entropicmem/scripts/injection_screen.py` | Local prompt-injection screening on retrieval and prefetch payloads |
-| Embeddings | `plugins/entropicmem/scripts/embeddings.py` | 384-dim BGE-small vectors, cosine search, hybrid fusion (optional dep) |
+| Embeddings | `plugins/entropicmem/scripts/embeddings.py` | 384-dim `all-MiniLM-L6-v2` vectors, cosine search, hybrid fusion (optional dep, **opt-in**: `embeddings_enabled: true` in the provider config or `ENTROPICMEM_EMBEDDINGS=1` for the CLI; the model downloads on first use) |
 | Temporal | `plugins/entropicmem/scripts/temporal.py` | Natural-language date parsing for `recall`/`timeline` |
 | Session digest | `plugins/entropicmem/scripts/session_digest.py` | Extractive session digests + standing-constraints extraction (stdlib, no LLM) |
 | Vault | `plugins/entropicmem/scripts/vault.py` | Markdown notes, CoreMemory (Persona/User Profile), path resolution with containment |
