@@ -1788,7 +1788,9 @@ def cmd_consolidate(args) -> int:
 
 
 def cmd_audit(args) -> int:
-    """Show recent audit log entries."""
+    """Show recent audit log entries, or verify the hash chain (`audit verify`)."""
+    if getattr(args, "audit_command", "") == "verify":
+        return _cmd_audit_verify(args)
     from memory_engine import MemoryEngine
     with MemoryEngine(_memory_db_path()) as engine:
         rows = engine.list_audit(limit=getattr(args, "limit", 50))
@@ -1796,6 +1798,53 @@ def cmd_audit(args) -> int:
         print(f"{r.get('ts','')} {r.get('action','')} ok={r.get('ok')} id={r.get('fact_id','')} {r.get('detail','')}")
     print(f"({len(rows)} events)")
     return 0
+
+
+def _cmd_audit_verify(args) -> int:
+    """EM-206: walk the v3 hash chain and report the first bad row.
+
+    Reads the chain directly rather than through the v2 engine, because the
+    v2 ``audit_log`` is unchained and would report OK on a tampered v3 store.
+    """
+    from em.store import audit as em_audit
+    from em.store.db import Store
+
+    db = _memory_db_path()
+    if not db.exists():
+        print(f"no memory database at {db}", file=sys.stderr)
+        return 1
+    store = Store(db)
+    try:
+        with store.reader() as conn:
+            has_chain = conn.execute(
+                "SELECT count(*) FROM sqlite_master"
+                " WHERE type='table' AND name='audit_log'"
+                " AND sql LIKE '%prev_hash%'"
+            ).fetchone()[0]
+            if not has_chain:
+                print(
+                    "audit_log is not hash-chained (v2 schema); nothing to verify",
+                    file=sys.stderr,
+                )
+                return 1
+            result = em_audit.verify(conn)
+    finally:
+        store.close()
+
+    if result.ok:
+        print(json.dumps({"ok": True, "checked": result.checked}))
+        return 0
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "first_bad_seq": result.first_bad_seq,
+                "checked": result.checked,
+                "reason": result.reason,
+            }
+        )
+    )
+    return 1
 
 
 def cmd_pending(args) -> int:
@@ -2148,6 +2197,8 @@ def main() -> int:
 
     p_audit = sub.add_parser("audit", help="Show recent security audit log")
     p_audit.add_argument("--limit", type=int, default=50)
+    p_audit_sub = p_audit.add_subparsers(dest="audit_command")
+    p_audit_sub.add_parser("verify", help="Verify the v3 audit hash chain")
 
     p_pending = sub.add_parser("pending", help="Manage quarantined auto-extract facts")
     p_pending_sub = p_pending.add_subparsers(dest="pending_command")
