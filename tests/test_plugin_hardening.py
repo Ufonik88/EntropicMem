@@ -168,8 +168,10 @@ def test_manifest_declares_registered_tools_and_hooks():
         "on_memory_write", "on_session_switch", "on_session_end",
         "on_turn_start", "on_pre_compress",
     ])
-    for key in ("provides_hooks", "hooks"):
-        assert sorted(manifest.get(key) or []) == expected_hooks
+    assert sorted(manifest.get("provides_hooks") or []) == expected_hooks
+    # One declaration only: the old duplicate `hooks:` list was dropped at the
+    # Hermes catalog maintainer's request (2.8.0 catalog review).
+    assert "hooks" not in manifest
     for hook in expected_hooks:
         assert callable(getattr(prov, hook))
 

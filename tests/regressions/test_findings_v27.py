@@ -20,7 +20,7 @@ Findings map (v2.7.0 defects → fixing EM task; corrected mapping):
   F-009 (L4 learning loop)          → EM-111  regex extraction only; candidates never promoted from quarantine
   F-009 (R8 episodes in recall)     → S3 retrieval v3 (out of S1 scope)
   F-010 → EM-212  Plugin namespace isolation: _backend bare-imports vault/index/etc
-  F-011 → EM-213  Stale provides_tools/provides_hooks in plugin.yaml
+  F-011 → EM-213  Manifest declarations (re-scoped 2026-09-26: keep provides_*, drop duplicate hooks:)
 
 Note: test_f004_cross_user_isolation's inline xfail reason still cites EM-109
 (pre-correction numbering) — that test is kept untouched; the canonical fix for
@@ -29,7 +29,7 @@ F-004/H1 is EM-118.
 | # | Finding | Category | EM-fixing |
 |---|---|---|---|
 | F-010 | Teknium review note: _backend.resolve_paths inserts scripts/ at sys.path[0] and bare-imports vault/index/security/policy/embeddings/retrieval | plugin namespace | EM-212 |
-| F-011 | Teknium review note: plugin.yaml declares provides_tools/provides_hooks, but provider uses get_tool_schemas() | plugin manifest | EM-213 |
+| F-011 | Teknium review note: plugin.yaml declares provides_tools/provides_hooks, but provider uses get_tool_schemas(). Re-scoped after the 2.8.0 catalog review verified against these lists: keep them, drop the duplicate hooks: list | plugin manifest | EM-213 (done) |
 
 AC: ≥ 20 xfail tests; each references the fixing task id.
 """
@@ -690,27 +690,30 @@ def test_f010_no_bare_module_imports_in_backend():
         pytest.skip("_backend.py not importable in this environment")
 
 
-@pytest.mark.xfail(strict=True, reason="F-011 → EM-213: plugin.yaml declares provides_tools/"
-          "provides_hooks at manifest level, but the MemoryProvider exposes tools "
-          "via get_tool_schemas() (honcho-style), triggering 'declared but not "
-          "registered' warnings")
-def test_f011_plugin_manifest_no_stale_provides_lists():
-    """plugin.yaml must not declare provides_tools/provides_hooks for a "
-    MemoryProvider that uses get_tool_schemas()."""
+def test_f011_plugin_manifest_declares_tools_and_hooks_once():
+    """F-011 → EM-213, re-scoped 2026-09-26 on catalog-maintainer evidence.
+
+    The original finding asked for ``provides_tools``/``provides_hooks`` to be
+    removed, because ``hermes plugins validate`` warns that they are "declared
+    but not registered" (the MemoryProvider exposes tools via
+    ``get_tool_schemas()``). The Hermes catalog review of 2.8.0 verified the
+    plugin *against exactly these lists* and asked only for the duplicate
+    ``hooks:`` list to go. So the lists stay as the single, exact declaration
+    (``tests/test_plugin_hardening.py`` pins them to ``register()``), and the
+    two validator warnings are a known validator limitation, not a manifest
+    bug. This test pins the re-scoped requirement.
+    """
     import yaml
 
     manifest = Path("plugins/entropicmem/plugin.yaml")
     if not manifest.is_file():
         pytest.skip("plugin.yaml not found in this checkout")
     data = yaml.safe_load(manifest.read_text())
-    assert "provides_tools" not in data, (
-        "plugin.yaml provides_tools triggers 'declared but not registered' "
-        "warnings — provider exposes tools via get_tool_schemas()"
-    )
-    assert "provides_hooks" not in data, (
-        "plugin.yaml provides_hooks triggers 'declared but not registered' "
-        "warnings — hooks are registered via register(ctx)"
-    )
+    assert "hooks" not in data, "duplicate hooks: list (catalog review asked to drop it)"
+    assert data.get("provides_tools"), "the catalog verifies tools against provides_tools"
+    assert data.get("provides_hooks"), "the catalog verifies hooks against provides_hooks"
+    for key in ("provides_tools", "provides_hooks"):
+        assert len(data[key]) == len(set(data[key])), f"{key} lists an entry twice"
 
 
 # ── Summary test: ensure we meet the AC count ───────────────────────────────
@@ -745,5 +748,5 @@ FIXING_TASK_IDS = {
     "F-008": "EM-116 (+EM-107)",
     "F-009": "EM-111 (R8 episodes → S3 retrieval v3)",
     "F-010": "EM-212",
-    "F-011": "EM-213",
+    "F-011": "EM-213 (re-scoped, done)",
 }
