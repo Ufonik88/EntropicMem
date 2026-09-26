@@ -12,6 +12,21 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 ### Added
 
+- **EM-211 foundation: the provider's engine contract, pinned, plus a parity suite.** `em/facade/contract.py` records the exact API the Hermes provider uses on the engine: 13 methods, the keyword arguments it passes to each, and one raw attribute (`engine.db`). It also records the behaviour the provider relies on that no signature shows (`BEHAVIOURS`).
+  - `tests/unit/test_em_facade_contract.py` re-derives the call table from the provider source by AST scan and fails if it differs from the recorded contract, so a new call site cannot slip past the facade. It also checks that every registered engine accepts every recorded call. Mutation-checked in both directions.
+  - `tests/parity/test_engine_parity.py` runs one test per behaviour against every engine in `ENGINES`:
+    - content-derived ids resolving (the provider's mirror lookup: `get_fact(make_id(content))`);
+    - idempotent `remember`;
+    - `forget` needing `confirm=True`;
+    - tags as a list;
+    - recall scores in [0, 1], sorted and filtered;
+    - `touch` refreshing `last_accessed`;
+    - monotonic episode waves;
+    - the lock being released after an exception.
+
+    Today the only engine is v2. The EM-211 facade is done when it is added to `ENGINES` and passes the whole file unchanged.
+  - Writing the suite corrected one assumption: v2 `touch` refreshes `last_accessed` but does not bump `access_count`. The contract now says so.
+  - One item is recorded as open: `_locate_mirror` reads `engine.db` directly (`SELECT … FROM facts`), which a v3 facade cannot offer. EM-211 must replace it with an engine method on both engines.
 - **EM-210: backup manager.** `em/store/backup.py` adds `BackupManager` (`create`, `list`, `latest`, `verify`, `rotate`, `restore`) and a daily `backup` job for the EM-209 worker (`enqueue_daily_backup`, `make_backup_handler`).
   - **A backup counts only once it has been verified.** Each snapshot goes through the SQLite backup API into a `.partial` file, so it is consistent under a live writer and includes commits still in the WAL. The copy, not the source, is then checked: `integrity_check`, `user_version`, per-table row counts, and the audit hash chain on v3. Only then are it and its sha256 manifest renamed into place. A failed check deletes the partial and raises `BackupVerificationError`, so an unverified file never looks like a good backup. Backups are standalone single files (no `-wal`/`-shm` sidecars) at 0600, in a 0700 directory.
   - **`verify()` re-hashes a stored backup against its manifest** (catches bit rot, truncation and a manifest that lies about counts) before opening it.
