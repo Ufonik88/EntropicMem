@@ -105,6 +105,7 @@ Scheduled backups: `enqueue_daily_backup(JobQueue(conn))`, handled by `make_back
 - **EM-211 (legacy facade).** Implement `LegacyEngine` over `em.store`, add it to `ENGINES` in `tests/parity/test_engine_parity.py` and to `_implementations()` in `tests/unit/test_em_facade_contract.py`, and pass both unchanged. The two known hard parts:
   - `id-from-content`: the provider finds mirrors by `sha256(content)[:16]`, so store that as `legacy_id` on `remember`.
   - The open `mirror-scan` item: replace `engine.db` in `_locate_mirror` with a method on both engines.
-- **EM-212 / EM-213.** The acceptance criteria are the strict xfails at `tests/regressions/test_findings_v27.py:670` and `:693`. They must flip to passing, not be deleted. Re-implement from the plan; the closed pre-2.8.0 attempt is not a source.
+- **EM-212.** The acceptance criterion is the strict xfail `test_f010_no_bare_module_imports_in_backend` in `tests/regressions/test_findings_v27.py`. It must flip to passing, not be deleted. Re-implement from the plan; the closed pre-2.8.0 attempt is not a source.
+- **EM-213** is done, re-scoped on 2026-09-26: the Hermes catalog verifies the plugin against `provides_tools`/`provides_hooks`, so they stay and only the duplicate `hooks:` list went. `test_f011_plugin_manifest_declares_tools_and_hooks_once` pins it. Do not remove the provides lists.
 - **EM-303 (embeddings, S3).** An `embed` job handler. Jobs are already queued by `MemoryStore.add`. Upsert into `embeddings` on `(owner_type, owner_id, model)` so re-runs are harmless.
 - **Wiring `EntityLinker`.** Run it from a job (`link:<memory_id>:<version>`), not inside `MemoryStore.add`, to keep entity work out of the write transaction.
