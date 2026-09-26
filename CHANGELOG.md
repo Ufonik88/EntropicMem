@@ -12,6 +12,7 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 ### Added
 
+- **Docs: `docs/V3_FOUNDATIONS.md` and `AGENTS.md`.** The foundations guide maps the v3 layers (`em.store`, `em.jobs`, `em.formation`, `em.facade`), states ten invariants with what enforces each, and gives recipes for adding a job type, a migration and a store module, plus backup/restore usage and what each remaining card builds on. `AGENTS.md` holds the working rules for agents: never / always / when to ask the owner.
 - **EM-211 foundation: the provider's engine contract, pinned, plus a parity suite.** `em/facade/contract.py` records the exact API the Hermes provider uses on the engine: 13 methods, the keyword arguments it passes to each, and one raw attribute (`engine.db`). It also records the behaviour the provider relies on that no signature shows (`BEHAVIOURS`).
   - `tests/unit/test_em_facade_contract.py` re-derives the call table from the provider source by AST scan and fails if it differs from the recorded contract, so a new call site cannot slip past the facade. It also checks that every registered engine accepts every recorded call. Mutation-checked in both directions.
   - `tests/parity/test_engine_parity.py` runs one test per behaviour against every engine in `ENGINES`:
