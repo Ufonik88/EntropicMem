@@ -151,6 +151,36 @@ def validate_url(url: str) -> str:
             raise ValueError(f"Resolved address {addr} is private/internal — blocked")
     return url.strip()
 
+#: Redirect hops ``safe_fetch`` follows before giving up (urllib's default is 10).
+MAX_FETCH_REDIRECTS = 5
+
+
+def safe_fetch(url: str, *, timeout: float = 10, max_bytes: int = 10 * 1024 * 1024) -> str:
+    """Fetch ``url`` as text, re-validating **every redirect hop**.
+
+    ``validate_url`` on the first URL is not enough: ``urlopen`` follows
+    redirects on its own, so a public page answering ``302`` to
+    ``http://169.254.169.254/`` or a loopback port would reach it anyway (SSRF
+    via redirect). The handler below runs the same check on each ``Location``
+    before following it, refuses non-http(s) targets, and bounds the chain.
+    Raises ``ValueError`` for a refused URL and ``OSError`` for network errors.
+    """
+    import urllib.request
+
+    class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+        max_redirections = MAX_FETCH_REDIRECTS
+
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            validate_url(newurl)  # module-level lookup: the same validator as hop one
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+    url = validate_url(url)
+    opener = urllib.request.build_opener(_ValidatingRedirectHandler)
+    req = urllib.request.Request(url, headers={"User-Agent": "EntropicMem/0.1"})
+    with opener.open(req, timeout=timeout) as resp:
+        return resp.read(max_bytes).decode("utf-8", errors="replace")
+
+
 # ── env resolution ──────────────────────────────────────────────────────────
 
 def _resolve_env() -> tuple[Path, Path]:
@@ -715,7 +745,6 @@ def cmd_ingest(args) -> int:
         source_label = "stdin"
     elif source.startswith("http://") or source.startswith("https://"):
         import http.client
-        import urllib.request
 
         # Validate URL to prevent SSRF (scheme, internal hosts, DNS rebinding)
         try:
@@ -725,10 +754,8 @@ def cmd_ingest(args) -> int:
             return 1
 
         try:
-            req = urllib.request.Request(source, headers={"User-Agent": "EntropicMem/0.1"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                # Limit response size to prevent memory exhaustion
-                text = resp.read(10 * 1024 * 1024).decode("utf-8", errors="replace")
+            # safe_fetch re-validates every redirect hop and caps the body size.
+            text = safe_fetch(source)
         except (OSError, ValueError, http.client.HTTPException) as e:
             print(f"Error fetching URL: {e}", file=sys.stderr)
             return 1
