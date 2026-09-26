@@ -26,6 +26,7 @@ Standalone memory: vault + MemoryEngine + graph.
 """
 
 import argparse
+import contextlib
 import hashlib
 import io
 import json
@@ -1816,7 +1817,10 @@ def _cmd_audit_verify(args) -> int:
     # open_db(readonly=True) directly: Store(db) opens read-write, which chmods
     # the parent dir and DB and sets journal_mode=WAL even on a v2 DB that this
     # command then refuses. A verify command must not mutate anything.
-    with open_db(db, readonly=True) as conn:
+    # closing(): a sqlite3 connection's own context manager only ends the
+    # transaction, it never closes, and an open handle keeps the file locked
+    # on Windows.
+    with contextlib.closing(open_db(db, readonly=True)) as conn:
         has_chain = conn.execute(
             "SELECT count(*) FROM sqlite_master"
             " WHERE type='table' AND name='audit_log'"

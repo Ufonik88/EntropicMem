@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -353,6 +354,27 @@ def test_cli_audit_verify_fails_on_tamper(tmp_path):
     out = _cli(tmp_path, "verify")
     assert out.returncode == 1
     assert json.loads(out.stdout)["ok"] is False
+
+
+def _assert_untouched(dir_: Path, db: Path, before: bytes) -> None:
+    """Shared read-only assertions for the two verify tests.
+
+    POSIX mode bits only exist on POSIX: Windows reports 0o777/0o666 whatever
+    was chmodded, so the permission half is checked where it means something
+    (the chmod bug it pins is POSIX-only too: ``_chmod_posix`` is a no-op on
+    Windows). Journal mode and file bytes are checked everywhere.
+    """
+    if os.name == "posix":
+        assert oct(dir_.stat().st_mode & 0o777) == "0o755"
+        assert oct(db.stat().st_mode & 0o777) == "0o644"
+    conn = sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)
+    try:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "delete"
+    finally:
+        conn.close()
+    assert db.read_bytes() == before, "verify rewrote the DB file"
+
+
 def test_cli_audit_verify_is_read_only_on_a_v3_db(tmp_path):
     """EM-208 follow-up: verify must not mutate the DB it inspects.
 
@@ -387,12 +409,7 @@ def test_cli_audit_verify_is_read_only_on_a_v3_db(tmp_path):
 
     out = _cli(tmp_path, "verify")
     assert out.returncode == 0, out.stderr
-    assert oct(tmp_path.stat().st_mode & 0o777) == "0o755"
-    assert oct(db.stat().st_mode & 0o777) == "0o644"
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "delete"
-    conn.close()
-    assert db.read_bytes() == before, "verify rewrote the DB file"
+    _assert_untouched(tmp_path, db, before)
 
 
 def test_cli_audit_verify_is_read_only_on_a_v2_db(tmp_path):
@@ -421,9 +438,4 @@ def test_cli_audit_verify_is_read_only_on_a_v2_db(tmp_path):
     out = _cli(tmp_path, "verify")
     assert out.returncode == 1  # refused: v2 has no hash chain
     assert "not hash-chained" in out.stderr
-    assert oct(tmp_path.stat().st_mode & 0o777) == "0o755"
-    assert oct(db.stat().st_mode & 0o777) == "0o644"
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "delete"
-    conn.close()
-    assert db.read_bytes() == before, "verify mutated a DB it refuses to check"
+    _assert_untouched(tmp_path, db, before)

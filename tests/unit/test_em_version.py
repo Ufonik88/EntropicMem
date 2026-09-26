@@ -66,3 +66,25 @@ def test_cli_version_matches_em():
     assert not re.search(r'^__version__\s*=\s*"\d', text, re.M), (
         "entropicmem.py still hard-codes a version literal"
     )
+
+
+def test_pyproject_lists_every_em_subpackage():
+    """Packaging regression, generalised: setuptools silently omits any
+    subpackage not listed in ``[tool.setuptools] packages``.
+
+    EM-202 missed ``em.store``, EM-203 missed ``em.store.migrations`` and
+    EM-208 missed ``em.formation``, each caught only by review. Derive the
+    required list from the directory tree instead of naming each one, so the
+    next new subpackage fails here on its first commit.
+    """
+    text = _pyproject_text()
+    m = re.search(r"^packages\s*=\s*\[([^\]]*)\]", text, re.M)
+    assert m, "pyproject [tool.setuptools] must list packages explicitly"
+    listed = set(re.findall(r'"([^"]+)"', m.group(1)))
+    em_root = _SCRIPTS / "em"
+    on_disk = {
+        ".".join(("em",) + p.parent.relative_to(em_root).parts).rstrip(".")
+        for p in em_root.rglob("__init__.py")
+    }
+    missing = sorted(on_disk - listed)
+    assert not missing, f"subpackages missing from pyproject packages: {missing}"

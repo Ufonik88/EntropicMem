@@ -51,7 +51,7 @@ Changelog = "https://github.com/Ufonik88/EntropicMem/blob/main/CHANGELOG.md"
 # points, extras layout) is EM-806.
 [tool.setuptools]
 package-dir = {"" = "plugins/entropicmem/scripts"}
-packages = ["em", "em.store", "em.store.migrations"]
+packages = ["em", "em.formation", "em.store", "em.store.migrations"]
 
 [tool.setuptools.dynamic]
 version = {attr = "em.__version__"}
