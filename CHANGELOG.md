@@ -4,16 +4,21 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 ## [Unreleased]
 
+### Added
+
+- **EM-201: `em/` package scaffold + clock & ULID identifiers** (`plugins/entropicmem/scripts/em/`). `em.clock` is the single source of time truth for the v3 storage core: `utc_now()` (freezable via `em.clock.freeze(dt)` for tests/evals), `to_iso()` (UTC, millisecond precision, `Z` suffix), `parse_iso()` (accepts the v3 canonical form plus the legacy shapes the v2 engine wrote — SQLite `CURRENT_TIMESTAMP` space-separated, `+00:00` and arbitrary offsets, naive-as-UTC), `new_id(prefix)` (type-prefixed ULID: 48-bit ms timestamp + 80 random bits, Crockford base32, sorts chronologically) and `short_id()` (last 8 chars, the citation form). Stdlib-only, no Hermes imports, no environment reads. 41 unit tests including the AC property test (`parse_iso(to_iso(x)) == x` at ms precision) and ULID sort order; mutation-checked.
+
+### Changed
+
+- **EM-201: version is now single-sourced from `em.__version__`** (`3.0.0.dev0`, PEP 440 dev for the v3 line). `pyproject.toml` declares `dynamic = ["version"]` read via `[tool.setuptools.dynamic] attr = "em.__version__"` (this also fixes the previously broken flat-layout package discovery — wheels now build, packaging `em/`); the CLI `entropicmem.py` imports it instead of re-declaring a literal; `plugin.yaml` carries the same value, pinned by `tests/unit/test_em_version.py`. `skills/entropicmem/SKILL.md` intentionally stays at 2.8.0 (it describes the installed skill's behaviour, which is still 2.8.0 until 3.0 ships; bumped at EM-806/EM-904).
+- **CI test matrix adds Python 3.13** and `pyproject.toml` gains the 3.13 classifier: Hermes Agent supports 3.13 and the full suite (927 passed, 2 skipped, 5 xfailed) already passes on it at 2.8.0. Python 3.14 is deliberately not added (Hermes cannot run on it).
+- **CHANGELOG wording:** the EM-212/EM-213 known-limitation note no longer cites the old PR number (pre-cutover numbering doesn't exist in this repo); it now says "an earlier attempt was closed unmerged, pre-2.8.0 history".
+
 ### Fixed
 
 - **Graph server: malformed Host headers now return 400 instead of 500** (S1 follow-up). Starlette < 1.7 raised `ValueError("Invalid IPv6 URL")` while parsing a Host like `[::1` before the EM-114 allowlist ran, so the request died as a 500 (fail-closed, nothing served). The hardening middleware now reads the path from the raw ASGI scope and catches parse errors around the allowlist check only, so malformed hosts always get the same 400 `invalid Host header` response with security headers attached. Downstream handler errors are never masked: a corrupt `graph.json` still surfaces as an honest 500 (pinned by a regression test). Verified on starlette 1.0.0 (raises natively) and 1.7.0 (current pin).
 - **Graph server: startup/shutdown hooks migrated from the deprecated `@app.on_event` to a `lifespan` handler** (S1 follow-up). Same behaviour: the non-loopback bind refusal, the per-run token file write and its shutdown cleanup are unchanged; the EM-114 security tests were updated to drive the lifespan and stay green.
 - **`tests/test_phase11.py` tar extraction passes `filter="data"`** where supported (Python ≥ 3.12), matching the product import path and silencing the 3.13 deprecation warning. Test-only.
-
-### Changed
-
-- **CI test matrix adds Python 3.13** and `pyproject.toml` gains the 3.13 classifier: Hermes Agent supports 3.13 and the full suite (927 passed, 2 skipped, 5 xfailed) already passes on it at 2.8.0. Python 3.14 is deliberately not added (Hermes cannot run on it).
-- **CHANGELOG wording:** the EM-212/EM-213 known-limitation note no longer cites the old PR number (pre-cutover numbering doesn't exist in this repo); it now says "an earlier attempt was closed unmerged, pre-2.8.0 history".
 
 ## [2.8.0] - 2026-09-25
 

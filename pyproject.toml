@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "entropicmem"
-version = "2.8.0"
+dynamic = ["version"]
 description = "Standalone agent memory system for Hermes Agent — SQLite FTS5 memory engine, Markdown vault, visual graph, and a 34-command knowledge loop."
 readme = "README.md"
 license = {text = "MIT"}
@@ -43,6 +43,18 @@ Homepage = "https://github.com/Ufonik88/EntropicMem"
 Repository = "https://github.com/Ufonik88/EntropicMem"
 Issues = "https://github.com/Ufonik88/EntropicMem/issues"
 Changelog = "https://github.com/Ufonik88/EntropicMem/blob/main/CHANGELOG.md"
+
+# EM-201: the version's single source of truth is em/__init__.py. The engine
+# lives under plugins/entropicmem/scripts/ so the plugin directory stays
+# self-contained for catalog installs; package-dir maps that root for both
+# the dynamic-version lookup and wheel packaging. Full packaging (entry
+# points, extras layout) is EM-806.
+[tool.setuptools]
+package-dir = {"" = "plugins/entropicmem/scripts"}
+packages = ["em"]
+
+[tool.setuptools.dynamic]
+version = {attr = "em.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

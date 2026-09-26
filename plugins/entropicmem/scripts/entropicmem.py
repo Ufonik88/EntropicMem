@@ -44,6 +44,9 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
+# EM-201: single source of truth is em/__init__.py (pyproject reads it via
+# [tool.setuptools.dynamic]; plugin.yaml is kept in sync by a test).
+from em import __version__  # noqa: E402
 from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 from index import VaultIndex  # noqa: E402
 from memory_engine import MemoryEngine  # noqa: E402
@@ -56,8 +59,6 @@ from vault import (  # noqa: E402
     hermes_home_path,
     resolve_vault_path,
 )
-
-__version__ = "2.8.0"
 
 # ── input validation helpers ────────────────────────────────────────────────
 

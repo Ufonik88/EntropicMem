@@ -1,5 +1,5 @@
 name: entropicmem
-version: 2.8.0
+version: 3.0.0.dev0
 description: "EntropicMem MemoryProvider for Hermes Agent — local durable facts, hybrid vault retrieval, and prefetch context injection."
 author: Ufonik
 # What register() wires: one MemoryProvider exposing 7 tools and 5 lifecycle
