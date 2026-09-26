@@ -13,6 +13,7 @@ return None/empty and the engine falls back to FTS5-only search.
 Requires: `pip install entropicmem[semantic]` (sentence-transformers + numpy)
 """
 
+import os
 import sqlite3
 from typing import List, Optional, Tuple
 
@@ -29,6 +30,34 @@ try:
     EMBEDDER_AVAILABLE = True
 except ImportError:
     EMBEDDER_AVAILABLE = False
+
+# ── opt-in gate ─────────────────────────────────────────────────────────────
+#
+# Having sentence-transformers importable is not consent. Constructing
+# SentenceTransformer(...) downloads the model from Hugging Face on first use,
+# which is network egress, and the plugin is disclosed as local-only. So the
+# model is only ever built when embeddings are explicitly enabled: by the
+# provider config (``embeddings_enabled: true``, applied via set_enabled) or
+# by ENTROPICMEM_EMBEDDINGS=1 for the CLI. The default is off. Existing
+# vectors stay in the database either way; recall falls back to FTS5-only.
+
+EMBEDDINGS_ENV = "ENTROPICMEM_EMBEDDINGS"
+_TRUTHY = {"1", "true", "yes", "on"}
+_enabled_override: Optional[bool] = None
+
+
+def set_enabled(value: Optional[bool]) -> None:
+    """Process-wide opt-in from config. ``None`` defers to the environment."""
+    global _enabled_override
+    _enabled_override = None if value is None else bool(value)
+
+
+def embeddings_enabled() -> bool:
+    """True only after an explicit opt-in (config or environment)."""
+    if _enabled_override is not None:
+        return _enabled_override
+    return os.environ.get(EMBEDDINGS_ENV, "").strip().lower() in _TRUTHY
+
 
 # ── schema ──────────────────────────────────────────────────────────────────
 
@@ -52,9 +81,11 @@ _model_instance = None
 
 
 def get_embedder():
-    """Lazy-load the sentence-transformer model. Returns None if unavailable."""
+    """Lazy-load the sentence-transformer model. Returns None if unavailable
+    or not explicitly enabled (see ``embeddings_enabled``): building the
+    model may download it, so this is the one egress chokepoint."""
     global _model_instance
-    if not EMBEDDER_AVAILABLE:
+    if not EMBEDDER_AVAILABLE or not embeddings_enabled():
         return None
     if _model_instance is None:
         _model_instance = SentenceTransformer(_MODEL_NAME)

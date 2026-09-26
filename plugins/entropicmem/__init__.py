@@ -171,6 +171,10 @@ SMART_CONTEXT_DEFAULTS = {
     "cache_conversation_context": True,
     "cache_ttl_seconds": 300,
 
+    # Vector embeddings (sentence-transformers): opt-in. Enabling them lets the
+    # first use download a model from Hugging Face (network egress).
+    "embeddings_enabled": False,
+
     # Security defaults (Phase 1 hardening)
     "auto_extract_enabled": False,
     "core_memory_writable": False,
@@ -558,6 +562,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
             logger.warning("EntropicMem skill scripts not found — run /learn EntropicMem")
             return
         ensure_scripts_on_path(self._scripts_dir)
+        # Vector embeddings are opt-in: sentence-transformers being importable
+        # in the host venv is not consent to download a model (network egress).
+        try:
+            import embeddings as _embeddings
+
+            _embeddings.set_enabled(bool(self._config.get("embeddings_enabled", False)))
+        except ImportError:
+            pass
         self._vault_path, self._index_db, self._memory_db = resolve_paths(
             self._hermes_home, self._config
         )

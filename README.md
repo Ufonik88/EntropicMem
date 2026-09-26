@@ -20,7 +20,7 @@ A Hermes Agent memory provider and skill delivering a complete, standalone knowl
 | **Memory engine** | Durable facts with FTS5 search, dedup, versioning, audit log, quarantine |
 | **Episodic memory** | Session summaries with time-windowed recall |
 | **Knowledge triples** | Subject, predicate, object graph with neighbors, paths, inconsistency checks |
-| **Embeddings** | BGE-small vectors with hybrid FTS and vector recall (optional dep) |
+| **Embeddings** | Optional `all-MiniLM-L6-v2` vectors with hybrid FTS and vector recall. Opt-in (`embeddings_enabled: true`), because first use downloads the model |
 | **Vault** | Human-browsable, linked, domain-organized Markdown notes |
 | **Index** | Vault FTS5 plus graph edges powering cited retrieval |
 | **Visual graph** | Self-contained D3 galaxy HTML export with lazy wikilink resolution |
