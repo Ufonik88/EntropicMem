@@ -12,7 +12,6 @@ Provides:
 Stdlib-only. No external memory dependencies.
 """
 
-import fcntl
 import hashlib
 import json
 import logging
@@ -27,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from em.store.locking import FileLock  # EM-202: portable lock (was fcntl)
 from stopwords import STOPWORDS  # English stopword set for the FTS builder
 from vault import derive_title  # naming convention helper (stdlib-only, acyclic)
 
@@ -504,12 +504,13 @@ class MemoryEngine:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
 
-        # Concurrency guard: file lock for write serialization.
+        # Concurrency guard: file lock for write serialization (EM-202:
+        # em.store.locking.FileLock — fcntl on POSIX, msvcrt on Windows).
         # The lock is REENTRANT per engine instance (counter-based): nested
         # helpers (_backup inside forget()/consolidate(), _init_schema inside
-        # migrate()) must not release the flock mid-operation.
+        # migrate()) must not release the lock mid-operation.
         lock_path = self.db_path.parent / f"{self.db_path.name}.lock"
-        self._lock_fd = open(lock_path, "w")
+        self._lock = FileLock(lock_path)
         self._write_locked = False
         self._lock_depth = 0
 
@@ -520,11 +521,9 @@ class MemoryEngine:
         if self._lock_depth > 0:
             self._lock_depth += 1
             return
-        try:
-            fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            # Lock held by another process — wait briefly
-            fcntl.flock(self._lock_fd, fcntl.LOCK_EX)
+        # blocking=True waits for a foreign holder, matching the old
+        # LOCK_NB-then-blocking flock pair (one try + indefinite wait).
+        self._lock.acquire(blocking=True)
         self._write_locked = True
         self._lock_depth = 1
 
@@ -534,7 +533,7 @@ class MemoryEngine:
             return
         self._lock_depth -= 1
         if self._lock_depth == 0 and self._write_locked:
-            fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+            self._lock.release()
             self._write_locked = False
 
     # ── P1 multi-profile provenance (2026-08-18) ────────────────────────────
@@ -743,7 +742,7 @@ class MemoryEngine:
             pass  # lock already released or fd closed
         self._lock_depth = 0
         try:
-            self._lock_fd.close()
+            self._lock.close()
         except (OSError, ValueError):
             pass
         self.db.close()
