@@ -416,6 +416,18 @@ def _write_template(path: Path, ttype: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _engine(db: "Path | None" = None) -> MemoryEngine:
+    """The only way the CLI builds an engine.
+
+    Passes the resolved Hermes home, so everything the engine derives from it
+    (the shared publish store in particular) follows HERMES_HOME exactly as the
+    provider does. A bare ``MemoryEngine(path)`` fell back to ``~/.hermes`` for
+    those, and the CLI and a running agent then disagreed on where the shared
+    log lives. A test guards against bare constructions creeping back.
+    """
+    return MemoryEngine(db if db is not None else _memory_db_path(), hermes_home=hermes_home_path())
+
+
 def _memory_db_path() -> Path:
     return Path(os.environ.get(
         "ENTROPICMEM_MEMORY_DB",
@@ -528,7 +540,7 @@ def cmd_lint(args) -> int:
     # Phase 9: PII scan on memory engine facts
     if getattr(args, "pii", False):
         from pii import scan_pii
-        engine = MemoryEngine(_memory_db_path())
+        engine = _engine()
         facts = engine.list_facts(limit=9999)
         pii_hits = []
         for f in facts:
@@ -1062,7 +1074,7 @@ def cmd_memory(args) -> int:
     vault_path, index_path = _resolve_env()
     vault = Vault(vault_path)
     index = VaultIndex(index_path)
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
 
     if args.memory_command == "project":
         r = engine.project_to_vault(vault, index, limit=500)
@@ -1104,7 +1116,7 @@ def cmd_memory(args) -> int:
 # ── subcommand: recall ───────────────────────────────────────────────────
 
 def cmd_recall(args) -> int:
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
 
     # Sprint A: graph-neighbor recall via the triples table
     related_id = getattr(args, "related", None)
@@ -1184,7 +1196,7 @@ def cmd_remember(args) -> int:
     tags = args.tags.split(",") if args.tags else ["durable", "agent"]
     title = Vault.make_title(args.fact) or "Fact"
     body = (f"## Fact\n{args.fact}\n\n## Source\n- Agent (EntropicMem remember)\n\n## Links\n- [[{domain}/Index]]\n- [[Wiki-Cache]]\n")
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     eid = engine.remember(content=args.fact, title=title, domain=domain, tags=tags, source="agent")
     path = vault.write_note(domain, title, body, tags=tags, domain=domain, frontmatter={"entropic_id": eid})
     index = VaultIndex(index_path)
@@ -1209,7 +1221,7 @@ def cmd_forget(args) -> int:
         return 1
     vault = Vault(vault_path)
     index = VaultIndex(index_path)
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     engine.forget(eid, confirm=bool(getattr(args, "confirm", False)))
     found = None
     for rel in vault.list_notes():
@@ -1232,7 +1244,7 @@ def cmd_forget(args) -> int:
 
 def cmd_extract(args) -> int:
     """Extract facts from conversation text using heuristic patterns (no LLM needed)."""
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     # Read from stdin if no text argument
     if args.text:
         text = args.text
@@ -1269,7 +1281,7 @@ def cmd_reinforce(args) -> int:
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     found = engine.reinforce(eid)
     engine.close()
     if found:
@@ -1327,7 +1339,7 @@ def cmd_check_deps(args) -> int:
 
 def cmd_embed(args) -> int:
     """Rebuild or report embedding coverage."""
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     if args.rebuild:
         result = engine.rebuild_embeddings()
         print(f"Embedding rebuild: {result['embedded']}/{result['total']} embedded, "
@@ -1347,7 +1359,7 @@ def cmd_embed(args) -> int:
 
 def cmd_episode(args) -> int:
     """Episodic memory: add / list / stats (v2.2.0 G1)."""
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     cmd = getattr(args, "episode_command", None)
     if cmd == "add":
         linked = [f.strip() for f in (args.linked_fact_ids or "").split(",") if f.strip()]
@@ -1393,7 +1405,7 @@ def cmd_episode(args) -> int:
 
 def cmd_triple(args) -> int:
     """Knowledge triples: extract / list / stats / neighbors / path / inconsistencies (v2.2.0 G2)."""
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     cmd = getattr(args, "triple_command", None)
     if cmd == "extract":
         count = extract_triples_from_engine(engine)
@@ -1451,7 +1463,7 @@ def cmd_triple(args) -> int:
 
 def cmd_timeline(args) -> int:
     """Show facts in chronological order within a date range."""
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     facts = engine.timeline(
         from_date=args.from_date,
         to_date=args.to_date,
@@ -1772,7 +1784,7 @@ def cmd_history(args) -> int:
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     versions = engine.get_versions(eid)
     engine.close()
 
@@ -1793,7 +1805,7 @@ def cmd_history(args) -> int:
 
 def cmd_consolidate(args) -> int:
     """Archive old, low-access facts to free up active memory."""
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     result = engine.consolidate(
         max_age_days=args.max_age_days,
         min_access_count=args.min_access_count,
@@ -1820,8 +1832,7 @@ def cmd_audit(args) -> int:
     """Show recent audit log entries, or verify the hash chain (`audit verify`)."""
     if getattr(args, "audit_command", "") == "verify":
         return _cmd_audit_verify(args)
-    from memory_engine import MemoryEngine
-    with MemoryEngine(_memory_db_path()) as engine:
+    with _engine() as engine:
         rows = engine.list_audit(limit=getattr(args, "limit", 50))
     for r in rows:
         print(f"{r.get('ts','')} {r.get('action','')} ok={r.get('ok')} id={r.get('fact_id','')} {r.get('detail','')}")
@@ -1879,9 +1890,8 @@ def _cmd_audit_verify(args) -> int:
 
 def cmd_pending(args) -> int:
     """List or promote/discard pending (quarantined) facts."""
-    from memory_engine import MemoryEngine
     action = getattr(args, "pending_command", "list") or "list"
-    with MemoryEngine(_memory_db_path()) as engine:
+    with _engine() as engine:
         if action == "list":
             rows = engine.list_pending(limit=getattr(args, "limit", 50))
             for r in rows:
@@ -1926,7 +1936,7 @@ def cmd_migrate(args) -> int:
         }
         if db.exists():
             try:
-                engine = MemoryEngine(db)
+                engine = _engine(db)
                 row = engine.db.execute(
                     "SELECT schema_version, phase, applied_at FROM schema_info "
                     "ORDER BY rowid DESC LIMIT 1"
@@ -1950,7 +1960,7 @@ def cmd_migrate(args) -> int:
         f"pid={os.getpid()} started={time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n"
     )
     try:
-        engine = MemoryEngine(db)
+        engine = _engine(db)
         try:
             result = engine.migrate(schema_version=args.schema_version, phase=args.phase)
             print(json.dumps(result, indent=2, default=str))
@@ -1963,14 +1973,16 @@ def cmd_migrate(args) -> int:
 
 def cmd_shared_init(args) -> int:
     """Bootstrap the shared sync store (append-only origin log). Idempotent."""
-    res = MemoryEngine.shared_init(Path(args.db) if getattr(args, "db", None) else None)
+    res = MemoryEngine.shared_init(
+        Path(args.db) if getattr(args, "db", None) else None, hermes_home=hermes_home_path()
+    )
     print(json.dumps(res, indent=2))
     return 0
 
 
 def cmd_publish(args) -> int:
     """Drain local outbox → shared log (or emit all facts with --backfill)."""
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     try:
         if getattr(args, "backfill", False):
             res = engine.backfill()
@@ -1984,7 +1996,7 @@ def cmd_publish(args) -> int:
 
 def cmd_pull(args) -> int:
     """Apply new shared events into the local shared_facts projection."""
-    engine = MemoryEngine(_memory_db_path())
+    engine = _engine()
     try:
         res = engine.pull()
         print(json.dumps(res, indent=2))
