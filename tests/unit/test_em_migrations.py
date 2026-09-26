@@ -47,7 +47,30 @@ def _table_set(conn: sqlite3.Connection) -> set:
 
 
 def _fact_ids(conn: sqlite3.Connection) -> set:
-    return {r[0] for r in conn.execute("SELECT id FROM facts")}
+    """Legacy fact ids, from whichever table currently holds them.
+
+    EM-203 wrote this against ``facts`` because ``0001`` was then the latest
+    migration. Since EM-204, migrating to latest also applies ``0002``, which
+    renames the v2 source tables to ``v2_<name>`` and keeps them for one
+    release — so the same legacy ids are addressable under the new name. Reading
+    through both keeps this helper meaningful in either era without weakening
+    the assertion (the ids must still be present, whichever table holds them).
+    """
+    tables = _table_set(conn)
+    for name in ("facts", "v2_facts"):
+        if name in tables:
+            return {r[0] for r in conn.execute(f"SELECT id FROM {name}")}
+    raise AssertionError(f"neither facts nor v2_facts exists; tables={sorted(tables)}")
+
+
+def _baseline_only():
+    """Registry containing only ``0001`` (the frozen v2.7 baseline).
+
+    Tests that assert the v2.7 *shape* must pin the registry, because
+    ``migrate()`` applies every pending migration and later ones legitimately
+    change that shape.
+    """
+    return [m for m in emmig.discover() if m.version == 1]
 
 
 def _copy_fixture(name: str, dest: Path) -> Path:
@@ -174,11 +197,19 @@ def test_v2_fixture_migrates_to_latest(tmp_path, fixture):
 
 @pytest.mark.parametrize("fixture", V2_FIXTURES)
 def test_migrated_fixture_keeps_v2_tables_readable(tmp_path, fixture):
-    """0001 brings a v2 DB to the exact v2.7 shape; it must not drop anything."""
+    """``0001``'s contract: it brings a v2 DB to the exact v2.7 shape and drops
+    nothing.
+
+    The registry is pinned to ``0001`` alone. Without that this test would be
+    asserting something false: migrating to *latest* also applies ``0002``,
+    which renames the v2 source tables to ``v2_<name>`` (they survive, and
+    EM-204's own tests assert that) — so ``facts`` is legitimately gone by
+    then. The v2.7 shape claim belongs to ``0001``, so test it against ``0001``.
+    """
     path = _copy_fixture(fixture, tmp_path)
     conn = emdb.open_db(path)
     try:
-        emmig.migrate(conn)
+        emmig.migrate(conn, registry=_baseline_only())
         tables = _table_set(conn)
         for required in ("facts", "episodes", "triples", "audit_log", "pending_facts"):
             assert required in tables, f"{required} lost by migration"
@@ -190,14 +221,64 @@ def test_migrated_fixture_keeps_v2_tables_readable(tmp_path, fixture):
         conn.close()
 
 
+@pytest.mark.parametrize("fixture", V2_FIXTURES)
+def test_migrated_fixture_keeps_v2_data_readable_at_latest(tmp_path, fixture):
+    """At *latest* (v3) the legacy rows are still readable, under ``v2_`` names.
+
+    This is the durable claim the test above used to half-make: EM-204 renames
+    rather than drops, so every legacy id and row must still be addressable one
+    migration later. Guards against ``0002`` silently destroying the data it is
+    supposed to preserve for one release.
+    """
+    path = _copy_fixture(fixture, tmp_path)
+    conn = emdb.open_db(path)
+    try:
+        legacy_ids = _fact_ids(conn)
+        assert legacy_ids, "fixture should hold its 2 synthetic facts"
+
+        emmig.migrate(conn)
+        assert _uv(conn) == emmig.LATEST
+
+        assert _fact_ids(conn) == legacy_ids, "legacy fact ids lost by 0002"
+        for required in ("v2_facts", "v2_episodes", "v2_audit_log"):
+            assert required in _table_set(conn), f"{required} not preserved"
+        # and the rows really moved into v3, addressed by their legacy id
+        moved = conn.execute(
+            "SELECT COUNT(*) FROM memories WHERE legacy_id IN ({})".format(
+                ",".join("?" * len(legacy_ids))
+            ),
+            tuple(legacy_ids),
+        ).fetchone()[0]
+        assert moved == len(legacy_ids)
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        conn.close()
+
+
 def test_empty_db_migrates_to_latest(tmp_path):
-    """An empty DB is a valid starting point (card: 'or empty DB')."""
+    """An empty DB is a valid starting point (card: 'or empty DB').
+
+    Since EM-204 the endpoint for an *empty* database is a clean v3 schema:
+    ``0001`` leaves the empty v2 shape behind, ``0002`` recognises that no v2
+    table holds a row, drops those empty shells and builds v3. Asserting a
+    ``facts`` table here would have been asserting that fresh installs carry
+    dead v2 tables — the exact bug EM-204 fixed.
+    """
     path = tmp_path / "empty.db"
     conn = emdb.open_db(path)
     try:
         emmig.migrate(conn)
         assert _uv(conn) == emmig.LATEST
-        assert "facts" in _table_set(conn)
+        tables = _table_set(conn)
+        for required in ("memories", "memories_fts", "relations", "audit_log", "meta"):
+            assert required in tables, f"v3 table {required} missing on a fresh DB"
+        assert not [t for t in tables if t.startswith("v2_")], (
+            "a fresh install must not carry v2_* leftovers"
+        )
+        assert (
+            conn.execute("SELECT value FROM meta WHERE key='migrated_from'").fetchone()[0]
+            == "none"
+        )
     finally:
         conn.close()
 
