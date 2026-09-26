@@ -226,6 +226,20 @@ memory:
 - **Audit log:** every write is append-only audited.
 - **Backups:** AES-256-CBC encrypted before cloud upload. See [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md).
 
+## Network Access
+
+EntropicMem's memory engine, vault and Hermes integration run locally and make no network calls. These are the exceptions, and each is either opt-in or triggered by you:
+
+| What | When | Where it connects |
+|---|---|---|
+| Vector embeddings | only with `embeddings_enabled: true` (provider) or `ENTROPICMEM_EMBEDDINGS=1` (CLI), or the CLI's `query --semantic` | first use downloads `all-MiniLM-L6-v2` from Hugging Face |
+| `ingest <url>` | when you ingest a URL | that URL, and redirects only to validated public hosts (never loopback, private or metadata addresses) |
+| Graph HTML (`graph export`) | when you open the exported file | the browser loads D3 (d3js.org), marked (cdn.jsdelivr.net) and fonts (fonts.googleapis.com, fonts.gstatic.com) |
+| `graph serve` / graph server | when you start it | none outbound; serves on loopback only by default |
+| Encrypted backup upload | when you run the backup job | your configured rclone remote |
+
+Also: the shared publish store lives at `$HERMES_HOME/entropicmem-shared/` (the root home in profile mode), and `graph export` writes to `./export` in the current directory unless you pass `--output-dir`.
+
 ## Known Limitations (2.8.0)
 
 - **Synonym / paraphrase recall.** Retrieval is lexical (FTS5) unless the optional semantic stack is installed. A query that shares no words with the stored fact ("what city am I based in?" against "The user lives in Cape Town") returns nothing. The hard eval suite's ageing category scores 0.733 recall@5 for exactly this reason; semantic retrieval is Sprint 3 (EM-303).

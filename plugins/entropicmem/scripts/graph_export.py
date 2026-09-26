@@ -4,8 +4,10 @@ graph_export.py — Visual graph export for EntropicMem.
 Exports vault data as JSON (primary), DOT (Graphviz), HTML (self-contained D3),
 and Canvas format using data from VaultIndex.
 
-Stdlib-only. D3 + marked loaded from CDN in HTML output (vendored copies are
-used automatically when present next to the output file, for offline use).
+Stdlib-only. The HTML output loads D3 v7 and marked from public CDNs
+(d3js.org, cdn.jsdelivr.net), plus Google Fonts, when it is opened in a
+browser. There is no
+vendored or offline fallback: opening the file offline shows no graph.
 """
 
 import json
@@ -440,8 +442,9 @@ def export_html(
 ) -> str:
     """
     Export as a single self-contained HTML file with embedded graph data.
-    Works via file:// or HTTP server. D3 v7 + marked loaded from CDN, with
-    automatic fallback to vendored copies placed next to the output file.
+    Works via file:// or HTTP server. D3 v7 + marked are loaded from public
+    CDNs (d3js.org, cdn.jsdelivr.net) when the page is opened; there is no
+    vendored fallback, so the viewer needs network access to render.
 
     By default note bodies are NOT embedded (security: avoids leaking vault
     content via local HTTP/graph share). Pass include_bodies=True for offline
