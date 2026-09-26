@@ -575,3 +575,94 @@ def test_fts_search_finds_a_memory_by_a_stemmed_word(mem):
         ("llama",),
     ).fetchall()
     assert r.id in [h["id"] for h in hits]
+# --- EM-208 follow-up: purge forgets entity sightings -----------------------
+
+def test_purge_forgets_entity_sightings_from_the_whole_db(store):
+    """A purged memory's invented name must not survive anywhere in the DB.
+
+    entity_seen:<profile>:<phrase> meta rows hold the normalised phrase in the
+    key, so purge alone used to leave the name in the file forever. Spec case:
+    add a memory with an invented two-word name, link it (one sighting, not
+    promoted), purge it. A full iterdump() must then not contain the name in
+    any case, and memory_entities rows for that id must be gone.
+    """
+    from em.store.entities import EntityStore
+
+    name = "Globex Dynamics"
+    with store.writer() as conn:
+        mem = MemoryStore(conn)
+        ent = EntityStore(conn)
+        m1 = mem.add(MemoryDraft(content=f"Met {name} at the conference"),
+                     scope=OWNER, actor="tester").id
+        ent.link(m1, f"Met {name} at the conference", scope=OWNER)
+        assert conn.execute(
+            "SELECT COUNT(*) FROM meta WHERE key LIKE 'entity_seen:%'"
+        ).fetchone()[0] == 1, "precondition: one sighting row exists before purge"
+        mem.purge(m1, actor="tester")
+
+        assert conn.execute(
+            "SELECT COUNT(*) FROM memory_entities WHERE memory_id=?", (m1,)
+        ).fetchone()[0] == 0
+
+        dump = "".join(conn.iterdump())
+        for case in (name, name.casefold(), name.upper(), name.title()):
+            assert case not in dump, f"purged name survived in iterdump as {case!r}"
+        assert "globex" not in dump.casefold(), "normalised fragment survived in iterdump"
+
+
+def test_promotion_deletes_the_sighting_row(store):
+    """Once a phrase is promoted to an entity, its counter row is dead weight."""
+    from em.store.entities import EntityStore
+
+    with store.writer() as conn:
+        mem = MemoryStore(conn)
+        ent = EntityStore(conn)
+        m1 = mem.add(MemoryDraft(content="Met Alice Example at the conference"),
+                     scope=OWNER, actor="tester").id
+        m2 = mem.add(MemoryDraft(content="The team from Alice Example replied"),
+                     scope=OWNER, actor="tester").id
+        ent.link(m1, "Met Alice Example at the conference", scope=OWNER)
+        linked = ent.link(m2, "The team from Alice Example replied", scope=OWNER)
+        assert linked, "precondition: the two-word name promotes on the second sighting"
+        assert conn.execute(
+            "SELECT COUNT(*) FROM meta WHERE key LIKE 'entity_seen:%'"
+        ).fetchone()[0] == 0, "sighting row survived promotion"
+
+
+def test_purge_removes_a_sighting_row_that_becomes_empty(store):
+    """One sighting of a not-yet-promoted phrase: purge deletes the row, not an empty list."""
+    from em.store.entities import EntityStore
+
+    with store.writer() as conn:
+        mem = MemoryStore(conn)
+        ent = EntityStore(conn)
+        m1 = mem.add(MemoryDraft(content="Visited Initech Towers once"),
+                     scope=OWNER, actor="tester").id
+        ent.link(m1, "Visited Initech Towers once", scope=OWNER)
+        assert conn.execute(
+            "SELECT COUNT(*) FROM meta WHERE key LIKE 'entity_seen:%initech%'"
+        ).fetchone()[0] == 1, "precondition: one sighting row exists"
+        mem.purge(m1, actor="tester")
+        assert conn.execute(
+            "SELECT COUNT(*) FROM meta WHERE key LIKE 'entity_seen:%'"
+        ).fetchone()[0] == 0, "purge left an empty sighting row behind"
+
+
+def test_sighting_list_is_capped_at_two_ids(store):
+    """The only question asked is 'at least 2?', so the list never grows past 2."""
+    from em.store.entities import EntityStore
+
+    with store.writer() as conn:
+        mem = MemoryStore(conn)
+        ent = EntityStore(conn)
+        for i in range(4):
+            m = mem.add(MemoryDraft(content=f"note {i} about Bob Example"),
+                        scope=OWNER, actor="tester").id
+            ent.link(m, f"note {i} about Bob Example", scope=OWNER)
+            rows = conn.execute(
+                "SELECT value FROM meta WHERE key LIKE 'entity_seen:%bob example%'"
+            ).fetchall()
+            if rows:
+                import json as _json
+                ids = _json.loads(rows[0]["value"])
+                assert len(ids) <= 2, f"sighting list grew past the cap: {ids}"

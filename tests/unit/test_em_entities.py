@@ -81,7 +81,7 @@ def test_ngrams_of_a_short_string():
 
 
 def test_candidate_phrases_finds_capitalised_phrases():
-    got = candidate_phrases("Zorp Systems is great. I met Zorbex in Cape Town.")
+    got = candidate_phrases("The rollout of Zorp Systems is great. I met Zorbex in Cape Town.")
     assert "Zorp Systems" in got and "Zorbex" in got and "Cape Town" in got
 
 
@@ -96,6 +96,53 @@ def test_candidate_phrases_ignores_lowercase_words():
 def test_candidate_phrases_deduplicates():
     got = candidate_phrases("Zorbex met Zorbex and Zorbex again")
     assert got.count("Zorbex") == 1
+
+
+# --- EM-208 follow-up: sentence-opening words are not entities --------------
+
+def test_a_sentence_opening_word_never_promotes(ent, mem):
+    """Two memories starting "Deployed to ..." must not create an entity "Deployed"."""
+    m1 = add(mem, "Deployed to staging.")
+    m2 = add(mem, "Deployed to staging.")
+    ent.link(m1, "Deployed to staging.", scope=OWNER)
+    ent.link(m2, "Deployed to staging.", scope=OWNER)
+    assert ent._conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 0
+    assert candidate_phrases("Deployed to staging.") == []
+
+
+def test_candidate_phrases_strips_the_opener_of_a_multi_token_phrase():
+    got = candidate_phrases("Met Alice Example today.")
+    assert "Alice Example" in got
+    assert "Met" not in got
+    assert "Met Alice Example" not in got
+
+
+def test_a_name_after_a_sentence_opener_promotes_without_the_opener(ent, mem):
+    """'Met Alice Example today.' twice -> entity 'Alice Example', never 'Met'."""
+    m1 = add(mem, "Met Alice Example today.")
+    m2 = add(mem, "Met Alice Example yesterday.")
+    assert ent.link(m1, "Met Alice Example today.", scope=OWNER) == []
+    linked = ent.link(m2, "Met Alice Example yesterday.", scope=OWNER)
+    assert len(linked) == 1
+    names = {r["name"] for r in ent._conn.execute("SELECT name FROM entities").fetchall()}
+    assert names == {"Alice Example"}
+
+
+def test_a_mid_sentence_name_seen_twice_still_promotes(ent, mem):
+    m1 = add(mem, "we met Bob Example on Tuesday")
+    m2 = add(mem, "then Bob Example called back")
+    ent.link(m1, "we met Bob Example on Tuesday", scope=OWNER)
+    assert len(ent.link(m2, "then Bob Example called back", scope=OWNER)) == 1
+    names = {r["name"] for r in ent._conn.execute("SELECT name FROM entities").fetchall()}
+    assert names == {"Bob Example"}
+
+
+def test_a_registered_entity_still_matches_when_it_opens_a_sentence(ent, mem):
+    """The strip is a proposal rule only: known entities resolve at a sentence start."""
+    ent.get_or_create_entity("Acme Corp", scope=OWNER)
+    m1 = add(mem, "Acme Corp released a firmware update.")
+    linked = ent.link(m1, "Acme Corp released a firmware update.", scope=OWNER)
+    assert len(linked) == 1, "a known entity opening a sentence must still link"
 
 
 # --- entities and aliases ------------------------------------------------
@@ -149,10 +196,10 @@ def test_a_phrase_is_not_an_entity_after_one_sighting(ent, mem):
 
 
 def test_a_phrase_becomes_an_entity_on_the_second_sighting(ent, mem):
-    m1 = add(mem, "Zorbex mentioned the deployment window")
-    m2 = add(mem, "Zorbex owns the deployment window now")
-    ent.link(m1, "Zorbex mentioned the deployment window", scope=OWNER)
-    linked = ent.link(m2, "Zorbex owns the deployment window now", scope=OWNER)
+    m1 = add(mem, "We met Zorbex about the window")
+    m2 = add(mem, "then Zorbex owns the window")
+    ent.link(m1, "We met Zorbex about the window", scope=OWNER)
+    linked = ent.link(m2, "then Zorbex owns the window", scope=OWNER)
     assert len(linked) == 1
     assert ent._conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 1
 
@@ -167,20 +214,20 @@ def test_the_same_memory_twice_does_not_reach_the_threshold(ent, mem):
 
 
 def test_two_distinct_memories_do_reach_the_threshold(ent, mem):
-    m1 = add(mem, "Zorbex was here")
-    m2 = add(mem, "Zorbex was there")
-    ent.link(m1, "Zorbex was here", scope=OWNER)
-    ent.link(m2, "Zorbex was there", scope=OWNER)
+    m1 = add(mem, "we saw Zorbex here")
+    m2 = add(mem, "we saw Zorbex there")
+    ent.link(m1, "we saw Zorbex here", scope=OWNER)
+    ent.link(m2, "we saw Zorbex there", scope=OWNER)
     assert ent._conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 1
 
 
 def test_the_seen_counter_survives_a_new_store_instance(ent, store, mem):
     """The threshold decision must not reset just because the object changed."""
-    m1 = add(mem, "Zorbex was here")
-    m2 = add(mem, "Zorbex was there")
-    ent.link(m1, "Zorbex was here", scope=OWNER)
+    m1 = add(mem, "we saw Zorbex here")
+    m2 = add(mem, "we saw Zorbex there")
+    ent.link(m1, "we saw Zorbex here", scope=OWNER)
     with store.writer() as conn:
-        EntityStore(conn).link(m2, "Zorbex was there", scope=OWNER)
+        EntityStore(conn).link(m2, "we saw Zorbex there", scope=OWNER)
     assert store is not None
     with store.reader() as conn:
         assert conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 1
@@ -220,10 +267,10 @@ def test_entity_linker_link_takes_a_memory_dict(store):
     with store.writer() as conn:
         mem = MemoryStore(conn)
         linker = EntityLinker(conn, OWNER)
-        m1 = mem.add(MemoryDraft(content="Zorbex was here"), scope=OWNER, actor="t").id
-        m2 = mem.add(MemoryDraft(content="Zorbex was there"), scope=OWNER, actor="t").id
-        assert linker.link({"id": m1, "content": "Zorbex was here"}) == []
-        assert len(linker.link({"id": m2, "content": "Zorbex was there"})) == 1
+        m1 = mem.add(MemoryDraft(content="we saw Zorbex here"), scope=OWNER, actor="t").id
+        m2 = mem.add(MemoryDraft(content="we saw Zorbex there"), scope=OWNER, actor="t").id
+        assert linker.link({"id": m1, "content": "we saw Zorbex here"}) == []
+        assert len(linker.link({"id": m2, "content": "we saw Zorbex there"})) == 1
         assert linker.store is not None
 
 

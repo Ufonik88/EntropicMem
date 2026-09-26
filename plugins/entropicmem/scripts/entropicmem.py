@@ -47,6 +47,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 # EM-201: single source of truth is em/__init__.py (pyproject reads it via
 # [tool.setuptools.dynamic]; plugin.yaml is kept in sync by a test).
 from em import __version__  # noqa: E402
+from em.store.db import open_db  # noqa: E402 (audit verify opens read-only)
 from em.store.locking import FileLock  # noqa: E402 (EM-202: portable lock probe)
 from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 from index import VaultIndex  # noqa: E402
@@ -1807,29 +1808,27 @@ def _cmd_audit_verify(args) -> int:
     v2 ``audit_log`` is unchained and would report OK on a tampered v3 store.
     """
     from em.store import audit as em_audit
-    from em.store.db import Store
 
     db = _memory_db_path()
     if not db.exists():
         print(f"no memory database at {db}", file=sys.stderr)
         return 1
-    store = Store(db)
-    try:
-        with store.reader() as conn:
-            has_chain = conn.execute(
-                "SELECT count(*) FROM sqlite_master"
-                " WHERE type='table' AND name='audit_log'"
-                " AND sql LIKE '%prev_hash%'"
-            ).fetchone()[0]
-            if not has_chain:
-                print(
-                    "audit_log is not hash-chained (v2 schema); nothing to verify",
-                    file=sys.stderr,
-                )
-                return 1
-            result = em_audit.verify(conn)
-    finally:
-        store.close()
+    # open_db(readonly=True) directly: Store(db) opens read-write, which chmods
+    # the parent dir and DB and sets journal_mode=WAL even on a v2 DB that this
+    # command then refuses. A verify command must not mutate anything.
+    with open_db(db, readonly=True) as conn:
+        has_chain = conn.execute(
+            "SELECT count(*) FROM sqlite_master"
+            " WHERE type='table' AND name='audit_log'"
+            " AND sql LIKE '%prev_hash%'"
+        ).fetchone()[0]
+        if not has_chain:
+            print(
+                "audit_log is not hash-chained (v2 schema); nothing to verify",
+                file=sys.stderr,
+            )
+            return 1
+        result = em_audit.verify(conn)
 
     if result.ok:
         print(json.dumps({"ok": True, "checked": result.checked}))

@@ -34,6 +34,14 @@ MAX_NGRAM = 4
 
 ENTITY_KINDS = ("person", "org", "place", "thing", "event", "product")
 
+#: Characters stripped from the ends of a matched phrase.
+_PUNCT = " .,'-'"
+
+#: How many distinct memory ids a phrase's sighting list keeps. The only
+#: question ever asked of it is "seen at least twice?", so two is enough, and a
+#: cap keeps a ``meta`` row per candidate phrase bounded.
+_SEEN_CAP = 2
+
 
 def normalise(text: str) -> str:
     """Casefold and strip punctuation, leaving single-spaced tokens.
@@ -59,31 +67,79 @@ def ngrams(text: str, max_n: int = MAX_NGRAM) -> list[str]:
     return out
 
 
-def candidate_phrases(content: str) -> list[str]:
-    """Capitalised phrases worth proposing as entities.
+#: Split points between sentences. A capitalised phrase may never span one:
+#: without this, "Cape Town. I" matched as a single phrase across the boundary.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])[ \t]*\n[ \t]*|(?<=[.!?])[ \t]+")
 
-    Sentences and stopword-only fragments are dropped: a capitalised word at the
-    start of a sentence is not evidence of an entity, and neither is "The".
+
+def _scan_phrases(content: str, *, strip_opener: bool) -> list[str]:
+    """Capitalised phrases in ``content``, in order, de-duplicated.
+
+    Split on sentence boundaries first, so a phrase can never span two
+    sentences ("Cape Town. I" is not one phrase). ``strip_opener`` selects
+    between the two callers' rules for a phrase that opens a sentence; see
+    ``candidate_phrases`` and ``known_phrases``.
     """
     from stopwords import STOPWORDS
 
     out: list[str] = []
     seen: set[str] = set()
-    for raw in _CAP_PHRASE.findall(content or ""):
-        phrase = raw.strip(" .,'-")
-        if not phrase or len(phrase) < 2:
-            continue
-        tokens = normalise(phrase).split()
-        if not tokens or all(t in STOPWORDS for t in tokens):
-            continue
-        # A single lower-case-ish word is not a capitalised phrase.
-        if not any(ch.isupper() for ch in phrase):
-            continue
-        key = normalise(phrase)
-        if key and key not in seen:
-            seen.add(key)
-            out.append(phrase)
+
+    for sentence in _SENTENCE_SPLIT.split(content or ""):
+        for match in _CAP_PHRASE.finditer(sentence):
+            phrase = match.group(0).strip(_PUNCT)
+            if strip_opener and not sentence[: match.start()].strip():
+                # Everything before the match is punctuation/whitespace: the
+                # phrase opens the sentence, so its first token is a word that
+                # merely happens to be capitalised.
+                _, _, rest = phrase.partition(" ")
+                phrase = rest.strip(_PUNCT)
+            if len(phrase) < 2 or not any(ch.isupper() for ch in phrase):
+                continue
+            tokens = normalise(phrase).split()
+            if not tokens or all(t in STOPWORDS for t in tokens):
+                continue
+            key = normalise(phrase)
+            if key and key not in seen:
+                seen.add(key)
+                out.append(phrase)
     return out
+
+
+def candidate_phrases(content: str) -> list[str]:
+    """Capitalised phrases worth *proposing* as entities.
+
+    A capitalised word at the start of a sentence is punctuation, not evidence
+    of an entity, which is what this function has always claimed to do:
+
+    * a single-token phrase that opens a sentence is dropped ("Met");
+    * the first token of a multi-token phrase that opens a sentence is stripped
+      ("Met Alice Example" -> "Alice Example");
+    * a phrase whose first token is preceded only by punctuation and whitespace
+      counts as opening, so "(Met Alice Example)" is treated like the bare
+      sentence;
+    * mid-sentence phrases are kept exactly as matched, and may never span a
+      sentence boundary.
+
+    Two memories starting "Deployed to ..." used to promote an entity called
+    "Deployed". Stopword-only fragments are dropped too, so a phrase left empty
+    by the strip is dropped rather than proposed.
+
+    The strip is the *proposal* rule only. Resolving an already-registered
+    entity uses ``known_phrases``, which keeps the leading token: a name that
+    opens a sentence is still that name.
+    """
+    return _scan_phrases(content, strip_opener=True)
+
+
+def known_phrases(content: str) -> list[str]:
+    """Capitalised phrases to resolve against known entities, unstripped.
+
+    Same scan as ``candidate_phrases`` without the sentence-opening rule, so a
+    registered entity still claims a mention at the start of a sentence. Only
+    the proposal path may discard a leading capitalised word.
+    """
+    return _scan_phrases(content, strip_opener=False)
 
 
 class EntityStore:
@@ -165,8 +221,9 @@ class EntityStore:
         """
         linked: list[str] = []
         seen: set[str] = set()
+        proposals = candidate_phrases(content)
 
-        for phrase in candidate_phrases(content):
+        for phrase in known_phrases(content):
             for gram in ngrams(phrase):
                 entity_id = self.find_entity(gram)
                 if entity_id is not None:
@@ -176,12 +233,17 @@ class EntityStore:
                         linked.append(entity_id)
                     break  # longest gram wins; do not also link a substring
 
-        for phrase in candidate_phrases(content):
+        for phrase in proposals:
             key = normalise(phrase)
             if not key or self.find_entity(key) is not None:
                 continue
             if self._bump_seen(scope, key, memory_id) >= 2:
                 entity_id = self.get_or_create_entity(phrase, scope=scope)
+                # The phrase is an entity now: alias lookup resolves it, so the
+                # sighting counter is dead weight. Delete the row.
+                self._conn.execute(
+                    "DELETE FROM meta WHERE key=?", (f"entity_seen:{scope.profile}:{key}",)
+                )
                 self._link(memory_id, entity_id)
                 seen.add(entity_id)
                 linked.append(entity_id)
@@ -199,22 +261,52 @@ class EntityStore:
         Stored in ``meta`` so the threshold decision is durable and shared. The
         value is the list of distinct memory ids seen, not a raw count, so one
         memory mentioning the same phrase five times still only counts once.
-        The list is capped at the most recent 50: the only question ever asked
-        of it is "has this been seen at least twice", and an unbounded meta row
-        per candidate phrase would grow without limit.
+        The list is capped at the most recent 2: the only question ever asked of
+        it is "has this been seen at least twice", and nothing is lost by
+        dropping older ids.
         """
         meta_key = f"entity_seen:{scope.profile}:{key}"
         row = self._conn.execute("SELECT value FROM meta WHERE key=?", (meta_key,)).fetchone()
         memories: list[str] = json.loads(row["value"]) if row and row["value"] else []
         if memory_id not in memories:
             memories.append(memory_id)
-        memories = memories[-50:]
+        memories = memories[-_SEEN_CAP:]
         self._conn.execute(
             "INSERT INTO meta (key, value) VALUES (?,?)"
             " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (meta_key, json.dumps(memories)),
         )
         return len(memories)
+
+    def forget_sightings(self, memory_id: str, *, profile: str) -> int:
+        """Drop a purged memory from every phrase's sighting list.
+
+        A hard delete must forget the phrases it mentioned, not just its row: a
+        sighting row holds the normalised capitalised phrase in its key, so a
+        purged memory's names would otherwise survive in ``meta`` forever. A row
+        left with no ids is deleted rather than kept as an empty list.
+
+        Scoped to one profile so another profile's counter is untouched.
+        """
+        prefix = f"entity_seen:{profile}:"
+        rows = self._conn.execute(
+            "SELECT key, value FROM meta WHERE key LIKE ? ESCAPE '\\'", (prefix.replace("_", "\\_") + "%",)
+        ).fetchall()
+        removed = 0
+        for row in rows:
+            try:
+                memories: list[str] = json.loads(row["value"]) if row["value"] else []
+            except ValueError:  # a hand-edited row must not break a purge
+                continue
+            if memory_id not in memories:
+                continue
+            memories = [m for m in memories if m != memory_id]
+            removed += 1
+            if memories:
+                self._conn.execute("UPDATE meta SET value=? WHERE key=?", (json.dumps(memories), row["key"]))
+            else:
+                self._conn.execute("DELETE FROM meta WHERE key=?", (row["key"],))
+        return removed
 
     # --- relations --------------------------------------------------------
 

@@ -353,3 +353,77 @@ def test_cli_audit_verify_fails_on_tamper(tmp_path):
     out = _cli(tmp_path, "verify")
     assert out.returncode == 1
     assert json.loads(out.stdout)["ok"] is False
+def test_cli_audit_verify_is_read_only_on_a_v3_db(tmp_path):
+    """EM-208 follow-up: verify must not mutate the DB it inspects.
+
+    Store(db) opened read-write chmods the parent dir to 0700, the DB to 0600
+    and sets journal_mode=WAL. A verify command that rewrites the file it is
+    checking is not a verify command. Assert permissions, journal mode and the
+    file bytes are all untouched.
+    """
+    import sqlite3
+
+    from em.store.db import Store
+    from em.store.migrations import migrate
+
+    db = tmp_path / "memory.db"
+    store = Store(db)
+    try:
+        with store.writer() as conn:
+            migrate(conn)
+            append(conn, "memory.write", "tester", "mem_1", {"n": 1})
+        store.close()
+        # Undo Store's side effects so the fixture starts as the test wants:
+        # 0755 dir, 0644 file, DELETE journal, bytes captured after.
+        conn = sqlite3.connect(db)
+        conn.execute("PRAGMA journal_mode=DELETE")
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.close()
+        tmp_path.chmod(0o755)
+        db.chmod(0o644)
+        before = db.read_bytes()
+    finally:
+        store.close()
+
+    out = _cli(tmp_path, "verify")
+    assert out.returncode == 0, out.stderr
+    assert oct(tmp_path.stat().st_mode & 0o777) == "0o755"
+    assert oct(db.stat().st_mode & 0o777) == "0o644"
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "delete"
+    conn.close()
+    assert db.read_bytes() == before, "verify rewrote the DB file"
+
+
+def test_cli_audit_verify_is_read_only_on_a_v2_db(tmp_path):
+    """EM-208 follow-up: the v2 refusal path must also be read-only.
+
+    The old code opened read-write through Store, so even the v2 DB it then
+    refused was chmodded and flipped to WAL on the way out.
+    """
+    import sqlite3
+
+    db = tmp_path / "memory.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE audit_log ("
+        "  seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,"
+        "  action TEXT NOT NULL, actor TEXT NOT NULL,"
+        "  session_id TEXT NOT NULL DEFAULT '', target_id TEXT NOT NULL DEFAULT '',"
+        "  detail TEXT NOT NULL DEFAULT '{}', ok INTEGER NOT NULL DEFAULT 1);"
+    )
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.close()
+    tmp_path.chmod(0o755)
+    db.chmod(0o644)
+    before = db.read_bytes()
+
+    out = _cli(tmp_path, "verify")
+    assert out.returncode == 1  # refused: v2 has no hash chain
+    assert "not hash-chained" in out.stderr
+    assert oct(tmp_path.stat().st_mode & 0o777) == "0o755"
+    assert oct(db.stat().st_mode & 0o777) == "0o644"
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "delete"
+    conn.close()
+    assert db.read_bytes() == before, "verify mutated a DB it refuses to check"

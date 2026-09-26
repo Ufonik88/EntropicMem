@@ -716,15 +716,28 @@ class MemoryStore:
             )
 
     def purge(self, memory_id: str, *, actor: str) -> None:
-        """Hard delete: row, versions, relations, outbox rows. (EM-705 extends
-        this to embeddings and the vault projection.)"""
-        row = self._conn.execute("SELECT id FROM memories WHERE id=?", (memory_id,)).fetchone()
+        """Hard delete: row, versions, relations, entity links, outbox rows and
+        entity sightings. (EM-705 extends this to embeddings and the vault
+        projection.)"""
+        row = self._conn.execute(
+            "SELECT id, scope_profile FROM memories WHERE id=?", (memory_id,)
+        ).fetchone()
         if row is None:
             raise KeyError(memory_id)
         self._conn.execute("DELETE FROM memory_versions WHERE memory_id=?", (memory_id,))
         self._conn.execute("DELETE FROM relations WHERE memory_id=?", (memory_id,))
         self._conn.execute("DELETE FROM sync_outbox WHERE fact_id=?", (memory_id,))
+        # memory_entities.memory_id is a FK to memories(id) with no ON DELETE
+        # CASCADE, so without this the DELETE below raises IntegrityError and
+        # a hard delete of a linked memory is impossible.
+        self._conn.execute("DELETE FROM memory_entities WHERE memory_id=?", (memory_id,))
         self._conn.execute("DELETE FROM memories WHERE id=?", (memory_id,))
+        # A sighting row holds the phrase in its meta key, so a purged memory's
+        # names would outlive it. Imported lazily: the entity store is not a
+        # dependency of this module's callers.
+        from .entities import EntityStore
+
+        EntityStore(self._conn).forget_sightings(memory_id, profile=row["scope_profile"])
         audit_append(self._conn, "purge", actor, memory_id, {"reason": "hard_delete"})
 
 
