@@ -257,29 +257,21 @@ def _backup(
     conn: sqlite3.Connection, *, db_path: str, from_version: int, to_version: int,
     backup_dir: Optional[Path],
 ) -> Optional[Path]:
-    """Online-copy the unmigrated DB to ``backups/pre-migrate-v{f}-to-{t}-<ts>.db``.
+    """Online-copy the unmigrated DB to ``backups/pre-migrate-v{f}-to-v{t}-<ts>.db``.
 
-    Uses the SQLite backup API rather than a file copy: it is consistent even
-    with a live WAL and never copies a half-written page.
+    Delegates to :class:`em.store.backup.BackupManager` (EM-210), so the
+    pre-migration copy is verified (integrity, counts, audit chain) and gets a
+    sha256 manifest before any migration runs. If the copy fails verification
+    the migration does not start: ``BackupVerificationError`` propagates.
     """
     if not db_path:
         return None  # in-memory: nothing to back up
-    directory = Path(backup_dir) if backup_dir else Path(db_path).parent / "backups"
-    directory.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    dest = directory / f"pre-migrate-v{from_version}-to-v{to_version}-{stamp}.db"
-    source = conn
-    target = sqlite3.connect(str(dest))
-    try:
-        source.backup(target)
-        target.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    finally:
-        target.close()
-    try:
-        os.chmod(dest, 0o600)
-    except OSError:
-        pass
-    return dest
+    from ..backup import BackupManager  # lazy: backup imports this module's guard
+
+    info = BackupManager(db_path, backup_dir).create(
+        reason=f"pre-migrate-v{from_version}-to-v{to_version}", conn=conn
+    )
+    return info.path
 
 
 def migrate(
