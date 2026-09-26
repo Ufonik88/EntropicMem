@@ -43,6 +43,9 @@ jobs:
 
   # EM-007: performance smoke test — 1k corpus, fail if prefetch warm p95
   # exceeds 2× the §6.4 prefetch-hit budget (10 ms → 20 ms p95).
+  # 20 probes, not 5: percentile() is nearest-rank, so with 5 samples the
+  # "p95" was just the slowest single sample (it flapped on unchanged code).
+  # With 20, p95 is the 19th sample and one stray slow probe cannot fail the job.
   perf-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -51,7 +54,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50"
-      - run: PYTHONPATH="plugins/entropicmem/scripts" python3 -m evals.perf --sizes 1000 --probes 5 --out-dir /tmp
+      - run: PYTHONPATH="plugins/entropicmem/scripts" python3 -m evals.perf --sizes 1000 --probes 20 --out-dir /tmp
       - name: Assert perf budget
         run: |
           python3 - <<'PY'
