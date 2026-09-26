@@ -1433,9 +1433,14 @@ class MemoryEngine:
         return (base / "entropicmem-shared" / "memory.db").resolve()
 
     @staticmethod
-    def shared_init(shared_db: Optional[Path] = None) -> dict:
-        """Bootstrap the shared sync store (append-only origin log). Idempotent."""
-        path = Path(shared_db) if shared_db else MemoryEngine.shared_path()
+    def shared_init(shared_db: Optional[Path] = None, hermes_home: Optional[Path] = None) -> dict:
+        """Bootstrap the shared sync store (append-only origin log). Idempotent.
+
+        ``hermes_home`` locates the default store exactly as the engine does
+        (``<root>/entropicmem-shared/``); callers pass their resolved home so a
+        custom HERMES_HOME is honoured.
+        """
+        path = Path(shared_db) if shared_db else MemoryEngine.shared_path(hermes_home)
         path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(path), timeout=30)
         try:
