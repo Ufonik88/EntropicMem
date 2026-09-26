@@ -1,110 +1,105 @@
 """Privacy guard: no real personal data anywhere in the tracked repo (N-1).
 
-The repo is PUBLIC (master plan section 0.1), so this must hold for **every**
-tracked file, not a hand-picked subset of fixture directories. It originally
-scanned only ``evals/**``, ``tests/regressions``, ``tests/evals``, ``benchmarks``
-and one generator, which let an employer name reach ``tests/unit/`` and
-``tests/fixtures/`` unnoticed. The file list is now derived from ``git ls-files``.
+The repo is PUBLIC, so this must hold for **every** tracked file, including
+binary fixture databases. The file list comes from ``git ls-files``; it once was
+a hand-picked glob list, which let an employer name reach ``tests/unit/`` and
+``tests/fixtures/`` unnoticed.
 
-Detection is by SHA-256 of the lowercased token, so no banned value is ever
-written into this public file. See CONTRIBUTING.md and the 2026-09-24 handoff,
-N-1.
+The identifiers to ban are PRIVATE and are never stored in this repository,
+**not even hashed**: an unsalted hash of a short word (a name, a company, a
+bank) is reversed in seconds with a word list, so a public hash list republishes
+exactly what it is meant to protect. The list lives outside the repo, as
+SHA-256 digests of the lowercased tokens (one per line or comma separated):
 
-Two rules keep the whole-repo scan usable without weakening it:
+* CI: the ``ENTROPICMEM_PRIVACY_DIGESTS`` Actions secret;
+* locally: the same environment variable, a file named by
+  ``ENTROPICMEM_PRIVACY_DIGESTS_FILE``, or ``~/.config/entropicmem/privacy-digests.txt``.
 
-* **Whole tokens only.** ``_WORD_RE`` is applied to an isolated token, so
-  ``discovery`` (a normal word) cannot be smuggled in by matching a substring
-  and ``fp`` cannot match inside an identifier.
-* **Placeholder examples stay legal.** Tests legitimately contain invented
-  sample identities. The 2026-09-26 rule is to use the reserved-example names
-  (Acme / Globex / Initech, Alice / Bob, example.com) and never a real
-  employer, colleague or family name, so those are what the ban targets.
+Without a list the identifier scan SKIPS, unless
+``ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1``. CI sets that wherever secrets exist
+(pushes and same-repo pull requests), and then a missing list FAILS, so the
+guard cannot pass vacuously where it matters.
 
-This file is excluded from its own scan: it necessarily contains the hashes.
+Failure messages give the file, the line and the entry's position in the
+private list, never the matched word: CI logs of a public repo are public.
+
+Placeholder identities stay legal and are what tests must use: Acme / Globex /
+Initech, Alice / Bob, example.com, +1 555 01xx.
 """
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import sqlite3
 import subprocess
 from pathlib import Path
+from typing import Iterable, Optional, Sequence
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-
-#: This guard is the one file that must contain the hashes themselves.
 _SELF = Path(__file__).resolve()
 
-#: Suffixes we never try to read as text (binary or already-compiled content).
-_BINARY_SUFFIXES = frozenset({
-    ".7z", ".bin", ".bmp", ".db", ".dmg", ".eot", ".gif", ".gz", ".ico", ".jar",
+ENV_DIGESTS = "ENTROPICMEM_PRIVACY_DIGESTS"
+ENV_DIGESTS_FILE = "ENTROPICMEM_PRIVACY_DIGESTS_FILE"
+ENV_REQUIRE = "ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS"
+DEFAULT_DIGESTS_FILE = Path("~/.config/entropicmem/privacy-digests.txt")
+
+#: Scanned as raw bytes: SQLite pages hold row text verbatim.
+_DB_SUFFIXES = frozenset({".db", ".sqlite", ".sqlite3"})
+
+#: Never read (binary or compiled content that cannot hold fixture text).
+_SKIP_SUFFIXES = frozenset({
+    ".7z", ".bin", ".bmp", ".dmg", ".eot", ".gif", ".gz", ".ico", ".jar",
     ".jpeg", ".jpg", ".mo", ".mp3", ".mp4", ".o", ".otf", ".pdf", ".png",
-    ".pyc", ".pyd", ".so", ".sqlite", ".sqlite3", ".svgz", ".tar", ".tgz",
-    ".ttf", ".wasm", ".webp", ".whl", ".woff", ".woff2", ".xz", ".zip", ".zst",
+    ".pyc", ".pyd", ".so", ".svgz", ".tar", ".tgz", ".ttf", ".wasm", ".webp",
+    ".whl", ".woff", ".woff2", ".xz", ".zip", ".zst",
 })
 
-# SHA-256 of the lowercased tokens of identifiers that must never appear. The raw
-# values are deliberately omitted so this public file re-leaks nothing.
-#
-# Two entries that were in this set until 2026-09-26 were REMOVED, not because
-# detection was loosened but because they were never personal identifiers: they
-# hashed to `fp` and `discovery`, ordinary words that legitimately appear in
-# product code (`injection_screen.py`, `memory_engine.py`, `pyproject.toml`,
-# `CHANGELOG.md`). A whole-repo scan cannot ban them without failing the build
-# on honest text. Every real identifier stays covered; that is asserted by
-# test_banned_detection_is_token_based_not_substring below.
-_BANNED_WORD_SHA256 = frozenset({
-    "0000000000000000000000000000000000000000000000000000000000000000",
-    "0000000000000000000000000000000000000000000000000000000000000000",
-    "0000000000000000000000000000000000000000000000000000000000000000",
-    "0000000000000000000000000000000000000000000000000000000000000000",
-    "0000000000000000000000000000000000000000000000000000000000000000",
-    "0000000000000000000000000000000000000000000000000000000000000000",
-    "0000000000000000000000000000000000000000000000000000000000000000",
-    "0000000000000000000000000000000000000000000000000000000000000000",
-    "0000000000000000000000000000000000000000000000000000000000000000",
-})
+_DIGEST_RE = re.compile(r"[0-9a-f]{64}")
+_WORD_RE = re.compile(r"[a-z0-9]+")
 
-# A phone number is treated as real-looking unless its digits are a clear placeholder.
+# A +27 phone number is real-looking unless its digits are a clear placeholder.
 _FAKE_RUNS = ("0000", "1234", "9876", "5432")
 _PHONE_RE = re.compile(r"\+27(?:[\s-]?\d){9,12}")
-_WORD_RE = re.compile(r"[a-z0-9]+")
 
 
 def _sha(token: str) -> str:
     return hashlib.sha256(token.strip().lower().encode()).hexdigest()
 
 
-def _real_looking_phones(text: str) -> list[str]:
-    return [
-        m.group()
-        for m in _PHONE_RE.finditer(text)
-        if all(run not in re.sub(r"\D", "", m.group()) for run in _FAKE_RUNS)
-    ]
+# ── private digest list ─────────────────────────────────────────────────────
 
+def parse_digests(text: str) -> tuple[str, ...]:
+    """Digests from ``text`` (whitespace/comma separated), in order.
 
-def _banned_hits(text: str, banned: frozenset | None = None) -> list[str]:
-    """Report banned tokens and real-looking phone numbers in ``text``.
-
-    ``banned`` overrides the digest set. It exists so tests can prove the lookup
-    path works using a throwaway probe word, without this public file ever
-    spelling out a real banned value (only their SHA-256 digests live here).
+    Any entry that is not a 64-char hex SHA-256 raises ValueError: a mistyped
+    secret must fail loudly, never silently shrink the ban list.
     """
-    digests = _BANNED_WORD_SHA256 if banned is None else banned
-    lowered = text.lower()
-    return [
-        *(f"identifier token {w!r}" for w in _WORD_RE.findall(lowered)
-          if _sha(w) in digests),
-        *(f"real-looking phone {p!r}" for p in _real_looking_phones(text)),
-    ]
+    entries = [e for e in re.split(r"[\s,]+", text.strip().lower()) if e]
+    bad = [i + 1 for i, e in enumerate(entries) if not _DIGEST_RE.fullmatch(e)]
+    if bad:
+        raise ValueError(f"privacy digest list: entries {bad} are not SHA-256 hex digests")
+    return tuple(dict.fromkeys(entries))
 
+
+def load_digests(env: Optional[dict] = None) -> Optional[tuple[str, ...]]:
+    """The private digest list, or None if none is configured anywhere."""
+    env = os.environ if env is None else env
+    if env.get(ENV_DIGESTS, "").strip():
+        return parse_digests(env[ENV_DIGESTS])
+    path = Path(env.get(ENV_DIGESTS_FILE) or DEFAULT_DIGESTS_FILE).expanduser()
+    if path.is_file():
+        digests = parse_digests(path.read_text(encoding="utf-8"))
+        return digests or None
+    return None
+
+
+# ── scanning ────────────────────────────────────────────────────────────────
 
 def _tracked_files() -> list[Path]:
-    """Every tracked, readable text file, excluding this guard.
-
-    Uses ``git ls-files`` so a new top-level directory is covered the moment it
-    is added, with no list here to keep in sync. Falls back to a filesystem walk
-    only if git is unavailable (e.g. a source tarball), so the guard still runs.
-    """
+    """Every tracked file worth reading (text and DB fixtures), excluding this guard."""
     try:
         out = subprocess.run(
             ["git", "-C", str(ROOT), "ls-files", "-z"],
@@ -112,54 +107,87 @@ def _tracked_files() -> list[Path]:
         ).stdout
         names = [n for n in out.split("\0") if n]
     except (OSError, subprocess.SubprocessError):
-        names = [
-            p.relative_to(ROOT).as_posix()
-            for p in ROOT.rglob("*")
-            if p.is_file() and ".git" not in p.parts
-        ]
+        names = [p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*")
+                 if p.is_file() and ".git" not in p.parts]
     files = []
     for name in names:
         p = (ROOT / name).resolve()
-        if p == _SELF or not p.is_file() or p.suffix.lower() in _BINARY_SUFFIXES:
+        if p == _SELF or not p.is_file() or p.suffix.lower() in _SKIP_SUFFIXES:
             continue
         files.append(p)
     return sorted(files)
 
 
-def _readable(path: Path) -> str | None:
+def _file_lines(path: Path) -> Optional[list[str]]:
+    """Lines of a text file, or the whole byte content (latin-1) of a DB file."""
+    if path.suffix.lower() in _DB_SUFFIXES:
+        return [path.read_bytes().decode("latin-1")]
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8").splitlines()
     except (UnicodeDecodeError, OSError):
         return None
 
 
-def test_no_real_personal_data_in_tracked_files() -> None:
-    offenders = []
-    scanned = 0
+def identifier_hits(lines: Iterable[str], digests: Sequence[str]) -> list[str]:
+    """``line N: private denylist entry #K`` per banned token. Never the token itself."""
+    index = {d: i + 1 for i, d in enumerate(digests)}
+    hits = []
+    for lineno, line in enumerate(lines, 1):
+        for word in set(_WORD_RE.findall(line.lower())):
+            k = index.get(_sha(word))
+            if k:
+                hits.append(f"line {lineno}: private denylist entry #{k}")
+    return hits
+
+
+def phone_hits(lines: Iterable[str]) -> list[str]:
+    return [
+        f"line {lineno}: real-looking phone number"
+        for lineno, line in enumerate(lines, 1)
+        for m in _PHONE_RE.finditer(line)
+        if all(run not in re.sub(r"\D", "", m.group()) for run in _FAKE_RUNS)
+    ]
+
+
+def _scan(check) -> tuple[int, list[str]]:
+    offenders, scanned = [], 0
     for path in _tracked_files():
-        text = _readable(path)
-        if text is None:
+        lines = _file_lines(path)
+        if lines is None:
             continue
         scanned += 1
         rel = path.relative_to(ROOT).as_posix()
-        offenders += [f"{rel}: {hit}" for hit in _banned_hits(text)]
+        offenders += [f"{rel}: {hit}" for hit in check(lines)]
+    return scanned, offenders
+
+
+# ── tests ───────────────────────────────────────────────────────────────────
+
+def test_no_private_identifiers_in_tracked_files() -> None:
+    digests = load_digests()
+    if not digests:
+        if os.environ.get(ENV_REQUIRE) == "1":
+            pytest.fail(f"{ENV_REQUIRE}=1 but no private digest list is configured "
+                        f"({ENV_DIGESTS} secret / {ENV_DIGESTS_FILE} / {DEFAULT_DIGESTS_FILE})")
+        pytest.skip("private digest list not configured on this machine")
+    scanned, offenders = _scan(lambda lines: identifier_hits(lines, digests))
     assert not offenders, (
-        f"real personal data in tracked files ({scanned} scanned):\n"
-        + "\n".join(offenders)
-    )
+        f"private identifiers in tracked files ({scanned} scanned):\n" + "\n".join(offenders))
 
 
-def test_the_guard_actually_scans_the_whole_repo() -> None:
-    """Guard the guard: the scan must not silently shrink to a subset again.
+def test_no_real_looking_phone_numbers_in_tracked_files() -> None:
+    scanned, offenders = _scan(phone_hits)
+    assert scanned > 100
+    assert not offenders, "real-looking phone numbers:\n" + "\n".join(offenders)
 
-    The original bug was a hard-coded glob list that omitted ``tests/unit`` and
-    ``tests/fixtures``, which is exactly where the leak landed. This fails if
-    those areas, or the top-level project files, stop being covered.
-    """
+
+def test_the_guard_scans_the_whole_repo_including_fixture_dbs() -> None:
+    """The scan must not silently shrink to a subset again."""
     covered = {p.relative_to(ROOT).as_posix() for p in _tracked_files()}
     for required in (
         "tests/unit/test_em_migration_v3_core.py",
         "tests/fixtures/db/build_rich_v2.py",
+        "tests/fixtures/db/v2_7_0.db",
         "plugins/entropicmem/scripts/memory_engine.py",
         "pyproject.toml",
         "CHANGELOG.md",
@@ -167,47 +195,51 @@ def test_the_guard_actually_scans_the_whole_repo() -> None:
         assert required in covered, f"{required} is not covered by the privacy guard"
 
 
-def test_banned_detection_is_token_based_not_substring() -> None:
-    """``_banned_hits`` must key on whole tokens, and stay free of false positives.
+def test_no_digest_lists_are_committed() -> None:
+    """Never publish identifiers, not even hashed (hashes of short words are reversible)."""
+    for rel in ("tests/evals/test_no_personal_data.py", "tests/test_extraction_hygiene.py"):
+        assert not _DIGEST_RE.search((ROOT / rel).read_text(encoding="utf-8")), rel
+    digests = load_digests()
+    if digests:
+        _, leaked = _scan(lambda lines: [
+            f"line {n}: private digest #{k} committed verbatim"
+            for n, line in enumerate(lines, 1)
+            for k, d in enumerate(digests, 1) if d in line.lower()])
+        assert not leaked, "\n".join(leaked)
 
-    Covers the two rules that make a whole-repo scan viable: matching is on whole
-    tokens, so an honest word that merely contains a banned fragment is not
-    flagged; and a banned token is still detected inside ordinary text.
 
-    The banned values are never written in this public file, which holds only
-    their SHA-256 digests. A digest cannot be reversed, so the positive case is
-    exercised against a digest of a throwaway probe word instead. That keeps the
-    real identifiers out of the repository while still proving the lookup path
-    works end to end.
-    """
+def test_detection_is_token_based_and_never_prints_the_word(tmp_path) -> None:
     probe = "zqprobe"
-    banned = frozenset({_sha(probe)})
+    digests = (_sha("unrelated"), _sha(probe))
 
-    # A banned token is detected whatever surrounds it, and regardless of case.
-    assert _banned_hits(f"works at {probe} Ltd", banned=banned)
-    assert _banned_hits(f"a {probe.upper()} b", banned=banned)
-
-    # The same letters inside a longer token must NOT be flagged: matching is on
-    # whole tokens, never on substrings.
-    assert _banned_hits(f"{probe}zzz", banned=banned) == []
-    assert _banned_hits(f"zzz{probe}", banned=banned) == []
-
-    # The reserved-example names used by tests must stay legal.
+    hits = identifier_hits([f"works at {probe.upper()} Ltd"], digests)
+    assert hits == ["line 1: private denylist entry #2"]
+    assert probe not in " ".join(hits).lower()
+    assert identifier_hits([f"{probe}zzz zzz{probe}"], digests) == []
     for text in ("Alice works at Globex", "Bob at Initech", "user@example.com"):
-        assert _banned_hits(text) == [], f"false positive on {text!r}"
+        assert identifier_hits([text], digests) == []
 
-    # Deliberately NOT banned: ordinary product words removed from the set on
-    # 2026-09-26, because a whole-repo scan cannot ban them without failing the
-    # build on honest text.
-    assert _banned_hits("discovery of an fp8 pipeline") == []
-    assert _sha("fp") not in _BANNED_WORD_SHA256
-    assert _sha("discovery") not in _BANNED_WORD_SHA256
+    # Text stored inside an SQLite fixture is found through the byte scan.
+    db = tmp_path / "fixture.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE facts (content TEXT)")
+    conn.execute("INSERT INTO facts VALUES (?)", (f"Alice works at {probe}",))
+    conn.commit()
+    conn.close()
+    assert identifier_hits(_file_lines(db), digests) == ["line 1: private denylist entry #2"]
 
-    # Every remaining digest must be a full 64-char hex SHA-256, so a truncated
-    # or placeholder entry cannot silently disable a check.
-    for digest in _BANNED_WORD_SHA256:
-        assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest), digest
 
-    # Placeholder phone numbers are ignored; a real-looking one is not.
-    assert _banned_hits("call +27000000000") == []
-    assert _banned_hits("call +272780001000")
+def test_digest_list_loading(tmp_path) -> None:
+    d1, d2 = _sha("one"), _sha("two")
+    assert load_digests({ENV_DIGESTS: f"{d1},\n {d2.upper()}\n{d1}"}) == (d1, d2)
+    with pytest.raises(ValueError):
+        load_digests({ENV_DIGESTS: f"{d1} not-a-digest"})
+    f = tmp_path / "digests.txt"
+    f.write_text(f"{d2}\n", encoding="utf-8")
+    assert load_digests({ENV_DIGESTS_FILE: str(f)}) == (d2,)
+    assert load_digests({ENV_DIGESTS_FILE: str(tmp_path / "missing.txt")}) is None
+
+
+def test_phone_rule() -> None:
+    assert phone_hits(["call +27000000000"]) == []
+    assert phone_hits(["call +272780001000"]) == ["line 1: real-looking phone number"]

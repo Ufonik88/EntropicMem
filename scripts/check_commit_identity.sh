@@ -10,7 +10,9 @@
 # only becomes a commit after CI has already run on the PR.
 #
 # Usage:
-#   check_commit_identity.sh <range>        e.g. "origin/main...HEAD" or "abc..def"
+#   check_commit_identity.sh <rev-range>    e.g. "abc..def" (a PR) or "HEAD" (whole history)
+#
+# Fails closed: a range git cannot resolve is an error (exit 2), never a pass.
 #
 # Allowed (and only these):
 #   * <anything>@users.noreply.github.com   GitHub's per-account noreply
@@ -20,10 +22,10 @@ set -euo pipefail
 
 RANGE="${1:?usage: check_commit_identity.sh <range>}"
 
-# Commits with no diff against the range (e.g. an empty range) must not fail.
-COMMITS=$(git rev-list --no-merges "$RANGE" 2>/dev/null || true)
-MERGES=$(git rev-list --merges "$RANGE" 2>/dev/null || true)
-ALL=$(printf '%s\n%s\n' "$COMMITS" "$MERGES" | grep -v '^$' | sort -u || true)
+if ! ALL=$(git rev-list "$RANGE" 2>&1); then
+  echo "identity-guard: ERROR: cannot resolve '$RANGE': $ALL" >&2
+  exit 2
+fi
 
 if [ -z "$ALL" ]; then
   echo "identity-guard: no commits in range '$RANGE', nothing to check."
