@@ -187,9 +187,12 @@ def migrated(rich_v2_db):
 
 
 def test_migration_is_registered_as_version_2():
+    """0002 keeps its slot. Later migrations (0003+) may follow it, but the
+    numbering stays contiguous and LATEST is the newest one."""
     found = {m.version: m.name for m in emmig.discover()}
-    assert found == {1: "baseline_v27", 2: "v3_core"}
-    assert emmig.LATEST == 2
+    assert found[1] == "baseline_v27" and found[2] == "v3_core"
+    assert sorted(found) == list(range(1, emmig.LATEST + 1))
+    assert emmig.LATEST >= 2
 
 
 def test_migration_module_exposes_the_required_api():
@@ -399,8 +402,8 @@ def test_fresh_install_creates_v3_with_no_data(tmp_path):
     """S2 exit criteria: 'fresh installs create v3'."""
     conn = emdb.open_db(tmp_path / "fresh.db")
     applied = emmig.migrate(conn)
-    assert [m.version for m in applied] == [1, 2]
-    assert _uv(conn) == emmig.LATEST == 2
+    assert [m.version for m in applied] == list(range(1, emmig.LATEST + 1))
+    assert _uv(conn) == emmig.LATEST
 
     tables = _tables(conn)
     for expected in (
@@ -1200,7 +1203,7 @@ def test_committed_v2_fixtures_reach_v3(tmp_path, fixture_name):
     dst.write_bytes(src.read_bytes())
     conn = emdb.open_db(dst)
     applied = emmig.migrate(conn)
-    assert [m.version for m in applied] == [1, 2]
+    assert [m.version for m in applied] == list(range(1, emmig.LATEST + 1))
     assert _uv(conn) == emmig.LATEST
     assert _count(conn, "memories") == _count(conn, "v2_facts")
     assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
@@ -1210,7 +1213,7 @@ def test_committed_v2_fixtures_reach_v3(tmp_path, fixture_name):
 def test_downgrade_still_refused_after_v3(tmp_path):
     conn = emdb.open_db(tmp_path / "down.db")
     emmig.migrate(conn)
-    assert _uv(conn) == 2
+    assert _uv(conn) == emmig.LATEST
     with pytest.raises(emdb.DowngradeError):
         emmig.migrate(conn, registry=_baseline_only())
     conn.close()
@@ -1226,10 +1229,11 @@ def test_checksum_change_is_detected_for_0002(tmp_path):
         ("0" * 64,),
     )
     conn.commit()
+    later = [m for m in emmig.discover() if m.version > 2]  # 0003+, unchanged
     with pytest.raises(emmig.MigrationChecksumMismatch):
         emmig.migrate(conn, registry=_baseline_only() + [
             type("M", (), {"version": 2, "name": "v3_core", "checksum": "f" * 64, "up": staticmethod(lambda c: None)})()
-        ])
+        ] + later)
     conn.close()
 
 
@@ -1256,8 +1260,8 @@ def test_migration_works_in_a_fresh_subprocess():
     lines = subprocess.run(
         [sys.executable, "-c", script], capture_output=True, text=True, check=True
     ).stdout.split()
-    assert lines[0] == "baseline_v27|v3_core"
-    assert lines[1] == "2"
+    assert lines[0].startswith("baseline_v27|v3_core")
+    assert lines[1] == str(emmig.LATEST)
     assert lines[2] == "1"
 
 
