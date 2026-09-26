@@ -24,6 +24,7 @@ from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from ..clock import new_id, to_iso, utc_now
 from .audit import append as audit_append
+from .jobs import JobQueue
 from .types import (
     MemoryDraft,
     MemoryPatch,
@@ -287,27 +288,14 @@ class MemoryStore:
 
         ``dedupe_key`` is one embed job per (memory, version) so a retried
         write cannot pile up duplicate work; a later version supersedes the
-        key and gets its own job.
+        key and gets its own job. Goes through ``JobQueue.enqueue`` (EM-209)
+        so there is exactly one place that writes ``jobs`` rows.
         """
         version = self._conn.execute("SELECT version FROM memories WHERE id=?", (memory_id,)).fetchone()[0]
-        now = to_iso(utc_now())
-        self._conn.execute(
-            "INSERT INTO jobs (id, type, payload, dedupe_key, status, priority, attempts,"
-            " max_attempts, run_after, created_at, updated_at)"
-            " VALUES (?,?,?,?,?,?,0,5,?,?,?)"
-            " ON CONFLICT(dedupe_key) DO UPDATE SET payload=excluded.payload, run_after=excluded.run_after,"
-            " updated_at=excluded.updated_at",
-            (
-                new_id("job"),
-                "embed",
-                json.dumps({"memory_id": memory_id, "version": version}, separators=(",", ":")),
-                f"embed:{memory_id}:{version}",
-                "queued",
-                5,
-                now,
-                now,
-                now,
-            ),
+        JobQueue(self._conn).enqueue(
+            "embed",
+            {"memory_id": memory_id, "version": version},
+            dedupe_key=f"embed:{memory_id}:{version}",
         )
 
     def _outbox(self, memory_id: str, op: str, version: int, ts: str, payload: Mapping[str, Any]) -> None:
