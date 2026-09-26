@@ -12,6 +12,8 @@ Read this at the start of every session, then `docs/V3_FOUNDATIONS.md` before to
 6. Never weaken, skip, delete or xfail a test to get green. If a gate can't go green honestly, stop and report.
 7. Never edit an applied migration. Add a new one.
 8. Never delete CHANGELOG history. Moving an entry means every line arrives somewhere; check with a line-by-line diff.
+9. Never rewrite published history, and never delete a published branch or tag that a release or catalog pin points at. The Hermes plugin catalog pins an exact commit SHA. If that commit vanishes, the listed entry becomes uninstallable and every installed copy's `hermes plugins update` breaks (the 2.8.0 republish made the old `437c89b` pin disappear; the catalog maintainer asked for this never to happen again). Mistakes in published history are fixed forward with a new commit.
+10. Never rename or remove a provider tool, or change `provides_tools`/`provides_hooks`, outside a release that also re-pins the catalog entry. The catalog review verifies the plugin against those lists.
 
 ## Always
 
