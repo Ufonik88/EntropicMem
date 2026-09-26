@@ -4,11 +4,22 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 ## [Unreleased]
 
+### Fixed
+
+- **Graph server: malformed Host headers now return 400 instead of 500** (S1 follow-up). Starlette < 1.7 raised `ValueError("Invalid IPv6 URL")` while parsing a Host like `[::1` before the EM-114 allowlist ran, so the request died as a 500 (fail-closed, nothing served). The hardening middleware now reads the path from the raw ASGI scope and catches parse errors around the allowlist check only, so malformed hosts always get the same 400 `invalid Host header` response with security headers attached. Downstream handler errors are never masked: a corrupt `graph.json` still surfaces as an honest 500 (pinned by a regression test). Verified on starlette 1.0.0 (raises natively) and 1.7.0 (current pin).
+- **Graph server: startup/shutdown hooks migrated from the deprecated `@app.on_event` to a `lifespan` handler** (S1 follow-up). Same behaviour: the non-loopback bind refusal, the per-run token file write and its shutdown cleanup are unchanged; the EM-114 security tests were updated to drive the lifespan and stay green.
+- **`tests/test_phase11.py` tar extraction passes `filter="data"`** where supported (Python ≥ 3.12), matching the product import path and silencing the 3.13 deprecation warning. Test-only.
+
+### Changed
+
+- **CI test matrix adds Python 3.13** and `pyproject.toml` gains the 3.13 classifier: Hermes Agent supports 3.13 and the full suite (927 passed, 2 skipped, 5 xfailed) already passes on it at 2.8.0. Python 3.14 is deliberately not added (Hermes cannot run on it).
+- **CHANGELOG wording:** the EM-212/EM-213 known-limitation note no longer cites the old PR number (pre-cutover numbering doesn't exist in this repo); it now says "an earlier attempt was closed unmerged, pre-2.8.0 history".
+
 ## [2.8.0] - 2026-09-25
 
 Sprint 1 hotfix release (EM-101 to EM-118). Retrieval stops injecting noise and stops forgetting durable facts; writes stop silently overwriting; background work keeps its profile; Core Memory moves into the system prompt; export/import is consistent and fail-closed; the graph servers gain Host-allowlist, CSP and per-run-token hardening. Measured on the eval suites against the 2.7.0 baselines: ci recall@5 1.000 → 1.000, abstain_correct 0.000 → 1.000, noise_rate 0.286 → 0.143, must_not_ok 0.714 → 1.000; hard abstain_correct 0.000 → 1.000, noise_rate 0.303 → 0.214, recall@5 0.961 → 0.939. The hard recall dip is the deliberate EM-104 trade-off: five turns lost recall and one gained. Each of the five expected memories shared *only stopwords* with its query ("in", "is", "the", "we"), which is the same matching that made 2.7.0 inject filler for every junk query; they need semantic retrieval (S3). The hard ageing fixtures' ages were also corrected in this release.
 
-**Known limitations (not fixed in 2.8.0):** lexical-only synonym recall. Hard-suite ageing recall@5 is 0.733, below the 0.90 plan target, because the four misses share no words with the stored fact; it is accepted for 2.8.0 and targeted at S3 semantic retrieval (EM-303). Full per-user isolation (S4; `owner_user_ids` is an interim owner/guest guard), async prefetch (S4), episode recall (S3), and EM-212/EM-213 plugin namespace and manifest work (S2; PR #14 was closed unmerged) are also not included. Each is pinned by a strict xfail in `tests/regressions/test_findings_v27.py`.
+**Known limitations (not fixed in 2.8.0):** lexical-only synonym recall. Hard-suite ageing recall@5 is 0.733, below the 0.90 plan target, because the four misses share no words with the stored fact; it is accepted for 2.8.0 and targeted at S3 semantic retrieval (EM-303). Full per-user isolation (S4; `owner_user_ids` is an interim owner/guest guard), async prefetch (S4), episode recall (S3), and EM-212/EM-213 plugin namespace and manifest work (S2; an earlier attempt was closed unmerged, pre-2.8.0 history) are also not included. Each is pinned by a strict xfail in `tests/regressions/test_findings_v27.py`.
 
 ### Changed
 

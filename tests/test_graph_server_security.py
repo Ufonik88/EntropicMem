@@ -14,7 +14,6 @@ DEFAULT_VAULT, BASE_DIR) so tests are isolated from the shared module import.
 """
 
 import asyncio
-import inspect
 import os
 import sys
 from pathlib import Path
@@ -117,14 +116,10 @@ def test_bind_policy_allows_loopback(mod):
 def test_startup_hook_is_wired_to_the_bind_guard(mod, monkeypatch):
     """The refusal must fire from the ASGI startup lifecycle, not just from a
     helper nobody calls."""
-    handlers = list(mod.app.router.on_startup)
-    assert handlers, "no startup handler registered on the app"
     monkeypatch.setenv("ENTROPICMEM_GRAPH_BIND", "0.0.0.0")
     with pytest.raises(RuntimeError, match="ENTROPICMEM_GRAPH_EXPOSE"):
-        for handler in handlers:
-            result = handler()
-            if inspect.isawaitable(result):
-                asyncio.run(result)
+        with TestClient(mod.app, base_url="http://127.0.0.1:8075"):
+            pass  # entering the context runs the lifespan startup
 
 
 def test_bind_detection_helpers(mod):
@@ -276,6 +271,38 @@ def test_host_allowlist_rejects_other_hosts(client, host):
     assert r.json() == {"detail": "invalid Host header"}
 
 
+def test_malformed_host_never_500s_when_url_parsing_raises(client, mod, monkeypatch):
+    """Starlette < 1.7 raises ValueError("Invalid IPv6 URL") while parsing a
+    malformed bracketed Host (e.g. "[::1") before the allowlist runs, turning a
+    client error into a 500. The middleware must fail closed with 400 even if
+    the allowlist check itself raises that way."""
+    def _boom(*args, **kwargs):
+        raise ValueError("Invalid IPv6 URL")
+
+    monkeypatch.setattr(mod, "_host_allowed", _boom)
+    r = _get(client, "/api/note/Knowledge%2FAlpha%20Note", "[::1")
+    assert r.status_code == 400, r.status_code
+    assert "Body of Alpha" not in r.text
+    assert r.json() == {"detail": "invalid Host header"}
+    # fail-closed: security headers still present on the error response
+    assert r.headers.get("x-content-type-options") == "nosniff"
+
+
+def test_downstream_valueerror_surfaces_as_500_not_host_400(mod, client, tmp_path):
+    """The Host guard must NOT swallow a handler's own ValueError. A corrupt
+    graph.json makes json.loads raise JSONDecodeError (a ValueError subclass);
+    with a VALID Host the route must surface an honest 500, not be masked as a
+    400 "invalid Host header"."""
+    corrupt = tmp_path / "graph_export" / "graph.json"
+    corrupt.write_text("{ this is not json", encoding="utf-8")
+    # raise_server_exceptions=False so the 500 is returned, not re-raised
+    plain = TestClient(mod.app, base_url="http://127.0.0.1:8075",
+                       raise_server_exceptions=False)
+    r = plain.get("/graph.json", headers={"host": "127.0.0.1:8075"})
+    assert r.status_code == 500, (r.status_code, r.text)
+    assert "invalid Host header" not in r.text
+
+
 def test_host_allowlist_uses_the_actual_listening_port(mod, client):
     """The port comes from the listening socket, not a constant: a server on
     :8080 accepts 127.0.0.1:8080 and refuses :8075."""
@@ -416,11 +443,32 @@ def test_health_reports_token_source(client, monkeypatch):
     assert client.get("/health").json()["token_source"] == "env"
 
 
+_LIFESPAN_STATE: dict = {}
+
+
 def _run_lifecycle(mod, event):
-    for handler in getattr(mod.app.router, f"on_{event}"):
-        result = handler()
-        if inspect.isawaitable(result):
-            asyncio.run(result)
+    """Drive the app's ASGI lifespan (startup/shutdown) for lifecycle tests.
+
+    The server uses a lifespan context manager (not the removed on_event
+    hooks), so startup enters the context and shutdown exits it; the loop is
+    kept alive between the two calls.
+    """
+    state = _LIFESPAN_STATE.setdefault(id(mod.app), {})
+    if event == "startup":
+        loop = asyncio.new_event_loop()
+        cm = mod.app.router.lifespan_context(mod.app)
+        loop.run_until_complete(cm.__aenter__())
+        state["cm"] = cm
+        state["loop"] = loop
+    elif event == "shutdown":
+        cm = state.pop("cm")
+        loop = state.pop("loop")
+        try:
+            loop.run_until_complete(cm.__aexit__(None, None, None))
+        finally:
+            loop.close()
+    else:  # pragma: no cover
+        raise ValueError(event)
 
 
 def test_startup_publishes_run_token_owner_only(mod, tmp_path, monkeypatch):

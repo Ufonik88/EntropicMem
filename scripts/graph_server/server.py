@@ -49,6 +49,7 @@ import secrets
 import sqlite3
 import sys
 from collections import deque
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -123,7 +124,25 @@ BASE_DIR = _resolve_export_dir()
 INDEX_DB = HERMES_HOME / "entropicmem" / "index.db"
 DEFAULT_VAULT = HERMES_HOME / "entropicmem" / "vault"
 
-app = FastAPI(title="EntropicMem Graph")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Startup/shutdown lifecycle (replaces the deprecated @app.on_event).
+
+    Startup refuses a non-loopback bind without the explicit override and
+    publishes the per-run token file; shutdown removes that file. Behaviour
+    is identical to the former on_event hooks (pinned by
+    tests/test_graph_server_security.py).
+    """
+    _enforce_bind_policy()
+    _write_run_token_file()
+    try:
+        yield
+    finally:
+        _remove_run_token_file()
+
+
+app = FastAPI(title="EntropicMem Graph", lifespan=_lifespan)
 
 # Random per-run token (EM-114): the credential whenever no static
 # ENTROPICMEM_GRAPH_TOKEN is configured. New on every process start.
@@ -402,10 +421,24 @@ SECURITY_HEADERS = {
 @app.middleware("http")
 async def _request_hardening(request: Request, call_next):
     """Host allowlist on every route but /health, then security headers on
-    every response (errors included)."""
-    if request.url.path != "/health" and not _host_allowed(
-        request.headers.get("host", ""), request.scope.get("server")
-    ):
+    every response (errors included).
+
+    The path and Host are read from the raw ASGI scope: ``request.url`` parses
+    the Host header, and Starlette < 1.7 raises ``ValueError("Invalid IPv6
+    URL")`` there for a malformed bracketed host (``[::1``) before the
+    allowlist ever runs, turning a client error into a 500. Scope reads never
+    parse, so the allowlist sees every malformed header and answers 400. The
+    ValueError guard covers ONLY the allowlist check itself — downstream
+    handler errors (e.g. a corrupt graph.json failing json.loads, itself a
+    ValueError) must surface honestly, not as a Host rejection.
+    """
+    try:
+        host_ok = request.scope.get("path") == "/health" or _host_allowed(
+            request.headers.get("host", ""), request.scope.get("server")
+        )
+    except ValueError:
+        host_ok = False
+    if not host_ok:
         response = JSONResponse({"detail": "invalid Host header"}, status_code=400)
     else:
         response = await call_next(request)
@@ -430,17 +463,6 @@ def _enforce_bind_policy() -> None:
         "set ENTROPICMEM_GRAPH_EXPOSE=1 to accept the exposure (read endpoints "
         "then require ENTROPICMEM_GRAPH_TOKEN)."
     )
-
-
-@app.on_event("startup")
-async def _startup_bind_guard() -> None:
-    _enforce_bind_policy()
-    _write_run_token_file()
-
-
-@app.on_event("shutdown")
-async def _shutdown_token_cleanup() -> None:
-    _remove_run_token_file()
 
 
 def _vault_root() -> Path:
