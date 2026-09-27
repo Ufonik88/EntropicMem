@@ -182,12 +182,19 @@ def test_no_real_looking_phone_numbers_in_tracked_files() -> None:
 
 
 def test_the_guard_scans_the_whole_repo_including_fixture_dbs() -> None:
-    """The scan must not silently shrink to a subset again."""
+    """The scan must not silently shrink to a subset again.
+
+    2.8.x backport: the S2 files this list names on main (``tests/unit/``,
+    ``tests/fixtures/db/*.db``) do not exist on this line, so it names the
+    2.8.x equivalents: a test outside ``tests/evals``, the test harness,
+    product code on both sides of the plugin, and project files. The ``.db``
+    scanning path itself is unchanged; 2.8.x commits no fixture databases.
+    """
     covered = {p.relative_to(ROOT).as_posix() for p in _tracked_files()}
     for required in (
-        "tests/unit/test_em_migration_v3_core.py",
-        "tests/fixtures/db/build_rich_v2.py",
-        "tests/fixtures/db/v2_7_0.db",
+        "tests/test_extraction_hygiene.py",
+        "tests/harness/fake_host.py",
+        "plugins/entropicmem/__init__.py",
         "plugins/entropicmem/scripts/memory_engine.py",
         "pyproject.toml",
         "CHANGELOG.md",
