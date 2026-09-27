@@ -243,6 +243,7 @@ Also: the shared publish store lives at `$HERMES_HOME/entropicmem-shared/` (the 
 ## Known Limitations (2.8.1)
 
 - **Synonym / paraphrase recall.** Retrieval is lexical (FTS5) unless the optional semantic stack is installed and enabled (`embeddings_enabled: true`). A query that shares no words with the stored fact ("what city am I based in?" against "The user lives in Cape Town") returns nothing. The hard eval suite's ageing category scores 0.733 recall@5 for exactly this reason; semantic retrieval is Sprint 3 (EM-303).
+- **Native Windows is not supported on 2.8.x.** The engine imports the Unix-only `fcntl` module for its write lock, so it does not load on Windows. Use Linux, macOS or WSL. Portable locking (EM-202) is already built on the 3.0 line and ships with it.
 - **Per-user isolation.** `owner_user_ids` is an interim owner/guest guard. Fully scoped per-user storage (Alice cannot recall Bob's facts) is Sprint 4.
 - **Prefetch is synchronous.** `queue_prefetch` is a no-op; prefetch runs inline on the caller (async prefetch is Sprint 4).
 - **Episodes are stored but not recalled.** Session digests land in the timeline, but `recall()` does not surface them yet (Sprint 3).
