@@ -33,10 +33,10 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 ### Repository `Ufonik88/EntropicMem` (public)
 | Ref | SHA | Meaning |
 |---|---|---|
-| `main` | the commit that added `docs/plan/` (after `177f7f2`) | 3.0 development line (`3.0.0.dev0`). All of S2 so far, the v3 foundations, the catalog-review fixes, the perf-smoke fix, EM-212, the 2.8.1 notes and these plans. Locally: 1461 passed, 3 skipped (2 with the private list), 3 xfailed. |
+| `main` | `93a7d81` or later (the commits that added `docs/plan/`) | 3.0 development line (`3.0.0.dev0`). All of S2 so far, the v3 foundations, the catalog-review fixes, the perf-smoke fix, EM-212, the 2.8.1 notes and these plans. Locally: 1461 passed, 3 skipped (2 with the private list), 3 xfailed. |
 | branch `release/2.8.x` | `7e02412` | **2.8.1**: `v2.8.0` plus the safety fixes (see §4). Locally: 955 passed, 3 skipped (2 with the private list), 4 xfailed. CI on `7e02412`: the run passes, 10/11 jobs green, and `windows-import` is allowed to fail on 2.8.x (as on 2.8.0). The tag `v2.8.1` is still to be created (§4). |
 | tag `v2.8.0` | tag `09a5459` → commit `060063d` | The release the Marketplace serves until the 2.8.1 re-pin merges. |
-| leftover branches | `claude/eloquent-fermi-9e73i3` (= `7e02412`), `fix/perf-smoke-probes` (= `177f7f2`) | Both are merged or duplicated. Hermes deletes them (Claude Code's session may not delete refs). |
+| leftover branches | `claude/eloquent-fermi-9e73i3` (= `7e02412`), `fix/perf-smoke-probes` (= `177f7f2`), `claude/chunk-1-s2-closeout` (on `main`) | Both are merged or duplicated. Hermes deletes them (Claude Code's session may not delete refs). |
 | republish baseline | `35a02f4` | First commit of the cleaned public history. It must stay an ancestor of `main` forever. |
 
 - **Dead SHAs** (never push them anywhere public): `e47e956`, `0e5e39c`, `93ef951`, `6b62a21`, `f15fe12`, `9a2c1df`, `437c89b`.

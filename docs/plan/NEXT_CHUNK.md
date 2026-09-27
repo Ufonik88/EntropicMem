@@ -37,10 +37,11 @@ git ls-remote origin 'refs/tags/v2.8.1^{}'   # must print 7e02412…
 echo '{"required_status_checks":null,"enforce_admins":false,"required_pull_request_reviews":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}' > /tmp/prot.json
 gh api -X PUT repos/Ufonik88/EntropicMem/branches/release/2.8.x/protection --input /tmp/prot.json
 gh api repos/Ufonik88/EntropicMem/branches/release/2.8.x/protection -q '.allow_force_pushes.enabled, .allow_deletions.enabled'   # false false
-git push origin --delete fix/perf-smoke-probes claude/eloquent-fermi-9e73i3
+git push origin --delete fix/perf-smoke-probes claude/eloquent-fermi-9e73i3 claude/chunk-1-s2-closeout
 ```
 - `fix/perf-smoke-probes` is merged into `main`.
 - `claude/eloquent-fermi-9e73i3` equals `7e02412`, which `release/2.8.x` and the tag now hold.
+- `claude/chunk-1-s2-closeout` equals a commit already on `main`.
 - Keep `main` and `release/2.8.x`.
 - Locally, delete the stale branches whose contents are in `main`: `fix/em-211-facade`, `fix/plan-gaps`, `em/em-205…208*`.
 
