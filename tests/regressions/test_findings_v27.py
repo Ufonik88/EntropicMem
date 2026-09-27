@@ -752,6 +752,6 @@ FIXING_TASK_IDS = {
     "F-007": "EM-108",
     "F-008": "EM-116 (+EM-107)",
     "F-009": "EM-111 (R8 episodes → S3 retrieval v3)",
-    "F-010": "EM-212 (done)",
+    "F-010": "EM-212 (first step done; package move open)",
     "F-011": "EM-213 (re-scoped, done)",
 }

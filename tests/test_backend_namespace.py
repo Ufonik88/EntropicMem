@@ -16,6 +16,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -49,3 +51,27 @@ def test_precedence_is_unchanged(tmp_path, monkeypatch):
     assert _backend.resolve_paths(tmp_path, {})[0] == (tmp_path / "from-env").resolve()
     explicit = _backend.resolve_paths(tmp_path, {"vault_path": str(tmp_path / "cfg")})[0]
     assert explicit == (tmp_path / "cfg").resolve()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="EM-212 (plan §5, still open): engine modules must move under a package "
+    "namespace so no unprefixed vault/index/security/... module is registered in the "
+    "host process. The _backend lookup fix (above) is only the first step.",
+)
+def test_em212_plan_ac_no_unprefixed_engine_modules_in_process():
+    """Master plan §5 EM-212 AC, as a check: load the engine the way the
+    plugin does, in a clean interpreter, and no module named ``vault``,
+    ``index``, ``security``, ``policy``, ``embeddings`` or ``retrieval`` may be
+    registered. Flips to passing when the package move lands."""
+    import subprocess
+
+    scripts = ROOT / "plugins" / "entropicmem" / "scripts"
+    code = (
+        "import sys; sys.path.insert(0, %r); import memory_engine; "
+        "bad=[m for m in ('vault','index','security','policy','embeddings','retrieval') "
+        "if m in sys.modules]; print(','.join(bad))" % str(scripts)
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "", f"unprefixed modules registered: {out.stdout.strip()}"

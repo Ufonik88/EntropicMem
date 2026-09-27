@@ -28,22 +28,24 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 
 ---
 
-## 2. Where things stand (verified 2026-09-27)
+## 2. Where things stand (verified 2026-09-27, after Hermes's Part A report)
 
 ### Repository `Ufonik88/EntropicMem` (public)
 | Ref | SHA | Meaning |
 |---|---|---|
-| `main` | `93a7d81` or later (the commits that added `docs/plan/`) | 3.0 development line (`3.0.0.dev0`). All of S2 so far, the v3 foundations, the catalog-review fixes, the perf-smoke fix, EM-212, the 2.8.1 notes and these plans. Locally: 1461 passed, 3 skipped (2 with the private list), 3 xfailed. |
-| branch `release/2.8.x` | `7e02412` | **2.8.1**: `v2.8.0` plus the safety fixes (see §4). Locally: 955 passed, 3 skipped (2 with the private list), 4 xfailed. CI on `7e02412`: the run passes, 10/11 jobs green, and `windows-import` is allowed to fail on 2.8.x (as on 2.8.0). The tag `v2.8.1` is still to be created (§4). |
-| tag `v2.8.0` | tag `09a5459` → commit `060063d` | The release the Marketplace serves until the 2.8.1 re-pin merges. |
-| leftover branches | `claude/eloquent-fermi-9e73i3` (= `7e02412`), `fix/perf-smoke-probes` (= `177f7f2`), `claude/chunk-1-s2-closeout` (on `main`) | Both are merged or duplicated. Hermes deletes them (Claude Code's session may not delete refs). |
+| `main` | `25322dc` or later | 3.0 development line (`3.0.0.dev0`). All of S2 so far, the v3 foundations, the catalog-review fixes, the perf-smoke fix, the first step of EM-212, the 2.8.1 notes and these plans (with the plan §5 text). Locally: 1461 passed, 3 skipped (2 with the private list), 4 xfailed. |
+| branch `release/2.8.x` | `7e02412` | **2.8.1**: `v2.8.0` plus the safety fixes (see §4). Locally: 955 passed, 3 skipped (2 with the private list), 4 xfailed. CI on `7e02412`: the run passes, 10/11 jobs green, and `windows-import` is allowed to fail on 2.8.x (as on 2.8.0). Protected (no force-push, no deletion). |
+| tag `v2.8.1` | tag `edee477` → commit `7e02412` | **The safe point.** GitHub Release page published. |
+| tag `v2.8.0` | tag `09a5459` → commit `060063d` | The release the Marketplace serves until the 2.8.1 re-pin (NousResearch/hermes-agent#124837) merges. |
+| leftover branches | `docs/plan-s5-text` (on `main`); Claude Code's working branch for its latest commit | Merged. Hermes deletes them (Claude Code's session may not delete refs or push tags). |
 | republish baseline | `35a02f4` | First commit of the cleaned public history. It must stay an ancestor of `main` forever. |
 
 - **Dead SHAs** (never push them anywhere public): `e47e956`, `0e5e39c`, `93ef951`, `6b62a21`, `f15fe12`, `9a2c1df`, `437c89b`.
 - **Private archive:** `Ufonik88/EntropicMem-archive`. It holds the old history with personal data. **Never make it public.**
 
 ### Marketplace (Hermes plugin catalog)
-- NousResearch/hermes-agent#122476 is **merged** (`5b6033d`). The entry `entropicmem` 2.8.0 is pinned at `060063d`.
+- NousResearch/hermes-agent#122476 is **merged** (`5b6033d`). The entry `entropicmem` 2.8.0 is pinned at `060063d`. The thank-you reply to Teknium is posted there.
+- **NousResearch/hermes-agent#124837** (opened 2026-09-27 from the fresh branch `catalog/entropicmem-2.8.1`): re-pin to **2.8.1 @ `7e02412`**. `validate_plugin_catalog.py` passes and all 7 pinned URLs return 200. **Open, awaiting the maintainer.** Still to run: `hermes plugins validate` on a clean checkout, and the fresh install check after merge (idle box only).
 - Maintainer: Teknium. He re-read the plugin in full and amended the disclosure. His rule: **never rewrite history on a listed repo** (`AGENTS.md` rule 9).
 - The fork branch `catalog/entropicmem-2.8.0` ends in Teknium's `cdfcd83` on top of our `01d30a9`. **Never push that branch again.** Any future catalog PR starts from a fresh branch off upstream.
 
@@ -132,7 +134,7 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 
 ---
 
-## 4. Step 0: reach the safe point (2.8.1). Mostly owner clicks, about 30 minutes.
+## 4. Step 0: reach the safe point (2.8.1). Status: done except the catalog merge and install check
 
 2.8.1 is built and CI-verified on `release/2.8.x` (`7e02412`). It contains **no v3 (`em/`) code and no new features**; every change was cherry-picked from `main` with `-x`:
 
@@ -153,18 +155,18 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 **Known and accepted on 2.8.x:** native Windows doesn't load (the engine imports `fcntl`). CI's `windows-import` job is allowed to fail on this line, as on 2.8.0. It is fixed on the 3.0 line (EM-202).
 
 **Steps** (all Hermes; the owner's only part is saying yes to the public reply, or not):
-1. **Done by Claude Code:** branch `release/2.8.x` created at `7e02412`. The Claude Code session is not allowed to push tags.
-2. **Hermes** creates the tag and the Release page in one command (details in `docs/plan/NEXT_CHUNK.md` Part A). The tag must exist before the catalog pin, so the pinned commit can never vanish (rule 9). Hermes also protects `release/2.8.x` (no force-push, no deletion).
-3. **Hermes** opens the catalog re-pin PR from a *fresh* branch off upstream `hermes-agent`:
+1. **Done (Claude Code):** branch `release/2.8.x` created at `7e02412`.
+2. **Done (Hermes):** tag `v2.8.1` and the Release page, created in one command (details in `docs/plan/NEXT_CHUNK.md` Part A). The tag must exist before the catalog pin, so the pinned commit can never vanish (rule 9). Hermes also protects `release/2.8.x` (no force-push, no deletion).
+3. **Done (Hermes): #124837 opened; `hermes plugins validate` still to run on an idle box.** The re-pin PR comes from a *fresh* branch off upstream `hermes-agent`:
    - version `2.8.1`, sha = the tagged commit, and all pinned URLs moved to it;
    - run `scripts/validate_plugin_catalog.py`, check each URL anonymously, and run `hermes plugins validate --install-deps plugins/entropicmem` on a clean checkout (use the safe `HERMES_HOME` method, on an idle box);
    - the PR body lists the fixes above in plain words and states that no history was rewritten;
    - the disclosure changes since 2.8.0: embeddings are now opt-in (strictly less egress than disclosed).
-4. **After it merges,** run a fresh catalog install:
+4. **Open: after #124837 merges,** run a fresh catalog install:
    - sha correct, 7 tools and 5 hooks load, remember → recall works;
    - with `sentence-transformers` present but not enabled, **no** model download happens.
 
-**Only when the owner says "post it":** the one-time reply on #122476 (draft in the previous hand-off).
+**Done:** the one-time reply on #122476 is posted.
 
 When Step 0 is done, EntropicMem is at the safe point and feature development stops.
 
@@ -204,7 +206,7 @@ S0 cards EM-001…EM-007 (fixtures, harness, xfail findings, perf smoke, Windows
 | docs | `AGENTS.md`, `docs/V3_FOUNDATIONS.md` | `5908277`, `147e00a` |
 | catalog-review fixes | ingest redirects, embeddings opt-in, CLI `HERMES_HOME`, network docs | `49feb3f`, `76478b2`, `835b49b`, `08af922` |
 | CI | `perf-smoke` 20 probes | `177f7f2` |
-| EM-212 | `_backend` loads its own `vault.py` by path; `test_f010` made real | `4ae5b11` |
+| EM-212 (first step) | `_backend` loads its own `vault.py` by path; `test_f010` made real. The plan's full EM-212 (package move) is still open | `4ae5b11` |
 | docs | 2.8.1 notes forward-ported; `docs/plan/` added | `cdff579` and later |
 | **2.8.1** | safety patch branch `release/2.8.x` | `7e02412` (tag pending, §4) |
 
@@ -224,13 +226,13 @@ Cards are grouped by the master plan's sprints. **"(plan text needed)"** marks c
 - `fix/perf-smoke-probes` merged into `main`;
 - the 2.8.1 notes and the README semantic-recall line forward-ported;
 - this plan committed to `docs/plan/`;
-- **EM-212** done: `_backend` loads its own `vault.py` by path under a private module name; `test_f010` is now a real check and passes.
+- **EM-212, first step:** `_backend` loads its own `vault.py` by path under a private module name (fixes another plugin's `vault` hijacking the path lookup); `test_f010` is now a real check and passes.
 
 **Still open from housekeeping:**
 - paste the master plan §5 text into §6 (Hermes; `NEXT_CHUNK.md` task H3);
 - delete the leftover remote and local branches (Hermes).
 
-**EM-212 follow-up (only if plan §5 asks for it):** move `scripts/` off `sys.path[0]` and replace the provider's own bare `from memory_engine import …` imports. That is a separate, larger card.
+**EM-212, rest of the card (open; plan §5 below asks for it):** move the engine modules under a package namespace so no unprefixed `vault`/`index`/`security`/`policy`/`embeddings`/`retrieval` module is registered in the host process, with a CLI shim. The strict xfail `test_em212_plan_ac_no_unprefixed_engine_modules_in_process` (`tests/test_backend_namespace.py`) pins the plan AC and flips when it lands. It is a larger, multi-file card: split it before starting.
 
 **EM-211: legacy facade.** Implement `LegacyEngine` over `em.store` so the provider can run on v3 unchanged.
 - Done when it is added to `ENGINES` in `tests/parity/test_engine_parity.py` and to `_implementations()` in `tests/unit/test_em_facade_contract.py`, and both pass **unchanged**.
@@ -380,7 +382,7 @@ After S4, the owner decides whether S5–S9 are worth continuing. The plan does 
 - `hermes plugins validate` prints two "declared but not registered" warnings. They're kept on purpose (the catalog verifies against those lists).
 - Native Windows is unsupported on 2.8.x (fixed on the 3.0 line).
 - Audit-chain limitation: deleting a middle row *and* re-chaining the tail is undetectable without an anchor outside the database (documented and deliberately not built).
-- **Strict xfails that remain:** F-009 episodes, per-user isolation, async prefetch. (F-010 / EM-212 is fixed on `main`.)
+- **Strict xfails that remain:** F-009 episodes, per-user isolation, async prefetch, and the EM-212 plan AC (package namespace). F-010 (`_backend` bare import) is fixed on `main`.
 
 ## 8. Budgets and gates that stay in force
 - **Performance:**
@@ -393,8 +395,7 @@ After S4, the owner decides whether S5–S9 are worth continuing. The plan does 
 - **Jobs (EM-209):** a 4-process exactly-once test.
 
 ## 9. Open decisions (owner)
-1. Post the reply to Teknium on #122476, or not (draft exists).
-2. After the safe point, when to schedule Chunk 2 (`NEXT_CHUNK.md`).
+1. When to schedule Chunk 2 (`NEXT_CHUNK.md` Part B). Nothing else is waiting on the owner.
 
 ## 10. Operations checklist (Hermes host)
 - **Before 2 Oct:** show the cleanup script's ancestor-check line and dry-run it.
