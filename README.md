@@ -261,6 +261,8 @@ These are pinned by strict `xfail` tests in `tests/regressions/test_findings_v27
 | [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) | All commands and subcommands |
 | [docs/VISUALIZER.md](docs/VISUALIZER.md) | Graph UI: zoom, overlays, wikilink resolution, security model |
 | [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md) | Encrypted backup + restore drill |
+| [docs/plan/REMAINING_PLAN.md](docs/plan/REMAINING_PLAN.md) | What is left of the v3 plan, and the rules for doing it in small chunks |
+| [docs/plan/NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md) | The one next step (release tasks first, then the next development chunk) |
 | [docs/BACKFILL_PROCEDURE.md](docs/BACKFILL_PROCEDURE.md) | Opt-in shared-store backfill for multi-profile sync |
 | [skills/entropicmem/references/HERMES_INTEGRATION.md](skills/entropicmem/references/HERMES_INTEGRATION.md) | MemoryProvider wiring + smart context |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Public-repo rules + commit checklist |
