@@ -667,27 +667,32 @@ def test_f009_episodes_reach_recall(engine):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="F-010 → EM-212: _backend.resolve_paths installs "
-          "scripts/ at sys.path[0] and bare-imports vault/index/security/etc, "
-          "polluting the process-wide module namespace")
 def test_f010_no_bare_module_imports_in_backend():
-    """_backend.py must not bare-import engine modules (vault, index, etc.)."""
-    import ast
-    import importlib.util
+    """_backend.py must not bare-import engine modules (vault, index, etc.).
 
-    spec = importlib.util.find_spec("entropicmem._backend")
-    if spec and spec.origin:
-        tree = ast.parse(Path(spec.origin).read_text())
-        bare_imports = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom):
-                if node.module in ("vault", "index", "security", "policy",
-                                   "embeddings", "retrieval") and node.level == 0:
-                    bare_imports.append(node.module)
-        assert not bare_imports, f"_backend.py bare-imports: {bare_imports}"
-    else:
-        # If plugin package isn't importable in this env, skip the check
-        pytest.skip("_backend.py not importable in this environment")
+    EM-212, fixed 2026-09-27. The original version located the file with
+    ``importlib.util.find_spec("entropicmem._backend")``. In the test process
+    ``entropicmem`` resolves to ``scripts/entropicmem.py`` (the CLI, which is
+    not a package), so the lookup always raised, and the strict xfail was
+    "passing" on that error rather than on the bare import it exists to catch.
+    It now reads the plugin's ``_backend.py`` directly, so the check really runs.
+    The behaviour it protects is pinned in ``tests/test_backend_namespace.py``.
+    """
+    import ast
+
+    backend = Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "_backend.py"
+    assert backend.is_file(), f"{backend} is committed; missing means a real failure"
+    tree = ast.parse(backend.read_text(encoding="utf-8"))
+    bare_imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 0:
+            if node.module in ("vault", "index", "security", "policy", "embeddings", "retrieval"):
+                bare_imports.append(node.module)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in ("vault", "index", "security", "policy", "embeddings", "retrieval"):
+                    bare_imports.append(alias.name)
+    assert not bare_imports, f"_backend.py bare-imports: {bare_imports}"
 
 
 def test_f011_plugin_manifest_declares_tools_and_hooks_once():
@@ -747,6 +752,6 @@ FIXING_TASK_IDS = {
     "F-007": "EM-108",
     "F-008": "EM-116 (+EM-107)",
     "F-009": "EM-111 (R8 episodes → S3 retrieval v3)",
-    "F-010": "EM-212",
+    "F-010": "EM-212 (done)",
     "F-011": "EM-213 (re-scoped, done)",
 }

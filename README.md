@@ -246,7 +246,7 @@ Also: the shared publish store lives at `$HERMES_HOME/entropicmem-shared/` (the 
 - **Per-user isolation.** `owner_user_ids` is an interim owner/guest guard. Fully scoped per-user storage (Alice cannot recall Bob's facts) is Sprint 4.
 - **Prefetch is synchronous.** `queue_prefetch` is a no-op; prefetch runs inline on the caller (async prefetch is Sprint 4).
 - **Episodes are stored but not recalled.** Session digests land in the timeline, but `recall()` does not surface them yet (Sprint 3).
-- **Plugin namespace.** The backend still bare-imports its script modules on `sys.path` (EM-212, Sprint 2). `hermes plugins validate` also prints two "declared but not registered" warnings for `provides_tools`/`provides_hooks`. They are kept on purpose: the Hermes catalog review verifies the plugin against those lists, and the warnings come from the validator not seeing tools a MemoryProvider exposes through `get_tool_schemas()`.
+- **Validator warnings.** `hermes plugins validate` prints two "declared but not registered" warnings for `provides_tools`/`provides_hooks`. They are kept on purpose: the Hermes catalog review verifies the plugin against those lists, and the warnings come from the validator not seeing tools a MemoryProvider exposes through `get_tool_schemas()`.
 
 These are pinned by strict `xfail` tests in `tests/regressions/test_findings_v27.py`, which will start failing (xpass) once each is fixed.
 
