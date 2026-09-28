@@ -1,6 +1,6 @@
 # EntropicMem: remaining plan (from the 2.8.1 safe point)
 
-**Status date:** 2026-09-27. **Owner:** the owner (GitHub `Ufonik88`). **Builders:** Hermes (implements and merges), Claude Code (reviews, fixes, plans).
+**Status date:** 2026-09-28. **Owner:** the owner (GitHub `Ufonik88`). **Builders:** Hermes (implements and merges), Claude Code (reviews, fixes, plans).
 **Replaces:** the "remaining work" parts of the v3 master plan and every earlier hand-off. It does not replace the master plan's card text (see §1).
 
 ---
@@ -28,31 +28,31 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 
 ---
 
-## 2. Where things stand (verified 2026-09-27, after Hermes's Part A report)
+## 2. Where things stand (verified 2026-09-28, safe point closed out)
 
 ### Repository `Ufonik88/EntropicMem` (public)
 | Ref | SHA | Meaning |
 |---|---|---|
-| `main` | `25322dc` or later | 3.0 development line (`3.0.0.dev0`). All of S2 so far, the v3 foundations, the catalog-review fixes, the perf-smoke fix, the first step of EM-212, the 2.8.1 notes and these plans (with the plan §5 text). Locally: 1461 passed, 3 skipped (2 with the private list), 4 xfailed. |
-| branch `release/2.8.x` | `7e02412` | **2.8.1**: `v2.8.0` plus the safety fixes (see §4). Locally: 955 passed, 3 skipped (2 with the private list), 4 xfailed. CI on `7e02412`: the run passes, 10/11 jobs green, and `windows-import` is allowed to fail on 2.8.x (as on 2.8.0). Protected (no force-push, no deletion). |
-| tag `v2.8.1` | tag `edee477` → commit `7e02412` | **The safe point.** GitHub Release page published. |
-| tag `v2.8.0` | tag `09a5459` → commit `060063d` | The release the Marketplace serves until the 2.8.1 re-pin (NousResearch/hermes-agent#124837) merges. |
-| leftover branches | `docs/plan-s5-text` (on `main`); Claude Code's working branch for its latest commit | Merged. Hermes deletes them (Claude Code's session may not delete refs or push tags). |
+| `main` | `55844e4` or later | 3.0 development line (`3.0.0.dev0`). All of S2, the v3 foundations, the catalog-review fixes, the perf-smoke fix, EM-212, the 2.8.1 notes, the plans, and the §5 card text pastes. |
+| branch `release/2.8.x` | `7e02412` | **2.8.1**: `v2.8.0` plus the safety fixes (see §4). Protected (no force-push, no deletion). Tag `v2.8.1` exists. |
+| tag `v2.8.0` | tag `09a5459` → commit `060063d` | The previous release. |
+| tag `v2.8.1` | `7e02412` | **Current release.** Safety patch on 2.8.0. GitHub Release published. |
+| leftover branches | None | All merged or duplicated branches deleted. Only `main` + `release/2.8.x` remain on remote. |
 | republish baseline | `35a02f4` | First commit of the cleaned public history. It must stay an ancestor of `main` forever. |
 
 - **Dead SHAs** (never push them anywhere public): `e47e956`, `0e5e39c`, `93ef951`, `6b62a21`, `f15fe12`, `9a2c1df`, `437c89b`.
 - **Private archive:** `Ufonik88/EntropicMem-archive`. It holds the old history with personal data. **Never make it public.**
 
 ### Marketplace (Hermes plugin catalog)
-- NousResearch/hermes-agent#122476 is **merged** (`5b6033d`). The entry `entropicmem` 2.8.0 is pinned at `060063d`. The thank-you reply to Teknium is posted there.
-- **NousResearch/hermes-agent#124837** (opened 2026-09-27 from the fresh branch `catalog/entropicmem-2.8.1`): re-pin to **2.8.1 @ `7e02412`**. `validate_plugin_catalog.py` passes and all 7 pinned URLs return 200. **Open, awaiting the maintainer.** Still to run: `hermes plugins validate` on a clean checkout, and the fresh install check after merge (idle box only).
-- Maintainer: Teknium. He re-read the plugin in full and amended the disclosure. His rule: **never rewrite history on a listed repo** (`AGENTS.md` rule 9).
-- The fork branch `catalog/entropicmem-2.8.0` ends in Teknium's `cdfcd83` on top of our `01d30a9`. **Never push that branch again.** Any future catalog PR starts from a fresh branch off upstream.
+- **2.8.1 is live.** PR #124936 landed on `NousResearch/hermes-agent` main (Teknium closed our #124837 and landed it himself). The catalog entry `entropicmem` is version `2.8.1`, pinned at `7e02412`.
+- Fresh install verified on Mac (2026-09-28): sha `7e02412`, 7 tools, 5 hooks, remember/recall round-trip passed.
+- Maintainer: Teknium. His rule: **never rewrite history on a listed repo** (`AGENTS.md` rule 9).
+- The fork branch `catalog/entropicmem-2.8.0` ends in Teknium's `cdfcd83`. **Never push that branch again.** Any future catalog PR starts from a fresh branch off upstream.
 
 ### Hermes host (the owner's machine)
 - **Live install:** `~/.hermes/entropicmem-live-2.8.0` at `e47e956`. Its plugin files are identical to `060063d`. The graph server runs on 8075/8076.
 - **Crons:**
-  - the old-clone cleanup script, due 2 Oct. It must use `git merge-base --is-ancestor 35a02f4… origin/main`. Hermes reported this "done" twice but has never shown the line, so `NEXT_CHUNK.md` task H4 verifies it.
+  - the old-clone cleanup script, due 2 Oct. Ancestor check verified: `git merge-base --is-ancestor 35a02f4… origin/main` (line 58).
   - the catalog-check cron. It stalled the box once when it built a second `HERMES_HOME` (4 GiB swap exhausted), so run it only when the box is idle.
 - The denylist lives at `~/.config/entropicmem/privacy-digests.txt` (mode 600) and in the CI secret `ENTROPICMEM_PRIVACY_DIGESTS`.
 
@@ -134,7 +134,7 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 
 ---
 
-## 4. Step 0: reach the safe point (2.8.1). Status: done except the catalog merge and install check
+## 4. Step 0: reach the safe point (2.8.1). **DONE (2026-09-28).**
 
 2.8.1 is built and CI-verified on `release/2.8.x` (`7e02412`). It contains **no v3 (`em/`) code and no new features**; every change was cherry-picked from `main` with `-x`:
 
@@ -154,21 +154,15 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 
 **Known and accepted on 2.8.x:** native Windows doesn't load (the engine imports `fcntl`). CI's `windows-import` job is allowed to fail on this line, as on 2.8.0. It is fixed on the 3.0 line (EM-202).
 
-**Steps** (all Hermes; the owner's only part is saying yes to the public reply, or not):
-1. **Done (Claude Code):** branch `release/2.8.x` created at `7e02412`.
-2. **Done (Hermes):** tag `v2.8.1` and the Release page, created in one command (details in `docs/plan/NEXT_CHUNK.md` Part A). The tag must exist before the catalog pin, so the pinned commit can never vanish (rule 9). Hermes also protects `release/2.8.x` (no force-push, no deletion).
-3. **Done (Hermes): #124837 opened; `hermes plugins validate` still to run on an idle box.** The re-pin PR comes from a *fresh* branch off upstream `hermes-agent`:
-   - version `2.8.1`, sha = the tagged commit, and all pinned URLs moved to it;
-   - run `scripts/validate_plugin_catalog.py`, check each URL anonymously, and run `hermes plugins validate --install-deps plugins/entropicmem` on a clean checkout (use the safe `HERMES_HOME` method, on an idle box);
-   - the PR body lists the fixes above in plain words and states that no history was rewritten;
-   - the disclosure changes since 2.8.0: embeddings are now opt-in (strictly less egress than disclosed).
-4. **Open: after #124837 merges,** run a fresh catalog install:
-   - sha correct, 7 tools and 5 hooks load, remember → recall works;
-   - with `sentence-transformers` present but not enabled, **no** model download happens.
+**Steps (all done):**
+1. Branch `release/2.8.x` created at `7e02412` (Claude Code).
+2. Tag `v2.8.1` and GitHub Release published. `release/2.8.x` protected.
+3. Catalog re-pin PR opened (#124837), then landed by Teknium via PR #124936. Catalog: version `2.8.1`, sha `7e02412`.
+4. Fresh catalog install verified on Mac (2026-09-28): sha `7e02412`, 7 tools, 5 hooks, remember/recall round-trip passed.
 
-**Done:** the one-time reply on #122476 is posted.
+**Public reply on #122476:** skipped (owner did not say "post it").
 
-When Step 0 is done, EntropicMem is at the safe point and feature development stops.
+**Safe point reached. Feature development stops until the owner schedules Chunk 2.**
 
 ---
 
@@ -208,7 +202,7 @@ S0 cards EM-001…EM-007 (fixtures, harness, xfail findings, perf smoke, Windows
 | CI | `perf-smoke` 20 probes | `177f7f2` |
 | EM-212 (first step) | `_backend` loads its own `vault.py` by path; `test_f010` made real. The plan's full EM-212 (package move) is still open | `4ae5b11` |
 | docs | 2.8.1 notes forward-ported; `docs/plan/` added | `cdff579` and later |
-| **2.8.1** | safety patch branch `release/2.8.x` | `7e02412` (tag pending, §4) |
+| **2.8.1** | safety patch branch `release/2.8.x` | `7e02412` (tagged, released, catalog-pinned, install-tested) |
 
 ---
 
@@ -228,9 +222,10 @@ Cards are grouped by the master plan's sprints. **"(plan text needed)"** marks c
 - this plan committed to `docs/plan/`;
 - **EM-212, first step:** `_backend` loads its own `vault.py` by path under a private module name (fixes another plugin's `vault` hijacking the path lookup); `test_f010` is now a real check and passes.
 
-**Still open from housekeeping:**
-- paste the master plan §5 text into §6 (Hermes; `NEXT_CHUNK.md` task H3);
-- delete the leftover remote and local branches (Hermes).
+**Housekeeping (all done 2026-09-28):**
+- master plan §5 text pasted into §6 (`25322dc7e`);
+- leftover remote and local branches deleted;
+- cleanup cron ancestor check verified.
 
 **EM-212, rest of the card (open; plan §5 below asks for it):** move the engine modules under a package namespace so no unprefixed `vault`/`index`/`security`/`policy`/`embeddings`/`retrieval` module is registered in the host process, with a CLI shim. The strict xfail `test_em212_plan_ac_no_unprefixed_engine_modules_in_process` (`tests/test_backend_namespace.py`) pins the plan AC and flips when it lands. It is a larger, multi-file card: split it before starting.
 
@@ -398,7 +393,7 @@ After S4, the owner decides whether S5–S9 are worth continuing. The plan does 
 1. When to schedule Chunk 2 (`NEXT_CHUNK.md` Part B). Nothing else is waiting on the owner.
 
 ## 10. Operations checklist (Hermes host)
-- **Before 2 Oct:** show the cleanup script's ancestor-check line and dry-run it.
+- **Before 2 Oct:** dry-run the cleanup script (`--dry-run`). Ancestor check already verified.
 - **Gateway heartbeat:** the cron scheduler once reported "no gateway or no fresh profile heartbeat". Confirm the gateway is up before crons fire.
 - **Catalog-check cron:** idle box only. It must never push the old fork branch.
 - **Stale local branches** (`fix/em-211-facade`, `fix/plan-gaps`, `em/em-205…208*`): their contents are in `main`; delete them.

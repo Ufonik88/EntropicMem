@@ -1,37 +1,23 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-09-27, after Hermes's Part A report. **Read first:** `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-09-28, safe point closed out. **Read first:** `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
 ---
 
-## Part A: release follow-ups (Hermes; no development)
+## Part A: release follow-ups — **ALL DONE (2026-09-28)**
 
-**Done:**
-- `v2.8.1` tagged at `7e02412`, and the Release page published;
+- `v2.8.1` tagged at `7e02412`, Release page published;
 - `release/2.8.x` protected;
 - leftover branches cleaned up;
 - plan §5 text pasted;
-- the cleanup cron verified (line 58 uses the ancestor check against `35a02f4`);
-- catalog re-pin PR NousResearch/hermes-agent#124837 opened;
-- reply to Teknium posted.
+- cleanup cron verified (ancestor check against `35a02f4`);
+- catalog re-pin landed via PR #124936 (Teknium closed #124837, landed it himself);
+- fresh install verified on Mac: sha `7e02412`, 7 tools, 5 hooks, remember/recall passed;
+- reply to Teknium skipped (owner did not say "post it").
 
-**Still to do, when the box is idle** (the last attempt ran out of memory):
-1. **A1.** `hermes plugins validate --install-deps plugins/entropicmem` on a clean checkout of `7e02412`, using the safe `HERMES_HOME` method. Only the two known "declared but not registered" warnings are allowed. Put the result on #124837 as one short comment.
-2. **A2.** Watch #124837.
-   - If the maintainer asks for **catalog or disclosure wording** changes, make them on `catalog/entropicmem-2.8.1` only.
-   - If they ask for **code** changes, don't change code; report to the owner, who brings it to Claude Code.
-   - Never push `catalog/entropicmem-2.8.0`.
-3. **A3.** After #124837 merges, run the fresh catalog install:
-   - sha `7e02412`, 7 tools and 5 hooks load, remember → recall works;
-   - with `sentence-transformers` importable but not enabled, no model download happens.
-
-   Then point the catalog-check cron at the merged state.
-4. **A4.** Delete the leftover remote branches: `git push origin --delete docs/plan-s5-text claude/chunk-1-s2-closeout`. Both are already on `main`.
-5. **A5.** Report to the owner in two or three lines.
-
-When A3 is done, the Marketplace serves the safe point, and **EntropicMem is at rest.** Feature work stays stopped until the owner schedules Chunk 2.
+**EntropicMem is at rest.** Feature work stays stopped until the owner schedules Chunk 2.
 
 ---
 
