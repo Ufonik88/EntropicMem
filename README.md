@@ -1,6 +1,6 @@
 # EntropicMem: Standalone Agent Memory System
 
-> A self-contained knowledge engine for Hermes Agent. SQLite memory, Markdown vault, visual graph, and a 34-command knowledge loop. Install from the Hermes plugin catalog or via `/learn`.
+> A self-contained knowledge engine for Hermes Agent. SQLite memory, Markdown vault, visual graph, and a 35-command knowledge loop. Install from the Hermes plugin catalog or via `/learn`.
 
 > **Public repo.** Never commit personal data: real names beyond the maintainer handle, home paths, emails, IPs, employer or client details, or memory/graph exports. See [CONTRIBUTING.md](CONTRIBUTING.md) for the rule and the pre-commit checklist.
 

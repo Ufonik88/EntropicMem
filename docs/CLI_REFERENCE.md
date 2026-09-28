@@ -1,6 +1,6 @@
 # CLI Reference
 
-All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd>` (below shown without the prefix). Global flags: `--version`, `--check-deps` (print optional dependency status). Verified against the argparse definitions in `plugins/entropicmem/scripts/entropicmem.py`: 34 top-level commands.
+All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd>` (below shown without the prefix). Global flags: `--version`, `--check-deps` (print optional dependency status). Verified against the argparse definitions in `plugins/entropicmem/scripts/entropicmem.py`: 35 top-level commands.
 
 ## Vault & knowledge loop
 
@@ -70,6 +70,14 @@ All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd
 | `export [output]` | Memory capsule (tar.gz: memory.db + optional vault + manifest; default `capsule.tar.gz`) |
 | `import <input>` | Import memory capsule |
 | `audit [--limit N]` | Recent security audit log |
+
+## Jobs
+
+| Command | Description |
+|---------|-------------|
+| `worker run [--once] [--types TYPE ...] [--max-seconds N]` | Run registered workers (e.g., backup). `--once` runs at most one job; otherwise runs until idle or `--max-seconds`. Unknown `--types` exits 1. Refuses live path unless `ENTROPICMEM_ALLOW_LIVE_MIGRATION=1`. Prints one JSON line: `{"done": n, "failed": n, "dead": n, "lost": n}`. Exit code 1 if any job is `dead`. Database path: `ENTROPICMEM_MEMORY_DB`, else `$HERMES_HOME/entropicmem/memory.db`. |
+
+*After the v3 cutover*, you may run the worker hourly via cron: `0 * * * * ENTROPICMEM_ALLOW_LIVE_MIGRATION=1 python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py worker run --types backup`
 
 ## Provenance & sync
 
