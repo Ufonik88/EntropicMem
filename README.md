@@ -187,7 +187,7 @@ Five cooperating layers, full model in [docs/MEMORY_MODEL.md](docs/MEMORY_MODEL.
 
 ## Commands
 
-34 top-level commands in 9 groups. Full reference: [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md). Invocations use `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <command>`.
+35 top-level commands in 10 groups. Full reference: [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md). Invocations use `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <command>`.
 
 | Group | Commands |
 |-------|----------|
@@ -200,6 +200,7 @@ Five cooperating layers, full model in [docs/MEMORY_MODEL.md](docs/MEMORY_MODEL.
 | Portability | `export`, `import` |
 | Provenance & sync | `migrate`, `shared-init`, `publish`, `pull` |
 | Governance | `audit`, `pending list/promote/discard` |
+| Jobs | `worker run` |
 
 ## Hermes Integration
 
