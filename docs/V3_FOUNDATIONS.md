@@ -109,3 +109,16 @@ Scheduled backups: `enqueue_daily_backup(JobQueue(conn))`, handled by `make_back
 - **EM-213** is done, re-scoped on 2026-09-26: the Hermes catalog verifies the plugin against `provides_tools`/`provides_hooks`, so they stay and only the duplicate `hooks:` list went. `test_f011_plugin_manifest_declares_tools_and_hooks_once` pins it. Do not remove the provides lists.
 - **EM-303 (embeddings, S3).** An `embed` job handler. Jobs are already queued by `MemoryStore.add`. Upsert into `embeddings` on `(owner_type, owner_id, model)` so re-runs are harmless.
 - **Wiring `EntityLinker`.** Run it from a job (`link:<memory_id>:<version>`), not inside `MemoryStore.add`, to keep entity work out of the write transaction.
+
+## Recorded deviations from the plan
+
+The code is the fact. These lines are the plan's words, what the code does, and why the difference stays.
+
+| Card | Plan says | Code does | Decision |
+|---|---|---|---|
+| EM-209 | files `em/store/jobs.py`, `em/worker.py` | `em/store/jobs.py`, `em/jobs/worker.py` | keep (package holds registry + context) |
+| EM-209 | `claim(worker_id, types, lease_s=60)` | `claim(worker_id, *, types, lease_seconds=60)` | keep (keyword-only is safer) |
+| EM-209 | backoff `2^attempts * 30s` | `30·2^(attempts-1)`, cap 3600 s, ±10 % jitter | keep (same curve one step earlier, capped, jittered; tested) |
+| EM-209 | `Worker(handlers, stop_event, budget_s)`, per-job `time_budget`, cooperative cancellation | `JobWorker(store, registry)`, `run(stop)`, leases + `ctx.heartbeat()` | keep; a per-job time budget is a later card if a real job needs it |
+| EM-210 | `snapshot(reason) -> Path`, memory.db **+ index.db**, `backups/<ts>-<reason>/` dirs, EM-113 retention, once per hour per reason, AC: 100 `forget` → ≤ 1 snapshot/hour | `create(reason) -> BackupInfo`, memory.db only, flat files + manifest, 7 routine + 5 safety | **open: this is Chunk 3** (the throttle AC and index.db are real gaps) |
+
