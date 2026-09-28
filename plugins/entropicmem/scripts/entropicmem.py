@@ -1980,6 +1980,24 @@ def cmd_shared_init(args) -> int:
     return 0
 
 
+def cmd_worker(args) -> int:
+    """Run queued v3 jobs. Never migrates, and refuses a non-v3 database."""
+    if getattr(args, "worker_command", None) != "run":
+        print(
+            "usage: entropicmem worker run [--once] [--types TYPE ...] [--max-seconds N]",
+            file=sys.stderr,
+        )
+        return 1
+    from em.jobs.cli import run_worker
+
+    return run_worker(
+        _memory_db_path(),
+        once=bool(getattr(args, "once", False)),
+        types=getattr(args, "types", None),
+        max_seconds=getattr(args, "max_seconds", None),
+    )
+
+
 def cmd_publish(args) -> int:
     """Drain local outbox → shared log (or emit all facts with --backfill)."""
     engine = _engine()
@@ -2253,6 +2271,13 @@ def main() -> int:
     p_pr = p_pending_sub.add_parser("prune", help="TTL-purge old pending facts (EM-111)")
     p_pr.add_argument("--older-than", default="30d", help="TTL, e.g. 30d (default)")
 
+    p_worker = sub.add_parser("worker", help="Run background jobs on a v3 store (never migrates)")
+    w_sub = p_worker.add_subparsers(dest="worker_command")
+    p_run = w_sub.add_parser("run", help="Claim and run queued jobs")
+    p_run.add_argument("--once", action="store_true", help="Run at most one job")
+    p_run.add_argument("--types", nargs="+", help="Limit to these job types (default: every registered type)")
+    p_run.add_argument("--max-seconds", type=float, dest="max_seconds", help="Stop after this many seconds")
+
     args = parser.parse_args()
 
     if args.version:
@@ -2302,6 +2327,7 @@ def main() -> int:
         "shared-init": cmd_shared_init,
         "publish": cmd_publish,
         "pull": cmd_pull,
+        "worker": cmd_worker,
     }
 
     handler = routes.get(args.command)
