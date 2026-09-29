@@ -46,6 +46,9 @@ jobs:
   # 20 probes, not 5: percentile() is nearest-rank, so with 5 samples the
   # "p95" was just the slowest single sample (it flapped on unchanged code).
   # With 20, p95 is the 19th sample and one stray slow probe cannot fail the job.
+  # It still flapped once at 20 probes (2026-09-27, 34.8 ms on a docs-only
+  # commit; plan §8), so the job now prints p50/p95/max to separate runner noise
+  # from a real regression. The 20 ms budget is unchanged.
   perf-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -62,13 +65,27 @@ jobs:
           # perf.py writes perf-<UTC stamp>.json to --out-dir (/tmp)
           files = sorted(glob.glob("/tmp/perf-*.json"), key=os.path.getmtime)
           assert files, "no perf results found in /tmp"
-          # report structure: report["results"]["<size>"]["prefetch"]["warm"]["p95_ms"]
+          # report structure: report["results"]["<size>"]["prefetch"]["warm"]
           report = json.load(open(files[-1]))
           # Use the 1k corpus result (perf-smoke runs --sizes 1000)
-          warm = report["results"]["1000"]["prefetch"]["warm"]["p95_ms"]
+          warm = report["results"]["1000"]["prefetch"]["warm"]
           budget = 20.0  # 2× §6.4 budget of 10 ms (CI 2x slack already baked in)
-          assert warm <= budget, f"prefetch warm p95 {warm}ms exceeds {budget}ms budget (§6.4 × 2)"
-          print("perf-smoke OK:", warm, "ms")
+          # Print the whole distribution, not just the gated number: a p50 near the
+          # budget is a real regression, a low p50 with a high max is one noisy
+          # sample on a shared runner. The threshold itself is unchanged.
+          print(
+              f"perf-smoke: warm p95 {warm['p95_ms']} ms (budget {budget} ms, "
+              f"p50 {warm['p50_ms']}, max {warm['max_ms']}, {warm['samples']} samples)"
+          )
+          if warm["p95_ms"] > budget:
+              print(
+                  "perf-smoke FAILED. Before chasing a regression, re-run this job on "
+                  "the same commit: this gate flapped once on unchanged code "
+                  "(2026-09-27, warm p95 34.815 ms on a docs-only commit; plan §8)."
+              )
+          assert warm["p95_ms"] <= budget, (
+              f"prefetch warm p95 {warm['p95_ms']}ms exceeds {budget}ms budget (§6.4 × 2)"
+          )
           PY
 
   # Windows import smoke (EM-007) + portable store tests (EM-202).

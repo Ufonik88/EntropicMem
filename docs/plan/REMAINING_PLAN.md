@@ -379,6 +379,7 @@ After S4, the owner decides whether S5–S9 are worth continuing. The plan does 
 ## 8. Budgets and gates that stay in force
 - **Performance:**
   - prefetch warm p95 of 10 ms (§6.4); CI allows 20 ms, with 20 probes;
+  - **`perf-smoke` has flapped once on unchanged code:** 2026-09-27, warm p95 34.815 ms on a docs-only commit, with the next commit (no code change) passing. The dev-box reference for the same command is 6.175 ms p95 (p50 5.131, max 8.161, 20 probes): `env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_INDEX_DB -u ENTROPICMEM_VAULT_PATH PYTHONPATH=plugins/entropicmem/scripts python3 -m evals.perf --sizes 1000 --probes 20 --out-dir /tmp`. The job now prints p50/p95/max/samples, so a low p50 with a high max reads as one noisy sample and a p50 near the budget reads as a regression. A lone red `perf-smoke` is not a regression until it repeats on the same commit, and the budget stays at 20 ms (already 2× §6.4);
   - entity linking p95 of 2 ms per memory at 10k entities (measured 0.18 ms).
 - **Evals:**
   - `evals-ci` compares only the §6.3 gated metrics against the `v2.8.0*` baselines;
