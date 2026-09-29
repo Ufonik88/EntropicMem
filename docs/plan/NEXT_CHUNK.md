@@ -53,7 +53,7 @@
 ### 3.3 End of chunk
 1. Push a branch. Wait for green CI on the exact SHA (`windows-import` included). The other agent reviews, then fast-forward `main` and delete the branch.
 2. **Update `docs/plan/REMAINING_PLAN.md`:** §2 (SHA, counts), §5 (ledger), §6.1 (drop the EM-210 deviation bullets), §9.
-3. **Replace this file's Part B with Chunk 4.** Candidates already scouted and unscheduled, all no-bump: the CI action-version bump, the `ARCHITECTURE.md` v3 section, the doc-link test, the `CLI_REFERENCE` ↔ argparse drift test. Otherwise the next real card is EM-211's facade reads.
+3. **Replace this file's Part B with Chunk 4.** The four no-bump candidates scouted on 2026-09-29 all landed on `main` the same day (see plan §2 and §5), so nothing is waiting there. The next real card is EM-211's facade reads, which needs splitting first.
 4. Report to the owner in plain language. Hermes updates MASTER_TODO. Claude Code produces a `/save` file.
 
 ### Explicitly out of scope for Chunk 3

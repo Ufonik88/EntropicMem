@@ -33,7 +33,7 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 ### Repository `Ufonik88/EntropicMem` (public)
 | Ref | SHA | Meaning |
 |---|---|---|
-| `main` | `8fca999de` or later | 3.0 development line (`3.0.0.dev0`). All of S2, the v3 foundations, the catalog-review fixes, the perf-smoke fix, EM-212 (first step), the 2.8.1 notes, the plans, the §5 card text pastes, and Chunk 2 (`entropicmem worker run` plus the EM-209/EM-210 deviation record). |
+| `main` | `a38a47f54` or later | 3.0 development line (`3.0.0.dev0`). All of S2, the v3 foundations, the catalog-review fixes, the perf-smoke fix, EM-212 (first step), the 2.8.1 notes, the plans, the §5 card text pastes, Chunk 2 (`entropicmem worker run` plus the EM-209/EM-210 deviation record), and the 2026-09-29 hygiene batch (CI action majors, perf-smoke diagnostics, the concurrency-test flake fix, the doc-link and CLI-reference guards). |
 | branch `release/2.8.x` | `7e02412` | **2.8.1**: `v2.8.0` plus the safety fixes (see §4). Protected (no force-push, no deletion). Tag `v2.8.1` exists. |
 | tag `v2.8.0` | tag `09a5459` → commit `060063d` | The previous release. |
 | tag `v2.8.1` | `7e02412` | **Current release.** Safety patch on 2.8.0. GitHub Release published. |
@@ -205,6 +205,7 @@ S0 cards EM-001…EM-007 (fixtures, harness, xfail findings, perf smoke, Windows
 | **2.8.1** | safety patch branch `release/2.8.x` | `7e02412` (tagged, released, catalog-pinned, install-tested) |
 | Chunk 2 | `entropicmem worker run` (v3-only; refuses a live path and a non-v3 store; one JSON line; a `dead` job exits 1) and the recorded EM-209/EM-210 deviations | `0cfac9d`, `dca80f4`, `ad5f0e5`, `8fca999` |
 | Chunk 2 close-out (docs) | §2, §5, §6.1, §9 and §10 refreshed; Chunk 3 planned in `NEXT_CHUNK.md` | 2026-09-29 |
+| Hygiene batch (no-bump) | `actions/checkout@v7` + `actions/setup-python@v7`; `perf-smoke` prints p50/p95/max; the concurrency AC test can no longer measure an empty sample list; `ARCHITECTURE.md` gains the v3 core; new `tests/test_docs_links.py` and `tests/test_cli_reference_drift.py` | `e6e8fdb`, `3d70496`, `74ce059`, `453b4ad`, `fa623e8`, `a6fc6f7`, `a38a47f` |
 
 ---
 
