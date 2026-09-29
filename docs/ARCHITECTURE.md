@@ -65,6 +65,8 @@ The v3 store is not live. `entropicmem worker run` and the migration commands
 refuse any path outside a test tree unless `ENTROPICMEM_ALLOW_LIVE_MIGRATION=1`
 is set, and the cutover is the owner's call.
 
+**Where this sits in the plan:** the released line is 2.8.1 (tag `7e02412` on `release/2.8.x`, catalog-pinned) and `main` is the 3.0 development line. What is built, what is next, and the rules for changing either, live in [`plan/REMAINING_PLAN.md`](plan/REMAINING_PLAN.md) (§2 is the state, §11 is the cold-start page) and [`plan/NEXT_CHUNK.md`](plan/NEXT_CHUNK.md), which holds exactly one chunk ahead.
+
 ## Storage layout
 
 ```

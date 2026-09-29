@@ -258,7 +258,8 @@ These are pinned by strict `xfail` tests in `tests/regressions/test_findings_v27
 | [SETUP.md](SETUP.md) | First-run bootstrap checklist |
 | [docs/SELF_INSTALL.md](docs/SELF_INSTALL.md) | Catalog and `/learn` install, verification, uninstall |
 | [docs/MEMORY_MODEL.md](docs/MEMORY_MODEL.md) | The five-layer memory model + write policy |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component architecture, storage layout, data flow |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component architecture, storage layout, data flow, and the v3 `em/` storage core |
+| [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The v3 storage core: layers, the ten invariants, recipes, repo guards, recorded deviations |
 | [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) | All commands and subcommands |
 | [docs/VISUALIZER.md](docs/VISUALIZER.md) | Graph UI: zoom, overlays, wikilink resolution, security model |
 | [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md) | Encrypted backup + restore drill |

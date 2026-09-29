@@ -15,6 +15,7 @@ em.facade  (EM-211)       contract.py: the exact API + behaviours the provider r
         v
 em.formation              entity_linker.py (EM-208): turns memories into graph links
 em.jobs   (EM-209)        worker.py: claims jobs, runs handlers OUTSIDE transactions
+                          cli.py: `entropicmem worker run`, the cron entry point (refuses a live path)
         |
         v
 em.store                  the storage core; every module takes a connection the caller owns
@@ -46,6 +47,20 @@ Breaking any of these is a bug even if every test passes. Each one names what en
 8. **Nothing in development touches the live store.** That means `~/.hermes/entropicmem*`. Run tests with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and `ENTROPICMEM_INDEX_DB` unset. Measure on *copies*. A test that exercises a safety guard must never point at the real path: if the guard regresses, the test would do the damage itself (see `test_restore_refuses_a_non_test_path_and_touches_nothing`).
 9. **Every `em` subpackage is listed in `pyproject.toml`.** *Enforced by: `test_pyproject_lists_every_em_subpackage`.*
 10. **Portable.** Windows runs `tests/unit` in CI. Don't assert POSIX mode bits on Windows, build `file:` URIs with `Path.as_uri()`, and close every connection explicitly (`contextlib.closing`), because an open handle locks the file on Windows.
+
+## Repo guards that are not invariants
+
+These run inside the ordinary gate, or as their own CI job, and they are easy to trip without knowing they exist.
+
+| Guard | What it refuses |
+|---|---|
+| `scripts/check_commit_identity.sh` (CI job `identity-guard`) | Any commit whose author or committer is not a noreply address (`*@users.noreply.github.com`, `noreply@github.com`, `noreply@anthropic.com`). On a push it checks the whole history reachable from the pushed commit. |
+| `tests/test_privacy_guard.py` | Any identifier from the private digest list, in any file including fixture databases. The list itself lives outside the repo: `~/.config/entropicmem/privacy-digests.txt`, or the CI secret. |
+| `tests/test_docs_links.py` | A relative link in `docs/`, `skills/` or the four root Markdown files whose target is missing, **or** exists only on your disk (CI checks out tracked files, so a local-only target is broken there). |
+| `tests/test_cli_reference_drift.py` | A top-level CLI command whose count in `docs/CLI_REFERENCE.md` or `README.md` no longer matches argparse, or that has no reference entry. |
+| `tests/test_plugin_imports.py` | A deferred `from X import Y` in the provider that does not resolve against the real modules (AST scan). |
+| `tests/test_backend_namespace.py` | A bare `import vault`-style engine import returning to `_backend.py`, plus EM-212's package-namespace acceptance criterion (a strict xfail until that card lands). |
+| `tests/unit/test_em_store_concurrency.py`, the `perf-smoke` job | The EM-202 concurrency budget and the §6.4 prefetch budget. Both have flapped once already. `REMAINING_PLAN.md` §8 and §11 record how to tell a flake from a regression, and neither budget may be widened to clear a red gate. |
 
 ## Recipes
 
