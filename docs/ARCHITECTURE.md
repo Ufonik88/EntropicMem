@@ -27,6 +27,44 @@ All engine code lives under `plugins/entropicmem/scripts/`, inside the plugin di
 | Graph server | `scripts/graph_server/server.py` | FastAPI: `/refresh` (always token-gated), `/api/note/{id}`, `/api/note/by-title/{title}`, `/api/search`, `/api/path`, `/health`; loopback bind enforced, Host allowlist, CSP, static or per-run token |
 | Static graph server | `plugins/entropicmem/scripts/graph_static.py` | stdlib server behind `graph serve`: `graph.html`/`graph.json` only, same bind rule, Host allowlist and CSP, no token |
 
+## The v3 storage core (`em/`, on `main`, not live yet)
+
+Beside the 2.8.x provider above, `main` carries the 3.0 development line
+(`3.0.0.dev0`): a second, stdlib-only package under
+`plugins/entropicmem/scripts/em/`, with its own schema and migrations. **Nothing
+in it is wired into the plugin yet** — the provider still runs the engine in the
+component map above, and the wiring is EM-211 (a legacy facade over
+`em.store`). Every module is listed in `[tool.setuptools] packages`, and
+`em.__version__` is the single version source for the whole repo.
+
+| Module | What it holds |
+|--------|---------------|
+| `em.clock` | Freezable UTC (`freeze`, `utc_now`), ISO helpers, and ULID ids (`new_id`, `short_id`). Time and ids come from here and nowhere else (invariant 4) |
+| `em.store.db` | `open_db` (WAL, `busy_timeout`), `Store` with `transaction()` / `writer()`, `BEGIN IMMEDIATE` for writes |
+| `em.store.locking` | The portable advisory lock (`fcntl` on POSIX, `msvcrt` on Windows). The only module allowed a platform import |
+| `em.store.memories` | `MemoryStore`: add, update, supersede, set_status, get, list, history, touch, purge, over `memories` + `memory_versions` |
+| `em.store.episodes` | Episodes and content-addressed transcript chunks |
+| `em.store.entities` | Entities, aliases and typed relations, with two-sighting support |
+| `em.store.audit` | The hash-chained `audit_log`, appended inside the caller's transaction (invariant 3) |
+| `em.store.jobs` | `JobQueue`: enqueue / claim / complete / fail, `dedupe_key`, leases, dead-letter |
+| `em.store.backup` | `BackupManager`: `create`, `verify`, `rotate`, and a guarded `restore` |
+| `em.store.migrations` | The migration framework, migrations `0001`–`0003`, and `assert_safe_db_path` |
+| `em.jobs.worker` | `JobWorker` + `HandlerRegistry`: claim, run outside the write transaction (invariant 2), lease heartbeat, retry with backoff |
+| `em.jobs.cli` | `entropicmem worker run`: the job entry point a cron can call |
+| `em.formation.entity_linker` | The two-sighting linker, meant to run as a job (`link:<memory_id>:<version>`), never inside a write |
+| `em.facade.contract` | The provider contract derived by AST scan over the provider source; `tests/parity/` is its gate |
+
+The ten invariants in [`V3_FOUNDATIONS.md`](V3_FOUNDATIONS.md) are the rules for
+this package: transactions belong to the caller, no slow work inside a write
+transaction, one audit row per change in the same transaction, time and ids from
+`em.clock`, every read scoped, `purge` removes everything derived, applied
+migrations immutable, development never touches the live store, every
+subpackage listed in `pyproject.toml`, and portable code.
+
+The v3 store is not live. `entropicmem worker run` and the migration commands
+refuse any path outside a test tree unless `ENTROPICMEM_ALLOW_LIVE_MIGRATION=1`
+is set, and the cutover is the owner's call.
+
 ## Storage layout
 
 ```
