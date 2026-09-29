@@ -82,18 +82,20 @@ def test_create_writes_a_verified_backup_and_manifest(db):
     with clock.freeze(T0):
         info = mgr.create()
     assert info.path.parent == db.parent / "backups"
-    assert info.path.name == "manual-20260926-030000-000.db"
-    assert info.path.is_file() and info.manifest_path.is_file()
+    assert info.path.name == "manual-20260926-030000-000", "3.1: one directory per snapshot"
+    assert info.path.is_dir() and info.manifest_path.is_file()
+    assert info.manifest_path == info.path / "manifest.json"
     assert not list(info.path.parent.glob("*.partial"))
     doc = json.loads(info.manifest_path.read_text())
-    assert doc["source"] == "memory.db", "manifest must not carry the full source path"
     assert str(db.parent) not in info.manifest_path.read_text()
-    assert doc["counts"]["memories"] == 3
-    assert doc["audit"]["ok"] is True and doc["audit"]["checked"] >= 3
-    assert doc["user_version"] >= 2
+    assert doc["files"][0]["source"] == "memory.db", "the manifest records names, never paths"
+    assert doc["files"][0]["counts"]["memories"] == 3
+    assert doc["files"][0]["audit"]["ok"] is True and doc["files"][0]["audit"]["checked"] >= 3
+    assert doc["files"][0]["user_version"] >= 2
+    assert info.primary_path.name == "memory.db" and info.primary_path.is_file()
     assert mgr.verify(info).ok
     if os.name == "posix":
-        assert oct(info.path.stat().st_mode & 0o777) == "0o600"
+        assert oct(info.primary_path.stat().st_mode & 0o777) == "0o600"
         assert oct(info.manifest_path.stat().st_mode & 0o777) == "0o600"
         assert oct(info.path.parent.stat().st_mode & 0o777) == "0o700"
 
@@ -102,7 +104,7 @@ def test_two_backups_in_the_same_millisecond_do_not_collide(db):
     mgr = BackupManager(db)
     with clock.freeze(T0):
         a, b = mgr.create(), mgr.create()
-    assert a.path != b.path and b.path.name.endswith("-2.db")
+    assert a.path != b.path and b.path.name.endswith("-2"), "the suffix is on the directory now"
     assert len(mgr.list()) == 2
 
 
@@ -148,40 +150,55 @@ def test_create_without_a_database_fails(tmp_path):
 def test_verify_catches_bit_rot_and_truncation(db):
     mgr = BackupManager(db)
     info = mgr.create()
-    data = bytearray(info.path.read_bytes())
+    data = bytearray(info.primary_path.read_bytes())
     data[len(data) // 2] ^= 0xFF
-    info.path.write_bytes(bytes(data))
+    info.primary_path.write_bytes(bytes(data))
     report = mgr.verify(info)
     assert not report.ok and "sha256" in " ".join(report.problems)
 
     info2 = mgr.create()
-    info2.path.write_bytes(info2.path.read_bytes()[:4096])
+    info2.primary_path.write_bytes(info2.primary_path.read_bytes()[:4096])
     assert not mgr.verify(info2).ok
 
-    info2.path.unlink()
-    assert mgr.verify(info2).problems == [f"missing file {info2.path.name}"]
+    info2.primary_path.unlink()
+    assert mgr.verify(info2).problems == [f"missing file {info2.primary.name}"]
 
 
 def test_verify_catches_a_manifest_that_lies(db):
     mgr = BackupManager(db)
     info = mgr.create()
     doc = json.loads(info.manifest_path.read_text())
-    doc["counts"]["memories"] = 999
+    doc["files"][0]["counts"]["memories"] = 999
     info.manifest_path.write_text(json.dumps(doc))
     (loaded,) = mgr.list()
-    assert "row counts differ from manifest" in mgr.verify(loaded).problems
+    assert any("row counts differ from manifest" in p for p in mgr.verify(loaded).problems)
 
 
 def test_list_ignores_foreign_files_and_escaping_manifests(db):
     mgr = BackupManager(db)
-    real = mgr.create()
-    bdir = real.path.parent
-    (bdir / "handmade-copy.db").write_bytes(real.path.read_bytes())
-    doc = json.loads(real.manifest_path.read_text())
+    where = mgr.snapshot()
+    (info,) = mgr.list()
+    bdir = where.parent
+    (bdir / "handmade-copy.db").write_bytes(info.primary_path.read_bytes())
+
+    # A legacy manifest whose file points out of the backup directory.
+    legacy = _legacy_backup(db, reason="manualx", stamp="20260926-010000-000")
+    doc = json.loads(legacy.with_suffix(".json").read_text())
     doc["file"] = "../memory.db"
-    (bdir / "evil.json").write_text(json.dumps(doc))
+    legacy.with_suffix(".json").write_text(json.dumps(doc))
+
+    # A 3.1 snapshot whose manifest names a file outside its own directory.
+    escaping = bdir / "manual-20260926-010000-000-2"
+    escaping.mkdir()
+    evil = json.loads(info.manifest_path.read_text())
+    evil["files"][0]["name"] = "../memory.db"
+    (escaping / "manifest.json").write_text(json.dumps(evil))
+
     (bdir / "garbage.json").write_text("{not json")
-    assert [i.path for i in mgr.list()] == [real.path]
+    unreadable = bdir / "manual-20260926-010000-000-3"
+    unreadable.mkdir()
+    (unreadable / "manifest.json").write_text("{not json")
+    assert [i.path for i in mgr.list()] == [where]
 
 
 # --- rotate ----------------------------------------------------------------
@@ -205,7 +222,7 @@ def test_rotation_keeps_safety_backups_on_their_own_limit(db):
     assert min(i.created_at for i in left if i.reason == "scheduled") == clock.to_iso(
         T0 + timedelta(hours=1, minutes=7)
     )
-    assert len(removed) == 2 * (7 + 1)  # .db + .json each
+    assert len(removed) == 7 + 1, "one directory per removed snapshot"
     assert foreign.exists(), "rotation must never delete a file it did not write"
     with pytest.raises(ValueError):
         mgr.rotate(keep=0)
@@ -321,7 +338,7 @@ def test_restore_refuses_while_the_provider_holds_the_lock(db):
 def test_restore_refuses_a_tampered_backup(db):
     mgr = BackupManager(db)
     good = mgr.create()
-    good.path.write_bytes(good.path.read_bytes()[:-1] + b"\x00")
+    good.primary_path.write_bytes(good.primary_path.read_bytes()[:-1] + b"\x00")
     with pytest.raises(RestoreRefused, match="verification"):
         mgr.restore(good)
     assert _memories(db) == 3
@@ -367,3 +384,251 @@ def test_daily_backup_job_is_deduped_and_idempotent(db):
                 assert enqueue_daily_backup(JobQueue(conn)) != a
     finally:
         store.close()
+
+# --- Chunk 3.1: snapshot directories, both databases ------------------------
+
+
+def _index_db(path: Path, *, notes: int = 2) -> Path:
+    """A minimal sibling index database: real enough to inspect."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE notes_meta (id TEXT PRIMARY KEY, title TEXT)")
+        conn.executemany(
+            "INSERT INTO notes_meta (id, title) VALUES (?, ?)",
+            [(f"note-{i}", f"Acme note {i}") for i in range(notes)],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return path
+
+
+def _table_counts(path: Path) -> dict:
+    """Row counts the way the manifest records them (non-FTS tables)."""
+    conn = sqlite3.connect(path)
+    try:
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            " AND (sql IS NULL OR sql NOT LIKE 'CREATE VIRTUAL%') ORDER BY name"
+        ).fetchall()
+        return {
+            name: conn.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0]
+            for (name,) in rows
+            if "_fts" not in name
+        }
+    finally:
+        conn.close()
+
+
+def _legacy_backup(db: Path, *, reason: str = "legacy", stamp: str = "20260926-020000-000") -> Path:
+    """Write the pre-3.1 flat layout by hand: ``<reason>-<stamp>.db`` + ``.json``.
+
+    Built from the live file so the hashes and counts are real, and with
+    ``format: 1`` so the test exercises the legacy reader rather than a
+    hand-written shape the code happens to accept.
+    """
+    import hashlib
+
+    bdir = db.parent / "backups"
+    bdir.mkdir(parents=True, exist_ok=True)
+    name = f"{reason}-{stamp}"
+    blob = db.read_bytes()
+    doc = {
+        "format": 1,
+        "file": f"{name}.db",
+        "source": db.name,
+        "reason": reason,
+        "created_at": "2026-09-26T02:00:00.000+00:00",
+        "sha256": hashlib.sha256(blob).hexdigest(),
+        "size": len(blob),
+        "user_version": sqlite3.connect(db).execute("PRAGMA user_version").fetchone()[0],
+        "counts": _table_counts(db),
+        "audit": None,
+    }
+    (bdir / f"{name}.db").write_bytes(blob)
+    (bdir / f"{name}.json").write_text(json.dumps(doc))
+    return bdir / f"{name}.db"
+
+
+@pytest.fixture
+def db_with_index(tmp_path):
+    mem = _v3_db(tmp_path / "memory.db")
+    _index_db(tmp_path / "index.db")
+    return mem
+
+
+def test_snapshot_returns_a_directory_covering_both_databases(db_with_index):
+    mgr = BackupManager(db_with_index)
+    with clock.freeze(T0):
+        where = mgr.snapshot(reason="manual")
+    (info,) = mgr.list()
+    assert where == info.path, "snapshot() returns the directory it wrote"
+    assert where.is_dir() and where.parent == db_with_index.parent / "backups"
+    assert where.name == "manual-20260926-030000-000"
+    assert sorted(p.name for p in where.iterdir()) == ["index.db", "manifest.json", "memory.db"]
+    assert [f.role for f in info.files] == ["memory", "index"]
+    assert info.primary.counts["memories"] == 3
+    assert info.files[1].counts["notes_meta"] == 2
+    assert mgr.verify(info).ok
+    doc = json.loads(info.manifest_path.read_text())
+    assert doc["format"] == 2
+    assert [entry["role"] for entry in doc["files"]] == ["memory", "index"]
+    assert all(len(entry["sha256"]) == 64 for entry in doc["files"])
+    assert str(db_with_index.parent) not in info.manifest_path.read_text()
+    if os.name == "posix":
+        assert oct(where.stat().st_mode & 0o777) == "0o700"
+        assert oct((where / "memory.db").stat().st_mode & 0o777) == "0o600"
+        assert oct(info.manifest_path.stat().st_mode & 0o777) == "0o600"
+
+
+def test_snapshot_without_an_index_database_covers_memory_only(db):
+    mgr = BackupManager(db)
+    where = mgr.snapshot()
+    (info,) = mgr.list()
+    assert [f.role for f in info.files] == ["memory"]
+    assert not (where / "index.db").exists()
+    assert mgr.verify(info).ok
+
+
+def test_index_path_can_be_given_explicitly(tmp_path, db):
+    elsewhere = _index_db(tmp_path / "elsewhere" / "index.db", notes=1)
+    mgr = BackupManager(db, index_path=elsewhere)
+    mgr.snapshot()
+    (info,) = mgr.list()
+    assert [f.role for f in info.files] == ["memory", "index"]
+    assert (info.path / "index.db").is_file()
+    assert info.files[1].counts["notes_meta"] == 1
+
+
+def test_a_snapshot_through_a_connection_covers_the_index_too(db_with_index):
+    """Migrations pass their own connection; the index is still covered."""
+    conn = open_db(db_with_index)
+    try:
+        BackupManager(db_with_index).snapshot(reason="pre-migrate-v2-to-v3", conn=conn)
+    finally:
+        conn.close()
+    (info,) = BackupManager(db_with_index).list()
+    assert [f.role for f in info.files] == ["memory", "index"]
+    assert info.reason == "pre-migrate-v2-to-v3"
+
+
+def test_verify_re_hashes_every_file_in_the_snapshot(db_with_index):
+    mgr = BackupManager(db_with_index)
+    mgr.snapshot()
+    (info,) = mgr.list()
+    index_copy = info.path / "index.db"
+    data = bytearray(index_copy.read_bytes())
+    data[len(data) // 2] ^= 0xFF
+    index_copy.write_bytes(bytes(data))
+    report = mgr.verify(info)
+    assert not report.ok and any("sha256" in p for p in report.problems)
+
+
+def test_verify_fails_when_a_snapshot_file_is_missing(db_with_index):
+    mgr = BackupManager(db_with_index)
+    mgr.snapshot()
+    (info,) = mgr.list()
+    (info.path / "index.db").unlink()
+    report = mgr.verify(info)
+    assert not report.ok and any("index.db" in p for p in report.problems)
+
+
+def test_verify_fails_on_a_truncated_index_copy(db_with_index):
+    mgr = BackupManager(db_with_index)
+    mgr.snapshot()
+    (info,) = mgr.list()
+    index_copy = info.path / "index.db"
+    index_copy.write_bytes(index_copy.read_bytes()[:1024])
+    assert not mgr.verify(info).ok
+
+
+def test_verify_fails_when_the_manifest_lies_about_the_index(db_with_index):
+    mgr = BackupManager(db_with_index)
+    mgr.snapshot()
+    (info,) = mgr.list()
+    doc = json.loads(info.manifest_path.read_text())
+    doc["files"][1]["counts"]["notes_meta"] = 999
+    info.manifest_path.write_text(json.dumps(doc))
+    (loaded,) = mgr.list()
+    assert not mgr.verify(loaded).ok
+
+
+def test_two_snapshots_in_the_same_millisecond_do_not_collide(db):
+    mgr = BackupManager(db)
+    with clock.freeze(T0):
+        first, second = mgr.snapshot(), mgr.snapshot()
+    assert first != second and second.name == "manual-20260926-030000-000-2"
+    assert len(mgr.list()) == 2
+
+
+def test_a_failed_snapshot_leaves_no_directory_behind(tmp_path, db):
+    """A snapshot with a database it cannot copy fails whole, not partly.
+
+    Omitting the index would produce a backup that restores without it, which is
+    exactly the surprise a backup must not have. The partial directory goes too.
+    """
+    (tmp_path / "index.db").write_bytes(b"this is not a database at all\n" * 200)
+    with pytest.raises(sqlite3.DatabaseError):
+        BackupManager(db).snapshot()
+    assert list((db.parent / "backups").iterdir()) == []
+
+
+def test_a_legacy_flat_backup_is_still_listed_verified_and_restorable(db):
+    _legacy_backup(db)
+    mgr = BackupManager(db)
+    (info,) = mgr.list()
+    assert info.flat is True and info.path.name.endswith(".db")
+    assert mgr.verify(info).ok
+    _add(db, "Globex was added after the legacy backup.")
+    assert _memories(db) == 4
+    mgr.restore(info)
+    assert _memories(db) == 3
+
+
+def test_rotation_counts_both_layouts_under_one_policy(db):
+    mgr = BackupManager(db)
+    _legacy_backup(db, reason="manual")
+    for i in range(3):
+        with clock.freeze(T0 + timedelta(minutes=i)):
+            mgr.snapshot(reason="scheduled")
+    removed = mgr.rotate(keep=2, keep_safety=1)
+    assert [i.reason for i in mgr.list()] == ["scheduled", "scheduled"]
+    assert len(removed) == 3, "one directory for the snapshot, .db and .json for the legacy one"
+    assert not list(mgr.backup_dir.glob("manual-*.db"))
+    assert not list(mgr.backup_dir.glob("manual-*.json"))
+
+
+def test_restore_round_trips_both_databases(db_with_index):
+    mgr = BackupManager(db_with_index)
+    mgr.snapshot()
+    (good,) = mgr.list()
+    _add(db_with_index, "Initech was added after the snapshot.")
+    index_path = db_with_index.parent / "index.db"
+    conn = sqlite3.connect(index_path)
+    try:
+        conn.execute("INSERT INTO notes_meta (id, title) VALUES ('late', 'added after')")
+        conn.commit()
+    finally:
+        conn.close()
+
+    mgr.restore(good)
+    assert _memories(db_with_index) == 3
+    assert _table_counts(index_path)["notes_meta"] == 2, "the index came back too"
+    conn = sqlite3.connect(index_path)
+    try:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        conn.close()
+
+
+def test_restore_leaves_an_existing_index_alone_when_the_snapshot_has_none(db):
+    mgr = BackupManager(db)
+    mgr.snapshot()
+    (good,) = mgr.list()
+    index_path = db.parent / "index.db"
+    _index_db(index_path, notes=4)
+    before = index_path.read_bytes()
+    mgr.restore(good)
+    assert index_path.read_bytes() == before, "a snapshot without an index must not touch one"
+

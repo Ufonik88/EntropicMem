@@ -27,7 +27,7 @@ em.store                  the storage core; every module takes a connection the 
   episodes.py  EM-207     episodes + content-addressed transcript chunks
   entities.py  EM-208     entities, aliases, relations, two-sighting promotion
   jobs.py      EM-209     JobQueue: durable queue over the jobs table
-  backup.py    EM-210     BackupManager: verified snapshots, rotation, guarded restore
+  backup.py    EM-210     BackupManager: verified snapshots of memory + index, rotation, guarded restore
 em.clock                  the only source of time and ids (freezable in tests)
 ```
 
@@ -105,17 +105,34 @@ These run inside the ordinary gate, or as their own CI job, and they are easy to
 
 ```python
 from em.store.backup import BackupManager
-mgr = BackupManager(db_path)              # backups in <db dir>/backups
-info = mgr.create(reason="manual")        # verified, manifested, 0600
-mgr.verify(info).ok                       # re-hash + integrity + audit chain
+
+mgr = BackupManager(db_path)              # backups live in <db dir>/backups
+path = mgr.snapshot(reason="manual")      # writes a directory, returns it (0700)
+info = mgr.create(reason="manual")        # the pre-3.1 name: same snapshot, returns the details
+mgr.verify(info).ok                       # re-hash every file + integrity + audit chain
 mgr.rotate(keep=7, keep_safety=5)
 mgr.restore(info)                         # refuses live paths, a running provider, bad backups
 mgr.restore(info, allow_live=True)        # real restore; stop the provider first
 ```
 
-Scheduled backups: `enqueue_daily_backup(JobQueue(conn))`, handled by `make_backup_handler(mgr)`.
+A snapshot is a directory (Chunk 3.1): `backups/<reason>-<stamp>/` holds
+`memory.db`, `index.db` when the index exists, and `manifest.json`, which lists
+every file with its role, source name, sha256, size, row counts and
+`user_version`. `index_path` defaults to the `index.db` beside the memory
+database; pass it explicitly for another layout. A snapshot fails **whole** if
+any of its databases cannot be copied, and the partial directory is removed:
+a backup that silently omitted the index would be worse than none.
 
-`create()` is what the code does today. **Chunk 3.1** adds the plan's `snapshot(reason) -> Path` and extends a snapshot to `index.db` inside a `backups/<ts>-<reason>/` directory, while keeping today's flat backups readable.
+Snapshots written before 3.1 (`<reason>-<stamp>.db` beside
+`<reason>-<stamp>.json`, manifest `format: 1`) stay listed, verified and
+restorable. Rotation counts both layouts under one policy, and nothing rewrites
+or deletes a legacy file.
+
+Restore stages every file of the snapshot first and swaps only when all of them
+verify, so a half-restored store cannot happen. A snapshot without an index
+never touches the live one.
+
+Scheduled backups: `enqueue_daily_backup(JobQueue(conn))`, handled by `make_backup_handler(mgr)`.
 
 ## What's next, and what each card builds on
 
@@ -137,5 +154,5 @@ The code is the fact. These lines are the plan's words, what the code does, and 
 | EM-209 | `claim(worker_id, types, lease_s=60)` | `claim(worker_id, *, types, lease_seconds=60)` | keep (keyword-only is safer) |
 | EM-209 | backoff `2^attempts * 30s` | `30·2^(attempts-1)`, cap 3600 s, ±10 % jitter | keep (same curve one step earlier, capped, jittered; tested) |
 | EM-209 | `Worker(handlers, stop_event, budget_s)`, per-job `time_budget`, cooperative cancellation | `JobWorker(store, registry)`, `run(stop)`, leases + `ctx.heartbeat()` | keep; a per-job time budget is a later card if a real job needs it |
-| EM-210 | `snapshot(reason) -> Path`, memory.db **+ index.db**, `backups/<ts>-<reason>/` dirs, EM-113 retention, once per hour per reason, AC: 100 `forget` → ≤ 1 snapshot/hour | `create(reason) -> BackupInfo`, memory.db only, flat files + manifest, 7 routine + 5 safety | **open, split 2026-09-29:** the snapshot layout is **Chunk 3.1** (next piece), the throttle is **Chunk 3.2**; retention keeps the current rule unless the owner adopts EM-113's |
+| EM-210 | `snapshot(reason) -> Path`, memory.db **+ index.db**, `backups/<ts>-<reason>/` dirs, EM-113 retention, once per hour per reason, AC: 100 `forget` → ≤ 1 snapshot/hour | **done in Chunk 3.1:** `snapshot(reason) -> Path` over memory.db + index.db in `backups/<reason>-<stamp>/`, `create()` kept as an alias, pre-3.1 flat backups still read; 7 routine + 5 safety | **open: the throttle, which is Chunk 3.2.** Retention keeps the current rule unless the owner adopts EM-113's |
 

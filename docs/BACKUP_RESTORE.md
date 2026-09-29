@@ -46,6 +46,33 @@ chmod 700 ~/.hermes/entropicmem
 chmod 600 ~/.hermes/entropicmem/*.db
 ```
 
+## Engine snapshots (v3, `em.store.backup`)
+
+The v3 store's own snapshots are the engine's, not this shell routine's. One
+snapshot is a directory:
+
+```
+backups/
+└── <reason>-<stamp>/
+    ├── memory.db        # the fact store (verified, mode 0600)
+    ├── index.db         # the vault index, when it exists
+    └── manifest.json    # every file: role, sha256, size, counts, user_version
+```
+
+`snapshot(reason)` writes it and returns the directory; the pre-3.1 name
+`create(reason)` does the same and returns the details. `verify()` re-hashes
+every file and re-runs `PRAGMA integrity_check` on each one. Rotation keeps 7
+routine plus 5 safety snapshots, counting this layout and the pre-3.1 flat files
+(`<reason>-<stamp>.db` beside `<reason>-<stamp>.json`) in one policy; legacy
+snapshots stay readable and restorable and are never rewritten.
+
+Drill: `verify()` the snapshot you intend to restore, then `restore()` it. It
+refuses a live path without `allow_live=True`, refuses while the provider holds
+`<db>.lock`, refuses a snapshot that fails verification, and keeps a
+`pre-restore` snapshot of what it replaces. Restore stages every file first and
+swaps only when all of them verify, and it never touches an index database the
+snapshot does not contain.
+
 ## Game day checklist
 
 - [ ] Decrypt succeeds with the backup key

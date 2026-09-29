@@ -600,12 +600,12 @@ def test_backup_created_before_migrating(tmp_path):
         emmig.migrate(conn)
     finally:
         conn.close()
-    backups = sorted((tmp_path / "backups").glob("pre-migrate-v*-to-*.db"))
-    assert backups, "no pre-migration backup written"
+    # 3.1: a snapshot is a directory; its memory.db is the unmigrated database.
+    backups = sorted((tmp_path / "backups").glob("pre-migrate-v*-to-*"))
+    assert backups and backups[-1].is_dir(), "no pre-migration backup written"
     name = backups[-1].name
     assert name.startswith(f"pre-migrate-v0-to-v{emmig.LATEST}-"), name
-    # The backup must be the UNMIGRATED database.
-    bconn = sqlite3.connect(backups[-1])
+    bconn = sqlite3.connect(backups[-1] / "memory.db")
     try:
         assert bconn.execute("PRAGMA user_version").fetchone()[0] == 0
         assert bconn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
@@ -618,9 +618,12 @@ def test_noop_migrate_writes_no_backup(tmp_path):
     conn = emdb.open_db(path)
     try:
         emmig.migrate(conn)
-        before = sorted((tmp_path / "backups").glob("*.db"))
+        # 3.1 snapshots are directories, so globbing "*.db" would compare two
+        # empty lists and pass no matter what. Count everything in the dir.
+        before = sorted((tmp_path / "backups").iterdir())
         emmig.migrate(conn)
-        after = sorted((tmp_path / "backups").glob("*.db"))
+        after = sorted((tmp_path / "backups").iterdir())
+        assert before, "the first migrate must write a pre-migration snapshot"
         assert before == after, "a no-op run must not write another backup"
     finally:
         conn.close()
@@ -634,7 +637,7 @@ def test_backup_dir_is_overridable(tmp_path):
         emmig.migrate(conn, backup_dir=custom)
     finally:
         conn.close()
-    assert list(custom.glob("pre-migrate-*.db")), "custom backup_dir not used"
+    assert list(custom.glob("pre-migrate-*")), "custom backup_dir not used"
 
 
 # ── safety guard: never auto-run outside temp/test paths ────────────────────
