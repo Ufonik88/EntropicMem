@@ -404,6 +404,20 @@ def _index_db(path: Path, *, notes: int = 2) -> Path:
     return path
 
 
+def _user_version(path: Path) -> int:
+    """``PRAGMA user_version`` with an explicit close.
+
+    A leaked connection holds the ``-wal`` file open, which is invisible on
+    POSIX (unlink succeeds on an open file) and fails on Windows with
+    ``WinError 32`` the moment a restore tries to delete that WAL.
+    """
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        conn.close()
+
+
 def _table_counts(path: Path) -> dict:
     """Row counts the way the manifest records them (non-FTS tables)."""
     conn = sqlite3.connect(path)
@@ -442,7 +456,7 @@ def _legacy_backup(db: Path, *, reason: str = "legacy", stamp: str = "20260926-0
         "created_at": "2026-09-26T02:00:00.000+00:00",
         "sha256": hashlib.sha256(blob).hexdigest(),
         "size": len(blob),
-        "user_version": sqlite3.connect(db).execute("PRAGMA user_version").fetchone()[0],
+        "user_version": _user_version(db),
         "counts": _table_counts(db),
         "audit": None,
     }
