@@ -15,6 +15,8 @@
 - the EM-209 wording deviations are recorded in `docs/V3_FOUNDATIONS.md` → "Recorded deviations from the plan";
 - the release follow-ups this file used to hold (Part A of the previous version) are all done, as plan §4 records.
 
+**Also landed the same day (no-bump hygiene batch, `main` `8202081af`):** the CI action majors (`actions/checkout@v7`, `actions/setup-python@v7`), `perf-smoke` diagnostics (p50/p95/max, budget unchanged at 20 ms), the v3 concurrency AC test's empty-sample fix, the `ARCHITECTURE.md` v3 storage-core section, and two new guards (`tests/test_docs_links.py`, `tests/test_cli_reference_drift.py`). State snapshot: `REMAINING_PLAN.md` §11; the commits are in §2 and §5.
+
 **EntropicMem is at rest again.** Feature work stays stopped until the owner schedules Chunk 3.
 
 ---
@@ -30,8 +32,8 @@
 **Owner:** Hermes or Claude Code implements. The other reviews before merge (the owner relays the report).
 
 ### 3.0 Pre-flight (read-only)
-1. `main` must contain `8fca999de` (Chunk 2), and `35a02f4` must be an ancestor of `main`.
-2. **Baseline:** `env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_VAULT_PATH -u ENTROPICMEM_INDEX_DB ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1 python -m pytest -q` gives **1467 passed, 2 skipped, 4 xfailed**. `ruff check .` is clean (CI pins `ruff==0.16.2`). If different, stop and report.
+1. `main` must contain `8202081af` (Chunk 2 plus the 2026-09-29 hygiene batch), and `35a02f4` must be an ancestor of `main`.
+2. **Baseline:** `env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_VAULT_PATH -u ENTROPICMEM_INDEX_DB ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1 python -m pytest -q` gives **1495 passed, 2 skipped, 4 xfailed**. `ruff check .` is clean under the CI pin `ruff==0.16.2`. If the numbers differ, read `REMAINING_PLAN.md` §11 before stopping: the total is expected to rise with every card (1462 at Chunk 2's pre-flight, 1495 after the batch).
 
 ### 3.1 `snapshot()` covering both databases (one commit, test first)
 - Add the plan's name, `snapshot(reason) -> Path`. Grep the callers first (`create()` is used by the CLI, the daily job and the tests) and keep `create()` as a thin alias rather than breaking them in the same commit.
