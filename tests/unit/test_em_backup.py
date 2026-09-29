@@ -646,3 +646,118 @@ def test_restore_leaves_an_existing_index_alone_when_the_snapshot_has_none(db):
     mgr.restore(good)
     assert index_path.read_bytes() == before, "a snapshot without an index must not touch one"
 
+
+# --- Chunk 3.2: the once-per-hour-per-reason throttle -----------------------
+
+#: ``_legacy_backup`` stamps its manifest at 02:00 on ``T0``'s day.
+LEGACY_AT = datetime(2026, 9, 26, 2, 0, 0, tzinfo=timezone.utc)
+
+
+def test_a_hundred_calls_inside_one_hour_write_one_snapshot(db):
+    """EM-210's acceptance criterion: 100 ``forget`` calls -> <= 1 snapshot/hour."""
+    mgr = BackupManager(db)
+    with clock.freeze(T0):
+        written = [mgr.snapshot_if_due(reason="forget") for _ in range(100)]
+    assert [p for p in written if p is not None] == [written[0]]
+    assert written[0].is_dir() and (written[0] / "manifest.json").is_file()
+    assert [i.reason for i in mgr.list()] == ["forget"]
+
+
+def test_the_next_hour_writes_one_more(db):
+    mgr = BackupManager(db)
+    with clock.freeze(T0):
+        assert mgr.snapshot_if_due(reason="forget") is not None
+        assert mgr.snapshot_if_due(reason="forget") is None
+    with clock.freeze(T0 + timedelta(hours=1)):
+        assert mgr.snapshot_if_due(reason="forget") is not None
+        assert mgr.snapshot_if_due(reason="forget") is None, "and then goes quiet again"
+    assert len(mgr.list()) == 2
+
+
+def test_reasons_keep_independent_windows(db):
+    mgr = BackupManager(db)
+    with clock.freeze(T0):
+        assert mgr.snapshot_if_due(reason="forget") is not None
+        assert mgr.snapshot_if_due(reason="forget") is None
+        assert mgr.snapshot_if_due(reason="prune") is not None, "another reason has its own window"
+        assert mgr.snapshot_if_due(reason="prune") is None
+    assert sorted(i.reason for i in mgr.list()) == ["forget", "prune"]
+
+
+def test_a_snapshot_older_than_the_window_is_allowed_again(db):
+    mgr = BackupManager(db)
+    with clock.freeze(T0):
+        assert mgr.snapshot_if_due(reason="forget", window=60) is not None
+    with clock.freeze(T0 + timedelta(seconds=59)):
+        assert mgr.snapshot_if_due(reason="forget", window=60) is None
+    with clock.freeze(T0 + timedelta(seconds=61)):
+        assert mgr.snapshot_if_due(reason="forget", window=60) is not None
+    assert len(mgr.list()) == 2
+
+
+def test_moving_the_clock_backwards_does_not_write_a_second_snapshot(db):
+    mgr = BackupManager(db)
+    with clock.freeze(T0):
+        assert mgr.snapshot_if_due(reason="forget") is not None
+    with clock.freeze(T0 - timedelta(minutes=5)):
+        assert mgr.snapshot_if_due(reason="forget") is None
+    assert len(mgr.list()) == 1
+
+
+def test_safety_reasons_are_never_throttled(db):
+    """A migration or a restore is deliberate and rare, so it always snapshots.
+
+    A stale ``pre-restore`` copy is a data risk, not noise: the window does not
+    apply to ``SAFETY_PREFIXES``.
+    """
+    mgr = BackupManager(db)
+    with clock.freeze(T0):
+        assert mgr.snapshot_if_due(reason="pre-restore") is not None
+        assert mgr.snapshot_if_due(reason="pre-restore") is not None
+        assert mgr.snapshot_if_due(reason="pre-migrate-v2-to-v3") is not None
+    assert sorted(i.reason for i in mgr.list()) == [
+        "pre-migrate-v2-to-v3",
+        "pre-restore",
+        "pre-restore",
+    ]
+
+
+def test_a_zero_window_never_throttles(db):
+    mgr = BackupManager(db)
+    with clock.freeze(T0):
+        for _ in range(3):
+            assert mgr.snapshot_if_due(reason="forget", window=0) is not None
+    with clock.freeze(T0 - timedelta(minutes=5)):
+        assert mgr.snapshot_if_due(reason="forget", window=0) is not None, "even behind the clock"
+    assert len(mgr.list()) == 4
+
+
+def test_a_legacy_flat_snapshot_counts_toward_the_window(db):
+    _legacy_backup(db, reason="forget")
+    mgr = BackupManager(db)
+    with clock.freeze(LEGACY_AT + timedelta(minutes=30)):
+        assert mgr.snapshot_if_due(reason="forget") is None
+    assert len(mgr.list()) == 1 and mgr.list()[0].flat is True
+
+
+def test_an_unreadable_timestamp_does_not_block_a_real_snapshot(db):
+    mgr = BackupManager(db)
+    with clock.freeze(T0):
+        assert mgr.snapshot_if_due(reason="forget") is not None
+        (info,) = mgr.list()
+        doc = json.loads(info.manifest_path.read_text())
+        doc["created_at"] = "not a timestamp"
+        info.manifest_path.write_text(json.dumps(doc))
+        assert mgr.snapshot_if_due(reason="forget") is not None
+    assert len(mgr.list()) == 2
+
+
+def test_snapshot_and_create_stay_unthrottled(db):
+    """The migration hook, the daily job and the tests always get a snapshot."""
+    mgr = BackupManager(db)
+    with clock.freeze(T0):
+        assert mgr.snapshot(reason="scheduled") is not None
+        assert mgr.create(reason="scheduled") is not None
+        assert mgr.snapshot(reason="scheduled") is not None
+    assert len(mgr.list()) == 3
+

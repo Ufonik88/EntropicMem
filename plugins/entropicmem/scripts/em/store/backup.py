@@ -24,6 +24,11 @@ with the memory database. Snapshots written before 3.1 (``<name>.db`` beside
 ``<name>.json``, manifest ``format: 1``) stay readable, verifiable and
 restorable; nothing rewrites or deletes them.
 
+``snapshot()`` and ``create()`` always write. A destructive caller that can fire
+in a loop uses ``snapshot_if_due()`` instead, which writes at most one snapshot
+per reason per ``window`` (an hour by default) unless the reason is one of the
+safety nets in :data:`SAFETY_PREFIXES` (Chunk 3.2).
+
 Restore is the dangerous direction, so it refuses by default:
 
 - it refuses a live path unless ``allow_live=True``, the same development guard
@@ -56,7 +61,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from ..clock import to_iso, utc_now
+from ..clock import parse_iso, to_iso, utc_now
 from .locking import FileLock
 
 #: Written manifest format. ``2`` = a directory snapshot with a ``files`` list.
@@ -73,6 +78,11 @@ MANIFEST_NAME = "manifest.json"
 #: Reasons that are safety nets for a risky operation. Rotation keeps them
 #: under their own (separate) limit so routine backups never push them out.
 SAFETY_PREFIXES = ("pre-migrate", "pre-restore")
+
+#: How long one reason waits between routine snapshots
+#: (:meth:`BackupManager.snapshot_if_due`): EM-210's throttle, whose acceptance
+#: criterion is "100 ``forget`` calls -> at most one snapshot per hour".
+DEFAULT_SNAPSHOT_WINDOW_S = 3600.0
 
 DEFAULT_KEEP = 7
 DEFAULT_KEEP_SAFETY = 5
@@ -316,6 +326,62 @@ class BackupManager:
         the tests. Both names write the same snapshot.
         """
         return self._snapshot(reason=reason, conn=conn)
+
+    # --- throttle (Chunk 3.2) -------------------------------------------
+
+    def snapshot_if_due(
+        self,
+        *,
+        reason: str = "manual",
+        window: float = DEFAULT_SNAPSHOT_WINDOW_S,
+        conn: sqlite3.Connection | None = None,
+    ) -> Path | None:
+        """Snapshot only when this ``reason`` has had none inside ``window``.
+
+        For destructive callers that can fire in a loop (a run of ``forget``
+        calls), so a runaway caller cannot fill the backup directory: the
+        acceptance criterion is 100 calls -> at most one snapshot per hour.
+        Returns the directory written, or ``None`` when the newest snapshot for
+        this reason is still inside its window.
+
+        ``snapshot()`` and ``create()`` stay unthrottled on purpose: the
+        migration hook, the daily job and the tests keep taking a snapshot every
+        time they ask for one, and a caller that must never be suppressed simply
+        keeps calling those.
+
+        Two exemptions, both deliberate:
+
+        * **Safety reasons** (:data:`SAFETY_PREFIXES`, ``pre-migrate*`` and
+          ``pre-restore*``) are never throttled. A migration or a restore is
+          rare and deliberate, and a stale copy there is a data risk rather than
+          noise, so the window does not apply.
+        * **A ``window`` of zero or less** never throttles: it is the documented
+          way to ask for the unthrottled behaviour from this entry point.
+        """
+        if window > 0 and not reason.startswith(SAFETY_PREFIXES) and self._within_window(reason, window):
+            return None
+        return self.snapshot(reason=reason, conn=conn)
+
+    def _within_window(self, reason: str, window: float) -> bool:
+        """Is the newest snapshot for ``reason`` younger than ``window``?
+
+        The window comes from the manifests themselves (both layouts carry
+        ``created_at`` and :meth:`list` already parses them), so the throttle
+        needs no new table, no bookkeeping file and no migration.
+
+        A clock that moves backwards makes the age negative, which still counts
+        as inside the window: going back in time must never produce a second
+        snapshot for the same reason. A timestamp we cannot read does not
+        throttle either: an unreadable stamp is no reason to skip a backup.
+        """
+        newest = self.latest(reason=reason)
+        if newest is None:
+            return False
+        try:
+            created = parse_iso(newest.created_at)
+        except ValueError:
+            return False
+        return (utc_now() - created).total_seconds() < window
 
     def _snapshot(self, *, reason: str, conn: sqlite3.Connection | None) -> BackupInfo:
         if not _REASON_RE.match(reason):
@@ -730,6 +796,7 @@ def enqueue_daily_backup(queue, *, now: datetime | None = None) -> str:
 
 __all__ = [
     "BACKUP_JOB_TYPE",
+    "DEFAULT_SNAPSHOT_WINDOW_S",
     "BackupError",
     "BackupFile",
     "BackupInfo",
