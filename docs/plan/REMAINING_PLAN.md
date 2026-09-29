@@ -407,7 +407,7 @@ After S4, the owner decides whether S5–S9 are worth continuing. The plan does 
 | What | Where |
 |---|---|
 | **Released version** | `v2.8.1`, tag at `7e02412` on the protected `release/2.8.x`. This is what the Hermes catalog pins and what users install. |
-| **Development line** | `main` at `8202081af`, version `3.0.0.dev0`. All of S2 (the `em/` storage core) is merged; none of it is wired into the provider yet. `main` must stay green and releasable. |
+| **Development line** | `main` at `8202081af` or later, version `3.0.0.dev0`. All of S2 (the `em/` storage core) is merged; none of it is wired into the provider yet. `main` must stay green and releasable. |
 | **Last landed chunk** | **Chunk 2: `entropicmem worker run`** (EM-209's missing CLI), plus its plan close-out. |
 | **Same-day hygiene batch** | Five no-bump commits: the CI action majors, `perf-smoke` diagnostics, the concurrency-test flake fix, the `ARCHITECTURE.md` v3 section, and two new doc guards. |
 | **Next chunk** | **Chunk 3: the EM-210 plan gaps.** Written up in `NEXT_CHUNK.md` Part B. **Not scheduled** — the owner picks the moment. |
@@ -443,6 +443,8 @@ On 2026-09-29 that read 1617 rows, newest `2026-09-29T02:02:41Z`.
 ### The expected counts drift, on purpose
 
 The suite total rises with every card: 1462 at Chunk 2's pre-flight, **1495** after the hygiene batch. Read the expected number from `NEXT_CHUNK.md` §3.0, which is rewritten at the end of each chunk, and **stop and report on a mismatch** instead of assuming the older number is right.
+
+Documentation-only commits move the tip SHA without changing code, tests or counts. When they do, `§2` and this table keep the last **code** state, which is why both say "or later"; a later tip that only touched `docs/`, `README.md` or `CHANGELOG.md` is expected.
 
 ### What to do next, in order
 
