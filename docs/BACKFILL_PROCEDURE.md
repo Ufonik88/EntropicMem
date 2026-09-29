@@ -1,6 +1,6 @@
 # EntropicMem: Manual Backfill Procedure
 
-**Locked decision:** existing facts in any profile's canonical store publish via opt-in manual backfill only. Nothing auto-publishes. (Spec: [MULTI_PROFILE_PROVENANCE_SPEC.md](MULTI_PROFILE_PROVENANCE_SPEC.md), backfill section.)
+**Locked decision:** existing facts in any profile's canonical store publish via opt-in manual backfill only. Nothing auto-publishes. (Spec: the multi-profile provenance spec, an internal design doc kept out of this repo; see its backfill section.)
 
 ---
 
