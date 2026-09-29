@@ -439,7 +439,12 @@ sqlite3 "file:$HOME/.hermes/entropicmem/memory.db?mode=ro&immutable=1" \
   "select count(*), max(created_at) from facts;"
 ```
 
-On 2026-09-29 that read 1617 rows, newest `2026-09-29T02:02:41Z`.
+On 2026-09-29, just after Chunk 3.1 merged, that read 1627 rows with newest
+`2026-09-29T08:59:01Z`. The count only grows while the agent works (memory
+writes are not test activity), so read it as a pair: record it before a test run
+and compare it afterwards. What must hold is that it does **not** move across a
+test run. The same reading was 1617 earlier that day, before that day's own
+memory writes.
 
 ### The expected counts drift, on purpose
 
