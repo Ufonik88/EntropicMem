@@ -11,6 +11,7 @@ is forced to ``spawn`` (the Windows default) everywhere.
 
 from __future__ import annotations
 
+import math
 import multiprocessing
 import sqlite3
 import sys
@@ -23,6 +24,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugins" / "entrop
 
 WRITERS = 4
 WRITES_EACH = 500
+
+# The reader pays spawn + import cost before its first read, so the writers can
+# finish before it has taken a single sample. A percentile from an empty list is
+# an IndexError, not a measurement, so the reader keeps sampling until it holds
+# at least this many (nearest-rank p95 only means something from n >= 20). The
+# deadline stops a stuck parent from hanging the suite.
+MIN_SAMPLES = 20
+READER_DEADLINE_S = 60.0
 
 
 def _writer(db_path: str, tag: int, out_q) -> None:  # spawn-safe: top-level
@@ -61,7 +70,10 @@ def _reader(db_path: str, stop_evt, lat_q) -> None:  # spawn-safe: top-level
         else:
             lat_q.put(("err", "reader: db never appeared"))
             return
-    while not stop_evt.is_set():
+    deadline = time.monotonic() + READER_DEADLINE_S
+    while (
+        not stop_evt.is_set() or len(latencies) < MIN_SAMPLES
+    ) and time.monotonic() < deadline:
         t0 = time.perf_counter()
         conn.execute("SELECT count(*) FROM t").fetchone()
         latencies.append((time.perf_counter() - t0) * 1000)
@@ -104,6 +116,9 @@ def test_four_writer_processes_plus_reader(tmp_path):
 
     status, latencies = lat_q.get(timeout=5)
     assert status == "ok", latencies
+    # The floor the reader enforces: an empty sample list used to reach the
+    # percentile below and raise IndexError instead of failing on a real budget.
+    assert len(latencies) >= MIN_SAMPLES, f"reader collected only {len(latencies)} samples"
 
     # all writes landed, no lost updates
     conn = open_db(db_path, readonly=True)
@@ -116,7 +131,9 @@ def test_four_writer_processes_plus_reader(tmp_path):
     assert per_writer == WRITERS
 
     latencies.sort()
-    p95 = latencies[int(len(latencies) * 0.95) - 1]
+    # Nearest-rank, with the index floored at 0 so no length can produce a
+    # negative index.
+    p95 = latencies[max(0, math.ceil(0.95 * len(latencies)) - 1)]
     assert p95 < 50.0, f"reader p95 {p95:.2f} ms exceeds 50 ms budget"
 
 
