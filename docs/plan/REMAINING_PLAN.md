@@ -1,6 +1,6 @@
 # EntropicMem: remaining plan (from the 2.8.1 safe point)
 
-**Status date:** 2026-09-28. **Owner:** the owner (GitHub `Ufonik88`). **Builders:** Hermes (implements and merges), Claude Code (reviews, fixes, plans).
+**Status date:** 2026-09-29. **Where we are: §11 (cold start), §2 (state), §5 (the ledger).** **Owner:** the owner (GitHub `Ufonik88`). **Builders:** Hermes (implements and merges), Claude Code (reviews, fixes, plans).
 **Replaces:** the "remaining work" parts of the v3 master plan and every earlier hand-off. It does not replace the master plan's card text (see §1).
 
 ---
@@ -396,3 +396,74 @@ After S4, the owner decides whether S5–S9 are worth continuing. The plan does 
 - **Gateway heartbeat:** the cron scheduler once reported "no gateway or no fresh profile heartbeat". Confirm the gateway is up before crons fire.
 - **Catalog-check cron:** idle box only. It must never push the old fork branch.
 - **Stale local branches:** none as of 2026-09-29. The 2026-09-28 list (`fix/em-211-facade`, `fix/plan-gaps`, `em/em-205…208*`) was already gone; `docs/plan-s5-text` (merged into `main` long before) and the merged `em/em-209-worker-cli` were deleted on 2026-09-29. Re-check with `git branch --merged main` and `git ls-remote --heads origin`.
+---
+
+## 11. Picking this up (cold start)
+
+**Read this section first, then §2 (state) and §5 (the ledger of everything done).** It is refreshed at the end of every chunk.
+
+### State as of 2026-09-29
+
+| What | Where |
+|---|---|
+| **Released version** | `v2.8.1`, tag at `7e02412` on the protected `release/2.8.x`. This is what the Hermes catalog pins and what users install. |
+| **Development line** | `main` at `8202081af`, version `3.0.0.dev0`. All of S2 (the `em/` storage core) is merged; none of it is wired into the provider yet. `main` must stay green and releasable. |
+| **Last landed chunk** | **Chunk 2: `entropicmem worker run`** (EM-209's missing CLI), plus its plan close-out. |
+| **Same-day hygiene batch** | Five no-bump commits: the CI action majors, `perf-smoke` diagnostics, the concurrency-test flake fix, the `ARCHITECTURE.md` v3 section, and two new doc guards. |
+| **Next chunk** | **Chunk 3: the EM-210 plan gaps.** Written up in `NEXT_CHUNK.md` Part B. **Not scheduled** — the owner picks the moment. |
+| **In flight** | Nothing. Every branch was deleted after its fast-forward merge; the remote carries exactly `main` and `release/2.8.x`. |
+| **Stage** | S2 remainder. S3 (retrieval v3) starts only after the S2 remainder (EM-210, then EM-211, with EM-212's package move beside them). |
+
+### Verify before you touch anything
+
+```bash
+cd ~/Documents/Coding\ Projects/EntropicMem
+git fetch --all --prune && git status -sb && git log --oneline -12
+git ls-remote --heads origin        # expect exactly main + release/2.8.x
+
+# The repo's own pre-flight. Expect 1495 passed, 2 skipped, 4 xfailed (about 5 minutes).
+env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_INDEX_DB -u ENTROPICMEM_VAULT_PATH \
+  ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1 python3 -m pytest -q
+
+# CI pins ruff==0.16.2. A newer local ruff disagrees in both directions, so use the pin.
+uv venv --seed /tmp/ruff-parity
+uv pip install --python /tmp/ruff-parity/bin/python "ruff==0.16.2"
+/tmp/ruff-parity/bin/ruff check skills/ plugins/ scripts/ tests/ benchmarks/ evals/
+```
+
+Prove you did not touch the live store (the fact count and the newest `created_at` must not move):
+
+```bash
+sqlite3 "file:$HOME/.hermes/entropicmem/memory.db?mode=ro&immutable=1" \
+  "select count(*), max(created_at) from facts;"
+```
+
+On 2026-09-29 that read 1617 rows, newest `2026-09-29T02:02:41Z`.
+
+### The expected counts drift, on purpose
+
+The suite total rises with every card: 1462 at Chunk 2's pre-flight, **1495** after the hygiene batch. Read the expected number from `NEXT_CHUNK.md` §3.0, which is rewritten at the end of each chunk, and **stop and report on a mismatch** instead of assuming the older number is right.
+
+### What to do next, in order
+
+1. **Chunk 3**, if and when the owner schedules it: the EM-210 plan gaps, exactly as scoped in `NEXT_CHUNK.md` Part B.
+2. **EM-211, the legacy facade on v3.** Split it before starting: facade reads, then writes, then the mirror call, then the linker. It is the last card before the provider can run on v3.
+3. **EM-212's package move** can sit beside either one. It is a larger, multi-file card: split it first.
+4. **S3 (retrieval v3)** after the S2 remainder, on the critical path in §6.2: EM-302 → EM-304 → EM-305 → EM-403 → EM-503 → EM-901 → EM-904.
+
+### Frozen until the owner says otherwise
+
+- Releases, tags and catalog PRs (§3.3). The catalog pins `7e02412`; only a release moves it.
+- The tool rename (`entropicmem_patch_core` → `entropicmem_patch_core_memory`), which ships only with a release that re-pins the catalog (rule 10).
+- The v3 cutover: `ENTROPICMEM_ALLOW_LIVE_MIGRATION=1` against the live store, with the owner present.
+- S3 and later, until the S4 decision gate in §6.6 says continue.
+- `auto_extract_enabled`'s default, and the `provides_tools` / `provides_hooks` lists.
+
+### If a gate goes red, do not widen it
+
+Two flakes are already on record, and both were fixed at the test or CI layer, never by moving a threshold:
+
+- `perf-smoke` flapped once at 34.815 ms p95 on a docs-only commit (§8 has the numbers, the budget is unchanged at 20 ms, and the job now prints p50/p95/max).
+- The v3 concurrency AC test could compute its p95 from an empty sample list when the writers outran the reader's spawn. The reader now floors at 20 samples.
+
+The pattern that confirms a flake: `gh run rerun <id> --failed` on the **same** SHA. A rerun that goes green on an unchanged commit is the evidence. Never loosen a budget, skip a test or mark a job non-blocking to clear a red gate.
