@@ -115,6 +115,8 @@ mgr.restore(info, allow_live=True)        # real restore; stop the provider firs
 
 Scheduled backups: `enqueue_daily_backup(JobQueue(conn))`, handled by `make_backup_handler(mgr)`.
 
+`create()` is what the code does today. **Chunk 3.1** adds the plan's `snapshot(reason) -> Path` and extends a snapshot to `index.db` inside a `backups/<ts>-<reason>/` directory, while keeping today's flat backups readable.
+
 ## What's next, and what each card builds on
 
 - **EM-211 (legacy facade).** Implement `LegacyEngine` over `em.store`, add it to `ENGINES` in `tests/parity/test_engine_parity.py` and to `_implementations()` in `tests/unit/test_em_facade_contract.py`, and pass both unchanged. The two known hard parts:
@@ -135,5 +137,5 @@ The code is the fact. These lines are the plan's words, what the code does, and 
 | EM-209 | `claim(worker_id, types, lease_s=60)` | `claim(worker_id, *, types, lease_seconds=60)` | keep (keyword-only is safer) |
 | EM-209 | backoff `2^attempts * 30s` | `30·2^(attempts-1)`, cap 3600 s, ±10 % jitter | keep (same curve one step earlier, capped, jittered; tested) |
 | EM-209 | `Worker(handlers, stop_event, budget_s)`, per-job `time_budget`, cooperative cancellation | `JobWorker(store, registry)`, `run(stop)`, leases + `ctx.heartbeat()` | keep; a per-job time budget is a later card if a real job needs it |
-| EM-210 | `snapshot(reason) -> Path`, memory.db **+ index.db**, `backups/<ts>-<reason>/` dirs, EM-113 retention, once per hour per reason, AC: 100 `forget` → ≤ 1 snapshot/hour | `create(reason) -> BackupInfo`, memory.db only, flat files + manifest, 7 routine + 5 safety | **open: this is Chunk 3** (the throttle AC and index.db are real gaps) |
+| EM-210 | `snapshot(reason) -> Path`, memory.db **+ index.db**, `backups/<ts>-<reason>/` dirs, EM-113 retention, once per hour per reason, AC: 100 `forget` → ≤ 1 snapshot/hour | `create(reason) -> BackupInfo`, memory.db only, flat files + manifest, 7 routine + 5 safety | **open, split 2026-09-29:** the snapshot layout is **Chunk 3.1** (next piece), the throttle is **Chunk 3.2**; retention keeps the current rule unless the owner adopts EM-113's |
 

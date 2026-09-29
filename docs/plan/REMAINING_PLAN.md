@@ -206,6 +206,7 @@ S0 cards EM-001…EM-007 (fixtures, harness, xfail findings, perf smoke, Windows
 | Chunk 2 | `entropicmem worker run` (v3-only; refuses a live path and a non-v3 store; one JSON line; a `dead` job exits 1) and the recorded EM-209/EM-210 deviations | `0cfac9d`, `dca80f4`, `ad5f0e5`, `8fca999` |
 | Chunk 2 close-out (docs) | §2, §5, §6.1, §9 and §10 refreshed; Chunk 3 planned in `NEXT_CHUNK.md` | 2026-09-29 |
 | Hygiene batch (no-bump) | `actions/checkout@v7` + `actions/setup-python@v7`; `perf-smoke` prints p50/p95/max; the concurrency AC test can no longer measure an empty sample list; `ARCHITECTURE.md` gains the v3 core; new `tests/test_docs_links.py` and `tests/test_cli_reference_drift.py` | `e6e8fdb`, `3d70496`, `74ce059`, `453b4ad`, `fa623e8`, `a6fc6f7`, `a38a47f` |
+| Chunk 3 split (docs) | the EM-210 gaps split into **3.1** (`snapshot()` covering `index.db`, `backups/<ts>-<reason>/`) and **3.2** (the throttle); 3.1 is the next piece of development, not started | 2026-09-29 |
 
 ---
 
@@ -266,12 +267,10 @@ Cards are grouped by the master plan's sprints. **"(plan text needed)"** marks c
 
 **Plan deviations found by Hermes's §5 comparison.** Resolve each by a small fix *or* a recorded deviation; don't rewrite working code to match wording.
 - **EM-209: closed in Chunk 2 (2026-09-29).** `entropicmem worker run` exists, and the remaining wording differences (`em/jobs/worker.py` vs `em/worker.py`, keyword-only `claim`, the capped and jittered backoff, no per-job `time_budget`) are recorded as deviations in `docs/V3_FOUNDATIONS.md` → "Recorded deviations from the plan". Priority semantics match the plan (lower number runs first, default 5).
-- **EM-210:**
-  - `create()` versus the plan's `snapshot()`;
-  - covers `memory.db` only, not `index.db`;
-  - flat files versus `backups/<ts>-<reason>/` directories;
-  - retention is 7 routine + 5 safety, versus EM-113's keep-10 + one per day for 7 days;
-  - no once-per-hour throttle, and no "100 forgets" AC test.
+- **EM-210: split into two chunks (2026-09-29).** The gaps are independent, so they no longer travel together:
+  - **Chunk 3.1, the next piece: the snapshot layout.** The plan's `snapshot(reason) -> Path`, covering `index.db`, written into `backups/<ts>-<reason>/`, with today's flat files still readable. Scoped in `NEXT_CHUNK.md` Part B. **Not started.**
+  - **Chunk 3.2: the once-per-hour-per-reason throttle**, with the plan's "100 `forget` → ≤ 1 snapshot/hour" AC. Unplanned until 3.1 closes (one chunk ahead, never more).
+  - **Retention** is still 7 routine + 5 safety, versus EM-113's keep-10 + one per day for 7 days. 3.1 keeps the current rule; whether to adopt the plan's is an open owner decision in §9.
 - **EM-211 (foundation):** met as a foundation; the facade itself is still open (above).
 
 **Tool rename (3.0 only):** `entropicmem_patch_core` → `entropicmem_patch_core_memory` (catalog maintainer's ask). Update the provider, `plugin.yaml`, `SKILL.md`, docs and tests together. It ships only with a release that re-pins the catalog (rule 10).
@@ -389,7 +388,8 @@ After S4, the owner decides whether S5–S9 are worth continuing. The plan does 
 - **Jobs (EM-209):** a 4-process exactly-once test.
 
 ## 9. Open decisions (owner)
-1. When to schedule Chunk 3, the EM-210 plan gaps (`NEXT_CHUNK.md` Part B). Chunk 2 landed on `main` on 2026-09-29. Nothing else is waiting on the owner.
+1. **When to start Chunk 3.1**, the snapshot half of the EM-210 gaps (`NEXT_CHUNK.md` Part B). It is scoped, sized (90 to 120 minutes of active work) and waiting; nothing else is queued behind it except its own second half.
+2. **Retention for snapshots.** Keep the current 7 routine + 5 safety, or adopt the plan's EM-113 rule (keep 10, plus one per day for 7 days)? Chunk 3.1 keeps the current rule unless the owner says otherwise, and the EM-210 row of the deviation table in `docs/V3_FOUNDATIONS.md` records whichever way this goes.
 
 ## 10. Operations checklist (Hermes host)
 - **Before 2 Oct:** dry-run the cleanup script (`--dry-run`). Ancestor check already verified.
@@ -410,7 +410,7 @@ After S4, the owner decides whether S5–S9 are worth continuing. The plan does 
 | **Development line** | `main` at `8202081af` or later, version `3.0.0.dev0`. All of S2 (the `em/` storage core) is merged; none of it is wired into the provider yet. `main` must stay green and releasable. |
 | **Last landed chunk** | **Chunk 2: `entropicmem worker run`** (EM-209's missing CLI), plus its plan close-out. |
 | **Same-day hygiene batch** | Five no-bump commits: the CI action majors, `perf-smoke` diagnostics, the concurrency-test flake fix, the `ARCHITECTURE.md` v3 section, and two new doc guards. |
-| **Next chunk** | **Chunk 3: the EM-210 plan gaps.** Written up in `NEXT_CHUNK.md` Part B. **Not scheduled** — the owner picks the moment. |
+| **Next piece of development** | **Chunk 3.1: `snapshot()` covering `index.db`, in `backups/<ts>-<reason>/`.** The first half of the EM-210 gaps, scoped in `NEXT_CHUNK.md` Part B, sized at 90 to 120 minutes of active work. **Not started** — the owner picks the moment. Its second half, the throttle, is Chunk 3.2 and is deliberately unplanned until then. |
 | **In flight** | Nothing. Every branch was deleted after its fast-forward merge; the remote carries exactly `main` and `release/2.8.x`. |
 | **Stage** | S2 remainder. S3 (retrieval v3) starts only after the S2 remainder (EM-210, then EM-211, with EM-212's package move beside them). |
 
@@ -448,10 +448,11 @@ Documentation-only commits move the tip SHA without changing code, tests or coun
 
 ### What to do next, in order
 
-1. **Chunk 3**, if and when the owner schedules it: the EM-210 plan gaps, exactly as scoped in `NEXT_CHUNK.md` Part B.
-2. **EM-211, the legacy facade on v3.** Split it before starting: facade reads, then writes, then the mirror call, then the linker. It is the last card before the provider can run on v3.
-3. **EM-212's package move** can sit beside either one. It is a larger, multi-file card: split it first.
-4. **S3 (retrieval v3)** after the S2 remainder, on the critical path in §6.2: EM-302 → EM-304 → EM-305 → EM-403 → EM-503 → EM-901 → EM-904.
+1. **Chunk 3.1, the next piece of development: `snapshot()` covering both databases.** Scoped in `NEXT_CHUNK.md` Part B, sized at 90 to 120 minutes of active work, **not started**.
+2. **Chunk 3.2: the once-per-hour-per-reason throttle**, the other half of the EM-210 gaps. Unplanned until 3.1 closes.
+3. **EM-211, the legacy facade on v3.** Split it before starting: facade reads, then writes, then the mirror call, then the linker. It is the last card before the provider can run on v3.
+4. **EM-212's package move** can sit beside either one. It is a larger, multi-file card: split it first.
+5. **S3 (retrieval v3)** after the S2 remainder, on the critical path in §6.2: EM-302 → EM-304 → EM-305 → EM-403 → EM-503 → EM-901 → EM-904.
 
 ### Frozen until the owner says otherwise
 
