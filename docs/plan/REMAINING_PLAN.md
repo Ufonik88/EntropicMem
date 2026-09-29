@@ -28,12 +28,12 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 
 ---
 
-## 2. Where things stand (verified 2026-09-28, safe point closed out)
+## 2. Where things stand (verified 2026-09-29, after Chunk 2)
 
 ### Repository `Ufonik88/EntropicMem` (public)
 | Ref | SHA | Meaning |
 |---|---|---|
-| `main` | `55844e4` or later | 3.0 development line (`3.0.0.dev0`). All of S2, the v3 foundations, the catalog-review fixes, the perf-smoke fix, EM-212, the 2.8.1 notes, the plans, and the §5 card text pastes. |
+| `main` | `8fca999de` or later | 3.0 development line (`3.0.0.dev0`). All of S2, the v3 foundations, the catalog-review fixes, the perf-smoke fix, EM-212 (first step), the 2.8.1 notes, the plans, the §5 card text pastes, and Chunk 2 (`entropicmem worker run` plus the EM-209/EM-210 deviation record). |
 | branch `release/2.8.x` | `7e02412` | **2.8.1**: `v2.8.0` plus the safety fixes (see §4). Protected (no force-push, no deletion). Tag `v2.8.1` exists. |
 | tag `v2.8.0` | tag `09a5459` → commit `060063d` | The previous release. |
 | tag `v2.8.1` | `7e02412` | **Current release.** Safety patch on 2.8.0. GitHub Release published. |
@@ -203,6 +203,8 @@ S0 cards EM-001…EM-007 (fixtures, harness, xfail findings, perf smoke, Windows
 | EM-212 (first step) | `_backend` loads its own `vault.py` by path; `test_f010` made real. The plan's full EM-212 (package move) is still open | `4ae5b11` |
 | docs | 2.8.1 notes forward-ported; `docs/plan/` added | `cdff579` and later |
 | **2.8.1** | safety patch branch `release/2.8.x` | `7e02412` (tagged, released, catalog-pinned, install-tested) |
+| Chunk 2 | `entropicmem worker run` (v3-only; refuses a live path and a non-v3 store; one JSON line; a `dead` job exits 1) and the recorded EM-209/EM-210 deviations | `0cfac9d`, `dca80f4`, `ad5f0e5`, `8fca999` |
+| Chunk 2 close-out (docs) | §2, §5, §6.1, §9 and §10 refreshed; Chunk 3 planned in `NEXT_CHUNK.md` | 2026-09-29 |
 
 ---
 
@@ -262,12 +264,7 @@ Cards are grouped by the master plan's sprints. **"(plan text needed)"** marks c
 - **AC:** `python -c "import sys; sys.path.insert(0, 'plugins/entropicmem/scripts'); import vault"` on a clean interpreter shows **no** `vault`/`index`/`security` module registered (only `em_vault` etc.); `hermes plugins validate` does not emit module-shadow warnings.
 
 **Plan deviations found by Hermes's §5 comparison.** Resolve each by a small fix *or* a recorded deviation; don't rewrite working code to match wording.
-- **EM-209:**
-  - no `entropicmem worker run` CLI subcommand, and no cron doc;
-  - no per-job `time_budget`;
-  - backoff is `30·2^(attempts-1)` capped at 3600 s ±10 % jitter, versus the plan's `2^attempts·30s` (record as a deviation);
-  - `claim(worker_id, *, types, lease_seconds)` versus the plan's `(worker_id, types, lease_s)` (naming; record).
-  - Priority semantics match the plan (lower number runs first, default 5).
+- **EM-209: closed in Chunk 2 (2026-09-29).** `entropicmem worker run` exists, and the remaining wording differences (`em/jobs/worker.py` vs `em/worker.py`, keyword-only `claim`, the capped and jittered backoff, no per-job `time_budget`) are recorded as deviations in `docs/V3_FOUNDATIONS.md` → "Recorded deviations from the plan". Priority semantics match the plan (lower number runs first, default 5).
 - **EM-210:**
   - `create()` versus the plan's `snapshot()`;
   - covers `memory.db` only, not `index.db`;
@@ -390,10 +387,10 @@ After S4, the owner decides whether S5–S9 are worth continuing. The plan does 
 - **Jobs (EM-209):** a 4-process exactly-once test.
 
 ## 9. Open decisions (owner)
-1. When to schedule Chunk 2 (`NEXT_CHUNK.md` Part B). Nothing else is waiting on the owner.
+1. When to schedule Chunk 3, the EM-210 plan gaps (`NEXT_CHUNK.md` Part B). Chunk 2 landed on `main` on 2026-09-29. Nothing else is waiting on the owner.
 
 ## 10. Operations checklist (Hermes host)
 - **Before 2 Oct:** dry-run the cleanup script (`--dry-run`). Ancestor check already verified.
 - **Gateway heartbeat:** the cron scheduler once reported "no gateway or no fresh profile heartbeat". Confirm the gateway is up before crons fire.
 - **Catalog-check cron:** idle box only. It must never push the old fork branch.
-- **Stale local branches** (`fix/em-211-facade`, `fix/plan-gaps`, `em/em-205…208*`): their contents are in `main`; delete them.
+- **Stale local branches:** none as of 2026-09-29. The 2026-09-28 list (`fix/em-211-facade`, `fix/plan-gaps`, `em/em-205…208*`) was already gone; `docs/plan-s5-text` (merged into `main` long before) and the merged `em/em-209-worker-cli` were deleted on 2026-09-29. Re-check with `git branch --merged main` and `git ls-remote --heads origin`.
