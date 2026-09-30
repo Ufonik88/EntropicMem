@@ -105,12 +105,19 @@ class TestVault:
         # Should exist (our dev machine has the vault)
         assert "Obsidian Vault" in str(path) or "entropicmem" in str(path)
 
-    def test_resolve_path_explicit(self, monkeypatch):
+    def test_resolve_path_explicit(self, monkeypatch, tmp_path):
         """Explicit env var should win."""
-        monkeypatch.setenv("ENTROPICMEM_VAULT_PATH", "/tmp/test-vault")
-        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", "/tmp/other")
+        # Compare resolved paths, not raw strings: resolve_vault_path() calls
+        # Path.resolve(), which follows symlinks, so "/tmp/x" comes back as
+        # "/private/tmp/x" on macOS. Asserting the raw string only passed
+        # because CI ran on Linux.
+        vault = tmp_path / "test-vault"
+        other = tmp_path / "other"
+        monkeypatch.setenv("ENTROPICMEM_VAULT_PATH", str(vault))
+        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(other))
         path = resolve_vault_path()
-        assert str(path) == "/tmp/test-vault"
+        assert path == vault.resolve()
+        assert path != other.resolve()
 
     def test_write_and_read_note(self, temp_vault):
         vault, _ = temp_vault
