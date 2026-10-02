@@ -52,16 +52,41 @@ def _v2(tmp_path: Path):
     return MemoryEngine(tmp_path / "memory.db", profile_id="default", hermes_home=tmp_path / "hermes")
 
 
+def _v3(tmp_path: Path):
+    from em.facade.engine import V3Engine
+
+    return V3Engine(tmp_path / "memory.db")
+
+
 #: name -> factory(tmp_path) returning an engine usable as a context manager.
-#: EM-211: add ("v3-facade", _v3) here.
-ENGINES: dict[str, Callable[[Path], object]] = {"v2": _v2}
+#: EM-211 Chunk 4: the v3 facade joins for its READS. Its write methods are
+#: correctly-shaped stubs until the writes chunk (Chunk 5), so the write-path
+#: scenarios below run against WRITE_ENGINES and seeding dispatches through
+#: ``_remember`` (recon remedy, plan §4.0.3 — split the seed fixture rather
+#: than pull the writes chunk forward).
+ENGINES: dict[str, Callable[[Path], object]] = {"v2": _v2, "v3-facade": _v3}
+
+#: engines whose full API (writes included) executes. Chunk 5 adds
+#: "v3-facade" here and the _remember dispatch collapses away with it.
+WRITE_ENGINES: dict[str, Callable[[Path], object]] = {"v2": _v2}
 
 
-@pytest.fixture(params=sorted(ENGINES))
-def engine(request, tmp_path):
+def _open(request, tmp_path):
     eng = ENGINES[request.param](tmp_path)
     with eng as e:
         yield e
+
+
+@pytest.fixture(params=sorted(WRITE_ENGINES))
+def engine(request, tmp_path):
+    """Full-API scenarios: engines that can write."""
+    yield from _open(request, tmp_path)
+
+
+@pytest.fixture(params=sorted(ENGINES))
+def read_engine(request, tmp_path):
+    """Read-path scenarios: every registered engine, facade included."""
+    yield from _open(request, tmp_path)
 
 
 def _make_id(content: str) -> str:
@@ -80,18 +105,59 @@ SEED = [
 ]
 
 
+def _store_seed(engine, content: str, *, title: str, domain: str, tags: list, source: str) -> str:
+    """Seed one memory straight into the v3 store, legacy-stamped.
+
+    Same rule the v2-to-v3 migration and the future facade ``remember`` use:
+    ``legacy_id = StoredFact.make_id(content)``. This is the fixture split
+    from the recon: the read assertions below get seeded without needing a
+    write path on the engine under test. No assertion changes.
+    """
+    from em.store.memories import MemoryStore
+    from em.store.types import MemoryDraft
+
+    with engine.store.transaction() as conn:
+        result = MemoryStore(conn).add(
+            MemoryDraft(content=content, summary=title, domain=domain,
+                        tags=tuple(tags or ()), source=source, status="active"),
+            scope=engine.scope,
+            actor="parity",
+        )
+        assert result.ok and result.decision == "created", result
+        conn.execute(
+            "UPDATE memories SET legacy_id=? WHERE id=?",
+            (_make_id(content), result.id),
+        )
+        return result.id
+
+
+def _remember(engine, content: str, *, title: str = "", domain: str = "Knowledge",
+              tags: list | None = None, source: str = "agent") -> str:
+    """Seed one memory through the engine's write path when it has one.
+
+    The facade (EM-211 Chunk 4) raises NotImplementedError on writes, so
+    seeding falls back to ``_store_seed`` — the split the plan §4.0.3 recon
+    prescribed. Every *assertion* in the tests below stays untouched; only
+    the seeding call moved. Chunk 5 removes the dispatch.
+    """
+    try:
+        return engine.remember(content=content, title=title, domain=domain, tags=tags, source=source)
+    except NotImplementedError:
+        return _store_seed(engine, content, title=title, domain=domain, tags=tags or [], source=source)
+
+
 def _seed(engine) -> list[str]:
-    return [engine.remember(content=c, title=c[:40], domain=d, source="agent") for c, d in SEED]
+    return [_remember(engine, c, title=c[:40], domain=d, source="agent") for c, d in SEED]
 
 
 # --- identity -------------------------------------------------------------
 
 
 @behaviour("id-from-content")
-def test_get_fact_by_content_derived_id(engine):
+def test_get_fact_by_content_derived_id(read_engine):
     content = "Mirrored: Alice Example uses the example.com staging tenant."
-    engine.remember(content=content, title=content[:60], domain="People", tags=["mirrored", "user"], source="built_in_memory")
-    fact = engine.get_fact(_make_id(content))
+    _remember(read_engine, content, title=content[:60], domain="People", tags=["mirrored", "user"], source="built_in_memory")
+    fact = read_engine.get_fact(_make_id(content))
     assert fact is not None, "the provider's mirror lookup (make_id(content)) must resolve"
     assert fact.content == content
     assert "mirrored" in fact.tags
@@ -108,9 +174,9 @@ def test_remembering_the_same_content_twice_keeps_one_row(engine):
 
 
 @behaviour("tags-are-a-list")
-def test_tags_round_trip_as_a_list(engine):
-    fid = engine.remember(content="Globex uses weekly release trains.", tags=["mirrored", "memory"])
-    fact = engine.get_fact(fid)
+def test_tags_round_trip_as_a_list(read_engine):
+    fid = _remember(read_engine, "Globex uses weekly release trains.", tags=["mirrored", "memory"])
+    fact = read_engine.get_fact(fid)
     assert isinstance(fact.tags, list)
     assert set(fact.tags) >= {"mirrored", "memory"}
 
@@ -133,9 +199,9 @@ def test_forget_requires_confirmation(engine):
 
 
 @behaviour("scores-in-unit-range")
-def test_recall_with_relevance_is_scored_sorted_and_filtered(engine):
-    _seed(engine)
-    results = engine.recall_with_relevance("Acme billing service", top_k=5, min_relevance=0.05)
+def test_recall_with_relevance_is_scored_sorted_and_filtered(read_engine):
+    _seed(read_engine)
+    results = read_engine.recall_with_relevance("Acme billing service", top_k=5, min_relevance=0.05)
     assert results, "a query matching two seeded facts must return something"
     scores = [r.relevance_score for r in results]
     assert all(0.0 <= s <= 1.0 for s in scores), scores
@@ -146,16 +212,16 @@ def test_recall_with_relevance_is_scored_sorted_and_filtered(engine):
 
 
 @behaviour("scores-in-unit-range")
-def test_recall_hybrid_without_embeddings_still_answers(engine):
-    _seed(engine)
-    results = engine.recall_hybrid("staging cluster region", top_k=3, fts_weight=0.6, vec_weight=0.4, expand_links=False)
+def test_recall_hybrid_without_embeddings_still_answers(read_engine):
+    _seed(read_engine)
+    results = read_engine.recall_hybrid("staging cluster region", top_k=3, fts_weight=0.6, vec_weight=0.4, expand_links=False)
     assert results and "Frankfurt" in results[0].content
     assert all(0.0 <= r.relevance_score <= 1.0 for r in results)
 
 
-def test_recall_of_an_unrelated_query_returns_nothing_relevant(engine):
-    _seed(engine)
-    results = engine.recall_with_relevance("zzqx nonexistent vocabulary", top_k=5, min_relevance=0.35)
+def test_recall_of_an_unrelated_query_returns_nothing_relevant(read_engine):
+    _seed(read_engine)
+    results = read_engine.recall_with_relevance("zzqx nonexistent vocabulary", top_k=5, min_relevance=0.35)
     assert results == []
 
 
@@ -195,10 +261,10 @@ def test_engine_can_be_reopened_after_an_exception_inside_with(tmp_path):
         path.mkdir()
         with pytest.raises(RuntimeError):
             with factory(path) as e:
-                e.remember(content="Acme uses feature flags for launches.")
+                _remember(e, "Acme uses feature flags for launches.")
                 raise RuntimeError("boom")
         with factory(path) as e:  # the write lock was released
-            e.remember(content="Globex uses canary deploys.")
+            _remember(e, "Globex uses canary deploys.")
             assert e.stats()["fact_count"] == 2
 
 

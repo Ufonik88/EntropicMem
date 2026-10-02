@@ -25,10 +25,13 @@ PROVIDER = REPO / "plugins" / "entropicmem" / "__init__.py"
 
 
 def _implementations():
+    from em.facade.engine import V3Engine
     from memory_engine import MemoryEngine
 
-    # EM-211: append the v3 facade class here, e.g. ("v3-facade", V3Engine).
-    return [("v2", MemoryEngine)]
+    # EM-211 Chunk 4: the v3 facade registers for the reads; its write
+    # methods are correctly-shaped stubs until the writes chunk. This test is
+    # signature-binding only (sig.bind, never executed), so stubs are enough.
+    return [("v2", MemoryEngine), ("v3-facade", V3Engine)]
 
 
 def _scan_provider() -> tuple[dict, set]:
