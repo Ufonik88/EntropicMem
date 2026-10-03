@@ -122,11 +122,24 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 9. Every `em` subpackage is listed in `pyproject`.
 10. Code is portable.
 
-### 3.3 What only the owner decides
+### 3.3 Autonomy, and the calls the owner keeps
+
+The agent decides and acts on its own judgment for everything not listed
+below, then reports what it did: card assessment and rewrites, plan edits,
+dispatch, code review, CI triage, docs and bug fixes. Waiting on the owner
+when the evidence in front of the agent settles the question costs a round
+trip and buys nothing.
+
+The owner is asked only when the action is irreversible or public:
+
 - Anything touching real data or the live store, including the v3 cutover.
 - Releases, tags and the Hermes catalog entry (including public replies on the catalog PR).
-- A test that cannot pass without weakening it.
-- Whether to continue past the decision gate after S4 (§6.6).
+
+A test that cannot pass without weakening it is a hard stop for the agent:
+report the gate, do not weaken the test and do not ask permission to.
+
+Whether to continue past the decision gate after S4 (§6.6) is the agent's
+call, taken with a written recommendation the owner can veto at any time.
 
 ### 3.4 Memory and logging
 - **This file and the next-chunk file** live in the repo (`NEXT_CHUNK.md` task H3), in the owner's Claude vault (`projects/entropicmem.md` links to them), and in Hermes's memory (MASTER_TODO).
@@ -366,7 +379,10 @@ Cards are grouped by the master plan's sprints. **"(plan text needed)"** marks c
 - **EM-904:** the 3.0 release (with the `SKILL.md` bump, the tool rename, and a catalog re-pin via a new PR).
 
 ### 6.6 Decision gate after S4
-After S4, the owner decides whether S5–S9 are worth continuing. The plan does not have to be finished for EntropicMem to be useful.
+After S4 the agent decides whether S5–S9 are worth continuing, and records a
+written recommendation (scope, cost, what is still missing) before starting
+them. The owner can veto at any time; the agent does not block waiting for
+approval. The plan does not have to be finished for EntropicMem to be useful.
 
 ---
 

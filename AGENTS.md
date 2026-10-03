@@ -28,8 +28,19 @@ Read this at the start of every session, then `docs/V3_FOUNDATIONS.md` before to
 6. Keep product code 3.10-compatible. CI runs 3.10–3.13; Hermes itself runs on 3.11.
 7. Report plainly: what changed, the test counts, what you could not verify and why.
 
-## Ask the owner only for
+## Autonomy: decide and act
+
+Do not wait for the owner unless it is genuinely necessary. Your judgement on
+this project's internals outranks his, so pause only when the action is
+irreversible or public:
 
 - anything touching their real data or the live store (including the v3 cutover);
-- releases, tags and the Hermes catalog entry;
-- a test that cannot pass without weakening it.
+- releases, tags and the Hermes catalog entry, or any other public or
+  irreversible external action.
+
+Everything else — card assessment and rewrites, plan edits, dispatch, code
+review, CI triage, docs, bug fixes — you decide, then report what you did.
+Ask afterwards, not before.
+
+A test that cannot pass without weakening it is still a hard stop: never
+weaken it, report the gate instead.
