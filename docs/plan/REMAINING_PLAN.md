@@ -50,7 +50,7 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 - The fork branch `catalog/entropicmem-2.8.0` ends in Teknium's `cdfcd83`. **Never push that branch again.** Any future catalog PR starts from a fresh branch off upstream.
 
 ### Hermes host (the owner's machine)
-- **Live install:** `~/.hermes/entropicmem-live-2.8.0` at `e47e956`. Its plugin files are identical to `060063d`. The graph server runs on 8075/8076.
+- **Live install:** `~/.hermes/entropicmem-live-2.8.1` at `7e024123`, the pinned read-only clone (no remote). The default profile's `~/.hermes/plugins/entropicmem` stays a real directory and is version 2.8.1; the other nine profiles symlink to the pinned clone. The graph server runs on 8075/8076.
 - **Crons:**
   - the old-clone cleanup script, due 2 Oct. Ancestor check verified: `git merge-base --is-ancestor 35a02f4… origin/main` (line 58).
   - the catalog-check cron. It stalled the box once when it built a second `HERMES_HOME` (4 GiB swap exhausted), so run it only when the box is idle.

@@ -194,10 +194,8 @@ def assert_safe_db_path(path: "os.PathLike[str] | str") -> None:
         raise MigrationRefused(f"cannot resolve database path {text!r}: {exc}") from exc
 
     home = Path.home().resolve()
-    deny = (
-        home / ".hermes" / "entropicmem",
-        home / ".hermes" / "entropicmem-live-2.8.0",
-    )
+    hermes_root = home / ".hermes"
+    deny = (hermes_root / "entropicmem",)
     for blocked in deny:
         if resolved == blocked or blocked in resolved.parents:
             raise MigrationRefused(
@@ -205,6 +203,21 @@ def assert_safe_db_path(path: "os.PathLike[str] | str") -> None:
                 f"EntropicMem store. Set {ALLOW_LIVE_ENV}=1 only for the "
                 "real 3.0 cutover."
             )
+
+    # Every pinned clone of the plugin (``entropicmem-live-<version>``) is the
+    # live install on the host, and the clone is renamed on every repoint. Match
+    # the family rather than one version: an enumerated path goes stale on the
+    # next release, and a stale entry fails silently — the catch-all rule below
+    # still refuses the path, so nothing looks wrong while the specific
+    # protection is gone.
+    if hermes_root in resolved.parents:
+        for part in resolved.relative_to(hermes_root).parts:
+            if part == "entropicmem" or part.startswith("entropicmem-live-"):
+                raise MigrationRefused(
+                    f"refusing to migrate {resolved}: it is inside the live "
+                    f"EntropicMem store. Set {ALLOW_LIVE_ENV}=1 only for the "
+                    "real 3.0 cutover."
+                )
 
     allowed_roots = [Path(tempfile.gettempdir()).resolve()]
     # Any path under a directory named "tests" (the repo's tests/ tree, and

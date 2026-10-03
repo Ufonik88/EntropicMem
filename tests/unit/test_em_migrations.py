@@ -700,6 +700,26 @@ def test_guard_can_be_explicitly_overridden_for_the_live_store():
         emmig.assert_safe_db_path(live)
 
 
+def test_guard_refuses_any_versioned_live_clone():
+    """The deny list must follow the clone name, not one pinned version.
+
+    The host's pinned EntropicMem clone has been repointed across releases
+    (``entropicmem-live-2.8.0`` → ``entropicmem-live-2.8.1`` → ...). A guard
+    that enumerates versions stops *naming* the live store the moment the clone
+    is renamed: the path is still refused by the catch-all "not in a temporary
+    or test path" rule, so nothing looks wrong, but the specific protection is
+    gone and a future path that *is* reachable in development would slip past.
+
+    Asserting the message is what makes this a real test — the catch-all
+    produces a different one, so it went green on the unenumerated versions
+    before the deny list was made version-agnostic.
+    """
+    for name in ("entropicmem-live-2.8.0", "entropicmem-live-2.8.1", "entropicmem-live-9.9.9"):
+        for db in ("memory.db", "index.db"):
+            with pytest.raises(emmig.MigrationRefused, match="inside the live"):
+                emmig.assert_safe_db_path(Path.home() / ".hermes" / name / "plugins" / db)
+
+
 def test_migrate_refuses_live_store_before_touching_anything(monkeypatch):
     """The runner must check the path BEFORE opening or backing up."""
     opened: list = []
