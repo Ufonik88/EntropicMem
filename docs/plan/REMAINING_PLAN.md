@@ -28,12 +28,12 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
 
 ---
 
-## 2. Where things stand (verified 2026-09-29, after Chunk 3.2)
+## 2. Where things stand (verified 2026-10-03, after Chunk 4)
 
 ### Repository `Ufonik88/EntropicMem` (public)
 | Ref | SHA | Meaning |
 |---|---|---|
-| `main` | `e058e93be` or later | 3.0 development line (`3.0.0.dev0`). All of S2, the v3 foundations, the catalog-review fixes, the perf-smoke fix, EM-212 (first step), the 2.8.1 notes, the plans, the §5 card text pastes, Chunk 2 (`entropicmem worker run` plus the EM-209/EM-210 deviation record), the 2026-09-29 hygiene batch (CI action majors, perf-smoke diagnostics, the concurrency-test flake fix, the doc-link and CLI-reference guards), **Chunk 3.1** (`snapshot()` over `memory.db` + `index.db` in `backups/<reason>-<stamp>/`) and **Chunk 3.2** (the once-per-hour-per-reason snapshot throttle, `snapshot_if_due()`). |
+| `main` | `1b5c71ccf` or later | 3.0 development line (`3.0.0.dev0`). All of S2, the v3 foundations, the catalog-review fixes, the perf-smoke fix, EM-212 (first step), the 2.8.1 notes, the plans, the §5 card text pastes, Chunk 2 (`entropicmem worker run` plus the EM-209/EM-210 deviation record), the 2026-09-29 hygiene batch (CI action majors, perf-smoke diagnostics, the concurrency-test flake fix, the doc-link and CLI-reference guards), **Chunk 3.1** (`snapshot()` over `memory.db` + `index.db` in `backups/<reason>-<stamp>/`) and **Chunk 3.2** (the once-per-hour-per-reason snapshot throttle, `snapshot_if_due()`), **Chunk 4** (`em/facade/engine.py`, the facade's read half over `em.store`, `0349b7b4b`), and a contributor's `tests/test_vault.py` path fix (`1b5c71ccf`). |
 | branch `release/2.8.x` | `7e02412` | **2.8.1**: `v2.8.0` plus the safety fixes (see §4). Protected (no force-push, no deletion). Tag `v2.8.1` exists. |
 | tag `v2.8.0` | tag `09a5459` → commit `060063d` | The previous release. |
 | tag `v2.8.1` | `7e02412` | **Current release.** Safety patch on 2.8.0. GitHub Release published. |
@@ -209,6 +209,8 @@ S0 cards EM-001…EM-007 (fixtures, harness, xfail findings, perf smoke, Windows
 | Chunk 3 split (docs) | the EM-210 gaps split into **3.1** (`snapshot()` covering `index.db`, `backups/<ts>-<reason>/`) and **3.2** (the throttle) | 2026-09-29 |
 | **Chunk 3.1** | `snapshot(reason) -> Path`: a snapshot is a directory holding `memory.db`, `index.db` (when it exists) and `manifest.json` with a per-file sha256/size/counts/user_version; `create()` kept as an alias; `verify()` re-hashes every file; restore stages every file and swaps only when all verify; rotation counts both layouts; pre-3.1 flat backups stay readable; a snapshot that cannot copy a database fails whole and leaves nothing behind | `2d60cccfb` |
 | **Chunk 3.2** | `snapshot_if_due(reason, *, window=3600)`: at most one snapshot per reason per hour for destructive callers ("100 `forget` → ≤ 1 snapshot/hour"), with the window derived from the `created_at` every manifest already carries so there is no schema and no migration; safety reasons (`pre-migrate*`, `pre-restore*`) and a zero window exempt; `snapshot()`/`create()` still unthrottled. Retention recorded as settled at 7 routine + 5 safety | `e058e93be` |
+| **Chunk 4** | `V3Engine` read half of `LegacyEngine` over `em.store`: `get_fact` (v3 id, unique id prefix, and `legacy_id`, so `get_fact(StoredFact.make_id(content))` resolves), `stats`, `recall_with_relevance`, `recall_hybrid`, `next_episode_wave`, with recall reached through a lazy `memory_engine` import to avoid the 3.0 cycle. Registered in `ENGINES` and `_implementations()`. The 7 write methods stay `NotImplementedError` stubs. Parity seed fixture split per plan §4.0.3 (`_remember` dispatch falling back to `MemoryStore.add`; `WRITE_ENGINES` v2-only); **no assertion changed**. 17 new tests; 1542 passed / 2 skipped / 4 xfailed; em-qa APPROVED | `0349b7b4b` |
+| Vault path fix (contributor) | `tests/test_vault.py` compares resolved paths instead of raw strings so the explicit-precedence check passes off Linux (macOS `/tmp` → `/private/tmp`); author email rewritten to the contributor's GitHub noreply on merge so no personal address entered published history | `1b5c71ccf` |
 
 ---
 
@@ -242,7 +244,7 @@ Cards are grouped by the master plan's sprints. **"(plan text needed)"** marks c
   - replace the raw `engine.db` read in `_locate_mirror` with an engine method on **both** engines, then drop `db` from `PROVIDER_ATTRIBUTES`;
   - run `EntityLinker` from a `link:<memory_id>:<version>` job, never inside `MemoryStore.add`;
   - the `§3.5` owner-only rule for sensitive rows needs the gateway identity and lands here.
-- Too big for one chunk. Split it into facade reads, then writes, then mirror, then linker.
+- Too big for one chunk. Split it into facade reads, then writes, then mirror, then linker. **Reads: DONE (`0349b7b4b`).** Writes: next (scoped in `NEXT_CHUNK.md` Part B, measured at 546 lines of v2 logic). Mirror and linker: after that.
 
 **Master plan §5 card text (verbatim, pasted 2026-09-27 per `NEXT_CHUNK.md` H3):**
 
@@ -273,7 +275,7 @@ Cards are grouped by the master plan's sprints. **"(plan text needed)"** marks c
   - **Chunk 3.1: the snapshot layout.** `snapshot(reason) -> Path` covers `index.db` and writes `backups/<reason>-<stamp>/`; today's flat files stay readable, verifiable and restorable. Detail in `docs/V3_FOUNDATIONS.md` and `docs/BACKUP_RESTORE.md`.
   - **Chunk 3.2: the once-per-hour-per-reason throttle.** `snapshot_if_due(reason, *, window=3600)` returns `None` while a snapshot for that reason is younger than the window, which is the plan's "100 `forget` → ≤ 1 snapshot/hour" AC. The window comes from the `created_at` already in every manifest, so no schema and no migration. Safety reasons (`pre-migrate*`, `pre-restore*`) are deliberately exempt, and `snapshot()`/`create()` stay unthrottled for the migration hook, the daily job and the tests.
   - **Retention: settled, the current rule stays.** 7 routine + 5 safety, not EM-113's keep-10 + one per day for 7 days. Recorded in §9 and in the EM-210 row of the deviation table.
-- **EM-211 (foundation):** met as a foundation; the facade itself is still open (above).
+- **EM-211 (foundation):** met as a foundation; the facade itself is still open (above). **Chunk 4 (reads) landed 2026-10-03 at `0349b7b4b`** — see §5. Chunks 5–7 (writes, mirror, linker) remain.
 
 **Tool rename (3.0 only):** `entropicmem_patch_core` → `entropicmem_patch_core_memory` (catalog maintainer's ask). Update the provider, `plugin.yaml`, `SKILL.md`, docs and tests together. It ships only with a release that re-pins the catalog (rule 10).
 
@@ -390,7 +392,7 @@ After S4, the owner decides whether S5–S9 are worth continuing. The plan does 
 - **Jobs (EM-209):** a 4-process exactly-once test.
 
 ## 9. Open decisions (owner)
-1. **When to start the next chunk.** Chunk 4 (EM-211's facade reads) is scoped in `NEXT_CHUNK.md` Part B and split into its four steps before starting. Chunks 2, 3.1 and 3.2 all landed on 2026-09-29.
+1. **When to start the next chunk.** Chunk 5 (EM-211's facade writes) is scoped in `NEXT_CHUNK.md` Part B, sized from the code at 546 lines of v2 write logic. Chunk 4 (the reads) landed 2026-10-03 at `0349b7b4b` and passed em-qa review; Chunks 2, 3.1 and 3.2 landed 2026-09-29.
 2. **Retention for snapshots: settled (decided by the implementing agent on 2026-09-29, at the owner's instruction to stop asking) — the current rule stays.** 7 routine + 5 safety, not EM-113's keep-10 + one per day for 7 days. Chunks 3.1 and 3.2 both kept it, §6.1 and the EM-210 row of `docs/V3_FOUNDATIONS.md` record it, and it is reopened only if a real backup-scarcity problem appears.
 
 ## 10. Operations checklist (Hermes host)
@@ -410,11 +412,11 @@ After S4, the owner decides whether S5–S9 are worth continuing. The plan does 
 |---|---|
 | **Released version** | `v2.8.1`, tag at `7e02412` on the protected `release/2.8.x`. This is what the Hermes catalog pins and what users install. |
 | **Development line** | `main` at `e058e93be` or later, version `3.0.0.dev0`. All of S2 (the `em/` storage core) is merged; none of it is wired into the provider yet. `main` must stay green and releasable. |
-| **Last landed chunk** | **Chunk 3.2: the once-per-hour-per-reason snapshot throttle** (`e058e93be`), the second half of the EM-210 gaps, which are now closed. Chunk 3.1 (`snapshot()` over both databases) and Chunk 2 (`entropicmem worker run`) landed earlier the same day. |
+| **Last landed chunk** | **Chunk 4: EM-211's facade reads** (`0349b7b4b`), landed 2026-10-03 by fast-forward as PR #6 and approved by em-qa. The read half of the provider-facing `LegacyEngine` contract runs over `em.store`; the 7 write methods are `NotImplementedError` stubs and nothing is wired into the provider. Chunk 3.2 (`e058e93be`, snapshot throttle), Chunk 3.1 and Chunk 2 landed 2026-09-29. |
 | **Same-day hygiene batch** | Five no-bump commits: the CI action majors, `perf-smoke` diagnostics, the concurrency-test flake fix, the `ARCHITECTURE.md` v3 section, and two new doc guards. |
-| **Next piece of development** | **Chunk 4: EM-211's facade reads**, split before it starts (reads, then writes, then the mirror call, then the linker). **Not started** — the owner picks the moment. Scoped in `NEXT_CHUNK.md` Part B. |
-| **In flight** | Nothing. Every branch was deleted after its fast-forward merge; the remote carries exactly `main` and `release/2.8.x`. |
-| **Stage** | S2 remainder. S3 (retrieval v3) starts only after the S2 remainder (EM-211, with EM-212's package move beside it). |
+| **Next piece of development** | **Chunk 5: EM-211's facade writes** — the 7 stubs (`remember`, `forget`, `touch`, `extract_and_store`, `prune_pending`, `add_episode`, `consolidate`), measured at 546 lines of v2 logic to reimplement. **Not started** — the owner picks the moment. Scoped in `NEXT_CHUNK.md` Part B. Chunks 6 (mirror) and 7 (linker) follow. |
+| **In flight** | Nothing. Every branch was deleted after its fast-forward merge (`em/em-211-legacy-facade-on-v3`, `pr5-identity-fix`); the remote carries exactly `main` and `release/2.8.x`. |
+| **Stage** | S2 remainder. EM-211 is a quarter done (its 4 sub-chunks are global Chunks 4–7: reads landed as Chunk 4; writes = 5, mirror = 6, linker = 7 remain), and EM-212's package move is still open with its card blocked on a split. S3 (retrieval v3) starts only after both finish. |
 
 ### Verify before you touch anything
 
@@ -423,7 +425,7 @@ cd ~/Documents/Coding\ Projects/EntropicMem
 git fetch --all --prune && git status -sb && git log --oneline -12
 git ls-remote --heads origin        # expect exactly main + release/2.8.x
 
-# The repo's own pre-flight. Expect 1519 passed, 2 skipped, 4 xfailed (about 5 minutes).
+# The repo's own pre-flight. Expect 1542 passed, 2 skipped, 4 xfailed (about 6 minutes).
 env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_INDEX_DB -u ENTROPICMEM_VAULT_PATH \
   ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1 python3 -m pytest -q
 
@@ -451,14 +453,14 @@ that day, before that day's own memory writes.
 
 ### The expected counts drift, on purpose
 
-The suite total rises with every card: 1462 at Chunk 2's pre-flight, 1495 after the hygiene batch, 1509 after Chunk 3.1, **1519** after Chunk 3.2. Read the expected number from `NEXT_CHUNK.md` §3.0, which is rewritten at the end of each chunk, and **stop and report on a mismatch** instead of assuming the older number is right.
+The suite total rises with every card: 1462 at Chunk 2's pre-flight, 1495 after the hygiene batch, 1509 after Chunk 3.1, 1519 after Chunk 3.2, **1542** after Chunk 4. Read the expected number from `NEXT_CHUNK.md` §3.0, which is rewritten at the end of each chunk, and **stop and report on a mismatch** instead of assuming the older number is right.
 
 Documentation-only commits move the tip SHA without changing code, tests or counts. When they do, `§2` and this table keep the last **code** state, which is why both say "or later"; a later tip that only touched `docs/`, `README.md` or `CHANGELOG.md` is expected.
 
 ### What to do next, in order
 
-1. **Chunk 4, the next piece of development: EM-211's facade reads.** Split it before starting (reads, then writes, then the mirror call, then the linker) and scope only the first split in `NEXT_CHUNK.md` Part B, sized from the code. **Not started** — the owner picks the moment.
-2. **The rest of EM-211, the legacy facade on v3.** It is the last card before the provider can run on v3.
+1. **Chunk 5, the next piece of development: EM-211's facade writes.** Scope is in `NEXT_CHUNK.md` Part B, sized from the code (546 lines of v2 write logic). **Not started** — the owner picks the moment.
+2. **Then Chunks 6 and 7 of EM-211 (the mirror call, then the linker).** EM-211 is the last card before the provider can run on v3; Chunk 4 was only its first quarter. The mirror call must not be pulled forward while the writes are stubs.
 3. **EM-212's package move** can sit beside either one. It is a larger, multi-file card: split it first.
 4. **S3 (retrieval v3)** after the S2 remainder, on the critical path in §6.2: EM-302 → EM-304 → EM-305 → EM-403 → EM-503 → EM-901 → EM-904.
 
