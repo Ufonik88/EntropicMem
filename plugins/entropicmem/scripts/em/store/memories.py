@@ -299,6 +299,22 @@ class MemoryStore:
             dedupe_key=f"embed:{memory_id}:{version}",
         )
 
+    def _enqueue_link(self, memory_id: str) -> None:
+        """Queue an entity-link job (EM-211 chunk 7). Never run the linker
+        inline (§3.3: entity work is slow enough to be a job, and the p95 budget
+        is measured per memory at 10k entities).
+
+        ``dedupe_key`` is one link job per (memory, version), the same rule the
+        embed job follows: a retried write cannot pile up duplicate work, and
+        new content gets its own pass because it is new entity material.
+        """
+        version = self._conn.execute("SELECT version FROM memories WHERE id=?", (memory_id,)).fetchone()[0]
+        JobQueue(self._conn).enqueue(
+            "link",
+            {"memory_id": memory_id, "version": version},
+            dedupe_key=f"link:{memory_id}:{version}",
+        )
+
     def _outbox(self, memory_id: str, op: str, version: int, ts: str, payload: Mapping[str, Any]) -> None:
         """Append to the sync outbox when the memory is publishable.
 
@@ -406,6 +422,7 @@ class MemoryStore:
             session_id=draft.source_session,
         )
         self._enqueue_embed(mid, redacted)
+        self._enqueue_link(mid)
         return WriteResult(ok=True, id=mid, status=status, decision="created", reason_code=reason_code, audit_seq=seq)
 
     def _add_as_pending(
@@ -506,6 +523,7 @@ class MemoryStore:
         new_version = self._conn.execute("SELECT version FROM memories WHERE id=?", (memory_id,)).fetchone()[0]
         if "content" in fields:
             self._enqueue_embed(memory_id, fields["content"])
+            self._enqueue_link(memory_id)
 
         seq = audit_append(
             self._conn, "update", actor, memory_id,
@@ -586,6 +604,11 @@ class MemoryStore:
         self._version_row(
             memory_id, row["content"], status, reason, actor, version=row["version"] + 1
         )
+        if status == "active":
+            # Becoming live is what makes a memory linkable: a row quarantined
+            # at write time had no link job, so promotion queues one now. The
+            # dedupe key makes this harmless if a job for this version exists.
+            self._enqueue_link(memory_id)
         seq = audit_append(self._conn, "set_status", actor, memory_id, {"from": current, "to": status, "reason": reason})
         return WriteResult(ok=True, id=memory_id, status=status, decision="updated", reason_code=reason, audit_seq=seq)
 

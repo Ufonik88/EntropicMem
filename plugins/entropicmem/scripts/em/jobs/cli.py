@@ -11,6 +11,7 @@ import sys
 import time
 from pathlib import Path
 
+from em.formation.entity_linker import make_link_handler
 from em.jobs.worker import HandlerRegistry, JobWorker
 from em.store.backup import BackupManager, make_backup_handler
 from em.store.db import Store, open_db
@@ -24,7 +25,7 @@ _V3_JOB_COLUMNS = frozenset({
     "created_at", "updated_at",
 })
 
-_KNOWN_TYPES = ("backup",)
+_KNOWN_TYPES = ("backup", "link")
 
 
 def run_worker(
@@ -58,6 +59,8 @@ def run_worker(
     registry = HandlerRegistry()
     if "backup" in selected:
         registry.register("backup", make_backup_handler(BackupManager(db_path)))
+    if "link" in selected:
+        registry.register("link", make_link_handler())
 
     store = Store(str(db_path))
     try:

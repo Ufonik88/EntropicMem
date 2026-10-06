@@ -131,11 +131,22 @@ def test_add_enqueues_embed_job_not_an_inline_embedding(mem):
     )
 
 
-def test_repeated_add_does_not_pile_up_embed_jobs(mem):
+def test_repeated_add_does_not_pile_up_jobs(mem):
+    """One add queues one embed and one link job; repeats queue no more.
+
+    Both dedupe keys are (memory, version), so three identical writes converge
+    on one job each instead of three. Asserted per type rather than as a single
+    total, so a future job the write path queues has to be acknowledged here
+    deliberately rather than silently changing the number.
+    """
     r = mem.add(draft(), scope=OWNER, actor="tester")
     mem.add(draft(), scope=OWNER, actor="tester")
     mem.add(draft(), scope=OWNER, actor="tester")
-    assert mem._conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 1
+    counts = {
+        row["type"]: row["n"]
+        for row in mem._conn.execute("SELECT type, COUNT(*) AS n FROM jobs GROUP BY type")
+    }
+    assert counts == {"embed": 1, "link": 1}, counts
     assert mem.get(r.id, scope=OWNER)
 
 
