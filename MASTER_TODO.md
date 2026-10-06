@@ -200,19 +200,26 @@ because it is irreversible or public:
 
 Both are committed and every gate that can run locally is green, but
 `AGENTS.md` rule 1 forbids merging without green CI **on the exact SHA being
-merged**. `gh` on this machine is unauthenticated, so the branch cannot be pushed
-and CI cannot be observed from here. The agent that finishes this must push
-`em/em-211-facade-writes`, wait for green CI on the tip (`9661e6b` or later),
-then fast-forward `main` with `git merge --ff-only` and delete the branch — never
-the GitHub web merge button, which stamps the owner's email on the commit.
+merged**, and no CI has been run for either.
 
-Local green is not CI green. Four jobs exist only in CI and have never run for
-these commits: `windows-import`, `plugin-validate`, `bench`, and
-`identity-guard` (which was run locally and passed, but only as a script). The
-privacy guard could not run at all here, because the private digest list is not
-on this machine — it skips locally and fails in CI when
-`ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` finds no list. Treat that as the one gate
-with a genuinely unverified result.
+**GitHub access is available from this machine** (as of 2026-10-06): the git
+credential helper holds a valid OAuth token for `Ufonik88` with `repo`,
+`workflow`, `user:email` and `read:user` scopes, so `git push` works, and
+`~/.local/bin/ghx` runs the GitHub CLI with that same token. The token is read
+from the macOS keychain on each call and never written to disk — see the wrapper's
+own comments before changing that. The `ENTROPICMEM_PRIVACY_DIGESTS` repository
+secret exists (set 2026-09-26), so CI's privacy guard can run and is not expected
+to trip on a missing list.
+
+So the remaining step is mechanical: push `em/em-211-facade-writes`, wait for
+green CI on the tip (`9661e6b` or later), then fast-forward `main` with
+`git merge --ff-only` and delete the branch — **never** the GitHub web merge
+button, which stamps the owner's email on the commit. Branch protection on `main`
+already forbids force-pushes and deletion, which matches the rules.
+
+Local green is still not CI green: `windows-import`, `plugin-validate`, `bench`
+and `identity-guard` have never run for these commits, and the privacy guard has
+never run against these file changes.
 
 Then, and only then, correct the merge state in three places: the chunk table and
 the In flight section **here**, the "In flight" row in
@@ -244,7 +251,10 @@ Each is a deliberate, recorded decision. The full table with reasons is in
 
 ## Things that will waste your time if you don't know them
 
-- **`gh` is unauthenticated here**, so CI cannot be checked from this machine.
+- **GitHub access is configured from this machine.** `~/.local/bin/ghx` wraps the
+  CLI with a keychain-held token; `git push` uses the same keychain credential.
+  See the access note under [Open blockers](#open-blockers) for what it can and
+  cannot do.
 - **The v2 engine is still the live path.** Editing `em/` changes nothing a user
   sees until the wiring chunk.
 - **`memory_engine.py` is the v2 reference, not a shim yet** (about 3,000 lines;
