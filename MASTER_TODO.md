@@ -14,7 +14,9 @@ points at.
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
 **Last reconciled:** 2026-10-06, against branch `em/em-211-facade-writes` at
-`6bd4b47`. `main` at that moment is `03772e3`.
+`9661e6b` — the docs close-out for Chunk 6, whose code tip is `6bd4b47`. `main`
+at that moment is `03772e3`. A later docs-only commit moving the tip without
+changing code, tests or counts is expected; see plan §11.
 
 ---
 
@@ -82,7 +84,7 @@ read three landed chunks as the card being done.
 
 ### In flight
 
-**Chunks 5 and 6, on the local branch `em/em-211-facade-writes`** — five commits,
+**Chunks 5 and 6, on the local branch `em/em-211-facade-writes`** — six commits,
 all committed with a clean tree:
 
 | Commit | What |
@@ -92,6 +94,7 @@ all committed with a clean tree:
 | `436d360` | `docs`: `MASTER_TODO.md` + the document-control rule and its guard |
 | `81859d0` | `docs`: point the status page at its own merge state |
 | `6bd4b47` | `feat(em-211)`: Chunk 6, `find_mirrored` on both engines |
+| `9661e6b` | `docs`: close out Chunk 6, scope Chunk 7 |
 
 **None is pushed, none is on any remote, and no CI has run for any of them.**
 `origin/main` is still `03772e3`. Merging needs green CI on the exact SHA first
@@ -199,7 +202,7 @@ Both are committed and every gate that can run locally is green, but
 `AGENTS.md` rule 1 forbids merging without green CI **on the exact SHA being
 merged**. `gh` on this machine is unauthenticated, so the branch cannot be pushed
 and CI cannot be observed from here. The agent that finishes this must push
-`em/em-211-facade-writes`, wait for green CI on the tip (`6bd4b47` or later),
+`em/em-211-facade-writes`, wait for green CI on the tip (`9661e6b` or later),
 then fast-forward `main` with `git merge --ff-only` and delete the branch — never
 the GitHub web merge button, which stamps the owner's email on the commit.
 
