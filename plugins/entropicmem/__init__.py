@@ -1170,8 +1170,10 @@ class EntropicMemMemoryProvider(MemoryProvider):
     def _locate_mirror(self, engine, metadata: Dict[str, Any]) -> Optional[str]:
         """EM-110: find the mirror row for a replace/remove.
 
-        Primary: make_id(previous_content). Fallback: substring match of
-        old_text against facts tagged 'mirrored'.
+        Primary: make_id(previous_content). Fallback: a substring match of
+        old_text against memories tagged 'mirrored', which is an engine method
+        on both engines — the provider no longer reads ``engine.db`` directly,
+        so the same call works against the v3 facade (EM-211).
         """
         from memory_engine import StoredFact
 
@@ -1182,14 +1184,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             if fact is not None and "mirrored" in (getattr(fact, "tags", None) or []):
                 return mid
         needle = str(metadata.get("old_text") or "") or previous
-        needle = needle.strip()
-        if needle:
-            rows = engine.db.execute("SELECT id, content, tags FROM facts").fetchall()
-            for fid, row_content, tags in rows:
-                tag_list = [t.strip() for t in (tags or "").split(",")]
-                if "mirrored" in tag_list and needle in (row_content or ""):
-                    return fid
-        return None
+        return engine.find_mirrored(needle)
 
     def on_session_switch(
         self,

@@ -41,6 +41,7 @@ PROVIDER_CALLS: Dict[str, tuple[frozenset[str], frozenset[int]]] = {
         frozenset({"assistant_text", "min_confidence", "promote", "session_id", "source", "user_text"}),
         frozenset({0}),
     ),
+    "find_mirrored": (frozenset(), frozenset({1})),
     "forget": (frozenset({"confirm"}), frozenset({1})),
     "get_fact": (frozenset(), frozenset({1})),
     "next_episode_wave": (frozenset(), frozenset({1})),
@@ -72,12 +73,14 @@ PROVIDER_CALLS: Dict[str, tuple[frozenset[str], frozenset[int]]] = {
     "touch": (frozenset(), frozenset({1})),
 }
 
-#: Engine attributes the provider reads that are not method calls. ``db`` is the
-#: raw v2 ``sqlite3.Connection``: ``_locate_mirror`` runs
-#: ``SELECT id, content, tags FROM facts`` on it. A v3 facade cannot offer a v2
-#: ``facts`` table. Before cutover, this access must be replaced by an engine
-#: method (see ``BEHAVIOURS["mirror-scan"]``) and removed from this set.
-PROVIDER_ATTRIBUTES: frozenset[str] = frozenset({"db"})
+#: Engine attributes the provider reads that are not method calls. Empty since
+#: EM-211's mirror chunk: ``_locate_mirror``'s substring fallback used to read
+#: ``engine.db``, the raw v2 ``sqlite3.Connection``, and run
+#: ``SELECT id, content, tags FROM facts`` on it — which a v3 facade cannot
+#: offer, because there is no ``facts`` table. That scan moved behind
+#: ``find_mirrored`` on both engines, so the provider no longer touches a raw
+#: connection at all and a v3 engine can serve every recorded call.
+PROVIDER_ATTRIBUTES: frozenset[str] = frozenset()
 
 #: Semantics the provider depends on. Keys are stable ids that the parity
 #: scenarios cite.
@@ -115,9 +118,15 @@ BEHAVIOURS: Dict[str, str] = {
         "'with Engine(...) as e:' closes and releases the write lock on exit, even on error."
     ),
     "mirror-scan": (
-        "OPEN (EM-211): _locate_mirror's fallback reads engine.db directly. Add an engine "
-        "method, find_mirrored(needle) -> Optional[str], to BOTH engines, switch the "
-        "provider to it, and drop 'db' from PROVIDER_ATTRIBUTES."
+        "find_mirrored(needle) returns the id of an active memory tagged 'mirrored' "
+        "whose content contains needle, or None. _locate_mirror uses it as the fallback "
+        "when the make_id(previous_content) fast path misses, and feeds the result "
+        "straight into forget(). 'mirrored' is matched as a whole tag, never as a "
+        "substring of one; an empty or whitespace needle matches nothing; and a "
+        "forgotten mirror must not be located, or a replace would resurrect it. On v3 "
+        "the scan is also scope-filtered, so one user cannot locate another user's "
+        "mirror. Both engines implement it, which is what let 'db' leave "
+        "PROVIDER_ATTRIBUTES."
     ),
 }
 
@@ -164,6 +173,7 @@ class LegacyEngine(Protocol):
     ) -> str: ...
 
     def get_fact(self, entropic_id: str) -> Optional[FactView]: ...
+    def find_mirrored(self, needle: Optional[str]) -> Optional[str]: ...
     def forget(self, entropic_id: str, *, confirm: bool = False) -> bool: ...
     def touch(self, fact_ids: Sequence[str]) -> int: ...
     def stats(self) -> dict: ...

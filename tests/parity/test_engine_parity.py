@@ -223,6 +223,73 @@ def test_episode_waves_count_up_from_one(engine):
     assert engine.next_episode_wave(base) == 3
 
 
+# --- mirror scan --------------------------------------------------------------
+
+
+@behaviour("mirror-scan")
+def test_find_mirrored_locates_a_mirror_by_substring(engine):
+    """The provider's replace/remove fallback, on both engines.
+
+    ``_locate_mirror`` used to run this scan itself against ``engine.db`` — the
+    last raw connection read in the provider, and the one thing a v3 facade
+    could not serve. Both engines now answer it identically. The assertion goes
+    through ``get_fact`` rather than comparing the returned id, because the two
+    engines legitimately use different id formats.
+    """
+    content = "Alice Example prefers window seats on flights."
+    engine.remember(content=content, title=content[:60], domain="People",
+                    tags=["mirrored", "user"], source="built_in_memory")
+
+    found = engine.find_mirrored("window seats on flights")
+    assert found is not None, "a substring of a mirrored fact must locate it"
+    assert engine.get_fact(found).content == content
+
+    assert engine.find_mirrored("zzqx not present in any fact") is None
+
+
+@behaviour("mirror-scan")
+def test_find_mirrored_ignores_an_empty_needle(engine):
+    engine.remember(content="Acme ships on Tuesdays.", tags=["mirrored", "user"],
+                    source="built_in_memory")
+    assert engine.find_mirrored("") is None
+    assert engine.find_mirrored("   ") is None
+    assert engine.find_mirrored(None) is None, "the provider passes metadata it may not have"
+
+
+@behaviour("mirror-scan")
+def test_find_mirrored_ignores_a_row_that_is_not_mirrored(engine):
+    """The tag filter is the point: an ordinary fact is not a mirror."""
+    engine.remember(content="Globex keeps its staging cluster in Frankfurt.",
+                    tags=["infrastructure"], source="agent")
+    assert engine.find_mirrored("staging cluster in Frankfurt") is None
+
+
+@behaviour("mirror-scan")
+def test_find_mirrored_ignores_a_forgotten_mirror(engine):
+    """A forgotten mirror must not be located, or a replace would resurrect it."""
+    content = "Initech rotates API credentials every ninety days."
+    mid = engine.remember(content=content, tags=["mirrored", "user"],
+                          source="built_in_memory")
+    assert engine.find_mirrored("rotates API credentials") is not None
+    assert engine.forget(mid, confirm=True) is True
+    assert engine.find_mirrored("rotates API credentials") is None
+
+
+@behaviour("mirror-scan")
+def test_find_mirrored_prefers_nothing_over_a_partial_tag_match(engine):
+    """``mirrored`` is a whole tag, not a substring of one.
+
+    Both engines enforce this at a different layer — v2 splits its CSV tag list,
+    v3 pre-filters on the quoted JSON token ``"mirrored"`` and then checks the
+    parsed list — so the assertion is on the behaviour, not the mechanism. The
+    v3-only layer that the quoted ``LIKE`` cannot cover is pinned separately in
+    ``tests/unit/test_em_facade_engine.py``.
+    """
+    engine.remember(content="Bob Example owns the nightly backup job.",
+                    tags=["mirrored-archive"], source="agent")
+    assert engine.find_mirrored("nightly backup job") is None
+
+
 # --- lifecycle ------------------------------------------------------------
 
 
@@ -257,6 +324,10 @@ def test_extract_and_store_and_prune_pending_are_safe_on_empty_input(engine):
 
 
 def test_every_behaviour_is_covered():
-    open_items = {"mirror-scan"}  # documented as OPEN in BEHAVIOURS until EM-211
+    #: EM-211 Chunk 6 closed the last open behaviour: ``mirror-scan`` now has
+    #: parity scenarios and ``db`` is out of ``PROVIDER_ATTRIBUTES``. An empty
+    #: set is the point — a new open item here means the facade cannot yet serve
+    #: something the provider does, and that is what this test exists to surface.
+    open_items: set[str] = set()
     missing = sorted(set(BEHAVIOURS) - set(COVERED) - open_items)
     assert not missing, f"behaviours with no parity test: {missing}"

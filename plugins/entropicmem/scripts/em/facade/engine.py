@@ -256,6 +256,57 @@ class V3Engine:
             return None
         return _row_to_fact(row)
 
+    def find_mirrored(self, needle: Optional[str]) -> Optional[str]:
+        """EM-110 mirror fallback, v3: the id of an ``active`` mirrored memory.
+
+        The v2 engine owns the same method with the same contract, so the
+        provider's ``_locate_mirror`` can call it without knowing which engine
+        it holds — that is the whole point of moving the scan off ``engine.db``,
+        which was the last raw-connection read the provider made and the one
+        thing this facade could not serve.
+
+        Three filters v2 got for free and v3 has to state, because a forgotten
+        mirror that is still locatable would let a replace resurrect it:
+
+        * ``status='active'``, so a ``deleted`` or ``archived`` row never matches;
+        * the §3.5 scope rule (invariant 5), so one user cannot locate another
+          user's mirror — a profile-wide row stays visible to everyone in the
+          profile, which is what ``_in_scope`` allows;
+        * ``mirrored`` as a whole tag. v3 stores tags as a JSON list, so the SQL
+          ``LIKE`` is only a cheap pre-filter; the parsed list is what decides.
+          The parse also has to insist on a *list*, because ``tags`` holding the
+          JSON scalar ``"mirrored"`` would pass both the ``LIKE`` and a plain
+          ``in`` test on the decoded string.
+
+        The returned id resolves through ``get_fact`` and ``forget``, which is
+        what the provider does with it.
+        """
+        text = (needle or "").strip()
+        if not text:
+            return None
+
+        clauses = ["status='active'", "scope_profile=?", "tags LIKE ?"]
+        params: List[Any] = [self.scope.profile, '%"mirrored"%']
+        if self.scope.user:
+            clauses.append("(scope_user=? OR scope_user='')")
+            params.extend([self.scope.user])
+
+        rows = self._reader().execute(
+            f"SELECT id, content, tags FROM memories WHERE {' AND '.join(clauses)}"
+            " ORDER BY rid",
+            params,
+        ).fetchall()
+        for row in rows:
+            try:
+                tag_list = json.loads(row["tags"] or "[]")
+            except (TypeError, ValueError):
+                tag_list = []
+            if not isinstance(tag_list, list):
+                tag_list = []
+            if "mirrored" in tag_list and text in (row["content"] or ""):
+                return row["id"]
+        return None
+
     def stats(self) -> dict:
         conn = self._reader()
         count = conn.execute(

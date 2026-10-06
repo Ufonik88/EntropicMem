@@ -253,7 +253,88 @@ def test_next_episode_wave_counts_up_from_existing_legacy_wave_ids(engine):
     assert engine.next_episode_wave("ep_sess_other") == 1
 
 
-# --- write stubs ---------------------------------------------------------------
+# --- find_mirrored: the v3-specific rules ---------------------------------------
+#
+# The cross-engine behaviour (substring match, the tag filter, the empty needle,
+# a forgotten row) is pinned in tests/parity/test_engine_parity.py under the
+# ``mirror-scan`` behaviour. What only v3 can get wrong is scope (invariant 5)
+# and the §3.4 status filter, so those live here.
+
+
+def test_find_mirrored_does_not_cross_a_scope_boundary(tmp_path):
+    alice = V3Engine(tmp_path / "memory.db", scope_user="alice")
+    bob = V3Engine(tmp_path / "memory.db", scope_user="bob")
+    try:
+        alice.remember(content="Alice Example prefers window seats on flights.",
+                       tags=["mirrored", "user"], source="built_in_memory")
+        assert alice.find_mirrored("window seats on flights") is not None
+        assert bob.find_mirrored("window seats on flights") is None, (
+            "one user's mirror must not be located through another user's scope"
+        )
+    finally:
+        alice.close()
+        bob.close()
+
+
+def test_find_mirrored_sees_a_profile_wide_mirror_from_any_scope(tmp_path):
+    """§3.5's minimum viable read rule: a profile-wide row is visible to a user."""
+    owner = V3Engine(tmp_path / "memory.db")
+    guest = V3Engine(tmp_path / "memory.db", scope_user="alice")
+    try:
+        owner.remember(content="Globex keeps its staging cluster in Frankfurt.",
+                       tags=["mirrored", "user"], source="built_in_memory")
+        assert owner.find_mirrored("staging cluster in Frankfurt") is not None
+        assert guest.find_mirrored("staging cluster in Frankfurt") is not None
+    finally:
+        owner.close()
+        guest.close()
+
+
+def test_find_mirrored_ignores_an_archived_mirror(engine):
+    mid = engine.remember(content="Initech rotated credentials in 2025.",
+                          tags=["mirrored", "user"], source="built_in_memory")
+    assert engine.find_mirrored("rotated credentials") is not None
+    with engine.store.transaction() as conn:
+        MemoryStore(conn).set_status(mid, "archived", actor="unit-test",
+                                     reason="consolidate")
+    assert engine.find_mirrored("rotated credentials") is None, (
+        "only an active mirror is locatable; an archived one is out of the live set"
+    )
+
+
+def test_find_mirrored_needs_a_parsable_tag_list(engine):
+    """The SQL ``LIKE`` is only a pre-filter; the parsed list decides.
+
+    Both of these rows match ``tags LIKE '%"mirrored"%'``, so without the parse
+    step the scan would call them mirrors. One cannot be parsed at all and the
+    other decodes to a bare string, where ``"mirrored" in "mirrored"`` is a
+    substring test rather than a membership test.
+    """
+    mid = engine.remember(content="Acme ships on Tuesdays.", tags=["mirrored"],
+                          source="built_in_memory")
+    assert engine.find_mirrored("ships on Tuesdays") is not None
+
+    for malformed in ('["a","mirrored","b"', '"mirrored"'):
+        with engine.store.transaction() as conn:
+            conn.execute("UPDATE memories SET tags=? WHERE id=?", (malformed, mid))
+        assert engine.find_mirrored("ships on Tuesdays") is None, (
+            f"tags={malformed!r} matched the pre-filter but is not a tag list"
+        )
+
+
+def test_find_mirrored_returns_an_id_the_engine_can_act_on(engine):
+    """The provider feeds the result straight into forget(); it must resolve."""
+    content = "Bob Example owns the nightly backup verification job."
+    engine.remember(content=content, tags=["mirrored", "user"],
+                    source="built_in_memory")
+    found = engine.find_mirrored("nightly backup verification")
+    assert found
+    assert engine.get_fact(found) is not None
+    assert engine.forget(found, confirm=True) is True
+    assert engine.find_mirrored("nightly backup verification") is None
+
+
+# --- write methods --------------------------------------------------------------
 
 
 def test_write_methods_keep_their_shapes(engine):

@@ -1778,6 +1778,28 @@ class MemoryEngine:
         row = self.db.execute("SELECT * FROM facts WHERE id = ?", (entropic_id,)).fetchone()
         return self._row_to_fact(row) if row else None
 
+    def find_mirrored(self, needle: Optional[str]) -> Optional[str]:
+        """EM-110 mirror fallback: the id of a ``mirrored`` fact containing ``needle``.
+
+        The provider's ``_locate_mirror`` used to run this scan itself against
+        ``engine.db``. That was the last raw-connection read in the provider and
+        the one thing a v3 facade could not serve, so the scan moved behind this
+        method and ``em.facade.engine.V3Engine`` implements the same contract.
+
+        ``mirrored`` is matched as a whole tag, never as a substring of one, so
+        a ``mirrored-archive`` tag does not qualify. Returns ``None`` for an
+        empty needle rather than matching every row.
+        """
+        text = (needle or "").strip()
+        if not text:
+            return None
+        rows = self.db.execute("SELECT id, content, tags FROM facts").fetchall()
+        for fid, content, tags in rows:
+            tag_list = [t.strip() for t in (tags or "").split(",")]
+            if "mirrored" in tag_list and text in (content or ""):
+                return fid
+        return None
+
     def list_facts(
         self,
         domain: Optional[str] = None,
