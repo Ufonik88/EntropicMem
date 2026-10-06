@@ -672,6 +672,48 @@ def test_consolidate_archives_lowest_importance_first(engine):
     assert order == sorted(order), "lowest importance first, oldest first within a tier"
 
 
+def test_consolidate_does_not_borrow_the_v2_timestamp_parser(engine, monkeypatch):
+    """Python 3.10 regression: the facade must parse its own ``Z`` timestamps.
+
+    v3 writes ``...Z`` via ``em.clock.to_iso``, and Python 3.10's
+    ``datetime.fromisoformat`` rejects that suffix, so v2's ``_parse_ts``
+    returns ``None`` for every v3 timestamp on 3.10. The facade used to borrow
+    it, which made ``consolidate`` silently archive nothing there — a failure
+    that only the 3.10 CI leg could see. Simulating the parser's 3.10 behaviour
+    means every interpreter catches the regression, locally included.
+    """
+    import memory_engine
+
+    monkeypatch.setattr(memory_engine, "_parse_ts", lambda stamp: None)
+    mid = _old(engine, "Acme used a legacy deploy script.")
+    report = engine.consolidate(max_age_days=90, dry_run=True, confirm=False)
+    assert [c["id"] for c in report["candidates"]] == [mid], (
+        "the facade parsed no timestamp, so the year-old row looked recent"
+    )
+
+
+def test_recall_decay_does_not_borrow_the_v2_timestamp_parser(engine, monkeypatch):
+    """The other half of the same bug: unparsed timestamps mean no decay.
+
+    ``_decay_factor`` fed ``_parse_ts`` to ``max(updated_at, last_accessed)``;
+    with every stamp unparseable it took the ``not stamps`` branch and returned
+    1.0, so decay never applied on 3.10.
+    """
+    import memory_engine
+
+    monkeypatch.setattr(memory_engine, "_parse_ts", lambda stamp: None)
+    with freeze(utc_now().replace(year=utc_now().year - 1)):
+        engine.remember(content="Acme used a legacy deploy script.", importance=0.5)
+
+    results = engine.recall_with_relevance("legacy deploy script", top_k=5,
+                                           min_relevance=0.0)
+    assert results
+    assert results[0].decay_score < 1.0, (
+        "an old, low-importance, non-evergreen v3 row must decay; 1.0 means the "
+        "timestamp could not be parsed"
+    )
+
+
 def test_consolidate_writes_audit_rows(engine):
     _old(engine, "Acme used a legacy deploy script.")
     engine.consolidate(max_age_days=90, dry_run=False, confirm=True)

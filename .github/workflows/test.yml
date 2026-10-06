@@ -9,6 +9,13 @@ jobs:
         python-version: ['3.10', '3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Not the default shallow clone: tests/test_master_todo.py resolves the
+          # commit MASTER_TODO.md says it was reconciled against and asserts it
+          # is a real ancestor of HEAD. fetch-depth: 1 leaves only the tip, so
+          # that check cannot run — it failed on every Python leg when the doc
+          # guard first landed. Same reason identity-guard fetches full history.
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}

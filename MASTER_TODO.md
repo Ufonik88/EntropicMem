@@ -96,14 +96,17 @@ all committed with a clean tree:
 | `6bd4b47` | `feat(em-211)`: Chunk 6, `find_mirrored` on both engines |
 | `9661e6b` | `docs`: close out Chunk 6, scope Chunk 7 |
 
-**None is pushed, none is on any remote, and no CI has run for any of them.**
-`origin/main` is still `03772e3`. Merging needs green CI on the exact SHA first
-([AGENTS.md](AGENTS.md) rule 1) — see [Open blockers](#open-blockers).
+**Pushed 2026-10-06.** The first CI run was **red**, and it was right to be:
 
-Every gate has been run locally and is green, but local green is not CI green:
-the `windows-import`, `plugin-validate`, `bench` and `identity-guard` jobs only
-exist in CI, and the privacy guard cannot run here at all because the private
-digest list is not on this machine.
+| Leg | What failed | Why local green missed it |
+|---|---|---|
+| `test (3.10)` | 5 consolidate tests | The facade borrowed v2's timestamp parser; Python 3.10 rejects the `Z` suffix v3 writes. Local interpreter is 3.12. |
+| `test (3.10–3.13)` | `tests/test_master_todo.py` | CI checked out shallow, so the guard could not resolve its recorded SHA. |
+
+Both are fixed in the commit that follows, with regression tests and a CI
+checkout fix. Every other job passed on the first run, including `windows-import`,
+`identity-guard`, `evals-ci`, `bench` and `lint`. `origin/main` is still
+`03772e3` until the fix is green.
 
 ---
 
@@ -162,7 +165,7 @@ Then, in order:
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1624 passed / 3 skipped / 4 xfailed** |
+| Tests | `python -m pytest -q` | **1626 passed / 3 skipped / 4 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
@@ -172,8 +175,15 @@ Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
 `ENTROPICMEM_INDEX_DB` unset. **The skip count is 3 on a machine without the
 private digest list and 2 with it** — read the pair, not either number alone.
 The total rises with every card; the expected figure is in
-[NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md) §6.0, and a mismatch means stop and
-report, not "assume the older number is right".
+[NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md)'s pre-flight, and a mismatch means stop
+and report, not "assume the older number is right".
+
+**Run the suite on Python 3.10 as well as your default interpreter**, at least
+when you touch `em/`. CI's floor is 3.10 and the two are not interchangeable:
+a 3.12-only local run passed while `em/facade/engine.py` could not parse its own
+`Z`-suffixed timestamps on 3.10, which silently disabled `consolidate` and decay.
+`uv python install 3.10` and a second venv is enough to catch that class. A bug
+that only shows on the CI floor is exactly the kind local green cannot rule out.
 
 Two gates have flapped on unchanged code before (`perf-smoke` once, the v3
 concurrency AC test once). The way to tell a flake from a regression is a rerun

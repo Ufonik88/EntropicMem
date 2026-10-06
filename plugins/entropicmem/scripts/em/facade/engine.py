@@ -84,7 +84,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from ..clock import to_iso, utc_now
+from ..clock import parse_iso, to_iso, utc_now
 from ..store.audit import append as audit_append
 from ..store.backup import BackupManager
 from ..store.db import Store
@@ -183,6 +183,26 @@ def _row_to_fact(row: Dict[str, Any]) -> Any:
     )
 
 
+def _parse_ts(stamp: Optional[str]) -> Optional[datetime]:
+    """Parse a v3 timestamp, or ``None`` if it is missing or malformed.
+
+    The facade must **not** borrow v2's ``_parse_ts``. v3 timestamps are written
+    by :func:`em.clock.to_iso` with a trailing ``Z``, and Python 3.10's
+    ``datetime.fromisoformat`` rejects that suffix — so on 3.10 v2's parser
+    returns ``None`` for every v3 timestamp. That silently made ``consolidate``
+    archive nothing (every row looked unparseable, so never old enough) and
+    ``_decay_factor`` return 1.0 for everything. ``em.clock.parse_iso``
+    normalises the suffix on purpose and is the v3 layer's own parser; this is
+    the None-safe wrapper the scoring and consolidation paths need.
+    """
+    if not stamp:
+        return None
+    try:
+        return parse_iso(stamp)
+    except (TypeError, ValueError):
+        return None
+
+
 def _decay_factor(
     fact: Any,
     now_ts: datetime,
@@ -198,7 +218,7 @@ def _decay_factor(
         or "pinned" in (fact.tags or [])
     ):
         return 1.0
-    parse = _v2()._parse_ts
+    parse = _parse_ts
     stamps = [s for s in (parse(fact.updated_at), parse(fact.last_accessed)) if s]
     if not stamps:
         return 1.0
@@ -862,7 +882,7 @@ class V3Engine:
         if (row.get("access_count") or 0) > min_access_count:
             return None
 
-        parse = _v2()._parse_ts
+        parse = _parse_ts
         stamps = [
             s for s in (parse(row.get("updated_at") or ""),
                         parse(row.get("last_accessed_at") or ""))

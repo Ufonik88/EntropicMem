@@ -100,7 +100,7 @@
 
 ### 7.0 Pre-flight (read-only)
 1. `main` must contain Chunk 6 (`6bd4b47`) once Chunks 5 and 6 are merged. **They are not merged yet** — see `MASTER_TODO.md`. If this chunk starts before that merge, it stacks on the same branch and says so.
-2. **Baseline:** `env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_VAULT_PATH -u ENTROPICMEM_INDEX_DB python3 -m pytest -q` gives **1624 passed, 3 skipped, 4 xfailed** (2 skipped instead of 3 where the private digest list exists — read the pair, see plan §11). `ruff check .` clean under the CI pin `ruff==0.16.2`.
+2. **Baseline:** `env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_VAULT_PATH -u ENTROPICMEM_INDEX_DB python3 -m pytest -q` gives **1626 passed, 3 skipped, 4 xfailed** on both Python 3.10 and 3.12 (2 skipped instead of 3 where the private digest list exists — read the pair, see plan §11). `ruff check .` clean under the CI pin `ruff==0.16.2`.
 3. **Re-measure from the code before writing a test.** Read `em/formation/entity_linker.py`, `EntityStore.link`, the `embed` enqueue in `em/store/memories.py` (the pattern to copy), `em/jobs/cli.py`'s registration, the job-type recipe in `docs/V3_FOUNDATIONS.md`, and `_in_scope`.
 
 ### 7.0a Document control (do this before and after the chunk)
