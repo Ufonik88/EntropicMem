@@ -33,9 +33,11 @@ Beside the 2.8.x provider above, `main` carries the 3.0 development line
 (`3.0.0.dev0`): a second, stdlib-only package under
 `plugins/entropicmem/scripts/em/`, with its own schema and migrations. **Nothing
 in it is wired into the plugin yet** — the provider still runs the engine in the
-component map above, and the wiring is EM-211 (a legacy facade over
-`em.store`). Every module is listed in `[tool.setuptools] packages`, and
-`em.__version__` is the single version source for the whole repo.
+component map above. The wiring is EM-211 (a legacy facade over `em.store`),
+whose facade `V3Engine` now implements the whole provider-facing contract; what
+remains is the entity-linker job and then switching the provider over. Every
+module is listed in `[tool.setuptools] packages`, and `em.__version__` is the
+single version source for the whole repo.
 
 | Module | What it holds |
 |--------|---------------|
@@ -52,7 +54,8 @@ component map above, and the wiring is EM-211 (a legacy facade over
 | `em.jobs.worker` | `JobWorker` + `HandlerRegistry`: claim, run outside the write transaction (invariant 2), lease heartbeat, retry with backoff |
 | `em.jobs.cli` | `entropicmem worker run`: the job entry point a cron can call |
 | `em.formation.entity_linker` | The two-sighting linker, meant to run as a job (`link:<memory_id>:<version>`), never inside a write |
-| `em.facade.contract` | The provider contract derived by AST scan over the provider source; `tests/parity/` is its gate |
+| `em.facade.contract` | The provider contract derived by AST scan over the provider source; `tests/parity/` is its gate. `PROVIDER_ATTRIBUTES` is empty, so the provider reaches the engine only through methods both engines implement |
+| `em.facade.engine` | `V3Engine`: the whole `LegacyEngine` API over `em.store` — reads, writes and the mirror call. Complete as a library, **not wired in**; see the facade rules in [`V3_FOUNDATIONS.md`](V3_FOUNDATIONS.md) |
 
 The ten invariants in [`V3_FOUNDATIONS.md`](V3_FOUNDATIONS.md) are the rules for
 this package: transactions belong to the caller, no slow work inside a write

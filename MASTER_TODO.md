@@ -14,7 +14,7 @@ points at.
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
 **Last reconciled:** 2026-10-06, against branch `em/em-211-facade-writes` at
-`436d360`. `main` at that moment is `03772e3`.
+`6bd4b47`. `main` at that moment is `03772e3`.
 
 ---
 
@@ -67,31 +67,40 @@ means one thing:
 
 | Chunk | What | State |
 |---|---|---|
-| 4 | Facade **reads** over `em.store` | **Done** (`0349b7b4b`, 2026-10-03) |
-| 5 | Facade **writes** over `em.store` | **Done** (`36355f3`, 2026-10-06) — committed, **not merged** |
-| 6 | Facade **mirror call** | Next |
-| 7 | Facade **`EntityLinker` job** | After 6 |
+| 4 | Facade **reads** over `em.store` | **Done** (`0349b7b4b`, 2026-10-03, merged) |
+| 5 | Facade **writes** over `em.store` | **Done** (`36355f3`) — committed, **not merged** |
+| 6 | Facade **mirror call** | **Done** (`6bd4b47`) — committed, **not merged** |
+| 7 | Facade **`EntityLinker` job** | Next |
 
 **EM-211's acceptance criterion is not met and S2's exit criteria still fail.**
-The reason is the same after Chunks 4 and 5: the facade is complete as a
-*library* but nothing is wired into the provider, so "full legacy test suite
-green on a v3 DB" cannot be claimed yet. Do not read the two landed chunks as
-the card being done.
+The reason has been the same after every chunk so far: the facade is complete as
+a *library* but nothing is wired into the provider, so "full legacy test suite
+green on a v3 DB" cannot be claimed yet. Chunk 6 narrowed that gap — the provider
+no longer reads a raw connection, so it now talks to the engine only through
+methods both engines implement — but it still constructs `MemoryEngine`. Do not
+read three landed chunks as the card being done.
 
 ### In flight
 
-**Chunk 5, on the local branch `em/em-211-facade-writes`:**
+**Chunks 5 and 6, on the local branch `em/em-211-facade-writes`** — five commits,
+all committed with a clean tree:
 
 | Commit | What |
 |---|---|
-| `36355f3` | `feat(em-211)`: the seven `NotImplementedError` stubs become real write paths |
+| `36355f3` | `feat(em-211)`: Chunk 5, the seven write stubs become real write paths |
 | `d055b74` | `docs`: close out Chunk 5, scope Chunk 6 |
 | `436d360` | `docs`: `MASTER_TODO.md` + the document-control rule and its guard |
+| `81859d0` | `docs`: point the status page at its own merge state |
+| `6bd4b47` | `feat(em-211)`: Chunk 6, `find_mirrored` on both engines |
 
-All three are committed and the tree is clean. **None is pushed, none is on any
-remote, and no CI has run for any of them.** `origin/main` is still `03772e3`.
-Merging needs green CI on the exact SHA first ([AGENTS.md](AGENTS.md) rule 1) —
-see [Open blockers](#open-blockers).
+**None is pushed, none is on any remote, and no CI has run for any of them.**
+`origin/main` is still `03772e3`. Merging needs green CI on the exact SHA first
+([AGENTS.md](AGENTS.md) rule 1) — see [Open blockers](#open-blockers).
+
+Every gate has been run locally and is green, but local green is not CI green:
+the `windows-import`, `plugin-validate`, `bench` and `identity-guard` jobs only
+exist in CI, and the privacy guard cannot run here at all because the private
+digest list is not on this machine.
 
 ---
 
@@ -108,7 +117,9 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 - **EM-210 closed in two chunks:** `snapshot()` covers both databases, and
   `snapshot_if_due()` throttles destructive callers to one snapshot per reason
   per hour. Retention settled at 7 routine + 5 safety.
-- **EM-211 Chunks 4 and 5**: the facade's read half, then its write half.
+- **EM-211 Chunks 4, 5 and 6**: the facade's read half, its write half, and the
+  mirror call. `PROVIDER_ATTRIBUTES` is now empty, so the provider reaches the
+  engine only through methods both engines implement.
 - **EM-212 partially done**: `_backend` loads its own `vault.py` by path. The
   package move is still open.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
@@ -122,23 +133,20 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-**Chunk 6 — EM-211's mirror call.** One method, three pieces of bookkeeping:
+**Chunk 7 — the `EntityLinker` job.** The last piece of EM-211:
 
-1. Add `find_mirrored(needle) -> Optional[str]` to **both** the v2 engine and
-   `V3Engine`, with matching semantics.
-2. Switch `_locate_mirror` in `plugins/entropicmem/__init__.py` to call it. It
-   currently runs a raw `SELECT ... FROM facts` against `engine.db`, which a v3
-   facade cannot serve — this is the last thing in the provider that only v2 can.
-3. Record it in `PROVIDER_CALLS`, drop `db` from `PROVIDER_ATTRIBUTES`, and close
-   `BEHAVIOURS["mirror-scan"]` — the last open behaviour in that dict. Closing it
-   empties `open_items` in the coverage test, and **that is the chunk's exit
-   signal.**
+1. Run `EntityLinker` from a `link:<memory_id>:<version>` job, enqueued on write
+   and handled by the worker — **never inside `MemoryStore.add`**, which would
+   put entity work inside a write transaction (invariant 2).
+2. Bring the §3.5 owner-only rule for sensitive rows with it. That needs the
+   gateway identity, and it is the read-side scope gap that has been deferred
+   since Chunk 4: `get_fact` and recall still read profile-wide.
+3. Closing it means EM-211's four chunks are all done — but the card's AC still
+   needs the **wiring** chunk, which switches the provider onto the facade. That
+   is a separate decision and is not scheduled.
 
 Then, in order:
 
-- **Chunk 7 — the `EntityLinker` job** (`link:<memory_id>:<version>`), never
-  inside `MemoryStore.add`. This completes EM-211 and brings the §3.5 owner-only
-  rule for sensitive rows with it, which needs the gateway identity.
 - **EM-212's package move.** Split it first; it is multi-file. Pinned by a strict
   xfail that flips when it lands.
 - **Wiring, and only then the v3 cutover.** Owner-gated, needs the owner present.
@@ -151,7 +159,7 @@ Then, in order:
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1609 passed / 3 skipped / 4 xfailed** |
+| Tests | `python -m pytest -q` | **1624 passed / 3 skipped / 4 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
@@ -183,21 +191,29 @@ because it is irreversible or public:
 - **The tool rename** `entropicmem_patch_core` →
   `entropicmem_patch_core_memory`, which ships only with a release that re-pins
   the catalog.
-- **Merging Chunk 5**, which needs green CI on `36355f3`/`d055b74` — see below.
+- **Merging Chunks 5 and 6**, which needs green CI on `6bd4b47` — see below.
 
-### Why Chunk 5 is not merged
+### Why Chunks 5 and 6 are not merged
 
-It is committed and every local gate is green, but `AGENTS.md` rule 1 forbids
-merging without green CI **on the exact SHA being merged**. `gh` on this machine
-is unauthenticated, so the branch cannot be pushed and CI cannot be observed
-from here. The agent that finishes this must push
-`em/em-211-facade-writes`, wait for green CI on `436d360`, then fast-forward
-`main` with `git merge --ff-only` and delete the branch — never the GitHub web
-merge button, which stamps the owner's email on the commit.
+Both are committed and every gate that can run locally is green, but
+`AGENTS.md` rule 1 forbids merging without green CI **on the exact SHA being
+merged**. `gh` on this machine is unauthenticated, so the branch cannot be pushed
+and CI cannot be observed from here. The agent that finishes this must push
+`em/em-211-facade-writes`, wait for green CI on the tip (`6bd4b47` or later),
+then fast-forward `main` with `git merge --ff-only` and delete the branch — never
+the GitHub web merge button, which stamps the owner's email on the commit.
 
-Then, and only then, correct the merge state in three places: the chunk table
-and the In flight section **here**, the "In flight" row in
-[plan §11](docs/plan/REMAINING_PLAN.md), and the Part A heading in
+Local green is not CI green. Four jobs exist only in CI and have never run for
+these commits: `windows-import`, `plugin-validate`, `bench`, and
+`identity-guard` (which was run locally and passed, but only as a script). The
+privacy guard could not run at all here, because the private digest list is not
+on this machine — it skips locally and fails in CI when
+`ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` finds no list. Treat that as the one gate
+with a genuinely unverified result.
+
+Then, and only then, correct the merge state in three places: the chunk table and
+the In flight section **here**, the "In flight" row in
+[plan §11](docs/plan/REMAINING_PLAN.md), and the Part A headings in
 [NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md). Until that is done, "committed, not
 merged" is the accurate description and the guard will keep enforcing it.
 
@@ -228,7 +244,8 @@ Each is a deliberate, recorded decision. The full table with reasons is in
 - **`gh` is unauthenticated here**, so CI cannot be checked from this machine.
 - **The v2 engine is still the live path.** Editing `em/` changes nothing a user
   sees until the wiring chunk.
-- **`memory_engine.py` is 2995 lines and is the reference**, not a shim yet. At
+- **`memory_engine.py` is the v2 reference, not a shim yet** (about 3,000 lines;
+  don't trust a line number quoted anywhere). At
   3.0 it becomes a shim over the facade — which is why the facade imports v2's
   helpers *lazily*; a module-level import would be a cycle at that point.
 - **There is no live store data to read on this machine.** `~/.hermes/entropicmem/memory.db`

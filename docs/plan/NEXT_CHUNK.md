@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-06, Chunk 5 committed (not yet merged); **Chunk 6 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-06, Chunks 5 and 6 committed (not yet merged); **Chunk 7 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
@@ -50,63 +50,81 @@
 
 - `entropicmem worker run` (EM-209's missing CLI), plus the EM-209/EM-210 deviation record; 1467 passed / 2 skipped / 4 xfailed at the time.
 
-**The EM-210 gaps are both closed. EM-211 is half done (reads and writes).** Feature work stays stopped until the owner starts Chunk 6.
+### Chunk 6 — EM-211's mirror call. **DONE, COMMITTED, NOT MERGED (2026-10-06, `6bd4b47`)**
+
+- `feat(em-211): find_mirrored on both engines; the provider stops reading engine.db (Chunk 6)`: `_locate_mirror` ran `SELECT id, content, tags FROM facts` against `engine.db` — the provider's last raw-connection read, and the one thing a v3 facade could not serve. Both engines now answer `find_mirrored(needle) -> Optional[str]`, the provider calls that, and **`PROVIDER_ATTRIBUTES` is empty**.
+- `BEHAVIOURS["mirror-scan"]` moves from the last OPEN item to a cited behaviour with five parity scenarios, and `open_items` in `test_every_behaviour_is_covered` is now an empty set — the exit signal the plan named.
+- v2's implementation is the scan that was in the provider, moved behind a method. v3's adds the three filters v2 got for free: `status='active'` (a forgotten mirror must not be locatable, or a replace resurrects it), the §3.5 scope rule (invariant 5), and `mirrored` as a whole tag — where the quoted JSON `LIKE` is only a pre-filter and the **parsed list** decides, and the parse must insist on a list because the JSON scalar `"mirrored"` would pass both.
+- The `make_id(previous_content)` fast path is unchanged; only the substring fallback moved. The facade is still **not wired into the provider**.
+- 15 new tests (5 parity scenarios × 2 engines, 5 v3 unit). Nine mutation checks, each red for the right reason with the tree restored byte-identical.
+- **One escaped mutation was worth keeping.** Dropping v3's whole-tag check stayed green, because the quoted pre-filter already excludes `mirrored-archive` — so the parity test was passing for a reason other than the code it claimed to cover. The layer the pre-filter cannot reach (an unparsable or scalar `tags` value) is now pinned separately in `tests/unit/test_em_facade_engine.py`, and that mutation is caught.
+- Gates: **1624 passed / 3 skipped / 4 xfailed**, `ruff==0.16.2` clean, eval gate vs `v2.8.0-ci.json` with no gated metric regressed, `perf-smoke` warm p95 3.666 ms against the unchanged 20 ms budget, `tests/unit` green standalone for `windows-import`.
+- **Not merged.** Same blocker as Chunk 5: the branch is unpushed and no CI has run for it, so `origin/main` is still `03772e3`.
+
+**The EM-210 gaps are both closed. EM-211 is three quarters done (reads, writes, mirror).** Feature work stays stopped until the owner starts Chunk 7.
 
 ---
 
-## Part B: Chunk 6 — EM-211's mirror call. **NEXT PIECE, NOT STARTED**
+## Part B: Chunk 7 — the `EntityLinker` job. **NEXT PIECE, NOT STARTED**
 
-**Topic:** the third quarter of EM-211: the one raw database access the provider still makes.
+**Topic:** the last quarter of EM-211 — entity linking off the write path, and with it the §3.5 owner-only rule.
 
-**Why this chunk.** `_locate_mirror` in `plugins/entropicmem/__init__.py` runs a literal `SELECT id, content, tags FROM facts` against `engine.db`, the v2 engine's raw `sqlite3.Connection`. A v3 facade cannot offer a `facts` table, so this is the **last thing in the provider that a v3 engine cannot serve**. It is also recorded as an open behaviour:
+**Why this chunk.** Chunks 4–6 made the facade complete enough to serve every call the provider makes, and `PROVIDER_ATTRIBUTES` is now empty. What the facade still does not do is the work v2 did inline: binding a memory to entities. On v3 that must be a job, because entity work inside `MemoryStore.add` would be slow work inside a write transaction (invariant 2). This chunk is also where the read-side scope gap that has been deferred since Chunk 4 finally gets closed, because the linker is the first thing that needs to know whose row it is looking at.
 
-> `BEHAVIOURS["mirror-scan"]`: OPEN (EM-211): `_locate_mirror`'s fallback reads `engine.db` directly. Add an engine method, `find_mirrored(needle) -> Optional[str]`, to BOTH engines, switch the provider to it, and drop `'db'` from `PROVIDER_ATTRIBUTES`.
+**What already exists (measured from the code, so the chunk is not re-derived).**
 
-**In scope for Chunk 6.**
-- Add `find_mirrored(needle) -> Optional[str]` to **both** `memory_engine.MemoryEngine` (v2) and `em.facade.engine.V3Engine`, with matching semantics. The parity suite is the arbiter.
-- Switch `_locate_mirror` to call it. The `StoredFact.make_id(previous_content)` fast path already goes through `get_fact` and is **unchanged** — only the substring fallback moves.
-- Record `find_mirrored` in `PROVIDER_CALLS` and drop `db` from `PROVIDER_ATTRIBUTES`. **Both** halves matter: the contract test re-derives `PROVIDER_CALLS` from the provider's source by AST scan, so it will fail until the method is listed, and it separately asserts every registered engine accepts every recorded call.
-- Move `BEHAVIOURS["mirror-scan"]` from an open item to a cited behaviour with a parity test, and remove `mirror-scan` from `open_items` in `test_every_behaviour_is_covered`. **That last one is the chunk's exit signal: no open items left.**
-- v3 semantics to decide and record: the fallback matches `old_text` as a substring against mirrored rows. On v3 that means `content LIKE '%needle%'` over `memories` **scoped** (invariant 5) and filtered to `status='active'`, with the `mirrored` tag as v2 requires. A deleted row must not match — the provider's replace/remove path would otherwise locate a forgotten mirror.
+| Piece | Where | State |
+|---|---|---|
+| `EntityLinker(conn, scope).link(memory) -> list[str]` | `em/formation/entity_linker.py` | **Exists**, 57 lines, a thin wrapper over `EntityStore.link` |
+| `EntityStore.link(memory_id, content, *, scope)` | `em/store/entities.py` | Exists; two-sighting promotion, aliases, relations |
+| `EntityStore.forget_sightings(memory_id, *, profile)` | same | Exists, and `MemoryStore.purge` already calls it — invariant 6 is satisfied |
+| `link:<memory_id>:<version>` enqueued on write | `em/store/memories.py` | **Missing.** `_add_as_live` enqueues only `embed:<id>:<version>` |
+| A registered `link` handler | `em/jobs/cli.py` | **Missing.** Only `backup` is registered (`registry.register("backup", …)`) |
+| §3.5 owner-only read for sensitive rows | `em/store/memories.py` `_in_scope` | **Missing by design** — its own docstring says the rule "lands with the facade (EM-211), which knows the gateway identity" |
 
-**Out of scope.**
-- **Any provider wiring beyond this one call.** The facade stays unwired; the provider still constructs `MemoryEngine`.
-- The `EntityLinker` job and the §3.5 owner-only rule — that is Chunk 7.
-- EM-212's package move, S3 and later, the v3 cutover, releases, tags, the catalog, the tool rename.
-- Any schema change or new migration; `0001`–`0003` stay untouched.
-- Anything touching `~/.hermes/entropicmem*`.
+`Scope` already carries `is_owner: bool = True` and an `author` field, so the identity the owner-only rule needs is on the type; nothing has to be invented.
+
+**In scope for Chunk 7.**
+- Enqueue `link:<memory_id>:<version>` from the write path, next to the existing `embed` enqueue, and never run the linker inside the transaction.
+- A `make_link_handler(...)` following the recipe in `docs/V3_FOUNDATIONS.md` ("Add a job type"): idempotent because delivery is at-least-once, its own short transactions via `ctx.store.transaction()`, `PermanentJobError` for a memory that no longer exists, content kept out of exception messages.
+- Register it in `em/jobs/cli.py` beside `backup`, so `entropicmem worker run` picks it up. Note the CLI's documented-command count is pinned by `tests/test_cli_reference_drift.py` — only add a documented command if one is genuinely new.
+- The §3.5 owner-only rule for sensitive rows: a `sensitive`/`secret` memory is readable only by its owner, with `_in_scope` as the single place that decides, plus a truth-table unit test (invariant 5 says every read is scoped).
+- Apply that rule to the facade's reads, which currently read profile-wide: `get_fact`, `recall_with_relevance`, `_like_fallback` and `find_mirrored`.
+
+**Size guard — split if this grows.** The link job is small and mechanical (the linker already exists; the work is enqueue + handler + registration). The owner-only rule is the risk: it touches every read path, needs a gateway identity threaded from the provider into `Scope`, and a wrong answer there is a privacy leak rather than a bug. **If the chunk starts to need provider changes to supply that identity, stop and split:** land 7.1 as the link job alone, and plan 7.2 as the scope rule. The plan's own §3.1 stop condition applies — a card AC bigger than the chunk's written scope means stop and report, not expand.
 
 **Known gaps to carry in.**
-- `get_fact`/recall read with no scope filter (profile-wide). The §3.5 owner-only rule for sensitive rows is deferred to the linker chunk and documented in `docs/V3_FOUNDATIONS.md`. Chunk 5 set `owner` correctly on write, so scope is now handled on the write side; the read side still waits on the gateway identity.
-- The `engine.db` attribute stays in `PROVIDER_ATTRIBUTES` until *both* engines serve the method. Removing it early breaks the contract test in a way that looks like a facade bug.
+- `get_fact`/recall read with no scope filter (profile-wide). Chunk 5 set scope correctly on **write**; this chunk is the read side. Until it lands, the deferral stays documented in `docs/V3_FOUNDATIONS.md`.
+- Promotion of a `pending` memory to `active` does not currently enqueue an embed job (only `_add_as_live` does). If the link job is enqueued on write, decide deliberately whether promotion enqueues too, and say so — do not let the two paths differ by accident.
+- `find_mirrored` already filters by scope; extending the owner-only rule must not make a profile-wide mirror invisible to the owner's own replace/remove path.
 
-### 6.0 Pre-flight (read-only)
-1. `main` must contain `1b5c71ccf`, `35a02f4` must be an ancestor of `main`, and `34 9b7b4` (Chunk 4) plus the Chunk 5 commit must be present.
-2. **Baseline:** `env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_VAULT_PATH -u ENTROPICMEM_INDEX_DB python3 -m pytest -q` gives **1609 passed, 3 skipped, 4 xfailed** (2 skipped instead of 3 on a machine that has the private digest list — read the two counts as a pair, see plan §11). `ruff check .` is clean under the CI pin `ruff==0.16.2`. If the numbers differ, read `REMAINING_PLAN.md` §11 before stopping: the total is expected to rise with every card.
-3. **Re-measure from the code before writing a test.** Read `_locate_mirror` in `plugins/entropicmem/__init__.py` (it has moved at least once), the `PROVIDER_ATTRIBUTES` assertion in `tests/unit/test_em_facade_contract.py`, and the `mirror-scan` entry in `em/facade/contract.py`.
+### 7.0 Pre-flight (read-only)
+1. `main` must contain Chunk 6 (`6bd4b47`) once Chunks 5 and 6 are merged. **They are not merged yet** — see `MASTER_TODO.md`. If this chunk starts before that merge, it stacks on the same branch and says so.
+2. **Baseline:** `env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_VAULT_PATH -u ENTROPICMEM_INDEX_DB python3 -m pytest -q` gives **1624 passed, 3 skipped, 4 xfailed** (2 skipped instead of 3 where the private digest list exists — read the pair, see plan §11). `ruff check .` clean under the CI pin `ruff==0.16.2`.
+3. **Re-measure from the code before writing a test.** Read `em/formation/entity_linker.py`, `EntityStore.link`, the `embed` enqueue in `em/store/memories.py` (the pattern to copy), `em/jobs/cli.py`'s registration, the job-type recipe in `docs/V3_FOUNDATIONS.md`, and `_in_scope`.
 
-### 6.0a Document control (do this before and after the chunk)
-Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file
-**before** starting and **again before finishing**. The file to update at the
-end is whichever of the three your chunk changed the truth of — and the merge
-state counts as truth, so a chunk that commits without CI merged is recorded as
-"committed, not merged", never as "landed". `tests/test_master_todo.py` fails
-the suite if the status page and the plan disagree about that.
+### 7.0a Document control (do this before and after the chunk)
+Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth — a chunk committed without CI merged is "committed, not merged", never "landed". `tests/test_master_todo.py` fails the suite if this page and the plan disagree about it.
 
-### 6.1 The mirror call (one commit, test first)
-- Test first: `find_mirrored` on both engines (found / not found / empty needle / a deleted row must not match / a non-mirrored row must not match), then the parity scenario for `mirror-scan`, then the contract-test change.
-- Mutation-check: the `status='active'` filter, the scope filter, the `mirrored` tag filter, and the `db`-attribute removal (the contract test must go red if `db` is still listed or still read).
-- **Docs:** CHANGELOG; the EM-211 rows in `REMAINING_PLAN.md` §5, §6.1 and §11; the EM-211 entry in `docs/V3_FOUNDATIONS.md`.
+### 7.1 The link job (one commit, test first)
+- Test first: the handler through `JobWorker(...).run_until_idle()`; a re-run of the same job (idempotency); the permanent-failure path for a missing memory; and that `add` enqueues exactly one `link:<id>:<version>` with the dedupe key that identifies the work.
+- Assert the handler runs **outside** any write transaction — `test_handler_runs_outside_any_write_transaction` is the existing pattern for that.
+- Mutation-check: the enqueue, the dedupe key, the idempotency, and the missing-memory path.
 
-### 6.2 End of chunk
+### 7.2 The owner-only rule (separate commit, or its own chunk if 7.1 grew)
+- Test first: a `_in_scope` truth table (owner/guest × sensitive/internal × profile-wide/user-scoped), then the four facade read paths against it.
+- Mutation-check: drop the sensitivity branch and confirm a guest reads an owner's sensitive row — that is the leak the rule exists to prevent, so the test must fail loudly.
+- **Docs:** CHANGELOG (Security section, since this is a privacy rule); the EM-211 rows in `REMAINING_PLAN.md` §5, §6.1 and §11; the EM-211 entry and the `_in_scope` deferral note in `docs/V3_FOUNDATIONS.md`.
+
+### 7.3 End of chunk
 1. Push a branch. Wait for green CI on the exact SHA (`windows-import` included), then fast-forward `main` and delete the branch.
 2. **Update `docs/plan/REMAINING_PLAN.md`:** §2 (SHA, counts), §5 (ledger), §6.1, §9, §11 (state table, next piece, counts).
-3. **Replace this file's Part B with Chunk 7: the `EntityLinker` job** (which completes EM-211 and carries the §3.5 owner-only rule).
-4. Report to the owner in plain language.
+3. **Replace this file's Part B with the next piece.** With EM-211's four chunks done, that is either the **wiring** chunk (switch the provider onto the facade — a separate decision, not yet scheduled) or **EM-212's package move**. Say which and why; do not plan both.
+4. Update `MASTER_TODO.md`, and report to the owner in plain language.
 
-### Explicitly out of scope for Chunk 6
+### Explicitly out of scope for Chunk 7
 - **Switching the provider onto the facade.** The facade is completed and tested, not switched on.
-- The linker, and the §3.5 owner-only rule for sensitive rows.
-- Any schema change or new migration; `0001`–`0003` stay untouched.
-- Retention (settled at 7 routine + 5 safety), the EM-212 package move, S3 and later, the v3 cutover, releases, tags and the catalog, and the tool rename.
+- Releases, tags, the catalog, the tool rename, the v3 cutover.
+- Any schema change or new migration; `0001`–`0003` stay untouched. If the owner-only rule turns out to need a column, that is a new migration and a stop-and-report.
+- S3 and later, EM-212's package move, retention (settled at 7 routine + 5 safety).
 - Anything touching `~/.hermes/entropicmem*`.
