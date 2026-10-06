@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-06, Chunk 7.1 committed (not yet merged); **Chunk 7.2 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-06, Chunk 7.1 merged to `main` at `64a2685`; **Chunk 7.2 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
@@ -61,7 +61,7 @@
 - Gates: **1624 passed / 3 skipped / 4 xfailed**, `ruff==0.16.2` clean, eval gate vs `v2.8.0-ci.json` with no gated metric regressed, `perf-smoke` warm p95 3.666 ms against the unchanged 20 ms budget, `tests/unit` green standalone for `windows-import`.
 - **Merged** to `main` at `e25db32`, together with Chunk 5. Every job was green on the exact SHA, `windows-import` and `plugin-validate` included.
 
-### Chunk 7.1 — the entity-link job. **DONE, COMMITTED, NOT MERGED (2026-10-06, `96c4ccb`)**
+### Chunk 7.1 — the entity-link job. **DONE, MERGED (2026-10-06, `96c4ccb`, in `64a2685`)**
 
 - `feat(em-211): entity linking runs as a job`: `EntityLinker` and `EntityStore.link` already existed (EM-208), but nothing called them on v3 — no write queued a link job and no worker registered a handler, so a v3 memory was never bound to an entity. `MemoryStore` now enqueues `link:<memory_id>:<version>` beside the `embed` enqueue, and `make_link_handler` runs outside any write transaction (invariant 2).
 - Idempotent across a retry, because delivery is at-least-once: `EntityStore.link` upserts and a phrase's sighting counter counts distinct memories. Asserted by re-running the same job.
@@ -69,7 +69,7 @@
 - Promotion (`pending -> active`) and a content `update` both queue a link job, matching the embed enqueue deliberately.
 - **Known limitation, asserted:** the two-sighting rule is EM-208's, so promotion links whichever memory's job trips the counter and does not retro-link the earlier one. Backfilling is S5's `reconcile`.
 - 17 new tests; 1643 passed / 3 skipped / 4 xfailed on Python 3.10 **and** 3.12; seven mutation checks. One existing test updated rather than weakened: it counted all jobs and now counts per type.
-- **Not merged** yet — push, green CI on the exact SHA, `git merge --ff-only`.
+- **Merged** to `main` at `64a2685`; green on the exact SHA, first CI run, `identity-guard` included.
 
 **EM-210 is fully closed. EM-211 is nearly done: reads, writes, the mirror call and the link job are in; only the §3.5 owner-only read rule (7.2) remains.**
 
@@ -110,7 +110,7 @@
 **Size guard — this chunk may split further.** The rule, the facade reads and the tests are self-contained. Threading the identity from the provider is **not**: the provider still constructs the v2 `MemoryEngine`, so there is nothing to pass the gateway user *to* until the wiring chunk. If the work starts needing provider changes, stop and land the rule + facade half alone, then plan the wiring. `V3Engine` taking an `is_owner` argument satisfies this chunk; the provider supplying it is the wiring chunk's job.
 
 ### 7.2.0 Pre-flight (read-only)
-1. `main` must contain `e25db32` (Chunks 5 and 6) and, once merged, Chunk 7.1 (`96c4ccb`). If 7.1 is still unmerged, stack on its branch and say so.
+1. `main` must be at `64a2685` or later: Chunks 5, 6 and 7.1 are all merged there, with green CI on each exact SHA. `git merge-base --is-ancestor 64a2685 main` proves it.
 2. **Baseline:** `pytest -q` gives **1643 passed, 3 skipped, 4 xfailed** on **both Python 3.10 and 3.12** (2 skipped on a machine that has the private digest list). Run 3.10 as well as your default interpreter — the last two chunks each shipped a bug only the 3.10 leg could see.
 3. **Re-measure from the code.** Read `_in_scope`, `MemoryStore.get` / `list`, every read in `em/facade/engine.py`, `Scope.is_owner`, and how the provider tracks the gateway user (`_gateway_user_id`, `_is_guest`) — that is where the identity will come from when the provider is wired.
 

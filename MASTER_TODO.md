@@ -13,8 +13,8 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-06, against branch `em/em-211-linker-job` at
-`96c4ccb`, branching from `main` at `f2deea0`. A later docs-only commit moving
+**Last reconciled:** 2026-10-06, against branch `main` at `64a2685`, which is the
+commit Chunk 7.1 was merged at after green CI on it. A later docs-only commit moving
 the tip without changing code, tests or counts is expected; see plan §11.
 
 ---
@@ -92,7 +92,7 @@ means one thing:
 | 4 | Facade **reads** over `em.store` | **Done** (`0349b7b4b`, 2026-10-03, merged) |
 | 5 | Facade **writes** over `em.store` | **Done, merged** (`36355f3`, in `e25db32`) |
 | 6 | Facade **mirror call** | **Done, merged** (`6bd4b47`, in `e25db32`) |
-| 7.1 | The **entity-link job** (`link:<memory_id>:<version>`) | **Done** (`96c4ccb`) — committed, **not merged** |
+| 7.1 | The **entity-link job** (`link:<memory_id>:<version>`) | **Done, merged** (`96c4ccb`) |
 | 7.2 | The **§3.5 owner-only rule** for sensitive reads | Next |
 
 **EM-211's acceptance criterion is not met and S2's exit criteria still fail.**
@@ -105,16 +105,14 @@ read three landed chunks as the card being done.
 
 ### In flight
 
-**Chunk 7.1, on the local branch `em/em-211-linker-job`** — one commit,
-`96c4ccb` (the entity-link job), with the docs close-out beside it.
+**Nothing.** Chunk 7.1 is merged to `main` at `64a2685` with green CI on that
+exact SHA, and the `em/em-211-linker-job` branch is deleted. The remote carries
+`main` and `release/2.8.x` only.
 
-**Not pushed, not merged, no CI run yet.** `origin/main` is `f2deea0`. Every gate
-that can run locally is green — **1643 passed / 3 skipped / 4 xfailed on both
-Python 3.10 and 3.12**, `ruff==0.16.2` clean, eval gate with no gated metric
-regressed, `perf-smoke` warm p95 3.820 ms against the 20 ms budget — but local
-green is not CI green, and the last merge proved it: the first CI run for Chunks
-5 and 6 was red on a Python-3.10-only bug that 3.12 could not see. Push, wait for
-green on the exact SHA, then `git merge --ff-only`.
+Worth noting for the next chunk: this merge went green on the **first** CI run,
+unlike the Chunks 5/6 merge. The difference was running the suite on Python 3.10
+locally as well as 3.12 before pushing — the gate that caught the timestamp bug
+last time is now part of the routine.
 
 ## What is done
 
