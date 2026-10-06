@@ -1,6 +1,45 @@
 # Rules for agents working on EntropicMem
 
-Read this at the start of every session, then `docs/V3_FOUNDATIONS.md` before touching `plugins/entropicmem/scripts/em/`.
+**Start every session at [`MASTER_TODO.md`](MASTER_TODO.md)** — the one short
+canonical page: where the project is, what is in flight, what is next, and the
+gates. Then this file, which is the rules. Then
+`docs/V3_FOUNDATIONS.md` before touching `plugins/entropicmem/scripts/em/`, and
+`docs/plan/NEXT_CHUNK.md` for the single chunk currently planned.
+
+This works the same on any harness or platform: everything needed is a file in
+the repo, and nothing depends on which agent or machine you are.
+
+## Document control — first and last
+
+This is not optional, and it is not the last thing you remember.
+
+1. **Before you start any work**, update `MASTER_TODO.md` and the planning docs
+   (`docs/plan/REMAINING_PLAN.md`, `docs/plan/NEXT_CHUNK.md`) so they describe the
+   project's **real** current state — what is done, in enough detail that nobody
+   redoes it, and what the next logical steps are.
+2. **Then do the development work.**
+3. **Before you finish**, update them again with what you completed and what
+   comes next.
+
+**Never end a development session without step 3.** Code that is committed while
+the docs still describe the previous state is an unfinished task: it leaves the
+next agent to reconstruct history and re-derive what is in flight. A session that
+changed code and did not touch these files has failed, however green the gates
+are.
+
+Both ends of the rule are load-bearing. Step 1 is what lets you start without
+guessing; step 3 is what lets the *next* agent start without guessing.
+
+Accuracy is the point, so **write down what is actually true, including what is
+not finished.** A commit on an unmerged branch is "committed, not merged" — not
+"landed". An unpushed branch has no CI. If a gate could not be run, say which
+and why rather than implying it passed. Overstating progress in these docs is
+worse than leaving them out of date, because the whole point is that they can be
+trusted.
+
+Enforced by `tests/test_master_todo.py`, which fails when `MASTER_TODO.md` is
+missing, unlinked from this file and the README, missing a required section, or
+records a SHA that is not a real ancestor of the branch.
 
 ## Never
 
@@ -27,6 +66,7 @@ Read this at the start of every session, then `docs/V3_FOUNDATIONS.md` before to
 5. After every push to `main`, confirm `identity-guard` is green on that commit. If it is red, stop and tell the owner.
 6. Keep product code 3.10-compatible. CI runs 3.10–3.13; Hermes itself runs on 3.11.
 7. Report plainly: what changed, the test counts, what you could not verify and why.
+8. **Finish with document control** (see the section above): `MASTER_TODO.md`, `docs/plan/REMAINING_PLAN.md` and `docs/plan/NEXT_CHUNK.md` describe what you did and what is next, and say plainly what is still unmerged or unverified. This holds even when the session ends in a stop or a report rather than a merge.
 
 ## Autonomy: decide and act
 

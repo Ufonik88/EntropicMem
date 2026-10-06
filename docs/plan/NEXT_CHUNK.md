@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-06, Chunk 5 landed; **Chunk 6 is the next piece**. **Read first:** `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-06, Chunk 5 committed (not yet merged); **Chunk 6 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
@@ -9,7 +9,7 @@
 ## Part A: what has landed
 
 
-### Chunk 5 — EM-211's facade writes. **DONE (2026-10-06)**
+### Chunk 5 — EM-211's facade writes. **DONE, COMMITTED, NOT MERGED (2026-10-06, `36355f3`)**
 
 - `feat(em-211): the legacy facade's write half over the v3 store (Chunk 5)`: the 7 `NotImplementedError` stubs in `em/facade/engine.py` are real write paths, so `V3Engine` now implements the whole provider-facing `LegacyEngine` contract.
 - **`remember` is the load-bearing one, as the plan said.** It stamps `legacy_id = sha256(content)[:16]`, which is what makes the read half's `get_fact(StoredFact.make_id(content))` resolve — the pair that proves the chunk. **One rule the plan did not anticipate:** `memories.legacy_id` is `UNIQUE` and content-derived, and v3 scopes every row to a user where v2 had one owner per database. So the stamp applies to a **profile-wide write only**; a user-scoped write leaves it empty, which is what stops two users storing the same sentence from colliding on one hash. Tested in both directions, including that two users *can* store the same sentence.
@@ -20,8 +20,10 @@
 - `add_episode` stamps `episodes.legacy_id`, which is what `next_episode_wave` reads, so the cadence numbering survives the cutover. A refired `episode_id` upserts in place (the provider derives it from the session id and refires it); with no session key the episode is `manual`.
 - **The parity harness is single-path now:** `v3-facade` joined `WRITE_ENGINES`, the `_remember` dispatch and its `NotImplementedError` fallback are **deleted**, and **6 write-path scenarios run against both engines on their full API. No assertion changed.**
 - 56 new tests (`tests/unit/test_em_facade_engine.py`'s stub test was rewritten as a shape test, since the stubs are gone) + 6 new parity params. Twelve mutation checks, each red for the right reason with the tree restored byte-identical.
-- Gates: **1604 passed / 3 skipped / 4 xfailed** (1542 + 56 + 6), `ruff==0.16.2` clean, eval gate vs `v2.8.0-ci.json` with no gated metric regressed, `perf-smoke` warm p95 3.693 ms against the unchanged 20 ms budget, `tests/unit` green standalone for the `windows-import` job.
+- Gates: **1604 passed / 3 skipped / 4 xfailed** at the code commit (1542 + 56 + 6), `ruff==0.16.2` clean, eval gate vs `v2.8.0-ci.json` with no gated metric regressed, `perf-smoke` warm p95 3.693 ms against the unchanged 20 ms budget, `tests/unit` green standalone for the `windows-import` job. **1609** after the document-control guard added its 5 tests.
+- **Document control ran under the new rule:** `MASTER_TODO.md` was created (the plan had been pointing at one that lived only in a single agent's private memory, unreadable by the next), `AGENTS.md` gained the "Document control — first and last" section, and `tests/test_master_todo.py` enforces it — 6 mutation checks, each red for the right reason.
 - **The card's whole AC is still NOT met and S2's exit criteria still fail**, for the same reason as after Chunk 4: the facade is complete but unwired, and the provider still runs v2.
+- **Not merged.** `em/em-211-facade-writes` is unpushed and no CI has run for it, so `origin/main` is still `03772e3`. To finish: push, wait for green CI on `d055b74`, `git merge --ff-only`, delete the branch, then correct the "DONE" markers here and in `MASTER_TODO.md`.
 
 ### Chunk 4 — EM-211's facade reads. **DONE (2026-10-03, `0349b7b4b`)**
 
@@ -80,8 +82,16 @@
 
 ### 6.0 Pre-flight (read-only)
 1. `main` must contain `1b5c71ccf`, `35a02f4` must be an ancestor of `main`, and `34 9b7b4` (Chunk 4) plus the Chunk 5 commit must be present.
-2. **Baseline:** `env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_VAULT_PATH -u ENTROPICMEM_INDEX_DB python3 -m pytest -q` gives **1604 passed, 3 skipped, 4 xfailed** (2 skipped instead of 3 on a machine that has the private digest list — read the two counts as a pair, see plan §11). `ruff check .` is clean under the CI pin `ruff==0.16.2`. If the numbers differ, read `REMAINING_PLAN.md` §11 before stopping: the total is expected to rise with every card.
+2. **Baseline:** `env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_VAULT_PATH -u ENTROPICMEM_INDEX_DB python3 -m pytest -q` gives **1609 passed, 3 skipped, 4 xfailed** (2 skipped instead of 3 on a machine that has the private digest list — read the two counts as a pair, see plan §11). `ruff check .` is clean under the CI pin `ruff==0.16.2`. If the numbers differ, read `REMAINING_PLAN.md` §11 before stopping: the total is expected to rise with every card.
 3. **Re-measure from the code before writing a test.** Read `_locate_mirror` in `plugins/entropicmem/__init__.py` (it has moved at least once), the `PROVIDER_ATTRIBUTES` assertion in `tests/unit/test_em_facade_contract.py`, and the `mirror-scan` entry in `em/facade/contract.py`.
+
+### 6.0a Document control (do this before and after the chunk)
+Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file
+**before** starting and **again before finishing**. The file to update at the
+end is whichever of the three your chunk changed the truth of — and the merge
+state counts as truth, so a chunk that commits without CI merged is recorded as
+"committed, not merged", never as "landed". `tests/test_master_todo.py` fails
+the suite if the status page and the plan disagree about that.
 
 ### 6.1 The mirror call (one commit, test first)
 - Test first: `find_mirrored` on both engines (found / not found / empty needle / a deleted row must not match / a non-mirrored row must not match), then the parity scenario for `mirror-scan`, then the contract-test change.

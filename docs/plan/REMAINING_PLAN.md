@@ -68,9 +68,15 @@ If the plan and the code disagree, the code is the fact and the plan is the inte
    - a gate can't go green honestly;
    - anything would touch the live store, the Marketplace entry, a tag or published history.
 4. **At the end of every chunk:**
-   - update §2 and §6 of this file in the repo;
+   - update `MASTER_TODO.md`, and §2 and §6 of this file in the repo;
    - write the next chunk's plan (`docs/plan/NEXT_CHUNK.md`), with **only one** chunk planned ahead;
    - add a vault note entry (see §3.4).
+
+   Document control is **first and last**, not a closing formality: reconcile
+   the docs *before* starting a task as well as after, so the next agent never
+   begins from a stale description. The rule is written out in full in
+   `AGENTS.md` ("Document control — first and last") and enforced by
+   `tests/test_master_todo.py`.
 5. **No release without the owner.** Releases, tags and catalog PRs are the owner's calls (§3.3).
 
 ### 3.2 Non-negotiable constraints (collected from `AGENTS.md`, earlier hand-offs and the plan)
@@ -142,7 +148,8 @@ Whether to continue past the decision gate after S4 (§6.6) is the agent's
 call, taken with a written recommendation the owner can veto at any time.
 
 ### 3.4 Memory and logging
-- **This file and the next-chunk file** live in the repo (`NEXT_CHUNK.md` task H3), in the owner's Claude vault (`projects/entropicmem.md` links to them), and in Hermes's memory (MASTER_TODO).
+- **The canonical short status page is `MASTER_TODO.md` at the repo root**, written 2026-10-06. It and this file and `NEXT_CHUNK.md` are the three documents an agent needs; `MASTER_TODO.md` is the one to open first. `tests/test_master_todo.py` enforces that it exists, stays linked, keeps its sections, and that its recorded SHA is a real ancestor of the branch.
+- These files live in the repo (this file and `NEXT_CHUNK.md`, `NEXT_CHUNK.md` task H3), and the owner links them from the Claude vault (`projects/entropicmem.md`).
 - **Claude Code cloud sessions can't reach the vault.** They produce a `/save` file; the owner files it from Claude on his Mac.
 
 ---
@@ -432,7 +439,7 @@ approval. The plan does not have to be finished for EntropicMem to be useful.
 | **Last landed chunk** | **Chunk 5: EM-211's facade writes**, landed 2026-10-06. `em/facade/engine.py` now implements the whole provider-facing `LegacyEngine` contract over `em.store`: the 7 write methods are real, not stubs. `remember` stamps `legacy_id = sha256(content)[:16]` (profile-wide writes only), which is what completes the read/write pair behind `get_fact(StoredFact.make_id(content))`. `forget`/`consolidate` are §3.4 status transitions with a throttled snapshot taken outside the write transaction. Chunk 4 (`0349b7b4b`, reads) landed 2026-10-03; Chunk 3.2 (`e058e93be`), 3.1 and 2 landed 2026-09-29. |
 | **Same-day hygiene batch** | Five no-bump commits: the CI action majors, `perf-smoke` diagnostics, the concurrency-test flake fix, the `ARCHITECTURE.md` v3 section, and two new doc guards. |
 | **Next piece of development** | **Chunk 6: EM-211's mirror call** — replace the raw `engine.db` read in `_locate_mirror` with an engine method on **both** engines, then drop `db` from `PROVIDER_ATTRIBUTES`. Scoped in `NEXT_CHUNK.md` Part B. Chunk 7 (the `EntityLinker` job) follows it. |
-| **In flight** | Nothing. Every branch was deleted after its fast-forward merge; the remote carries exactly `main` and `release/2.8.x`. |
+| **In flight** | **Chunk 5, committed on the local branch `em/em-211-facade-writes` and NOT merged.** `36355f3` (the seven write stubs become real paths) and `d055b74` (the docs close-out). Every local gate is green, but the branch is unpushed and no CI has run for it, so `origin/main` is still `03772e3`. Merging waits on green CI **on the exact SHA** (rule 1); `gh` is unauthenticated on the machine that built it, so that step needs a session with push access. The remote otherwise carries exactly `main` and `release/2.8.x`, and every older branch was deleted after its fast-forward merge. |
 | **Stage** | S2 remainder. EM-211 is **half done** — its 4 sub-chunks are global Chunks 4–7: reads (4) and writes (5) landed, mirror = 6 and linker = 7 remain. Nothing is wired into the provider, so the card's whole AC and S2's exit criteria are still unmet. EM-212's package move is still open with its card blocked on a split. S3 (retrieval v3) starts only after both finish. |
 
 ### Verify before you touch anything
@@ -442,9 +449,9 @@ cd ~/Documents/Coding\ Projects/EntropicMem
 git fetch --all --prune && git status -sb && git log --oneline -12
 git ls-remote --heads origin        # expect exactly main + release/2.8.x
 
-# The repo's own pre-flight. Expect 1604 passed, 3 skipped, 4 xfailed (about 1 minute on a warm box).
+# The repo's own pre-flight. Expect 1609 passed, 3 skipped, 4 xfailed (about 1 minute on a warm box).
 # 3 skips here because the private digest list is not configured on this machine; on the
-# Hermes host it is, so the run there is 1604 passed, 2 skipped, 4 xfailed.
+# Hermes host it is, so the run there is 1609 passed, 2 skipped, 4 xfailed.
 env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_INDEX_DB -u ENTROPICMEM_VAULT_PATH \
   ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1 python3 -m pytest -q
 
@@ -472,9 +479,9 @@ that day, before that day's own memory writes.
 
 ### The expected counts drift, on purpose
 
-The suite total rises with every card: 1462 at Chunk 2's pre-flight, 1495 after the hygiene batch, 1509 after Chunk 3.1, 1519 after Chunk 3.2, 1542 after Chunk 4, **1604 after Chunk 5** (1542 + 56 new unit + 6 new parity params). Read the expected number from `NEXT_CHUNK.md` §3.0, which is rewritten at the end of each chunk, and **stop and report on a mismatch** instead of assuming the older number is right.
+The suite total rises with every card: 1462 at Chunk 2's pre-flight, 1495 after the hygiene batch, 1509 after Chunk 3.1, 1519 after Chunk 3.2, 1542 after Chunk 4, 1604 after Chunk 5 (1542 + 56 new unit + 6 new parity params), **1609** once `tests/test_master_todo.py` added its 5 document-control tests. Read the expected number from `NEXT_CHUNK.md` §6.0, which is rewritten at the end of each chunk, and **stop and report on a mismatch** instead of assuming the older number is right.
 
-The skipped count moved from 2 to 3 at Chunk 5. Nothing was skipped or xfailed to get there: the extra skip is `tests/evals/test_no_personal_data.py`, which skips when the private digest list is not configured on the machine running the suite (and *fails* when `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` and the list is missing — which is how CI runs it). On the Hermes host the list exists, so the run there is 1604 passed / 2 skipped / 4 xfailed. Read the two numbers as a pair.
+The skipped count moved from 2 to 3 at Chunk 5. Nothing was skipped or xfailed to get there: the extra skip is `tests/evals/test_no_personal_data.py`, which skips when the private digest list is not configured on the machine running the suite (and *fails* when `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` and the list is missing — which is how CI runs it). On the Hermes host the list exists, so the run there is 1609 passed / 2 skipped / 4 xfailed. Read the two numbers as a pair.
 
 Documentation-only commits move the tip SHA without changing code, tests or counts. When they do, `§2` and this table keep the last **code** state, which is why both say "or later"; a later tip that only touched `docs/`, `README.md` or `CHANGELOG.md` is expected.
 
