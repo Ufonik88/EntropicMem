@@ -256,7 +256,13 @@ def test_next_episode_wave_counts_up_from_existing_legacy_wave_ids(engine):
 # --- write stubs ---------------------------------------------------------------
 
 
-def test_write_methods_are_shaped_but_not_implemented(engine):
+def test_write_methods_keep_their_shapes(engine):
+    """The signatures the contract test binds, now on real implementations.
+
+    Chunk 4 asserted these were stubs; Chunk 5 replaced them. What must survive
+    is the *shape*, because ``PROVIDER_CALLS`` is derived from the provider's
+    source by AST scan — a renamed or re-ordered parameter fails that test.
+    """
     import inspect
 
     def sig(name):  # unbound signatures, like the contract test binds them
@@ -271,14 +277,6 @@ def test_write_methods_are_shaped_but_not_implemented(engine):
     assert sig("consolidate").bind(object(), max_age_days=90, dry_run=True)
     assert sig("extract_and_store").bind(object(), user_text="u")
     assert sig("prune_pending").bind(object(), older_than_days=30)
-    for call in (
-        lambda: engine.remember(content="x"),
-        lambda: engine.forget("id", confirm=True),
-        lambda: engine.touch(["id"]),
-        lambda: engine.add_episode(title="t", summary="s"),
-        lambda: engine.consolidate(dry_run=False, confirm=True),
-        lambda: engine.extract_and_store(user_text="u"),
-        lambda: engine.prune_pending(),
-    ):
-        with pytest.raises(NotImplementedError):
-            call()
+    for name in ("remember", "forget", "touch", "add_episode", "consolidate",
+                 "extract_and_store", "prune_pending"):
+        assert not getattr(V3Engine, name).__doc__.startswith("EM-211 writes chunk"), name

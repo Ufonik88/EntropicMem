@@ -66,9 +66,10 @@ def _v3(tmp_path: Path):
 #: than pull the writes chunk forward).
 ENGINES: dict[str, Callable[[Path], object]] = {"v2": _v2, "v3-facade": _v3}
 
-#: engines whose full API (writes included) executes. Chunk 5 adds
-#: "v3-facade" here and the _remember dispatch collapses away with it.
-WRITE_ENGINES: dict[str, Callable[[Path], object]] = {"v2": _v2}
+#: engines whose full API (writes included) executes. Chunk 5 landed the facade's
+#: write half, so "v3-facade" joins here and every scenario below runs against
+#: both engines on its full API.
+WRITE_ENGINES: dict[str, Callable[[Path], object]] = {"v2": _v2, "v3-facade": _v3}
 
 
 def _open(request, tmp_path):
@@ -105,45 +106,16 @@ SEED = [
 ]
 
 
-def _store_seed(engine, content: str, *, title: str, domain: str, tags: list, source: str) -> str:
-    """Seed one memory straight into the v3 store, legacy-stamped.
-
-    Same rule the v2-to-v3 migration and the future facade ``remember`` use:
-    ``legacy_id = StoredFact.make_id(content)``. This is the fixture split
-    from the recon: the read assertions below get seeded without needing a
-    write path on the engine under test. No assertion changes.
-    """
-    from em.store.memories import MemoryStore
-    from em.store.types import MemoryDraft
-
-    with engine.store.transaction() as conn:
-        result = MemoryStore(conn).add(
-            MemoryDraft(content=content, summary=title, domain=domain,
-                        tags=tuple(tags or ()), source=source, status="active"),
-            scope=engine.scope,
-            actor="parity",
-        )
-        assert result.ok and result.decision == "created", result
-        conn.execute(
-            "UPDATE memories SET legacy_id=? WHERE id=?",
-            (_make_id(content), result.id),
-        )
-        return result.id
-
-
 def _remember(engine, content: str, *, title: str = "", domain: str = "Knowledge",
               tags: list | None = None, source: str = "agent") -> str:
-    """Seed one memory through the engine's write path when it has one.
+    """Seed one memory through the engine's own write path.
 
-    The facade (EM-211 Chunk 4) raises NotImplementedError on writes, so
-    seeding falls back to ``_store_seed`` — the split the plan §4.0.3 recon
-    prescribed. Every *assertion* in the tests below stays untouched; only
-    the seeding call moved. Chunk 5 removes the dispatch.
+    This used to fall back to writing straight into the v3 store while the
+    facade's writes were stubs (plan §4.0.3). Now that the write half has
+    landed there is one path, and the facade's ``legacy_id`` stamp is exercised
+    by every read scenario below rather than reproduced by a fixture.
     """
-    try:
-        return engine.remember(content=content, title=title, domain=domain, tags=tags, source=source)
-    except NotImplementedError:
-        return _store_seed(engine, content, title=title, domain=domain, tags=tags or [], source=source)
+    return engine.remember(content=content, title=title, domain=domain, tags=tags, source=source)
 
 
 def _seed(engine) -> list[str]:

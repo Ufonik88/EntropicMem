@@ -1,19 +1,33 @@
-"""EM-211 Chunk 4: the v3 facade engine — the READ half over ``em.store``.
+"""EM-211: the v3 facade engine — the v2 ``MemoryEngine`` API over ``em.store``.
 
-``V3Engine`` keeps the v2 ``MemoryEngine`` API (the exact surface the Hermes
-provider uses is pinned in ``em.facade.contract``) on top of the v3 storage
-core. This file implements the reads: ``get_fact`` (including ``legacy_id``
+``V3Engine`` keeps the v2 engine API (the exact surface the Hermes provider
+uses is pinned in ``em.facade.contract``) on top of the v3 storage core.
+
+Chunk 4 landed the READ half: ``get_fact`` (including ``legacy_id``
 resolution, which is what the provider's mirror lookup needs), ``stats``,
 ``recall_with_relevance``, ``recall_hybrid`` and ``next_episode_wave``.
-
-The write methods (``remember``, ``forget``, ``touch``, ``add_episode``,
-``consolidate``, ``extract_and_store``, ``prune_pending``) exist as
-correctly-shaped stubs that raise :class:`NotImplementedError` — the contract
-signature test can register the facade today, and Chunk 5 replaces each stub
-with the real write path. Nothing here is wired into the provider yet.
+Chunk 5 landed the WRITE half: ``remember``, ``forget``, ``touch``,
+``extract_and_store``, ``prune_pending``, ``add_episode`` and ``consolidate``.
+The mirror call and the entity linker are chunks 6 and 7. Nothing here is wired
+into the provider yet.
 
 Design notes for reviewers:
 
+* The load-bearing pair is ``remember`` + ``get_fact``. The provider finds a
+  mirror row with ``get_fact(StoredFact.make_id(content))`` where
+  ``make_id = sha256(content)[:16]``; v3 ids are ULIDs, so ``remember`` stamps
+  that value as ``legacy_id`` and ``MemoryStore.get`` resolves it. Because
+  ``memories.legacy_id`` is UNIQUE and content-derived, it is stamped only for
+  a profile-wide write (v2 had one owner per database); a user-scoped row
+  leaves it empty so two users can store the same sentence.
+* A v2 write did its policy, PII, duplicate, version, outbox and audit work
+  inline. Here ``MemoryStore.add`` owns all of it, so ``remember`` is
+  translation rather than reimplementation — that is the point of the size
+  guard in the plan.
+* Writes that mean to destroy or archive first take a throttled snapshot
+  (``snapshot_if_due``), outside the write transaction: EM-210's "100 forget
+  calls give at most one snapshot an hour" is met here, by the facade, rather
+  than by v2's unthrottled per-call ``_backup()``.
 * Recall borrows v2's ``StoredFact`` and scoring helpers
   (``build_fts_query``, ``coverage``, ``run_fts_match``, the LIKE fallback)
   from ``memory_engine`` — lazily, because at 3.0 ``memory_engine.py`` becomes
@@ -29,7 +43,29 @@ Design notes for reviewers:
   FTS-only pass — exactly what v2 does when embeddings are off.
   ``expand_links`` and ``auto_reinforce`` are accepted and inert: graph
   expansion needs the v2 ``graph_edges`` (it moves with the mirror chunk) and
-  reinforcement is a write (Chunk 5). Recorded as ``Deviation:`` in the PR.
+  reinforcement is a graph-edge write that moves with the linker chunk.
+  Recorded as ``Deviation:`` in the PR.
+
+Recorded v3 semantic changes from v2, each pinned by a test:
+
+* ``remember`` does not fuzzy-overwrite. v2's EM-109 near-duplicate rule could
+  rewrite a stored fact in place; v3 only collapses *exact* duplicates
+  (``noop_duplicate``) and otherwise inserts, with the version row recording
+  the change. Silent overwrite of a memory is what the card forbids.
+* ``forget`` and ``consolidate`` move rows through the §3.4 state machine
+  (``deleted`` / ``archived``) instead of deleting them or copying them into a
+  side ``facts_archive`` table. ``get_fact`` and ``stats`` read a terminal row
+  as absent, so callers see v2's behaviour; the row and its versions stay for
+  the audit trail.
+* ``add_episode`` has nowhere to put ``linked_fact_ids``, ``domain`` or
+  ``source``: v3's ``episodes`` table carries ``decisions``/``open_loops``/
+  ``entities`` instead, and adding a column would mean a migration, which this
+  chunk does not take. They are accepted and ignored.
+* No deprecation warnings. The card asks for once-per-process warnings on
+  methods "suled for removal in 3.1"; v2 emits none, no list of which methods
+  is recorded anywhere, and the provider calls all of them on every session.
+  Emitting warnings v2 never emitted would be a behaviour change nobody asked
+  for, so the facade matches v2 and the requirement stays open.
 
 Stdlib-only apart from the v2 helpers named above; never imports the provider
 or the Hermes host (plan §3.2).
@@ -40,17 +76,22 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import sqlite3
 import sys
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from ..clock import utc_now
+from ..clock import to_iso, utc_now
+from ..store.audit import append as audit_append
+from ..store.backup import BackupManager
 from ..store.db import Store
+from ..store.episodes import EpisodeStore
 from ..store.memories import MemoryStore
 from ..store.migrations import migrate
-from ..store.types import Scope
+from ..store.types import MemoryDraft, Scope
 
 logger = logging.getLogger("em.facade.engine")
 
@@ -59,6 +100,44 @@ __all__ = ["V3Engine"]
 #: fts columns on ``memories_fts`` the facade searches (v2's ``title`` lives
 #: in ``summary`` in v3).
 _FTS_FIELDS = ("content", "summary", "tags")
+
+#: How many rows a listing write may consider. A consolidate/prune pass walks
+#: candidate rows, so it cannot use ``MemoryStore.list``'s page default; a
+#: million-row store is not a real profile, and an unbounded walk would be a
+#: long transaction, which invariant 2 forbids.
+_SCAN_LIMIT = 10_000
+
+#: v2's ``_EXTRACTION_PATTERNS`` lives on the class, so the preference
+#: patterns that v2 wrote inline in ``extract_and_store`` are repeated here
+#: rather than imported. They are pure regex with no store access; keeping the
+#: copy next to the comment that names the source makes the drift visible.
+_PREFERENCE_PATTERNS: tuple[tuple[str, str, float], ...] = (
+    (r"(?:i|we)\s+(?:prefer|want|like|use|using|need)\s+(.+?)(?:\.\s|$)", "People", 0.5),
+    (r"(?:don't|do not|never)\s+(?:want|like|need|use)\s+(.+?)(?:\.\s|$)", "People", 0.5),
+)
+
+#: v2's ``MemoryEngine._sanitize_fact_text`` patterns, mirrored exactly. It is
+#: a bound method on a class the facade must not construct, and stripping the
+#: host's fence tags is a write-path rule that has to hold before anything is
+#: stored. ``test_remember_sanitizer_matches_the_v2_engine_byte_for_byte``
+#: pins this against v2 so the two copies cannot drift.
+_SANITIZE_PATTERNS: tuple[str, ...] = (
+    r"</?\s*memory-context\s*>",
+    r"(?im)^\s*ignore (all |any )?(previous|prior|above) instructions\s*:?\s*",
+    r"(?im)^\s*system\s*:\s*",
+    r"(?im)^\s*developer\s*:\s*",
+)
+
+
+def _sanitize_fact_text(content: str) -> str:
+    """Strip prompt-injection markers and fence tags before durable storage."""
+    if not content:
+        return content
+    out = content
+    for pattern in _SANITIZE_PATTERNS:
+        out = re.sub(pattern, "", out)
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
 
 
 def _v2():
@@ -129,7 +208,7 @@ def _decay_factor(
 
 
 class V3Engine:
-    """The v2 engine API over the v3 store (Chunk 4: reads; writes in Chunk 5)."""
+    """The v2 engine API over the v3 store (EM-211: reads and writes)."""
 
     def __init__(
         self,
@@ -353,7 +432,22 @@ class V3Engine:
         """
         return self.recall_with_relevance(query, top_k=top_k, domain=domain)
 
-    # --- write stubs (Chunk 5 replaces each with the real write path) -------
+    # --- writes ---------------------------------------------------------------
+
+    def _legacy_id(self, content: str) -> str:
+        """The v2-shaped id to stamp on this write, or ``""`` for a scoped one.
+
+        ``memories.legacy_id`` is UNIQUE and content-derived. v2 used that id as
+        the primary key with one owner per database; v3 scopes every row to a
+        user, so two users storing the same sentence are two facts that would
+        collide on one hash. Stamping only the profile-wide case keeps the
+        provider's mirror lookup (``get_fact(make_id(content))``, which only
+        ever looks for the owner's own mirrored content) exactly as reliable as
+        v2, and leaves a user-scoped row to resolve by its v3 id.
+        """
+        if self.scope.user:
+            return ""
+        return _v2().StoredFact.make_id(content)
 
     def remember(
         self,
@@ -367,13 +461,95 @@ class V3Engine:
         sensitivity: Optional[str] = None,
         actor: Optional[str] = None,
     ) -> str:
-        raise NotImplementedError("EM-211 writes chunk: remember over MemoryStore.add")
+        """Store a durable fact and return its id.
+
+        ``MemoryStore.add`` runs the whole v2 pipeline — policy, PII redaction,
+        injection screening, exact-duplicate collapse, the version row, the
+        sync outbox, the audit row and the queued embed job — so this is
+        translation, not a second implementation. A repeated write of identical
+        content collapses onto the existing row and returns its id
+        (``remember-idempotent``); a policy block raises, as v2 did; a policy
+        quarantine lands in ``pending``, as v2's quarantine did.
+        """
+        from policy import normalize_sensitivity  # local: shared optional module
+
+        text = _sanitize_fact_text(content or "")
+        if not text.strip():
+            raise ValueError("empty content after sanitize")
+
+        draft = MemoryDraft(
+            content=text,
+            summary=title,
+            domain=domain,
+            sensitivity=normalize_sensitivity(sensitivity, domain),
+            source=source,
+            source_session=session_id,
+            importance=importance,
+            tags=tuple(tags or ()),
+            status="active",
+            legacy_id=self._legacy_id(text),
+        )
+        with self.store.transaction() as conn:
+            result = MemoryStore(conn).add(
+                draft, scope=self.scope, actor=actor or "facade"
+            )
+        if not result.ok:
+            # The store already wrote the refusal to the audit chain.
+            raise ValueError(result.reason_code or "write blocked by policy")
+        return result.id
 
     def forget(self, entropic_id: str, *, confirm: bool = False) -> bool:
-        raise NotImplementedError("EM-211 writes chunk: forget as a status transition")
+        """Forget a fact by id; requires ``confirm=True``.
+
+        A status transition to ``deleted``, not a row delete: ``get_fact``
+        reads a terminal row as absent and ``stats`` leaves it out of the live
+        count, so callers see v2's behaviour, while the row and its version
+        history stay for the audit trail. Returns True when a row went and
+        False when there was nothing left to take — so forgetting twice is
+        False the second time, exactly as v2's DELETE reported it.
+        """
+        if not confirm:
+            with self.store.transaction() as conn:
+                audit_append(conn, "forget_denied", "facade", entropic_id,
+                             {"reason": "confirm_false"}, ok=False)
+            raise ValueError("forget requires confirm=True")
+
+        row = MemoryStore(self._reader()).get(entropic_id)
+        if row is None or row["status"] == "deleted":
+            return False
+
+        # Outside the write transaction on purpose (§3.3): copying the database
+        # is slow work and must not hold the single writer while it happens.
+        # Throttled, so a run of forgets cannot fill the backup directory.
+        BackupManager(self.db_path).snapshot_if_due(reason="pre-forget")
+
+        with self.store.transaction() as conn:
+            result = MemoryStore(conn).set_status(
+                row["id"], "deleted", actor="facade", reason="forget"
+            )
+        return result.ok
 
     def touch(self, fact_ids: Sequence[str]) -> int:
-        raise NotImplementedError("EM-211 writes chunk: touch via MemoryStore.touch")
+        """Batched ``last_accessed`` bump; returns how many ids matched.
+
+        ``last_accessed`` is the decay clock, so this is the same call v2 made.
+        Ids are resolved through ``MemoryStore.get``, which also accepts a v2
+        ``legacy_id`` or a unique id prefix — the provider passes back whatever
+        ``get_fact`` handed it, and on a migrated profile that is a legacy id.
+        """
+        wanted = [i for i in fact_ids if i]
+        if not wanted:
+            return 0
+        with self.store.transaction() as conn:
+            store = MemoryStore(conn)
+            resolved: list[str] = []
+            for one in wanted:
+                row = store.get(one)
+                if row is not None and row["id"] not in resolved:
+                    resolved.append(row["id"])
+            if resolved:
+                store.touch(resolved, field="accessed")
+        return len(resolved)
 
     def extract_and_store(
         self,
@@ -384,10 +560,110 @@ class V3Engine:
         min_confidence: float = 0.4,
         promote: bool = True,
     ) -> List[Dict[str, Any]]:
-        raise NotImplementedError("EM-211 writes chunk: extraction pipeline")
+        """Regex extraction of candidate facts; no LLM and no new call.
+
+        Every candidate is quarantined into ``pending`` — the write policy
+        routes an ``auto_extracted`` source there — and ``promote=True`` then
+        commits it over the ``pending -> active`` edge, which is what v2's
+        separate promotion write did. One versioned row instead of v2's two,
+        and the extraction record is the same row.
+        """
+        combined = f"{user_text}\n{assistant_text}"
+        if not combined.strip():
+            return []
+
+        candidates: List[tuple[str, str, float, str, str]] = []
+        for pattern, domain, importance, tag in _v2()._EXTRACTION_PATTERNS:
+            for match in re.finditer(pattern, combined, re.IGNORECASE):
+                content = match.group(0).strip()
+                if len(content) < 10 or len(content) > 500:
+                    continue
+                if importance < min_confidence:
+                    continue
+                candidates.append((content, domain, importance, tag, "auto_extract"))
+        for pattern, domain, importance in _PREFERENCE_PATTERNS:
+            for match in re.finditer(pattern, combined, re.IGNORECASE):
+                content = f"Preference: {match.group(1).strip().capitalize().rstrip('.')}."
+                if len(content) < 15 or len(content) > 300:
+                    continue
+                candidates.append(
+                    (content, domain, importance, "preference", "auto_extract_preference")
+                )
+
+        extracted: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for content, domain, importance, tag, reason in candidates:
+            if content in seen:
+                continue
+            seen.add(content)
+            stored = self._store_candidate(
+                content=content, domain=domain, importance=importance, tag=tag,
+                reason=reason, session_id=session_id, promote=promote,
+            )
+            if stored is not None:
+                extracted.append(stored)
+        return extracted
+
+    def _store_candidate(
+        self, *, content: str, domain: str, importance: float, tag: str,
+        reason: str, session_id: str, promote: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Quarantine one extracted candidate, optionally promoting it."""
+        draft = MemoryDraft(
+            content=content,
+            domain=domain,
+            importance=importance,
+            tags=(tag,),
+            source="auto_extracted",
+            source_session=session_id,
+            status="pending",
+            pending_reason=reason,
+            # No legacy_id: an extracted candidate is not a content-addressed
+            # mirror row, so it must not claim the profile-wide content id.
+            legacy_id="",
+        )
+        with self.store.transaction() as conn:
+            store = MemoryStore(conn)
+            result = store.add(draft, scope=self.scope, actor="facade")
+            if not result.ok or not result.id:
+                return None
+            pending = result.status == "pending"
+            if promote and pending:
+                promoted = store.set_status(
+                    result.id, "active", actor="facade", reason="auto_commit"
+                )
+                if promoted.ok:
+                    pending = False
+        return {
+            "id": result.id,
+            "content": content,
+            "domain": domain,
+            "importance": importance,
+            "tag": tag,
+            "pending": pending,
+        }
 
     def prune_pending(self, older_than_days: int = 30) -> int:
-        raise NotImplementedError("EM-211 writes chunk: pending TTL prune")
+        """TTL purge of the pending quarantine; returns how many went.
+
+        v2 deleted the rows outright. Here each one takes the §3.4
+        ``pending -> deleted`` edge with reason ``ttl_expired``, so the purge is
+        audited and versioned like every other change.
+        """
+        cutoff = to_iso(utc_now() - timedelta(days=older_than_days))
+        removed = 0
+        with self.store.transaction() as conn:
+            store = MemoryStore(conn)
+            rows = store.list(scope=self.scope, status=("pending",),
+                              limit=_SCAN_LIMIT, order="created_at ASC")
+            for row in rows:
+                if (row.get("created_at") or "") >= cutoff:
+                    continue
+                gone = store.set_status(row["id"], "deleted", actor="facade",
+                                        reason="ttl_expired")
+                if gone.ok:
+                    removed += 1
+        return removed
 
     def add_episode(
         self,
@@ -403,7 +679,45 @@ class V3Engine:
         source: str = "agent",
         episode_id: Optional[str] = None,
     ) -> str:
-        raise NotImplementedError("EM-211 writes chunk: EpisodeStore.add_episode")
+        """Store a distilled episodic record (session summary / timeline entry).
+
+        The episode id lands in ``episodes.legacy_id``, which is what
+        ``next_episode_wave`` reads, so the cadence-digest numbering survives
+        the cutover. A caller-supplied ``episode_id`` is replaced in place: the
+        provider derives it from the session id and refires it, and v2's
+        ``INSERT OR REPLACE`` made that convergent. Without a session key the
+        episode is ``manual``, which keeps it out of a session's window
+        numbering.
+
+        ``linked_fact_ids``, ``domain`` and ``source`` are accepted and
+        ignored: v3's ``episodes`` table has no column for them and giving it
+        one would mean a migration, which this chunk does not take.
+        """
+        legacy = episode_id or ("ep_" + uuid.uuid4().hex[:12])
+        fields = {
+            "title": title,
+            "summary": summary,
+            "importance": importance,
+            "start_at": start_ts,
+            "end_at": end_ts,
+            "legacy_id": legacy,
+        }
+        with self.store.transaction() as conn:
+            store = EpisodeStore(conn)
+            existing = conn.execute(
+                "SELECT id, session_id, kind, window_seq FROM episodes WHERE legacy_id=?",
+                (legacy,),
+            ).fetchone()
+            if existing is not None:
+                return store.upsert_episode(
+                    scope=self.scope, kind=existing["kind"],
+                    session_id=existing["session_id"],
+                    window_seq=existing["window_seq"], **fields,
+                )
+            if source_session:
+                return store.add_episode(scope=self.scope, kind="session",
+                                         session_id=source_session, **fields)
+            return store.add_episode(scope=self.scope, kind="manual", **fields)
 
     def consolidate(
         self,
@@ -413,4 +727,107 @@ class V3Engine:
         confirm: bool = False,
         evergreen_domains: Optional[Sequence[str]] = None,
     ) -> dict:
-        raise NotImplementedError("EM-211 writes chunk: consolidation report")
+        """Archive old, low-value facts (I3; safe selection per EM-108/L2).
+
+        A fact is a candidate only when ALL hold: importance < 0.6, domain not
+        in ``evergreen_domains``, source not in ``('built_in_memory',
+        'promoted')``, no ``pinned`` tag, age from
+        ``max(updated_at, last_accessed)`` >= ``max_age_days``, and
+        ``access_count <= min_access_count``. Candidates sort lowest
+        importance first, oldest first within a tier.
+
+        Archiving is the ``active -> archived`` edge, not v2's copy into a side
+        ``facts_archive`` table: the row keeps its sensitivity and its history
+        and leaves the live count. ``dry_run`` or a missing ``confirm`` reports
+        what would go and changes nothing.
+        """
+        evergreen = set(evergreen_domains) if evergreen_domains is not None else {"People"}
+        now = utc_now()
+        candidates: List[Dict[str, Any]] = []
+        with self.store.transaction() as conn:
+            rows = MemoryStore(conn).list(scope=self.scope, status=("active",),
+                                          limit=_SCAN_LIMIT, order="created_at ASC")
+            for row in rows:
+                found = self._consolidation_candidate(
+                    row, now=now, evergreen=evergreen, max_age_days=max_age_days,
+                    min_access_count=min_access_count,
+                )
+                if found is not None:
+                    candidates.append(found)
+
+        candidates.sort(key=lambda c: (c["importance"], c["newest"]))
+        candidate_ids = [c["id"] for c in candidates]
+        if dry_run or not confirm:
+            return {
+                "archived": 0,
+                "would_archive": len(candidate_ids),
+                "candidates": [
+                    {
+                        "id": c["id"],
+                        "title": c["title"],
+                        "age": round(c["age_days"], 1),
+                        "importance": c["importance"],
+                    }
+                    for c in candidates
+                ],
+                "cutoff_days": max_age_days,
+                "dry_run": True,
+                "confirm_required": not confirm,
+            }
+
+        # Outside the write transaction (§3.3), and throttled: archiving a
+        # whole profile is one event, not one per row.
+        BackupManager(self.db_path).snapshot_if_due(reason="pre-consolidate")
+
+        archived = 0
+        with self.store.transaction() as conn:
+            store = MemoryStore(conn)
+            for memory_id in candidate_ids:
+                moved = store.set_status(memory_id, "archived", actor="facade",
+                                         reason="consolidate")
+                if moved.ok:
+                    archived += 1
+        return {"archived": archived, "cutoff_days": max_age_days, "dry_run": False}
+
+    @staticmethod
+    def _consolidation_candidate(
+        row: Dict[str, Any], *, now: datetime, evergreen: set,
+        max_age_days: int, min_access_count: int,
+    ) -> Optional[Dict[str, Any]]:
+        """One row's candidacy, or ``None``. v2's rule, unchanged."""
+        if (row.get("importance") or 0.0) >= 0.6:
+            return None
+        if (row.get("domain") or "Knowledge") in evergreen:
+            return None
+        if (row.get("source") or "agent") in ("built_in_memory", "promoted"):
+            return None
+        tags = row.get("tags")
+        try:
+            tag_list = json.loads(tags) if isinstance(tags, str) else list(tags or [])
+        except (TypeError, ValueError):
+            tag_list = []
+        if "pinned" in tag_list:
+            return None
+        if (row.get("access_count") or 0) > min_access_count:
+            return None
+
+        parse = _v2()._parse_ts
+        stamps = [
+            s for s in (parse(row.get("updated_at") or ""),
+                        parse(row.get("last_accessed_at") or ""))
+            if s
+        ]
+        newest = max(stamps) if stamps else parse(row.get("created_at") or "")
+        if newest is None:
+            return None
+        age_days = (now - newest).total_seconds() / 86400.0
+        if age_days < max_age_days:
+            return None
+        return {
+            "id": row["id"],
+            "title": row.get("summary") or "",
+            "importance": row.get("importance") or 0.0,
+            "newest": newest,
+            "age_days": age_days,
+        }
+

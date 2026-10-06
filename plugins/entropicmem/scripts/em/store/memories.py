@@ -199,14 +199,15 @@ class MemoryStore:
         now = to_iso(utc_now())
         mid = new_id("mem")
         self._conn.execute(
-            "INSERT INTO memories (id, scope_profile, scope_user, scope_chat, visibility,"
+            "INSERT INTO memories (id, legacy_id, scope_profile, scope_user, scope_chat, visibility,"
             " kind, content, summary, content_hash, domain, tags, status, importance,"
             " confidence, sensitivity, source, source_session, source_turn, author_id,"
             " evidence, pinned, decay_class, valid_from, valid_to, created_at, updated_at,"
             " pending_reason, pending_expires_at, trust_flags, token_estimate, version)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 mid,
+                draft.legacy_id or None,
                 scope.profile,
                 scope.user,
                 scope.chat,

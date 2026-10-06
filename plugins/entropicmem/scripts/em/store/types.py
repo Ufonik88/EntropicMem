@@ -124,6 +124,14 @@ class MemoryDraft:
     status: str = "pending"
     pending_reason: str = ""
     pending_expires_at: str | None = None
+    #: The v2-shaped, content-derived id this memory should also answer to.
+    #: ``memories.legacy_id`` is UNIQUE and content-derived, so it is only
+    #: meaningful for a profile-wide write (v2 had one owner per database); a
+    #: user-scoped draft leaves it empty. The v2-to-v3 migration stamps it for
+    #: every migrated row and EM-211's facade ``remember`` stamps it the same
+    #: way, which is what keeps ``get_fact(StoredFact.make_id(content))``
+    #: resolving after a cutover.
+    legacy_id: str = ""
 
 
 @dataclass(frozen=True)
