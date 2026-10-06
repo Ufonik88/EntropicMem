@@ -13,10 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-06, against branch `em/em-211-facade-writes` at
-`9661e6b` — the docs close-out for Chunk 6, whose code tip is `6bd4b47`. `main`
-at that moment is `03772e3`. A later docs-only commit moving the tip without
-changing code, tests or counts is expected; see plan §11.
+**Last reconciled:** 2026-10-06, against branch `main` at `e25db32`, which is the
+commit Chunks 5 and 6 were merged at after CI went green on it. A later docs-only
+commit moving the tip without changing code, tests or counts is expected; see
+plan §11.
 
 ---
 
@@ -61,7 +61,7 @@ What `em/` contains today: `em.clock` (freezable UTC, ULIDs), `em.store`
 worker, `entropicmem worker run`), `em.formation` (`EntityLinker`), and
 `em.facade` (the provider-facing contract plus `V3Engine`).
 
-### EM-211, the legacy facade — half done, and unwired
+### EM-211, the legacy facade — three quarters done, merged, and unwired
 
 The facade is the card that lets the provider run on v3 without being rewritten.
 It is split into four chunks, and they are numbered globally so a chunk number
@@ -70,8 +70,8 @@ means one thing:
 | Chunk | What | State |
 |---|---|---|
 | 4 | Facade **reads** over `em.store` | **Done** (`0349b7b4b`, 2026-10-03, merged) |
-| 5 | Facade **writes** over `em.store` | **Done** (`36355f3`) — committed, **not merged** |
-| 6 | Facade **mirror call** | **Done** (`6bd4b47`) — committed, **not merged** |
+| 5 | Facade **writes** over `em.store` | **Done, merged** (`36355f3`, in `e25db32`) |
+| 6 | Facade **mirror call** | **Done, merged** (`6bd4b47`, in `e25db32`) |
 | 7 | Facade **`EntityLinker` job** | Next |
 
 **EM-211's acceptance criterion is not met and S2's exit criteria still fail.**
@@ -84,31 +84,16 @@ read three landed chunks as the card being done.
 
 ### In flight
 
-**Chunks 5 and 6, on the local branch `em/em-211-facade-writes`** — six commits,
-all committed with a clean tree:
+**Nothing.** Chunks 5 and 6 are merged to `main` (`e25db32`) with green CI on
+that exact SHA, and the `em/em-211-facade-writes` branch is deleted. The remote
+carries `main` and `release/2.8.x` only.
 
-| Commit | What |
-|---|---|
-| `36355f3` | `feat(em-211)`: Chunk 5, the seven write stubs become real write paths |
-| `d055b74` | `docs`: close out Chunk 5, scope Chunk 6 |
-| `436d360` | `docs`: `MASTER_TODO.md` + the document-control rule and its guard |
-| `81859d0` | `docs`: point the status page at its own merge state |
-| `6bd4b47` | `feat(em-211)`: Chunk 6, `find_mirrored` on both engines |
-| `9661e6b` | `docs`: close out Chunk 6, scope Chunk 7 |
-
-**Pushed 2026-10-06.** The first CI run was **red**, and it was right to be:
-
-| Leg | What failed | Why local green missed it |
-|---|---|---|
-| `test (3.10)` | 5 consolidate tests | The facade borrowed v2's timestamp parser; Python 3.10 rejects the `Z` suffix v3 writes. Local interpreter is 3.12. |
-| `test (3.10–3.13)` | `tests/test_master_todo.py` | CI checked out shallow, so the guard could not resolve its recorded SHA. |
-
-Both are fixed in the commit that follows, with regression tests and a CI
-checkout fix. Every other job passed on the first run, including `windows-import`,
-`identity-guard`, `evals-ci`, `bench` and `lint`. `origin/main` is still
-`03772e3` until the fix is green.
-
----
+The merge was not clean on the first attempt and is worth reading before the next
+one: the first CI run was **red on two real problems** — a Python-3.10-only
+timestamp bug that no local run could see, and a document-control guard that
+could not run under CI's shallow checkout. Both are fixed and both are recorded
+in `CHANGELOG.md` under Fixed. The lesson is now in the gates section below: run
+the suite on 3.10 as well as your default interpreter.
 
 ## What is done
 
@@ -204,38 +189,24 @@ because it is irreversible or public:
 - **The tool rename** `entropicmem_patch_core` →
   `entropicmem_patch_core_memory`, which ships only with a release that re-pins
   the catalog.
-- **Merging Chunks 5 and 6**, which needs green CI on `6bd4b47` — see below.
+- **Nothing else at the moment.** The merge blocker that used to sit here is
+  cleared: Chunks 5 and 6 are on `main` at `e25db32` with green CI on that exact
+  SHA (verified via the check-run `headSha`, not assumed).
 
-### Why Chunks 5 and 6 are not merged
+### How GitHub access works from this machine
 
-Both are committed and every gate that can run locally is green, but
-`AGENTS.md` rule 1 forbids merging without green CI **on the exact SHA being
-merged**, and no CI has been run for either.
-
-**GitHub access is available from this machine** (as of 2026-10-06): the git
-credential helper holds a valid OAuth token for `Ufonik88` with `repo`,
+The git credential helper holds a valid OAuth token for `Ufonik88` with `repo`,
 `workflow`, `user:email` and `read:user` scopes, so `git push` works, and
 `~/.local/bin/ghx` runs the GitHub CLI with that same token. The token is read
-from the macOS keychain on each call and never written to disk — see the wrapper's
-own comments before changing that. The `ENTROPICMEM_PRIVACY_DIGESTS` repository
-secret exists (set 2026-09-26), so CI's privacy guard can run and is not expected
-to trip on a missing list.
+from the macOS keychain on each call and never written to disk, logged, or
+printed — read the wrapper's own comments before changing that. The
+`ENTROPICMEM_PRIVACY_DIGESTS` repository secret exists, so CI's privacy guard
+runs for real. Branch protection on `main` forbids force-pushes and deletion,
+which matches the rules.
 
-So the remaining step is mechanical: push `em/em-211-facade-writes`, wait for
-green CI on the tip (`9661e6b` or later), then fast-forward `main` with
-`git merge --ff-only` and delete the branch — **never** the GitHub web merge
-button, which stamps the owner's email on the commit. Branch protection on `main`
-already forbids force-pushes and deletion, which matches the rules.
-
-Local green is still not CI green: `windows-import`, `plugin-validate`, `bench`
-and `identity-guard` have never run for these commits, and the privacy guard has
-never run against these file changes.
-
-Then, and only then, correct the merge state in three places: the chunk table and
-the In flight section **here**, the "In flight" row in
-[plan §11](docs/plan/REMAINING_PLAN.md), and the Part A headings in
-[NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md). Until that is done, "committed, not
-merged" is the accurate description and the guard will keep enforcing it.
+Merge with `git merge --ff-only` from the CLI after checking green CI on the
+exact `headSha` — **never** the GitHub web merge button, which stamps the owner's
+email on the commit.
 
 ---
 
