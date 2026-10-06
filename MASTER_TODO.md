@@ -14,7 +14,7 @@ points at.
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
 **Last reconciled:** 2026-10-06, against branch `em/em-211-facade-writes` at
-`d055b74`. `main` at that moment is `03772e3`.
+`436d360`. `main` at that moment is `03772e3`.
 
 ---
 
@@ -86,11 +86,12 @@ the card being done.
 |---|---|
 | `36355f3` | `feat(em-211)`: the seven `NotImplementedError` stubs become real write paths |
 | `d055b74` | `docs`: close out Chunk 5, scope Chunk 6 |
+| `436d360` | `docs`: `MASTER_TODO.md` + the document-control rule and its guard |
 
-Both are committed and clean. **Neither is pushed, neither is on any remote, and
-no CI has run for either.** `origin/main` is still `03772e3`. Merging needs green
-CI on the exact SHA first ([AGENTS.md](AGENTS.md) rule 1) — see
-[Open blockers](#open-blockers).
+All three are committed and the tree is clean. **None is pushed, none is on any
+remote, and no CI has run for any of them.** `origin/main` is still `03772e3`.
+Merging needs green CI on the exact SHA first ([AGENTS.md](AGENTS.md) rule 1) —
+see [Open blockers](#open-blockers).
 
 ---
 
@@ -111,8 +112,11 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 - **EM-212 partially done**: `_backend` loads its own `vault.py` by path. The
   package move is still open.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
-  identity guard, a docs-link guard, a CLI-reference drift guard, and a perf
-  smoke test that prints its full distribution.
+  identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
+  test that prints its full distribution, and a document-control guard that
+  fails when this page and the plan disagree about the truth.
+- **The document-control rule itself** is now written into `AGENTS.md` and
+  enforced, so the next agent picks it up on any harness without being told.
 
 ---
 
@@ -187,9 +191,15 @@ It is committed and every local gate is green, but `AGENTS.md` rule 1 forbids
 merging without green CI **on the exact SHA being merged**. `gh` on this machine
 is unauthenticated, so the branch cannot be pushed and CI cannot be observed
 from here. The agent that finishes this must push
-`em/em-211-facade-writes`, wait for green CI on `d055b74`, then fast-forward
+`em/em-211-facade-writes`, wait for green CI on `436d360`, then fast-forward
 `main` with `git merge --ff-only` and delete the branch — never the GitHub web
 merge button, which stamps the owner's email on the commit.
+
+Then, and only then, correct the merge state in three places: the chunk table
+and the In flight section **here**, the "In flight" row in
+[plan §11](docs/plan/REMAINING_PLAN.md), and the Part A heading in
+[NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md). Until that is done, "committed, not
+merged" is the accurate description and the guard will keep enforcing it.
 
 ---
 
