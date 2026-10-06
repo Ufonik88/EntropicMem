@@ -40,7 +40,7 @@ ancestor of the branch.
 
 ## Where we are
 
-### Released line — frozen
+### Released line — **done and frozen**
 
 **`v2.8.1`**, tag at `7e02412` on the protected `release/2.8.x`. This is what the
 Hermes plugin catalog pins (`entropicmem` 2.8.1) and what users install. It
@@ -48,12 +48,33 @@ contains **no v3 code and no new features**: it is 2.8.0 plus safety fixes. Its
 one user-visible change is that semantic recall now needs
 `embeddings_enabled: true`. Nothing on this line changes without the owner.
 
+> **There is no 2.8.x work left to do.** 2.8.1 is implemented, tagged, published
+> as the repo's Latest release (2026-09-27), catalog-pinned, and install-verified.
+> Users can already update to it, and do. If a request says "finish the 2.8.1
+> sprint", the target it names is already complete — check this section before
+> building anything. The only things that would legitimately create *new* 2.8.x
+> work are (a) a security or correctness bug specific to 2.8.x, or (b) a
+> deliberate owner decision to cut a 2.8.2 patch; neither is open today.
+
 ### Development line — `main`, `3.0.0.dev0`
+
+**This is where all development happens, and the two lines are not patchable into
+each other.** `main`'s provider, CLI and engine now import the `em` package
+(`from em import __version__`, `em.store.locking.FileLock`, `em.jobs.cli`), so
+`main` is not a set of cherry-picks for `release/2.8.x` — it is a different
+program with an extra dependency. `git rev-list --count origin/release/2.8.x..main`
+is ~80 commits; the 12 in the other direction are 2.8.1's own cherry-picked
+safety fixes, all already released.
 
 **All of S2 (the v3 storage core, `em/`) is merged and unwired.** The provider
 still constructs the v2 `MemoryEngine`; nothing in `em/` is on the provider's
 live path. That is deliberate — the core landed first so the facade could be
 proven against it.
+
+**The only route to a new user-facing update is the 3.0 release (EM-904)**, and
+it cannot happen until the v3 core is wired in and the live store is migrated.
+That work is listed under [What is next](#what-is-next); the cutover itself is
+owner-gated.
 
 What `em/` contains today: `em.clock` (freezable UTC, ULIDs), `em.store`
 (`db`/portable locking, numbered migrations `0001`–`0003`, `MemoryStore`,
