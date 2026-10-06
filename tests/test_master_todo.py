@@ -117,14 +117,17 @@ def test_master_todo_records_a_sha_that_is_a_real_ancestor() -> None:
 
 
 #: Chunk numbers whose table row is checked for the merged/unmerged claim.
-_CHUNK_ROWS = ("4", "5", "6", "7")
+#: Decimal ids are allowed because sub-chunks exist (7.1, 7.2).
+_CHUNK_ROWS = ("4", "5", "6", "7", "7.1", "7.2")
+
+_CHUNK_ID = r"\d+(?:\.\d+)?"
 
 
 def _table_rows(text: str) -> dict[str, str]:
     """Map ``| 5 | ... |`` rows to their full text, keyed by the row number."""
     rows: dict[str, str] = {}
     for line in text.splitlines():
-        match = re.match(r"^\|\s*(\d+)\s*\|", line)
+        match = re.match(rf"^\|\s*({_CHUNK_ID})\s*\|", line)
         if match:
             rows.setdefault(match.group(1), line)
     return rows
@@ -149,8 +152,9 @@ def test_master_todo_does_not_overstate_a_commit_as_merged() -> None:
     if not re.search(r"not merged|unpushed|no CI has run", inflight, re.IGNORECASE):
         return
 
-    # Which chunk numbers does In flight admit are unmerged?
-    pending = set(re.findall(r"Chunk\s*(\d+)", inflight))
+    # Which chunk numbers does In flight admit are unmerged? Decimal ids count,
+    # because sub-chunks are real (7.1 landed, 7.2 did not).
+    pending = set(re.findall(rf"[Cc]hunk\s*({_CHUNK_ID})", inflight))
     assert pending, (
         "the In flight section says work is unmerged but names no chunk number, "
         "so the chunk table cannot be checked against it"

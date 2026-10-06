@@ -53,7 +53,7 @@ single version source for the whole repo.
 | `em.store.migrations` | The migration framework, migrations `0001`–`0003`, and `assert_safe_db_path` |
 | `em.jobs.worker` | `JobWorker` + `HandlerRegistry`: claim, run outside the write transaction (invariant 2), lease heartbeat, retry with backoff |
 | `em.jobs.cli` | `entropicmem worker run`: the job entry point a cron can call |
-| `em.formation.entity_linker` | The two-sighting linker, meant to run as a job (`link:<memory_id>:<version>`), never inside a write |
+| `em.formation.entity_linker` | The two-sighting linker **and** `make_link_handler`: it runs as a `link:<memory_id>:<version>` job, never inside a write (invariant 2) |
 | `em.facade.contract` | The provider contract derived by AST scan over the provider source; `tests/parity/` is its gate. `PROVIDER_ATTRIBUTES` is empty, so the provider reaches the engine only through methods both engines implement |
 | `em.facade.engine` | `V3Engine`: the whole `LegacyEngine` API over `em.store` — reads, writes and the mirror call. Complete as a library, **not wired in**; see the facade rules in [`V3_FOUNDATIONS.md`](V3_FOUNDATIONS.md) |
 

@@ -12,8 +12,8 @@ Hermes provider (plugins/entropicmem/__init__.py)   <- unchanged in S2; talks to
         v
 em.facade  (EM-211)       contract.py: the exact API + behaviours the provider relies on
         |                 engine.py: V3Engine, the whole LegacyEngine API over em.store
-        |                   (reads, writes and the mirror call done; linker to come.
-        |                    NOT wired into the provider — it still runs v2.)
+        |                   (reads, writes, mirror call and link job done; the
+        |                    §3.5 owner-only read rule next. NOT wired in — runs v2.)
         v
 em.formation              entity_linker.py (EM-208): turns memories into graph links
 em.jobs   (EM-209)        worker.py: claims jobs, runs handlers OUTSIDE transactions
@@ -140,7 +140,8 @@ Scheduled backups: `enqueue_daily_backup(JobQueue(conn))`, handled by `make_back
 ## What's next, and what each card builds on
 
 - **EM-211 (legacy facade).** Split into four chunks: **reads → writes → mirror → linker** (plan §6.1, `docs/plan/REMAINING_PLAN.md`). **Reads landed 2026-10-02 (`0349b7b4b`); writes and the mirror call are committed but unmerged (`36355f3`, `6bd4b47`).** So `V3Engine` implements the whole provider-facing `LegacyEngine` contract over `em.store`, and `PROVIDER_ATTRIBUTES` is **empty** — the provider no longer reads a raw connection anywhere, which was the last thing only v2 could serve. It is registered in `_implementations()` in `tests/unit/test_em_facade_contract.py` and in both `ENGINES` and `WRITE_ENGINES` in `tests/parity/test_engine_parity.py`. **Nothing is wired into the provider yet**: the provider still constructs `MemoryEngine`, so the card's AC and S2's exit criteria are still unmet. What remains:
-  - **Chunk 7 — the linker:** enqueue `link:<memory_id>:<version>` on write and run `EntityLinker` from that job (never inside `MemoryStore.add`, which would put entity work inside a write transaction), then register the handler in `em/jobs/cli.py` beside `backup`. This completes the card and brings the §3.5 owner-only rule for sensitive rows with it, which is the read-side scope gap deferred since Chunk 4 and needs the gateway identity.
+  - **Chunk 7.1 — the link job: DONE (`96c4ccb`, committed, not merged).** `MemoryStore` enqueues `link:<memory_id>:<version>` beside the `embed` enqueue; `make_link_handler` in `em/formation/entity_linker.py` runs the linker outside any write transaction (invariant 2) and is idempotent across a retry; `entropicmem worker run` registers the type.
+  - **Chunk 7.2 — the §3.5 owner-only rule: NEXT.** The facade's reads are profile-wide today, so a `sensitive`/`secret` row is visible to any user of a profile. The rule belongs in `_in_scope`, and it needs the gateway identity threaded from the provider, which is why it is its own chunk.
   - **Then wiring** — switching the provider onto the facade. A separate decision, not yet scheduled.
 
 ### The facade's write rules worth knowing before you build on it

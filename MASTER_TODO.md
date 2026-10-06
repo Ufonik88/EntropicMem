@@ -13,10 +13,9 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-06, against branch `main` at `e25db32`, which is the
-commit Chunks 5 and 6 were merged at after CI went green on it. A later docs-only
-commit moving the tip without changing code, tests or counts is expected; see
-plan §11.
+**Last reconciled:** 2026-10-06, against branch `em/em-211-linker-job` at
+`96c4ccb`, branching from `main` at `f2deea0`. A later docs-only commit moving
+the tip without changing code, tests or counts is expected; see plan §11.
 
 ---
 
@@ -82,7 +81,7 @@ What `em/` contains today: `em.clock` (freezable UTC, ULIDs), `em.store`
 worker, `entropicmem worker run`), `em.formation` (`EntityLinker`), and
 `em.facade` (the provider-facing contract plus `V3Engine`).
 
-### EM-211, the legacy facade — three quarters done, merged, and unwired
+### EM-211, the legacy facade — nearly done, merged, and unwired
 
 The facade is the card that lets the provider run on v3 without being rewritten.
 It is split into four chunks, and they are numbered globally so a chunk number
@@ -93,7 +92,8 @@ means one thing:
 | 4 | Facade **reads** over `em.store` | **Done** (`0349b7b4b`, 2026-10-03, merged) |
 | 5 | Facade **writes** over `em.store` | **Done, merged** (`36355f3`, in `e25db32`) |
 | 6 | Facade **mirror call** | **Done, merged** (`6bd4b47`, in `e25db32`) |
-| 7 | Facade **`EntityLinker` job** | Next |
+| 7.1 | The **entity-link job** (`link:<memory_id>:<version>`) | **Done** (`96c4ccb`) — committed, **not merged** |
+| 7.2 | The **§3.5 owner-only rule** for sensitive reads | Next |
 
 **EM-211's acceptance criterion is not met and S2's exit criteria still fail.**
 The reason has been the same after every chunk so far: the facade is complete as
@@ -105,16 +105,16 @@ read three landed chunks as the card being done.
 
 ### In flight
 
-**Nothing.** Chunks 5 and 6 are merged to `main` (`e25db32`) with green CI on
-that exact SHA, and the `em/em-211-facade-writes` branch is deleted. The remote
-carries `main` and `release/2.8.x` only.
+**Chunk 7.1, on the local branch `em/em-211-linker-job`** — one commit,
+`96c4ccb` (the entity-link job), with the docs close-out beside it.
 
-The merge was not clean on the first attempt and is worth reading before the next
-one: the first CI run was **red on two real problems** — a Python-3.10-only
-timestamp bug that no local run could see, and a document-control guard that
-could not run under CI's shallow checkout. Both are fixed and both are recorded
-in `CHANGELOG.md` under Fixed. The lesson is now in the gates section below: run
-the suite on 3.10 as well as your default interpreter.
+**Not pushed, not merged, no CI run yet.** `origin/main` is `f2deea0`. Every gate
+that can run locally is green — **1643 passed / 3 skipped / 4 xfailed on both
+Python 3.10 and 3.12**, `ruff==0.16.2` clean, eval gate with no gated metric
+regressed, `perf-smoke` warm p95 3.820 ms against the 20 ms budget — but local
+green is not CI green, and the last merge proved it: the first CI run for Chunks
+5 and 6 was red on a Python-3.10-only bug that 3.12 could not see. Push, wait for
+green on the exact SHA, then `git merge --ff-only`.
 
 ## What is done
 
@@ -129,9 +129,10 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 - **EM-210 closed in two chunks:** `snapshot()` covers both databases, and
   `snapshot_if_due()` throttles destructive callers to one snapshot per reason
   per hour. Retention settled at 7 routine + 5 safety.
-- **EM-211 Chunks 4, 5 and 6**: the facade's read half, its write half, and the
-  mirror call. `PROVIDER_ATTRIBUTES` is now empty, so the provider reaches the
-  engine only through methods both engines implement.
+- **EM-211 Chunks 4, 5, 6 and 7.1**: the facade's read half, its write half, the
+  mirror call, and the entity-link job. `PROVIDER_ATTRIBUTES` is now empty, so the
+  provider reaches the engine only through methods both engines implement, and
+  entity linking runs off the write path as `link:<memory_id>:<version>`.
 - **EM-212 partially done**: `_backend` loads its own `vault.py` by path. The
   package move is still open.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
@@ -145,33 +146,35 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-**Chunk 7 — the `EntityLinker` job.** The last piece of EM-211:
+**Chunk 7.2 — the §3.5 owner-only rule for sensitive reads.** This is the last
+piece of EM-211 and the read-side scope gap deferred since Chunk 4: `get_fact`,
+`recall_with_relevance`, `_like_fallback` and `find_mirrored` read profile-wide
+today, so a `sensitive`/`secret` memory is visible to any user of the profile.
 
-1. Run `EntityLinker` from a `link:<memory_id>:<version>` job, enqueued on write
-   and handled by the worker — **never inside `MemoryStore.add`**, which would
-   put entity work inside a write transaction (invariant 2).
-2. Bring the §3.5 owner-only rule for sensitive rows with it. That needs the
-   gateway identity, and it is the read-side scope gap that has been deferred
-   since Chunk 4: `get_fact` and recall still read profile-wide.
-3. Closing it means EM-211's four chunks are all done — but the card's AC still
-   needs the **wiring** chunk, which switches the provider onto the facade. That
-   is a separate decision and is not scheduled.
+The reason it is its own chunk: the rule needs the **gateway identity**, and
+`V3Engine` only takes a `scope_user` string. Wiring the provider's gateway user
+into the facade means touching the provider — the size guard in
+[NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md) Part B says stop and split when that
+happens, and it did. `_in_scope` is the single place the rule belongs (invariant
+5), with a truth-table test.
 
 Then, in order:
 
+- **Wiring the provider onto the facade.** EM-211's four sub-chunks are then all
+  done, but the card's AC still needs the provider switched over. A separate
+  decision, not scheduled.
 - **EM-212's package move.** Split it first; it is multi-file. Pinned by a strict
   xfail that flips when it lands.
-- **Wiring, and only then the v3 cutover.** Owner-gated, needs the owner present.
+- **The v3 cutover**, owner-gated, with the owner present — then **EM-904**, the
+  3.0 release that re-pins the catalog and renames the tool.
 - **S3 (retrieval v3)**, on the critical path in plan §6.2:
   EM-302 → EM-304 → EM-305 → EM-403 → EM-503 → EM-901 → EM-904.
-
----
 
 ## Gates that must be green before anything reaches `main`
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1626 passed / 3 skipped / 4 xfailed** |
+| Tests | `python -m pytest -q` | **1643 passed / 3 skipped / 4 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |

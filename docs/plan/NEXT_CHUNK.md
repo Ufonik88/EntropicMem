@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-06, Chunks 5 and 6 merged to `main` at `e25db32`; **Chunk 7 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-06, Chunk 7.1 committed (not yet merged); **Chunk 7.2 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
@@ -61,70 +61,82 @@
 - Gates: **1624 passed / 3 skipped / 4 xfailed**, `ruff==0.16.2` clean, eval gate vs `v2.8.0-ci.json` with no gated metric regressed, `perf-smoke` warm p95 3.666 ms against the unchanged 20 ms budget, `tests/unit` green standalone for `windows-import`.
 - **Merged** to `main` at `e25db32`, together with Chunk 5. Every job was green on the exact SHA, `windows-import` and `plugin-validate` included.
 
-**The EM-210 gaps are both closed. EM-211 is three quarters done (reads, writes, mirror).** Feature work stays stopped until the owner starts Chunk 7.
+### Chunk 7.1 — the entity-link job. **DONE, COMMITTED, NOT MERGED (2026-10-06, `96c4ccb`)**
+
+- `feat(em-211): entity linking runs as a job`: `EntityLinker` and `EntityStore.link` already existed (EM-208), but nothing called them on v3 — no write queued a link job and no worker registered a handler, so a v3 memory was never bound to an entity. `MemoryStore` now enqueues `link:<memory_id>:<version>` beside the `embed` enqueue, and `make_link_handler` runs outside any write transaction (invariant 2).
+- Idempotent across a retry, because delivery is at-least-once: `EntityStore.link` upserts and a phrase's sighting counter counts distinct memories. Asserted by re-running the same job.
+- Dead-letters a payload with no `memory_id` and a memory that no longer exists; a memory that is merely not live (pending/archived/forgotten) is **done**, not failed, because deletion is a status change. The row's own scope is used.
+- Promotion (`pending -> active`) and a content `update` both queue a link job, matching the embed enqueue deliberately.
+- **Known limitation, asserted:** the two-sighting rule is EM-208's, so promotion links whichever memory's job trips the counter and does not retro-link the earlier one. Backfilling is S5's `reconcile`.
+- 17 new tests; 1643 passed / 3 skipped / 4 xfailed on Python 3.10 **and** 3.12; seven mutation checks. One existing test updated rather than weakened: it counted all jobs and now counts per type.
+- **Not merged** yet — push, green CI on the exact SHA, `git merge --ff-only`.
+
+**EM-210 is fully closed. EM-211 is nearly done: reads, writes, the mirror call and the link job are in; only the §3.5 owner-only read rule (7.2) remains.**
 
 ---
 
-## Part B: Chunk 7 — the `EntityLinker` job. **NEXT PIECE, NOT STARTED**
+## Part B: Chunk 7.2 — the §3.5 owner-only rule for sensitive reads. **NEXT PIECE, NOT STARTED**
 
-**Topic:** the last quarter of EM-211 — entity linking off the write path, and with it the §3.5 owner-only rule.
+**Topic:** the last piece of EM-211, and the read-side scope gap deferred since Chunk 4.
 
-**Why this chunk.** Chunks 4–6 made the facade complete enough to serve every call the provider makes, and `PROVIDER_ATTRIBUTES` is now empty. What the facade still does not do is the work v2 did inline: binding a memory to entities. On v3 that must be a job, because entity work inside `MemoryStore.add` would be slow work inside a write transaction (invariant 2). This chunk is also where the read-side scope gap that has been deferred since Chunk 4 finally gets closed, because the linker is the first thing that needs to know whose row it is looking at.
+**Why this chunk.** The facade's reads are profile-wide today. `get_fact` calls `MemoryStore.get(id)` with **no scope at all**, and `recall_with_relevance` / `_like_fallback` build raw SQL with no scope or sensitivity clause. So in a profile that has a gateway user, any user of that profile can read a `sensitive` or `secret` memory. Chunk 5 fixed the **write** side (scope is set correctly on every row); this is the read side.
 
 **What already exists (measured from the code, so the chunk is not re-derived).**
 
 | Piece | Where | State |
 |---|---|---|
-| `EntityLinker(conn, scope).link(memory) -> list[str]` | `em/formation/entity_linker.py` | **Exists**, 57 lines, a thin wrapper over `EntityStore.link` |
-| `EntityStore.link(memory_id, content, *, scope)` | `em/store/entities.py` | Exists; two-sighting promotion, aliases, relations |
-| `EntityStore.forget_sightings(memory_id, *, profile)` | same | Exists, and `MemoryStore.purge` already calls it — invariant 6 is satisfied |
-| `link:<memory_id>:<version>` enqueued on write | `em/store/memories.py` | **Missing.** `_add_as_live` enqueues only `embed:<id>:<version>` |
-| A registered `link` handler | `em/jobs/cli.py` | **Missing.** Only `backup` is registered (`registry.register("backup", …)`) |
-| §3.5 owner-only read for sensitive rows | `em/store/memories.py` `_in_scope` | **Missing by design** — its own docstring says the rule "lands with the facade (EM-211), which knows the gateway identity" |
+| `_in_scope(row, scope)` | `em/store/memories.py` | Exists. Same profile **and** (same user **or** `scope_user == ''`). Its docstring says the owner-only rule "lands with the facade (EM-211), which knows the gateway identity" |
+| `MemoryStore.get(id, *, scope=None)` | same | Already accepts a scope and calls `_in_scope` — `get_fact` just passes nothing |
+| `MemoryStore.list(*, scope, ...)` | same | Requires a scope, filters profile+user only |
+| `Scope.is_owner`, `Scope.author` | `em/store/types.py` | Exist on the type; nothing sets them from a gateway today |
+| Facade reads | `em/facade/engine.py` | `get_fact` unscoped; `recall_with_relevance`, `_like_fallback`, `find_mirrored` hand-written SQL with no sensitivity clause |
 
-`Scope` already carries `is_owner: bool = True` and an `author` field, so the identity the owner-only rule needs is on the type; nothing has to be invented.
+**The rule to implement.** A memory whose `sensitivity` is `sensitive` or `secret` is readable only when the caller **is the owner** of that scope. Everything else keeps the current rule. `_in_scope` is the single place it belongs (invariant 5), so every read that already goes through it inherits the rule and there is one function to test.
 
-**In scope for Chunk 7.**
-- Enqueue `link:<memory_id>:<version>` from the write path, next to the existing `embed` enqueue, and never run the linker inside the transaction.
-- A `make_link_handler(...)` following the recipe in `docs/V3_FOUNDATIONS.md` ("Add a job type"): idempotent because delivery is at-least-once, its own short transactions via `ctx.store.transaction()`, `PermanentJobError` for a memory that no longer exists, content kept out of exception messages.
-- Register it in `em/jobs/cli.py` beside `backup`, so `entropicmem worker run` picks it up. Note the CLI's documented-command count is pinned by `tests/test_cli_reference_drift.py` — only add a documented command if one is genuinely new.
-- The §3.5 owner-only rule for sensitive rows: a `sensitive`/`secret` memory is readable only by its owner, with `_in_scope` as the single place that decides, plus a truth-table unit test (invariant 5 says every read is scoped).
-- Apply that rule to the facade's reads, which currently read profile-wide: `get_fact`, `recall_with_relevance`, `_like_fallback` and `find_mirrored`.
+**In scope.**
+- The rule in `_in_scope`, with a truth-table test: owner/guest × `sensitive`/`secret`/`internal`/`public` × profile-wide/user-scoped.
+- Apply it on every facade read: `get_fact` passes `self.scope`; `recall_with_relevance` and `_like_fallback` gain the scope and sensitivity clauses; `find_mirrored` gains the sensitivity clause (it already filters scope).
+- `V3Engine` accepts the caller's identity (`is_owner`, and the gateway user it already takes as `scope_user`) and threads it into `self.scope`. Constructor argument, never an environment read — the same rule the existing `scope_user` follows.
+- A test that a guest **cannot** read another user's sensitive row through each of the four read paths, and that an owner **can**. The leak test is the point: if the rule is deleted, it must fail loudly.
+- Mutation-check: drop the sensitivity branch and confirm the guest-read test goes red; drop the scope clause from `recall` and confirm the cross-user test goes red.
 
-**Size guard — split if this grows.** The link job is small and mechanical (the linker already exists; the work is enqueue + handler + registration). The owner-only rule is the risk: it touches every read path, needs a gateway identity threaded from the provider into `Scope`, and a wrong answer there is a privacy leak rather than a bug. **If the chunk starts to need provider changes to supply that identity, stop and split:** land 7.1 as the link job alone, and plan 7.2 as the scope rule. The plan's own §3.1 stop condition applies — a card AC bigger than the chunk's written scope means stop and report, not expand.
+**The decision this chunk must surface, not bury.** What happens when the facade is constructed without a known identity? Two options, and they are not equivalent:
 
-**Known gaps to carry in.**
-- `get_fact`/recall read with no scope filter (profile-wide). Chunk 5 set scope correctly on **write**; this chunk is the read side. Until it lands, the deferral stays documented in `docs/V3_FOUNDATIONS.md`.
-- Promotion of a `pending` memory to `active` does not currently enqueue an embed job (only `_add_as_live` does). If the link job is enqueued on write, decide deliberately whether promotion enqueues too, and say so — do not let the two paths differ by accident.
-- `find_mirrored` already filters by scope; extending the owner-only rule must not make a profile-wide mirror invisible to the owner's own replace/remove path.
+- **fail-closed** (`is_owner=False` by default): a misconfigured facade hides sensitive rows even from the owner. Safe against a leak, but a silent data-visibility bug.
+- **fail-open** (`is_owner=True` by default): the owner always sees their own data, but forgetting to pass the identity leaks sensitive rows to guests.
 
-### 7.0 Pre-flight (read-only)
-1. `main` must be at `e25db32` or later: Chunks 5 and 6 are merged there, with green CI on the exact SHA. `git merge-base --is-ancestor e25db32 main` proves it.
-2. **Baseline:** `env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_VAULT_PATH -u ENTROPICMEM_INDEX_DB python3 -m pytest -q` gives **1626 passed, 3 skipped, 4 xfailed** on both Python 3.10 and 3.12 (2 skipped instead of 3 where the private digest list exists — read the pair, see plan §11). `ruff check .` clean under the CI pin `ruff==0.16.2`.
-3. **Re-measure from the code before writing a test.** Read `em/formation/entity_linker.py`, `EntityStore.link`, the `embed` enqueue in `em/store/memories.py` (the pattern to copy), `em/jobs/cli.py`'s registration, the job-type recipe in `docs/V3_FOUNDATIONS.md`, and `_in_scope`.
+`Scope.is_owner` currently defaults to `True`, which is the fail-open choice. **Do not silently inherit that default.** Decide deliberately, write the reason down, and test whichever is chosen. This is the one genuinely owner-facing judgement in the chunk.
 
-### 7.0a Document control (do this before and after the chunk)
-Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth — a chunk committed without CI merged is "committed, not merged", never "landed". `tests/test_master_todo.py` fails the suite if this page and the plan disagree about it.
+**Size guard — this chunk may split further.** The rule, the facade reads and the tests are self-contained. Threading the identity from the provider is **not**: the provider still constructs the v2 `MemoryEngine`, so there is nothing to pass the gateway user *to* until the wiring chunk. If the work starts needing provider changes, stop and land the rule + facade half alone, then plan the wiring. `V3Engine` taking an `is_owner` argument satisfies this chunk; the provider supplying it is the wiring chunk's job.
 
-### 7.1 The link job (one commit, test first)
-- Test first: the handler through `JobWorker(...).run_until_idle()`; a re-run of the same job (idempotency); the permanent-failure path for a missing memory; and that `add` enqueues exactly one `link:<id>:<version>` with the dedupe key that identifies the work.
-- Assert the handler runs **outside** any write transaction — `test_handler_runs_outside_any_write_transaction` is the existing pattern for that.
-- Mutation-check: the enqueue, the dedupe key, the idempotency, and the missing-memory path.
+### 7.2.0 Pre-flight (read-only)
+1. `main` must contain `e25db32` (Chunks 5 and 6) and, once merged, Chunk 7.1 (`96c4ccb`). If 7.1 is still unmerged, stack on its branch and say so.
+2. **Baseline:** `pytest -q` gives **1643 passed, 3 skipped, 4 xfailed** on **both Python 3.10 and 3.12** (2 skipped on a machine that has the private digest list). Run 3.10 as well as your default interpreter — the last two chunks each shipped a bug only the 3.10 leg could see.
+3. **Re-measure from the code.** Read `_in_scope`, `MemoryStore.get` / `list`, every read in `em/facade/engine.py`, `Scope.is_owner`, and how the provider tracks the gateway user (`_gateway_user_id`, `_is_guest`) — that is where the identity will come from when the provider is wired.
 
-### 7.2 The owner-only rule (separate commit, or its own chunk if 7.1 grew)
-- Test first: a `_in_scope` truth table (owner/guest × sensitive/internal × profile-wide/user-scoped), then the four facade read paths against it.
-- Mutation-check: drop the sensitivity branch and confirm a guest reads an owner's sensitive row — that is the leak the rule exists to prevent, so the test must fail loudly.
-- **Docs:** CHANGELOG (Security section, since this is a privacy rule); the EM-211 rows in `REMAINING_PLAN.md` §5, §6.1 and §11; the EM-211 entry and the `_in_scope` deferral note in `docs/V3_FOUNDATIONS.md`.
+### 7.2.0a Document control (do this before and after the chunk)
+Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file
+**before** starting and **again before finishing**. Merge state counts as truth —
+a chunk committed without CI merged is "committed, not merged", never "landed".
+`tests/test_master_todo.py` fails the suite if this page and the plan disagree
+about it, and it now understands decimal chunk ids (7.1, 7.2) because sub-chunks
+are real.
 
-### 7.3 End of chunk
-1. Push a branch. Wait for green CI on the exact SHA (`windows-import` included), then fast-forward `main` and delete the branch.
-2. **Update `docs/plan/REMAINING_PLAN.md`:** §2 (SHA, counts), §5 (ledger), §6.1, §9, §11 (state table, next piece, counts).
-3. **Replace this file's Part B with the next piece.** With EM-211's four chunks done, that is either the **wiring** chunk (switch the provider onto the facade — a separate decision, not yet scheduled) or **EM-212's package move**. Say which and why; do not plan both.
-4. Update `MASTER_TODO.md`, and report to the owner in plain language.
+### 7.2.1 The rule (one commit, test first)
 
-### Explicitly out of scope for Chunk 7
+- Test first: the `_in_scope` truth table, then the four facade read paths.
+- Mutation-check as above.
+- **Docs:** CHANGELOG (**Security** section — this is a privacy rule); the EM-211 rows in `REMAINING_PLAN.md` §5, §6.1 and §11; the EM-211 entry and the `_in_scope` deferral note in `docs/V3_FOUNDATIONS.md`.
+
+### 7.2.2 End of chunk
+1. Push, green CI on the exact SHA, `git merge --ff-only`, delete the branch.
+2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.1/§9/§11.
+3. **Replace this file's Part B with the next piece.** EM-211's four sub-chunks are then all done; the candidates are the **wiring** chunk (switch the provider onto the facade — a separate, owner-aware decision) and **EM-212's package move**. Say which and why; do not plan both.
+4. Report to the owner in plain language.
+
+### Explicitly out of scope for Chunk 7.2
 - **Switching the provider onto the facade.** The facade is completed and tested, not switched on.
 - Releases, tags, the catalog, the tool rename, the v3 cutover.
-- Any schema change or new migration; `0001`–`0003` stay untouched. If the owner-only rule turns out to need a column, that is a new migration and a stop-and-report.
+- Any schema change or new migration; `0001`–`0003` stay untouched.
 - S3 and later, EM-212's package move, retention (settled at 7 routine + 5 safety).
 - Anything touching `~/.hermes/entropicmem*`.
