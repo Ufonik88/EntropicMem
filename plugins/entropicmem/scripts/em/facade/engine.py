@@ -935,3 +935,211 @@ class V3Engine:
             "age_days": age_days,
         }
 
+
+    # --- CLI compatibility reads (EM-211 Chunk 10.1) ---------------------------
+    #
+    # The CLI's `_engine()` builds the v2 engine; these methods exist so that it
+    # can be pointed at this facade without breaking the read commands (Chunk
+    # 10.4). Each returns the shape its **CLI command prints**, not a v3 shape —
+    # that is the whole job of this section, so the tests assert the CLI's keys
+    # rather than the store's, and a v3-only field is offered *alongside* the v2
+    # one, never instead of it.
+    #
+    # Where v2 could do something v3 cannot, the method **refuses clearly** and
+    # names the card, rather than returning a quietly different answer. A named
+    # absence is recoverable; a silent one is not.
+
+    def list_facts(self, domain: Optional[str] = None, limit: int = 100) -> List[Any]:
+        """Durable facts, most important first — v2's ``list_facts``."""
+        clause = "status='active'"
+        params: List[Any] = []
+        if domain:
+            clause += " AND domain=?"
+            params.append(domain)
+        rows = self._reader().execute(
+            f"SELECT * FROM memories WHERE {clause}"
+            " ORDER BY importance DESC, created_at DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        # §3.5: the owner-only tier applies to a listing exactly as it does to
+        # get_fact, so a guest's `list` cannot be used to read around it.
+        return [_row_to_fact(dict(r)) for r in rows if _in_scope(dict(r), self.scope)]
+
+    def list_pending(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Quarantined rows in the v2 ``pending`` shape."""
+        rows = MemoryStore(self._reader()).list(
+            scope=self.scope, status=("pending",), limit=limit, order="created_at DESC"
+        )
+        return [
+            {
+                "id": row["id"],
+                "content": row["content"],
+                "domain": row["domain"],
+                "source": row["source"],
+                "importance": row["importance"],
+                # v2's column was `reason`; v3's is `pending_reason`.
+                "reason": row["pending_reason"] or "",
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def list_audit(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Recent audit rows under the v2 names the CLI prints.
+
+        v3 chains the log (``seq``/``prev_hash``/``hash``); v2 numbered it by
+        ``id`` and keyed the target as ``fact_id``. The mapping keeps the CLI's
+        output line working: ``id`` is ``seq``, ``fact_id`` is ``target_id``.
+        """
+        rows = self._reader().execute(
+            "SELECT seq, ts, action, actor, session_id, target_id, detail, ok"
+            " FROM audit_log ORDER BY seq DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "id": row["seq"],
+                "ts": row["ts"],
+                "action": row["action"],
+                "actor": row["actor"],
+                "session_id": row["session_id"],
+                "fact_id": row["target_id"],
+                "detail": row["detail"],
+                "ok": bool(row["ok"]),
+            }
+            for row in rows
+        ]
+
+    def get_versions(self, entropic_id: str) -> List[Dict[str, Any]]:
+        """Version history, **newest first** — v2's order, keys and content.
+
+        Two normalisations, both to match v2 rather than to invent anything:
+
+        * ``MemoryStore.history`` walks the supersede chain oldest-first and its
+          rows carry ``changed_at``, so the order is reversed and the stamp is
+          renamed to v2's ``created_at``.
+        * v2 had **no creation snapshot** — ``snapshot_version`` ran only before
+          an edit — while v3 writes a version row at creation *and* snapshots the
+          pre-edit content, so the first edit would otherwise list its content
+          twice. Consecutive identical contents are collapsed, which reproduces
+          v2's list exactly (checked against v2's own create/update/update
+          sequence, not assumed).
+        """
+        store = MemoryStore(self._reader())
+        row = store.get(entropic_id, scope=self.scope)
+        if row is None:
+            return []
+        versions: List[Dict[str, Any]] = []
+        previous_content: Optional[str] = None
+        for v in store.history(row["id"]):
+            if v["content"] == previous_content:
+                continue
+            previous_content = v["content"]
+            versions.append(
+                {
+                    "content": v["content"],
+                    "importance": v["importance"],
+                    "domain": row["domain"],
+                    "created_at": v["changed_at"],
+                    "source": row["source"],
+                }
+            )
+        versions.reverse()
+        return versions
+
+    def episode_stats(self) -> Dict[str, Any]:
+        """Episode counts. v3 episodes carry ``kind``, not ``domain``.
+
+        ``by_domain`` is therefore empty rather than absent, so the CLI's
+        ``stats["by_domain"].items()`` loop still runs; the real breakdown is
+        offered as ``by_kind`` for a CLI that learns to show it.
+        """
+        conn = self._reader()
+        scope = (self.scope.profile, self.scope.user)
+        total = conn.execute(
+            "SELECT COUNT(*) FROM episodes WHERE scope_profile=? AND scope_user=?", scope
+        ).fetchone()[0]
+        by_kind = {
+            r["kind"]: int(r["n"])
+            for r in conn.execute(
+                "SELECT kind, COUNT(*) AS n FROM episodes"
+                " WHERE scope_profile=? AND scope_user=? GROUP BY kind ORDER BY n DESC",
+                scope,
+            )
+        }
+        return {"total": int(total), "by_domain": {}, "by_kind": by_kind}
+
+    def embedding_stats(self) -> Dict[str, Any]:
+        """v2's "unavailable" shape: v3 has no embedder wired (EM-303)."""
+        return {
+            "available": False,
+            "message": "embeddings are not built on the v3 store yet (EM-303)",
+        }
+
+    def list_episodes(
+        self,
+        *,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        domain: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Episodes chronologically — v2's keys, including ``episode_id``.
+
+        ``domain`` is refused rather than ignored: v3 episodes have ``kind``, and
+        silently returning every episode for a domain filter would be a wrong
+        answer that looks like a right one.
+        """
+        if domain:
+            raise ValueError(
+                "v3 episodes have no `domain` field; they carry `kind` instead, so "
+                "the filter is v2-only and is refused rather than ignored"
+            )
+        rows = EpisodeStore(self._reader()).list_episodes(
+            scope=self.scope, limit=_SCAN_LIMIT
+        )
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            start = row.get("start_at")
+            when = start or row.get("created_at") or ""
+            if from_date and when and when < from_date:
+                continue
+            if to_date and when and when > (to_date + "T23:59:59"):
+                continue
+            out.append(
+                {
+                    "episode_id": row["id"],
+                    "title": row["title"],
+                    "summary": row["summary"],
+                    "start_ts": start,
+                    "end_ts": row.get("end_at"),
+                    "created_at": row["created_at"],
+                    "importance": row["importance"],
+                    # v3 has no per-episode domain; "" keeps the v2 key present.
+                    "domain": "",
+                    # v3's own field, offered alongside rather than instead.
+                    "kind": row["kind"],
+                }
+            )
+        out.sort(key=lambda e: (e.get("start_ts") or e.get("created_at") or ""))
+        return out[:limit]
+
+    def recall(
+        self,
+        query: str = "",
+        top_k: int = 10,
+        domain: Optional[str] = None,
+        scope: str = "own",
+    ) -> List[Any]:
+        """v2's ``recall``.
+
+        ``scope='shared'``/``'all'`` read the shared publish store, which v3 does
+        not have yet (S5) — refused by name rather than quietly returning only
+        the local half, which would look like a complete answer.
+        """
+        if scope != "own":
+            raise ValueError(
+                f"recall(scope={scope!r}) needs the shared publish store, which the "
+                "v3 store does not have yet (S5); only 'own' is available"
+            )
+        return self.recall_with_relevance(query, top_k=top_k, domain=domain)
