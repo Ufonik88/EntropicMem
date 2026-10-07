@@ -13,10 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `623d5e4`, which is the
-merge commit for Chunk 15 — its code is `50601b3`, its docs `623d5e4`. CI is verified
-on the exact commit with the check-runs API (22 check-runs, none failing), not with
-`run list`, which can hand back a stale run and look green.
+**Last reconciled:** 2026-10-07, against branch `main` at `1daf3ba`, which is the
+merge commit for Chunk 16 — its code is `ff0d3c3`, its docs `1daf3ba`. CI is verified
+on the exact commit with the check-runs API, not with `run list`, which can hand back
+a stale run and look green.
 
 ---
 
@@ -136,15 +136,15 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunk 15 (EM-305, the gate, collapse and MMR) is merged to `main` at
-`623d5e4` — its code is `50601b3` — with CI verified on the exact commit before the
-merge and again on `main` after it, both on the **first** run. The branch is deleted,
-the remote carries `main` and `release/2.8.x` only, and the Marketplace entry is
-untouched (still 2.8.1 at `7e02412`) — a chunk leaves it alone unless the chunk *is* a
-release.
+**Nothing.** Chunk 16 (the v3 eval adapter, P1) is merged to `main` at `1daf3ba` —
+its code is `ff0d3c3` — with CI verified on the exact commit before the merge. The
+branch is deleted, the remote carries `main` and `release/2.8.x` only, and the
+Marketplace entry is untouched (still 2.8.1 at `7e02412`).
 
-Fourteen consecutive merges have now gone green on the **first** CI run, all because
-the suite was checked on Python 3.10 as well as 3.12 before pushing.
+**P0 is next: wire S3's read path into the provider.** The proposed shape (a shadow
+read behind `ENTROPICMEM_SHADOW_V3`, serving v2 and logging v3 divergence over a v3
+copy) is in "What is next". That is the second cutover re-decision condition, after
+which the decision goes back to the owner.
 
 **A measurement trap worth knowing:** `ghx run list --branch main --limit 1` can
 return a **stale** run — the one just pushed may not be listed yet, and the
