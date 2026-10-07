@@ -86,7 +86,7 @@
 - **Three silent coverage losses were repaired**, each of which the move would have hidden: `test_f005`'s non-recursive glob stopped seeing the moved modules; `test_plugin_imports`'s module list stopped checking them for the 2026-08-14 bug class; and the packaging guard only required `em.*`, so `em_internal` could have shipped missing from the wheel. All three now cover the package, and each was mutation-checked.
 - 52 files touched (6 renames). 1671 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; the xfail count dropping 4→3 **is** the flip. Provider, CLI and `graph_server` all still import.
 - **The other 14 modules keep unprefixed names, deliberately** — the AC names only the six. Moving them is a follow-up, not a silent omission.
-- **`hermes plugins validate` was not run**: it needs a `hermes-agent` checkout, so the "no module-shadow warning" half of the AC is unverified locally.
+- **The AC's second half is confirmed by CI.** `hermes plugins validate` runs as the `plugin-validate` job and passed: `✓ loadable`, `✓ built-in tool collisions — no collisions`, `✓ security scan — safe`, no module-shadow warning, and only the known `provides_*` warnings.
 - **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
 
 **EM-211 and EM-212 are both code-complete.** EM-211 is unwired (its AC needs the provider on the facade) and EM-212's six named modules are namespaced (its AC also wants `hermes plugins validate`, unrun here).

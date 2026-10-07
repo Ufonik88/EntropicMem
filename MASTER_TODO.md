@@ -134,8 +134,10 @@ skipped / 3 xfailed**, `ruff==0.16.2` clean, eval gate with no gated metric
 regressed, `perf-smoke` warm p95 3.973 ms against the 20 ms budget. Push, green CI
 on the exact SHA, `git merge --ff-only`.
 
-**One gate could not be run here:** `hermes plugins validate` (the module-shadow
-half of EM-212's AC) needs a `hermes-agent` checkout.
+**`hermes plugins validate` runs in CI**, and it passed on this branch: no
+module-shadow warning, and the only two warnings are the known, expected
+`provides_*` "declared but not registered" pair. Locally it cannot be run (it
+needs a `hermes-agent` checkout); CI covers it.
 
 ## What is done
 
