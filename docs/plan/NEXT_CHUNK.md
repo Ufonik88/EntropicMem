@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-07, Chunk 9 committed (not yet merged); **Chunk 10 (CLI parity) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, Chunk 9 merged to `main` at `0200424`; **Chunk 10 (CLI parity) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
@@ -89,7 +89,7 @@
 - **The AC's second half is confirmed by CI.** `hermes plugins validate` runs as the `plugin-validate` job and passed: `✓ loadable`, `✓ built-in tool collisions — no collisions`, `✓ security scan — safe`, no module-shadow warning, and only the known `provides_*` warnings.
 - **Merged** to `main` at `c922970`; green on the exact SHA, first CI run, `identity-guard` and `plugin-validate` included.
 
-### Chunk 9 — the provider selects its engine by `user_version`. **DONE, COMMITTED, NOT MERGED (2026-10-07, `b615bcf`)**
+### Chunk 9 — the provider selects its engine by `user_version`. **DONE, MERGED (2026-10-07, `b615bcf`, in `0200424`)**
 
 - `feat(em-211): the provider selects its engine by the store's schema`: a v2 store gets `MemoryEngine`, a v3 store the facade. All **nine** `MemoryEngine(` sites in the provider route through one `_open_engine()`, with a drift guard against a tenth.
 - **Selection happens before any engine is constructed**, from a read-only peek, because `V3Engine.__init__` calls `migrate()` — so opening a v2 store cannot cut it over. The selector refuses a store newer than this build and a versioned store with no `memories` table.
@@ -97,7 +97,7 @@
 - **The CLI was deliberately left alone.** It calls ~28 methods the facade lacks, so it keeps `MemoryEngine`. That is the next chunk, and the cutover waits on it.
 - Deviation: `pii_locales` has no facade equivalent (routed to v2 only).
 - 16 new tests; 1687 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; seven mutation checks, the key one being that **opening a v2 store leaves it byte-for-byte unmigrated**.
-- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+- **Merged** to `main` at `0200424`; green on the exact SHA, first CI run, `identity-guard` and `plugin-validate` included.
 
 **EM-211 and EM-212 are both code-complete, and the provider half of EM-211 is wired.** What remains of EM-211 is the CLI (Chunk 10) and the cutover.
 
@@ -105,7 +105,7 @@
 
 ## Part B: Chunk 10 — CLI parity on v3 (the cutover's prerequisite). **NEXT PIECE, NOT STARTED**
 
-**Updated:** 2026-10-07, Chunk 9 committed (not yet merged); **Chunk 10 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
+**Updated:** 2026-10-07, Chunk 9 merged to `main` at `0200424`; **Chunk 10 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
 
 **Topic.** The CLI's `_engine(db)` still builds `MemoryEngine`, so the CLI cannot read a v3 store. EM-211's AC says "CLI commands work unchanged" on a v3 DB, and the cutover cannot happen before this lands — cutting a store over first leaves the CLI reading v3 with a v2 engine.
 
@@ -148,7 +148,7 @@ They are not one kind of thing, and that is the design decision this chunk must 
 **Size guard — stop and report if:** a "read" method turns out to need the v3 retriever or graph (that is S3/S6, not translation); the CLI's expected return type cannot be produced without changing the provider contract; or the group needs more than about five commits. Take the next slice instead of widening this one.
 
 ### 10.0 Pre-flight (read-only)
-1. `main` must be at `680ab1f` or later and Chunk 9 merged. If Chunk 9 is unmerged, stack on its branch and say so.
+1. `main` must be at `0200424` or later: Chunks 5–9 are all merged there, with green CI on each exact SHA. `git merge-base --is-ancestor 0200424 main` proves it.
 2. **Baseline:** `pytest -q` gives **1687 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
 3. **Re-measure from the code.** Re-derive the CLI's engine-method set (`grep -rhoE '\b(engine|eng)\.[a-z_]+\(' plugins/entropicmem/scripts/entropicmem.py`) and diff it against `em/facade/contract.PROVIDER_CALLS`; check `tests/test_cli_hermes_home.py::test_the_cli_builds_engines_only_through_the_helper` (the CLI equivalent of Chunk 9's provider drift guard), and work out, per command, which calls it actually makes.
 
