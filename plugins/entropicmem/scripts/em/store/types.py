@@ -80,6 +80,19 @@ def check_transition(current: str, target: str, reason: str = "") -> None:
 OWNER_ONLY_TIERS: tuple[str, ...] = ("sensitive", "secret")
 
 
+def may_read_owner_only(scope: "Scope") -> bool:
+    """True when this caller may read a row in :data:`OWNER_ONLY_TIERS` (§3.5).
+
+    The one definition of the owner context. ``MemoryStore._in_scope`` uses it as
+    a predicate and ``em.retrieval.candidates.scope_sql`` uses it to decide
+    whether to emit the SQL exclusion, so the two cannot drift into disagreeing
+    about who the owner is. A profile-wide caller (``user == ''``) is the owner —
+    the v2 single-owner, no-gateway and CLI case — and a scoped caller must
+    assert ``is_owner``.
+    """
+    return scope.user == "" or bool(scope.is_owner)
+
+
 @dataclass(frozen=True)
 class Scope:
     """One turn's resolved scope. Mirrors the plan's ``ScopeContext``.

@@ -33,6 +33,7 @@ from .types import (
     Status,
     WriteResult,
     check_transition,
+    may_read_owner_only,
 )
 
 # Columns a caller may never set directly: they are maintained by the store.
@@ -799,4 +800,4 @@ def _owner_may_read(row: Mapping[str, Any], scope: Scope) -> bool:
         tier = "internal"
     if tier not in OWNER_ONLY_TIERS:
         return True
-    return scope.user == "" or bool(scope.is_owner)
+    return may_read_owner_only(scope)
