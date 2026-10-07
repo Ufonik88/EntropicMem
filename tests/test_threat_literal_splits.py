@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
+import em_internal.policy as policy
 import injection_screen
-import policy
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "plugins" / "entropicmem" / "scripts"
 
@@ -57,7 +57,7 @@ _EXPECTED_PRIVATE_KEY = r"(?i)-----BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY-----"
 # ── (a) source shape: no contiguous dangerous string in the scanned scripts ──
 
 @pytest.mark.parametrize("filename", [
-    "injection_screen.py", "policy.py", "pii.py", "security.py",
+    "injection_screen.py", "em_internal/policy.py", "pii.py", "em_internal/security.py",
 ])
 def test_no_contiguous_dangerous_strings(filename):
     source = (SCRIPTS / filename).read_text(encoding="utf-8")

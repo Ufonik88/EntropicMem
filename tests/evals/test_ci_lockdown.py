@@ -69,7 +69,7 @@ def test_lockdown_overrides_already_loaded_engine(clean_ml_state):
     """If embeddings/memory_engine got imported before the lockdown, the
     adapter still flips the live module flags off (maintainer directive: set
     EMBEDDINGS_AVAILABLE = False / stub embed_text before load)."""
-    embeddings = importlib.import_module("embeddings")
+    embeddings = importlib.import_module("em_internal.embeddings")
     memory_engine = importlib.import_module("memory_engine")
     orig_emb_avail = embeddings.EMBEDDER_AVAILABLE
     orig_me_avail = memory_engine.EMBEDDINGS_AVAILABLE
@@ -112,7 +112,7 @@ def ml_installed(clean_ml_state):
     Yields (embeddings, memory_engine, sentinel embed_text)."""
     restore_embeddings()
     engine_v2._LOCK_HOLDERS = 0
-    embeddings = importlib.import_module("embeddings")
+    embeddings = importlib.import_module("em_internal.embeddings")
     memory_engine = importlib.import_module("memory_engine")
     attrs = [(embeddings, "EMBEDDER_AVAILABLE"),
              (memory_engine, "EMBEDDINGS_AVAILABLE"),

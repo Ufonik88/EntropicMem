@@ -568,7 +568,7 @@ class V3Engine:
         (``remember-idempotent``); a policy block raises, as v2 did; a policy
         quarantine lands in ``pending``, as v2's quarantine did.
         """
-        from policy import normalize_sensitivity  # local: shared optional module
+        from em_internal.policy import normalize_sensitivity  # local: shared optional module
 
         text = _sanitize_fact_text(content or "")
         if not text.strip():

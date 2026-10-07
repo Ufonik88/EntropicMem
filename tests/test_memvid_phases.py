@@ -185,7 +185,7 @@ class TestGraphQuery:
 
 # ── embeddings (unit tests without model) ───────────────────────────────────
 
-from embeddings import (
+from em_internal.embeddings import (
     _blob_to_vec,
     _vec_to_blob,
     cosine_similarity,

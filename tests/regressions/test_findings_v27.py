@@ -415,7 +415,15 @@ def test_f005_no_os_environ_heremes_home_in_engine():
     allowed = {"entropicmem.py", "vault.py"}
     needles = ('os.environ["HERMES_HOME"]', 'os.environ.get("HERMES_HOME"')
     offenders = []
-    for py in sorted(scripts.glob("*.py")):
+    # Recursive: EM-212 moved six engine modules under scripts/em_internal/, and
+    # a non-recursive glob silently stopped covering them. The ``em`` package is
+    # skipped: it is the v3 layer, its no-HERMES_HOME rule is stated in its own
+    # docs, and its ``__init__`` files *mention* that literal in prose, which a
+    # substring scan would read as a violation.
+    scripts_root = scripts
+    for py in sorted(scripts.rglob("*.py")):
+        if py.relative_to(scripts_root).parts[0] == "em":
+            continue
         if py.name in allowed:
             continue
         content = py.read_text(encoding="utf-8").replace("'", '"')
@@ -570,7 +578,7 @@ def test_f008_core_memory_not_reinjected_every_turn(make_provider, home_a):
     / delta), not repeated in every turn's prefetch block."""
     from pathlib import Path
 
-    from vault import CoreMemory
+    from em_internal.vault import CoreMemory
 
     provider = make_provider()
     # seed real Core Memory content so injection is non-empty

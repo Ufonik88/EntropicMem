@@ -12,7 +12,7 @@
 import pytest
 from fake_host import FakeHost
 
-from vault import CoreMemory
+from em_internal.vault import CoreMemory
 
 MARKER = "unit-alpha-7"
 

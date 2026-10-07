@@ -10,8 +10,8 @@
 
 from plugins.entropicmem import SMART_CONTEXT_DEFAULTS
 
-import policy
-import vault
+import em_internal.policy as policy
+import em_internal.vault as vault
 from pii import scan_pii
 
 GENERIC_DOMAINS = [

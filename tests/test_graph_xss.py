@@ -26,9 +26,9 @@ import pytest
 _SCRIPT_DIR = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts"
 sys.path.insert(0, str(_SCRIPT_DIR))
 
+from em_internal.index import VaultIndex  # noqa: E402
+from em_internal.vault import Vault  # noqa: E402
 from graph_export import export_html  # noqa: E402
-from index import VaultIndex  # noqa: E402
-from vault import Vault  # noqa: E402
 
 _SRC = _SCRIPT_DIR / "graph_export.py"
 

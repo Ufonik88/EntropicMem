@@ -15,7 +15,7 @@ import pytest
 SCRIPTS = Path(__file__).parent.parent / "plugins" / "entropicmem" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-import vault  # noqa: E402
+import em_internal.vault as vault  # noqa: E402
 from memory_engine import MemoryEngine  # noqa: E402
 
 

@@ -124,7 +124,7 @@ class TestQuarantineHygiene:
 
 class TestPromoteSensitivity:
     def test_promote_keeps_domain_derived_sensitivity(self, engine):
-        from policy import normalize_sensitivity
+        from em_internal.policy import normalize_sensitivity
 
         eid = engine.quarantine_fact("the vendor contract review is scheduled", domain="Finance", reason="t")
         promoted = engine.promote_pending(eid)

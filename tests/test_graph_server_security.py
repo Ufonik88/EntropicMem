@@ -55,8 +55,8 @@ def mod(tmp_path, monkeypatch):
 
 @pytest.fixture
 def client(mod, tmp_path):
-    from index import VaultIndex
-    from vault import Vault
+    from em_internal.index import VaultIndex
+    from em_internal.vault import Vault
 
     vault_root = tmp_path / "vault"
     vault_root.mkdir(parents=True, exist_ok=True)
@@ -215,7 +215,7 @@ def test_refresh_keeps_requiring_token_on_loopback(mod, client, monkeypatch):
 
 @pytest.mark.parametrize("poison_kind", ["absolute", "dotdot"])
 def test_poisoned_note_path_is_not_read(mod, client, tmp_path, poison_kind):
-    from index import VaultIndex
+    from em_internal.index import VaultIndex
 
     secret = tmp_path / "secret.md"
     secret.write_text(SECRET_MARKER, encoding="utf-8")

@@ -28,8 +28,11 @@ from pathlib import Path
 
 import pytest
 
-import embeddings
+import em_internal.embeddings as embeddings
 import memory_engine as me
+from em_internal.index import VaultIndex
+from em_internal.index import build_fts_query as index_build_fts_query
+from em_internal.vault import Vault
 from graph_query import (
     get_connected_notes,
     get_incoming_links,
@@ -38,8 +41,6 @@ from graph_query import (
     init_links_schema,
     store_links,
 )
-from index import VaultIndex
-from index import build_fts_query as index_build_fts_query
 from memory_engine import (
     FTS_REASON_MATCH_ERROR,
     FTS_REASON_OK,
@@ -49,7 +50,6 @@ from memory_engine import (
     escape_like,
     run_fts_match,
 )
-from vault import Vault
 
 _ROOT = Path(__file__).resolve().parent.parent
 _CLI = str(_ROOT / "plugins" / "entropicmem" / "scripts" / "entropicmem.py")

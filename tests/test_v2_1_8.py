@@ -40,8 +40,8 @@ if not _HEALTH.is_file() or not _GATE.is_file():
     )
 sys.path.insert(0, str(_SCRIPT_DIR))
 
+from em_internal.vault import Vault
 from memory_engine import MemoryEngine
-from vault import Vault
 
 
 def _run(*args, **env):

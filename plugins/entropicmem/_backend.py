@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 import os
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -40,39 +38,31 @@ def ensure_scripts_on_path(scripts_dir: Path) -> None:
         sys.path.insert(0, p)
 
 
-def _own_module(name: str, scripts: Optional[Path]) -> ModuleType:
-    """Load EntropicMem's own ``scripts/<name>.py``, never someone else's (EM-212).
+def _resolve_vault_path_fn(scripts: Optional[Path]):
+    """Return our own ``vault.resolve_vault_path``.
 
-    A bare ``import vault`` resolves through ``sys.modules``. The Hermes host
-    runs many plugins in one process, so if any of them has already imported a
-    module called ``vault``, a bare import hands back *that* module. EntropicMem
-    then crashes on a missing function, or silently uses another plugin's path
-    logic. Loading the file by path under a private module name can't collide,
-    and it leaves the other plugin's ``sys.modules`` entry alone.
+    The engine's modules live under the ``em_internal`` package (EM-212), so a
+    qualified import cannot collide with another plugin's top-level ``vault``
+    module. That collision is why this used to load the file by path under a
+    private module name; the package makes the shim unnecessary, and a normal
+    import keeps the two in step (the path loader could silently diverge from
+    what ``import`` would give).
+
+    ``scripts`` is inserted on ``sys.path`` first, with the plugin's own
+    ``scripts/`` as the fallback when the caller could not resolve one.
     """
     base = scripts if scripts is not None else Path(__file__).resolve().parent / "scripts"
-    private = f"_entropicmem_scripts_{name}"
-    cached = sys.modules.get(private)
-    if cached is not None:
-        return cached
-    spec = importlib.util.spec_from_file_location(private, base / f"{name}.py")
-    if spec is None or spec.loader is None:
-        raise ImportError(f"EntropicMem script module not found: {base / name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[private] = module
-    try:
-        spec.loader.exec_module(module)
-    except BaseException:
-        sys.modules.pop(private, None)
-        raise
-    return module
+    ensure_scripts_on_path(base)
+    from em_internal.vault import resolve_vault_path  # noqa: PLC0415 (path set above)
+
+    return resolve_vault_path
 
 
 def resolve_paths(hermes_home: Path, plugin_config: dict) -> Tuple[Path, Path, Path]:
     """Resolve vault/index/memory paths.
 
     The VAULT path comes from the ONE shared resolver,
-    ``vault.resolve_vault_path`` (scripts/vault.py), so the CLI and the plugin
+    ``vault.resolve_vault_path`` (``scripts/em_internal/vault.py``), so the CLI and the plugin
     can never operate on different vaults. Precedence there: explicit plugin
     config ``vault_path`` > ``ENTROPICMEM_VAULT_PATH`` env >
     ``{hermes_home}/entropicmem/vault``. ``OBSIDIAN_VAULT_PATH`` is not
@@ -85,7 +75,7 @@ def resolve_paths(hermes_home: Path, plugin_config: dict) -> Tuple[Path, Path, P
     scripts = resolve_scripts_dir(hermes_home)
     if scripts:
         ensure_scripts_on_path(scripts)
-    resolve_vault_path = _own_module("vault", scripts).resolve_vault_path
+    resolve_vault_path = _resolve_vault_path_fn(scripts)
 
     vault = resolve_vault_path(plugin_config.get("vault_path"), hermes_home=hermes_home)
     index_db = Path(

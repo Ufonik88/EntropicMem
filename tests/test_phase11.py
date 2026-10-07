@@ -58,20 +58,20 @@ class TestGraphAwareRecall:
 
 class TestSecurity:
     def test_security_status_unencrypted(self, tmp_path):
-        from security import security_status
+        from em_internal.security import security_status
         db_path = tmp_path / "memory.db"
         db_path.touch()
         status = security_status(db_path)
         assert status["encrypted"] is False
 
     def test_is_encrypted_false(self, tmp_path):
-        from security import is_encrypted
+        from em_internal.security import is_encrypted
         db_path = tmp_path / "memory.db"
         db_path.touch()
         assert is_encrypted(db_path) is False
 
     def test_is_encrypted_true(self, tmp_path):
-        from security import ENCRYPTED_MARKER, is_encrypted
+        from em_internal.security import ENCRYPTED_MARKER, is_encrypted
         db_path = tmp_path / "memory.db"
         db_path.touch()
         (tmp_path / ENCRYPTED_MARKER).write_text("{}")
@@ -82,7 +82,7 @@ class TestSecurity:
         reason="cryptography not installed",
     )
     def test_encrypt_decrypt_roundtrip(self, tmp_path):
-        from security import decrypt_db, encrypt_db, is_encrypted
+        from em_internal.security import decrypt_db, encrypt_db, is_encrypted
 
         db_path = tmp_path / "memory.db"
         db_path.write_text("test database content")
@@ -103,7 +103,7 @@ class TestSecurity:
         reason="cryptography not installed",
     )
     def test_wrong_passphrase(self, tmp_path):
-        from security import decrypt_db, encrypt_db
+        from em_internal.security import decrypt_db, encrypt_db
 
         db_path = tmp_path / "memory.db"
         db_path.write_text("secret data")

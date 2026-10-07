@@ -30,8 +30,8 @@ from plugins.entropicmem import (  # noqa: E402
     _backend,
 )
 
+import em_internal.vault as vault_mod  # noqa: E402
 import memory_engine  # noqa: E402
-import vault as vault_mod  # noqa: E402
 from memory_engine import MemoryEngine, StoredFact  # noqa: E402
 
 SMART_CONTEXT_DEFAULTS = plugin_mod.SMART_CONTEXT_DEFAULTS

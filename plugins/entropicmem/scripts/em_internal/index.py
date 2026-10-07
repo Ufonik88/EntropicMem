@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from vault import Note, Vault
+from em_internal.vault import Note, Vault
 
 logger = logging.getLogger(__name__)
 

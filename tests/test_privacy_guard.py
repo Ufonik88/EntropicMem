@@ -85,7 +85,7 @@ class TestGuestPrefetchExclusions:
 class TestGuestCoreMemory:
     def test_guest_gets_persona_never_profile(self, make_provider, home_a):
         provider, host = _provider(make_provider, home_a, GUEST)
-        from vault import CoreMemory
+        from em_internal.vault import CoreMemory
 
         core = CoreMemory(home_a / "entropicmem" / "vault")
         core.patch("persona", "## Identity", "## Identity\nPersona marker unit-p-9")
@@ -97,7 +97,7 @@ class TestGuestCoreMemory:
 
     def test_owner_gets_both_core_sections(self, make_provider, home_a):
         provider, host = _provider(make_provider, home_a, OWNER)
-        from vault import CoreMemory
+        from em_internal.vault import CoreMemory
 
         core = CoreMemory(home_a / "entropicmem" / "vault")
         core.patch("persona", "## Identity", "## Identity\nPersona marker unit-p-9")

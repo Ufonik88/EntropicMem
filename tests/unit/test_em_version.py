@@ -81,10 +81,14 @@ def test_pyproject_lists_every_em_subpackage():
     m = re.search(r"^packages\s*=\s*\[([^\]]*)\]", text, re.M)
     assert m, "pyproject [tool.setuptools] must list packages explicitly"
     listed = set(re.findall(r'"([^"]+)"', m.group(1)))
-    em_root = _SCRIPTS / "em"
-    on_disk = {
-        ".".join(("em",) + p.parent.relative_to(em_root).parts).rstrip(".")
-        for p in em_root.rglob("__init__.py")
-    }
+    # Every directory under scripts/ that carries an ``__init__.py`` is a
+    # package, not just ``em.*``: EM-212 added ``em_internal``, and deriving the
+    # whole set here means the next one fails on its first commit instead of
+    # being caught by review (or shipped missing from the wheel).
+    on_disk: set[str] = set()
+    for init in _SCRIPTS.rglob("__init__.py"):
+        relative = init.parent.relative_to(_SCRIPTS)
+        if relative.parts:  # scripts/__init__.py is the package-dir root itself
+            on_disk.add(".".join(relative.parts))
     missing = sorted(on_disk - listed)
     assert not missing, f"subpackages missing from pyproject packages: {missing}"

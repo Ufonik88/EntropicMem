@@ -206,8 +206,8 @@ def test_caps_and_groups_constants():
 def indexed_vault(tmp_path):
     """A temp vault with one clean note and one poisoned note, indexed."""
     sys.path.insert(0, str(_SCRIPT_DIR))
-    from index import VaultIndex
-    from vault import DEFAULT_DOMAINS, Vault
+    from em_internal.index import VaultIndex
+    from em_internal.vault import DEFAULT_DOMAINS, Vault
 
     vault_path = tmp_path / "vault"
     index_path = tmp_path / "index.db"
@@ -237,7 +237,7 @@ def indexed_vault(tmp_path):
 
 
 def test_integration_poisoned_flagged(indexed_vault):
-    from retrieval import retrieve_composed
+    from em_internal.retrieval import retrieve_composed
 
     vault, index = indexed_vault
     result = retrieve_composed(query="migration", vault=vault, index=index, top_k=5)
@@ -264,9 +264,9 @@ def test_integration_poisoned_flagged(indexed_vault):
 def test_integration_clean_vault_no_output_change(tmp_path):
     """A clean vault yields screening == {} and byte-identical to_text() vs disabled."""
     sys.path.insert(0, str(_SCRIPT_DIR))
-    from index import VaultIndex
-    from retrieval import retrieve_composed
-    from vault import DEFAULT_DOMAINS, Vault
+    from em_internal.index import VaultIndex
+    from em_internal.retrieval import retrieve_composed
+    from em_internal.vault import DEFAULT_DOMAINS, Vault
 
     # Second, all-clean vault.
     vault_path = tmp_path / "cleanvault"
@@ -303,14 +303,14 @@ def test_retrieval_no_duplicate_screening_field():
     """Spec §4.2 / review guard: `screening` declared exactly once on RetrievalResult."""
     import inspect
 
-    import retrieval
+    import em_internal.retrieval as retrieval
     src = inspect.getsource(retrieval)
     assert src.count("screening: Dict = field(default_factory=dict)") == 1, "duplicate screening field"
 
 
 def test_retrieval_does_not_module_level_import_shape_groups():
     """Spec §2.6 fail-open belt: SHAPE_GROUPS must be lazy (inside _screen_hits), not module-level."""
-    import retrieval
+    import em_internal.retrieval as retrieval
     assert not hasattr(retrieval, "SHAPE_GROUPS"), \
         "SHAPE_GROUPS must be lazy-imported inside _screen_hits, not at module level"
 

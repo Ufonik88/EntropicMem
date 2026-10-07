@@ -50,18 +50,18 @@ if str(_SCRIPT_DIR) not in sys.path:
 from em import __version__  # noqa: E402
 from em.store.db import open_db  # noqa: E402 (audit verify opens read-only)
 from em.store.locking import FileLock  # noqa: E402 (EM-202: portable lock probe)
-from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
-from index import VaultIndex  # noqa: E402
-from memory_engine import MemoryEngine  # noqa: E402
-from retrieval import EMBEDDER_AVAILABLE, retrieve_composed  # noqa: E402
-from triple_extract import extract_triples_from_engine  # noqa: E402
-from vault import (  # noqa: E402
+from em_internal.index import VaultIndex  # noqa: E402
+from em_internal.retrieval import EMBEDDER_AVAILABLE, retrieve_composed  # noqa: E402
+from em_internal.vault import (  # noqa: E402
     DEFAULT_DOMAINS,
     CoreMemory,
     Vault,
     hermes_home_path,
     resolve_vault_path,
 )
+from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
+from memory_engine import MemoryEngine  # noqa: E402
+from triple_extract import extract_triples_from_engine  # noqa: E402
 
 # ── input validation helpers ────────────────────────────────────────────────
 
@@ -1485,7 +1485,7 @@ def cmd_timeline(args) -> int:
 
 def cmd_security(args) -> int:
     """Enable or disable encryption at rest (Phase 11.1)."""
-    from security import CRYPTO_AVAILABLE, decrypt_db, encrypt_db, security_status
+    from em_internal.security import CRYPTO_AVAILABLE, decrypt_db, encrypt_db, security_status
 
     db_path = _memory_db_path()
 
@@ -1605,7 +1605,7 @@ def export_capsule(output: Path) -> dict:
         raise ValueError(f"memory DB not found at {db_path}")
 
     # Check if encrypted
-    from security import is_encrypted
+    from em_internal.security import is_encrypted
     if is_encrypted(db_path):
         raise ValueError("DB is encrypted. Decrypt first with 'security disable'.")
 

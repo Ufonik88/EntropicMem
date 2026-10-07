@@ -26,8 +26,16 @@ PLUGIN = REPO / "plugins" / "entropicmem" / "__init__.py"
 sys.path.insert(0, str(SCRIPTS))
 
 # Modules that live in the scripts dir (plugin imports them by bare name).
+# EM-212 moved six of them under the ``em_internal`` package, so the scan must
+# follow them there — otherwise the 2026-08-14 bug class (a deferred import of a
+# name the module never exported) stops being checked for those six.
 SCRIPT_MODULES = {
     p.stem for p in SCRIPTS.glob("*.py") if p.stem != "__init__"
+}
+SCRIPT_MODULES |= {
+    f"em_internal.{p.stem}"
+    for p in (SCRIPTS / "em_internal").glob("*.py")
+    if p.stem != "__init__"
 }
 
 
@@ -72,8 +80,12 @@ def test_deferred_imports_resolve():
 
 
 def test_deferred_import_scan_covers_retrieval():
-    """Sanity: the scan sees the retrieval import (the 2026-08-14 bug class)."""
-    seen = {(m, n) for m, n, _ in _deferred_imports() if m == "retrieval"}
+    """Sanity: the scan sees the retrieval import (the 2026-08-14 bug class).
+
+    ``retrieval`` now lives under ``em_internal`` (EM-212), so the match is on
+    the qualified module name.
+    """
+    seen = {(m, n) for m, n, _ in _deferred_imports() if m.endswith("retrieval")}
     assert seen, "retrieval import not found in plugin"
     assert all(name.startswith("retrieve") for name in {n for _, n in seen})
 
@@ -85,8 +97,8 @@ def test_query_tool_end_to_end(tmp_path):
     vault_path = tmp_path / "vault"
     index_path = tmp_path / "index.db"
 
-    from index import VaultIndex
-    from vault import Vault
+    from em_internal.index import VaultIndex
+    from em_internal.vault import Vault
 
     vault = Vault(vault_path)
     vault.root.mkdir(parents=True, exist_ok=True)

@@ -16,8 +16,6 @@ import sys
 import types
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -53,17 +51,15 @@ def test_precedence_is_unchanged(tmp_path, monkeypatch):
     assert explicit == (tmp_path / "cfg").resolve()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="EM-212 (plan §5, still open): engine modules must move under a package "
-    "namespace so no unprefixed vault/index/security/... module is registered in the "
-    "host process. The _backend lookup fix (above) is only the first step.",
-)
 def test_em212_plan_ac_no_unprefixed_engine_modules_in_process():
-    """Master plan §5 EM-212 AC, as a check: load the engine the way the
-    plugin does, in a clean interpreter, and no module named ``vault``,
-    ``index``, ``security``, ``policy``, ``embeddings`` or ``retrieval`` may be
-    registered. Flips to passing when the package move lands."""
+    """Master plan §5 EM-212 AC: load the engine the way the plugin does, in a
+    clean interpreter, and no module named ``vault``, ``index``, ``security``,
+    ``policy``, ``embeddings`` or ``retrieval`` may be registered.
+
+    Flipped from a strict xfail to a real test when the package move landed
+    (Chunk 8): the six modules now live under ``em_internal``, so the import
+    system registers ``em_internal.vault`` and friends, never the bare names.
+    """
     import subprocess
 
     scripts = ROOT / "plugins" / "entropicmem" / "scripts"

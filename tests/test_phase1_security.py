@@ -49,9 +49,9 @@ def test_sanitize_strips_memory_context_and_hijack(engine):
 
 
 def test_export_html_omits_bodies_by_default(tmp_path, monkeypatch):
+    from em_internal.index import VaultIndex
+    from em_internal.vault import Vault
     from graph_export import export_html
-    from index import VaultIndex
-    from vault import Vault
 
     vault_root = tmp_path / "vault"
     vault = Vault(vault_root)

@@ -20,9 +20,9 @@ _SCRIPT_DIR = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem"
 _CLI = str(_SCRIPT_DIR / "entropicmem.py")
 sys.path.insert(0, str(_SCRIPT_DIR))
 
+from em_internal.index import VaultIndex
+from em_internal.vault import Vault
 from graph_export import export_html, export_json
-from index import VaultIndex
-from vault import Vault
 
 
 def _run(*args, **env):

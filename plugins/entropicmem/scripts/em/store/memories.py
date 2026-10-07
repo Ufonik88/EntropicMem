@@ -182,7 +182,7 @@ class MemoryStore:
             return content
 
     def _policy(self, content: str, domain: str, sensitivity: str, source: str) -> tuple[str, str]:
-        from policy import evaluate_write
+        from em_internal.policy import evaluate_write
 
         action, reason = evaluate_write(content, domain=domain, sensitivity=sensitivity, source=source)
         return action, reason or ""

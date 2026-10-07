@@ -15,7 +15,7 @@ from html import escape as html_escape
 from pathlib import Path
 from typing import Optional
 
-from index import VaultIndex
+from em_internal.index import VaultIndex
 
 # ── per-domain color palette (brand-inspired, colorblind-safe) ─────────────
 
@@ -471,14 +471,14 @@ def export_html(
             try:
                 import os
 
-                from vault import resolve_vault_path
+                from em_internal.vault import resolve_vault_path
                 env = os.environ.get("ENTROPICMEM_VAULT_PATH")
                 vault_root = Path(env).expanduser() if env else resolve_vault_path()
             except Exception:
                 vault_root = None
         if vault_root is not None:
             try:
-                from vault import Vault
+                from em_internal.vault import Vault
                 vault = Vault(Path(vault_root))
             except Exception:
                 vault = None

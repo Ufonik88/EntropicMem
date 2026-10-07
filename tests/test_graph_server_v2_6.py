@@ -30,8 +30,8 @@ def client(tmp_path, monkeypatch):
     import graph_server.server as mod
     mod.INDEX_DB.parent.mkdir(parents=True, exist_ok=True)
 
-    from index import VaultIndex
-    from vault import Vault
+    from em_internal.index import VaultIndex
+    from em_internal.vault import Vault
 
     vault = Vault(tmp_path / "vault")
     (tmp_path / "vault").mkdir(parents=True, exist_ok=True)

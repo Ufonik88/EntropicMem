@@ -15,8 +15,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
-from index import SearchHit, VaultIndex, build_fts_query
-from vault import Vault
+from em_internal.index import SearchHit, VaultIndex, build_fts_query
+from em_internal.vault import Vault
 
 logger = logging.getLogger(__name__)
 

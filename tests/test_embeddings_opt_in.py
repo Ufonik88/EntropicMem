@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "plugins" / "entropicmem" / "scripts"))
 
-import embeddings  # noqa: E402
+import em_internal.embeddings as embeddings  # noqa: E402
 import memory_engine  # noqa: E402
 from memory_engine import MemoryEngine  # noqa: E402
 

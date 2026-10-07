@@ -42,7 +42,7 @@ PLAIN_STATE = ["memory.db", "memory.db-wal", "vault/a.md", "vault/b.md"]
 
 
 def test_wrong_passphrase_is_a_noop(tmp_path):
-    from security import decrypt_db, encrypt_db
+    from em_internal.security import decrypt_db, encrypt_db
 
     db = _build_tree(tmp_path)
     encrypt_db(db, "correct horse")
@@ -55,7 +55,7 @@ def test_wrong_passphrase_is_a_noop(tmp_path):
 
 
 def test_marker_carries_passphrase_verifier_and_roundtrip(tmp_path):
-    from security import ENCRYPTED_MARKER, SALT_FILE, decrypt_db, encrypt_db
+    from em_internal.security import ENCRYPTED_MARKER, SALT_FILE, decrypt_db, encrypt_db
 
     db = _build_tree(tmp_path)
     encrypt_db(db, "correct horse")
@@ -69,7 +69,7 @@ def test_marker_carries_passphrase_verifier_and_roundtrip(tmp_path):
 
 
 def test_legacy_marker_without_verifier(tmp_path):
-    from security import ENCRYPTED_MARKER, decrypt_db, encrypt_db
+    from em_internal.security import ENCRYPTED_MARKER, decrypt_db, encrypt_db
 
     db = _build_tree(tmp_path)
     encrypt_db(db, "correct horse")
@@ -89,7 +89,13 @@ def test_legacy_marker_without_verifier(tmp_path):
 
 
 def test_tampered_verifier_refused_before_mutation(tmp_path):
-    from security import ENCRYPTED_MARKER, SALT_FILE, _get_fernet, decrypt_db, encrypt_db
+    from em_internal.security import (
+        ENCRYPTED_MARKER,
+        SALT_FILE,
+        _get_fernet,
+        decrypt_db,
+        encrypt_db,
+    )
 
     db = _build_tree(tmp_path)
     encrypt_db(db, "correct horse")
@@ -110,7 +116,7 @@ def test_tampered_verifier_refused_before_mutation(tmp_path):
 def test_decrypt_file_no_mutation_on_invalid_token(tmp_path):
     from cryptography.fernet import Fernet, InvalidToken
 
-    from security import decrypt_file, encrypt_file
+    from em_internal.security import decrypt_file, encrypt_file
 
     fernet_a = Fernet(Fernet.generate_key())
     fernet_b = Fernet(Fernet.generate_key())

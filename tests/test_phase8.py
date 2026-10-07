@@ -187,7 +187,7 @@ class TestCoreMemory:
 class TestCoreMemoryDirect:
     def test_class_instantiation(self, tmp_path):
         """CoreMemory class creates files on init."""
-        from vault import CoreMemory
+        from em_internal.vault import CoreMemory
 
         vault_root = tmp_path / "vault"
         vault_root.mkdir()
@@ -198,7 +198,7 @@ class TestCoreMemoryDirect:
 
     def test_injection_block(self, tmp_path):
         """injection_block returns both persona and user profile."""
-        from vault import CoreMemory
+        from em_internal.vault import CoreMemory
 
         vault_root = tmp_path / "vault"
         vault_root.mkdir()
@@ -210,7 +210,7 @@ class TestCoreMemoryDirect:
 
     def test_patch_returns_false_on_miss(self, tmp_path):
         """patch() returns False when old_text not found."""
-        from vault import CoreMemory
+        from em_internal.vault import CoreMemory
 
         vault_root = tmp_path / "vault"
         vault_root.mkdir()
@@ -220,7 +220,7 @@ class TestCoreMemoryDirect:
 
     def test_patch_returns_true_on_hit(self, tmp_path):
         """patch() returns True when text is found and replaced."""
-        from vault import CoreMemory
+        from em_internal.vault import CoreMemory
 
         vault_root = tmp_path / "vault"
         vault_root.mkdir()

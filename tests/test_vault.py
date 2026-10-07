@@ -15,8 +15,8 @@ import pytest
 _SCRIPT_DIR = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts"
 sys.path.insert(0, str(_SCRIPT_DIR))
 
-from index import VaultIndex
-from vault import (
+from em_internal.index import VaultIndex
+from em_internal.vault import (
     DEFAULT_DOMAINS,
     PROTECTED_PREFIXES,
     Note,
@@ -416,7 +416,7 @@ class TestRetrieval:
             sys.path.insert(0, str(_SCRIPT_DIR))
 
     def test_retrieve_composed(self, temp_vault_indexed):
-        from retrieval import retrieve_composed
+        from em_internal.retrieval import retrieve_composed
         vault, index = temp_vault_indexed
         result = retrieve_composed("Hermes", vault, index, top_k=5)
         assert result.query == "Hermes"
@@ -425,7 +425,7 @@ class TestRetrieval:
         assert "Hermes Agent Architecture" in [h.title for h in result.hits]
 
     def test_retrieve_composed_domain(self, temp_vault_indexed):
-        from retrieval import retrieve_composed
+        from em_internal.retrieval import retrieve_composed
         vault, index = temp_vault_indexed
         result = retrieve_composed("Alarm Hub", vault, index, top_k=5, domain="Acme Corp")
         assert len(result.hits) >= 2
@@ -433,13 +433,13 @@ class TestRetrieval:
             assert h.domain == "Acme Corp"
 
     def test_retrieve_composed_no_results(self, temp_vault_indexed):
-        from retrieval import retrieve_composed
+        from em_internal.retrieval import retrieve_composed
         vault, index = temp_vault_indexed
         result = retrieve_composed("xyzzy_nonexistent", vault, index, top_k=5)
         assert len(result.hits) == 0
 
     def test_retrieve_composed_snippets(self, temp_vault_indexed):
-        from retrieval import retrieve_composed
+        from em_internal.retrieval import retrieve_composed
         vault, index = temp_vault_indexed
         result = retrieve_composed("VaultKnox", vault, index, top_k=3)
         assert result.query == "VaultKnox"
@@ -447,7 +447,7 @@ class TestRetrieval:
         assert isinstance(result.snippets, list)
 
     def test_retrieve_composed_to_text(self, temp_vault_indexed):
-        from retrieval import retrieve_composed
+        from em_internal.retrieval import retrieve_composed
         vault, index = temp_vault_indexed
         result = retrieve_composed("Budget", vault, index, top_k=3)
         text = result.to_text()

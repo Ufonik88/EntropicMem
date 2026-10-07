@@ -235,7 +235,7 @@ def test_triple_path_respects_max_depth(engine):
 
 def test_hermes_home_path_empty_env_guard(monkeypatch, tmp_path):
     """Sourcery: an EMPTY HERMES_HOME must not resolve to the cwd."""
-    import vault
+    import em_internal.vault as vault
     # unset → default ~/.hermes
     monkeypatch.delenv("HERMES_HOME", raising=False)
     default = vault.hermes_home_path()

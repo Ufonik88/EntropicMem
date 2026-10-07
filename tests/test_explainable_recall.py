@@ -224,12 +224,9 @@ def test_plugin_recall_output_includes_why_retrieved():
         src = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts" / "memory_engine.py"
         shutil.copy(str(src), str(mem_eng))
 
-        # Write vault stub
-        vault_file = scripts_dir / "vault.py"
-        vault_file.write_text("""
-def derive_title(content, max_len=80):
-    return content[:max_len]
-""")
+        # No vault stub: since EM-212 memory_engine imports ``em_internal.vault``
+        # from the real plugin scripts dir (already on sys.path via conftest), so
+        # a top-level ``vault.py`` here would never be imported.
 
         import sys
         sys.path.insert(0, str(scripts_dir))

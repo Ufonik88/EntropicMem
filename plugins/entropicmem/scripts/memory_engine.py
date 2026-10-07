@@ -27,8 +27,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from em.store.locking import FileLock  # EM-202: portable lock (was fcntl)
+from em_internal.vault import derive_title  # naming convention helper (stdlib-only, acyclic)
 from stopwords import STOPWORDS  # English stopword set for the FTS builder
-from vault import derive_title  # naming convention helper (stdlib-only, acyclic)
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +215,7 @@ def run_fts_match(db: sqlite3.Connection, sql: str, params: Tuple) -> Tuple[List
         return [], FTS_REASON_MATCH_ERROR
 
 try:
-    from policy import (  # noqa: F401 (availability probe)
+    from em_internal.policy import (  # noqa: F401 (availability probe)
         evaluate_write,
         normalize_sensitivity,
         redact_for_prefetch,
@@ -227,13 +227,13 @@ except ImportError:
 # ── optional embedding support (Phase 7: semantic search) ──────────────────
 
 try:
-    from embeddings import (
+    from em_internal.embeddings import (
         EMBEDDER_AVAILABLE as _EMB_AVAIL,
     )
-    from embeddings import (
+    from em_internal.embeddings import (
         NUMPY_AVAILABLE as _NP_AVAIL,
     )
-    from embeddings import (
+    from em_internal.embeddings import (
         cosine_similarity,  # noqa: F401 (availability probe)
         embed_text,
         embedding_coverage,

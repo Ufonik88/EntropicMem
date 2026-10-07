@@ -565,8 +565,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         # Vector embeddings are opt-in: sentence-transformers being importable
         # in the host venv is not consent to download a model (network egress).
         try:
-            import embeddings as _embeddings
-
+            import em_internal.embeddings as _embeddings
             _embeddings.set_enabled(bool(self._config.get("embeddings_enabled", False)))
         except ImportError:
             pass
@@ -660,7 +659,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return ""
         try:
             ensure_scripts_on_path(self._scripts_dir)
-            from vault import CoreMemory
+            from em_internal.vault import CoreMemory
             core = CoreMemory(Path(self._vault_path))
             # EM-118: guests get Persona only — never the User Profile
             core_block = core.injection_block(persona_only=self._is_guest())
@@ -1075,7 +1074,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             score_str = f" [score:{fact.relevance_score:.2f}]" if fact.relevance_score > 0 else ""
             body = fact.content
             try:
-                from policy import redact_for_prefetch
+                from em_internal.policy import redact_for_prefetch
                 body = redact_for_prefetch(body, getattr(fact, "sensitivity", "internal") or "internal")
             except Exception:
                 pass
@@ -1394,9 +1393,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
         importance = float(args.get("importance") or 0.7)
         try:
             ensure_scripts_on_path(self._scripts_dir)
-            from index import VaultIndex
+            from em_internal.index import VaultIndex
+            from em_internal.vault import Vault
             from memory_engine import MemoryEngine
-            from vault import Vault
 
             with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
                 # EM-118: guest writes are stamped with the gateway user and a
@@ -1496,9 +1495,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
         top_k = int(args.get("top_k") or 5)
         try:
             ensure_scripts_on_path(self._scripts_dir)
-            from index import VaultIndex
-            from retrieval import retrieve_composed
-            from vault import Vault
+            from em_internal.index import VaultIndex
+            from em_internal.retrieval import retrieve_composed
+            from em_internal.vault import Vault
 
             vault = Vault(self._vault_path)
             index = VaultIndex(self._index_db)
@@ -1552,7 +1551,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
         try:
             ensure_scripts_on_path(self._scripts_dir)
-            from vault import CoreMemory
+            from em_internal.vault import CoreMemory
 
             core = CoreMemory(self._vault_path)
             success = core.patch(target=target, old_text=old_text, new_text=new_text)
