@@ -60,7 +60,9 @@ def make_adapter(name: str, disable_embeddings: bool = True):
         from evals.adapters.engine_v2 import EngineV2Adapter
 
         return EngineV2Adapter(disable_embeddings=disable_embeddings)
-    raise ValueError(f"unknown adapter: {name!r} (v3 lands with S2)")
+    # S2 is merged, so "v3 lands with S2" stopped being true; the v3 adapter is
+    # EM-306's, and until it exists the v3 retrieval pipeline cannot be scored.
+    raise ValueError(f"unknown adapter: {name!r} (v2 only; the v3 adapter is EM-306)")
 
 
 def check_gates(result: Dict[str, Any]) -> list:
@@ -154,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="command", required=True)
     run_p = sub.add_parser("run", help="run a suite and write results")
     run_p.add_argument("--suite", default="ci", help="ci | full | hard | external")
-    run_p.add_argument("--adapter", default="v2", help="engine adapter (v2; v3 in S2)")
+    run_p.add_argument("--adapter", default="v2", help="engine adapter (v2; the v3 adapter is EM-306)")
     run_p.add_argument("--k", type=int, default=5, help="ranking depth for recall/ndcg")
     run_p.add_argument("--compare", default=None, metavar="FILE",
                        help="baseline results JSON; prints deltas and gates regression")
