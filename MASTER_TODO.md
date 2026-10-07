@@ -13,10 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `52ca33b` (Chunk 14's
-merge commit), with **Chunk 15 merged on top of it — its code is `50601b3`**. CI is
-verified on the exact commit with the check-runs API, not with `run list`, which can
-hand back a stale run and look green.
+**Last reconciled:** 2026-10-07, against branch `main` at `623d5e4`, which is the
+merge commit for Chunk 15 — its code is `50601b3`, its docs `623d5e4`. CI is verified
+on the exact commit with the check-runs API (22 check-runs, none failing), not with
+`run list`, which can hand back a stale run and look green.
 
 ---
 
@@ -135,13 +135,14 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunk 14 (EM-304, fusion) is merged to `main` at `52ca33b` — its code
-is `14552be` — with CI verified on the exact commit before the merge and again on
-`main` after it, both on the **first** run. The branch is deleted, the remote carries
-`main` and `release/2.8.x` only, and the Marketplace entry is untouched (still 2.8.1
-at `7e02412`) — a chunk leaves it alone unless the chunk *is* a release.
+**Nothing.** Chunk 15 (EM-305, the gate, collapse and MMR) is merged to `main` at
+`623d5e4` — its code is `50601b3` — with CI verified on the exact commit before the
+merge and again on `main` after it, both on the **first** run. The branch is deleted,
+the remote carries `main` and `release/2.8.x` only, and the Marketplace entry is
+untouched (still 2.8.1 at `7e02412`) — a chunk leaves it alone unless the chunk *is* a
+release.
 
-Thirteen consecutive merges have now gone green on the **first** CI run, all because
+Fourteen consecutive merges have now gone green on the **first** CI run, all because
 the suite was checked on Python 3.10 as well as 3.12 before pushing.
 
 **A measurement trap worth knowing:** `ghx run list --branch main --limit 1` can
@@ -156,8 +157,10 @@ caught only because the reported SHA did not match the pushed one.
 ruling on the behaviour change, and still in no release. It must not reach the
 marketplace until the owner explicitly approves a release. See plan §9 item 3.
 
-**The cutover stays held.** The owner revisits it after EM-305 and decides; the agent
-brings the decision. Do not switch the live store.
+**The cutover decision is due now** and is the owner's to make: EM-305 was the
+milestone the owner set. The evidence table and the agent's recommendation (defer
+past EM-306 and wire S3 into the provider first) are in "What is next" above and in
+`NEXT_CHUNK.md`. **Do not switch the live store without the owner's explicit go.**
 
 ### Where the master plan is
 
