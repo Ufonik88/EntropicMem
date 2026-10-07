@@ -13,10 +13,9 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `fd9e06f`, Chunk 13's code
-commit; its docs commit sits on top and moves the tip without changing code, tests
-or counts, which is expected — see plan §11. CI is confirmed on `main` after the
-merge.
+**Last reconciled:** 2026-10-07, against branch `main` at `04ab0a2`, which is the
+merge commit for Chunk 13 — its code is `fd9e06f`, its docs `04ab0a2`. CI is green
+on that exact SHA on `main` (all 11 jobs) as well as on the branch.
 
 ---
 
@@ -133,15 +132,19 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunk 12 (EM-301) is merged to `main` at `3899012` — its code is
-`85afea4` — with green CI on the exact SHA before the merge and again on `main`
-after it, all 11 jobs, on the **first** run. The branch is deleted, the remote
-carries `main` and `release/2.8.x` only, and the Marketplace entry is untouched
-(still 2.8.1 at `7e02412`) — a chunk leaves it alone unless the chunk *is* a
-release.
+**Nothing.** Chunk 13 (§3.5's `visibility` half) is merged to `main` at `04ab0a2`
+— its code is `fd9e06f` — with green CI on the exact SHA before the merge and again
+on `main` after it, all 11 jobs, both on the **first** run. The branch is deleted,
+the remote carries `main` and `release/2.8.x` only, and the Marketplace entry is
+untouched (still 2.8.1 at `7e02412`) — a chunk leaves it alone unless the chunk *is*
+a release.
 
-Eleven consecutive merges have now gone green on the **first** CI run, all because
+Twelve consecutive merges have now gone green on the **first** CI run, all because
 the suite was checked on Python 3.10 as well as 3.12 before pushing.
+
+**Chunk 13's change is internal only.** It was agent-proposed and owner-authorised
+for implementation, not ruled on by the owner, and it must not reach the marketplace
+without an explicit release approval. See plan §9 item 3.
 
 ### Where the master plan is
 
