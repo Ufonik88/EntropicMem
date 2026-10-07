@@ -1,18 +1,47 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-07, Chunk 14 (EM-304, fusion) merged to `main`; **Chunk 15 (EM-305, the gate, supersession collapse and MMR) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, Chunk 15 (EM-305, the gate, collapse and MMR) merged to `main`; **the owner's cutover decision is now due**, and **Chunk 16 (EM-306, calibration) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
-**Owner rulings in force (plan §9):**
-- **The v3 cutover is deferred and the owner revisits it after EM-305. The owner decides — the agent brings the decision, never takes it.** Do not switch the live store.
-- **Chunk 13's `visibility` change is ratified and internal only**, and the marketplace entry does not move without an explicit release approval.
-
-**Owner constraints on the next chunks:**
-- **EM-305's gate must not depend on EM-301's intent table.** Its accuracy is 92.9% on 42 samples — a miss only costs ranking quality, but the gate is a hard filter, so if the gate ends up keyed on intent then widen the table first (that is EM-306's job) rather than shipping a gate on a thin signal.
-- **EM-306 (the calibration harness) is the fix for that thin margin, not a nice-to-have.** Its AC is exactly this tuning.
+**Owner decisions in force:**
+- **The visibility change (Chunk 13) is ratified and internal only** — no release, no marketplace, until the owner explicitly approves a release.
+- **EM-305's gate must not depend on EM-301's intent table** (92.9% on 42 samples). If tuning shows it does, widen the table first.
+- **EM-306 is the fix for that thin margin, not a nice-to-have.**
+- **The cutover decision is the owner's, and it is due now** (see below).
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
-**The master plan is at `~/Documents/EntropicMem Dev docs/EntropicMem_v3_Master_Plan.md`** (the owner's document, deliberately not committed). EM-301's, EM-302's, EM-304's and EM-305's cards plus §3.6 are transcribed into `REMAINING_PLAN.md` §6.2. **Before starting a card whose text is not there, read that file** — and if it is unreachable, stop and report rather than inventing fields.
+**The master plan is at `~/Documents/EntropicMem Dev docs/EntropicMem_v3_Master_Plan.md`** (the owner's document, deliberately not committed). EM-301's…EM-306's cards plus §3.6 are transcribed into `REMAINING_PLAN.md` §6.2. **Before starting a card whose text is not there, read that file** — and if it is unreachable, stop and report rather than inventing fields.
+
+---
+
+# OWNER DECISION NOW DUE: the v3 cutover
+
+The owner set the milestone: **"revisit only after EM-305, and bring me the decision
+rather than making it."** EM-305 is merged, so it is due. **The agent does not take
+this decision.**
+
+The evidence, measured rather than asserted:
+
+| Fact | Where it comes from |
+|---|---|
+| **S3's retrieval pipeline is complete** — analyzer, generators, fusion, gate, collapse, MMR | chunks 11–15, all merged |
+| **…and nothing calls it.** Prefetch still uses v2's scoring; the facade's read half serves a v3 store | `em/retrieval/__init__.py`'s gap list |
+| **The CLI refuses seven v2-only commands on v3**, `publish`/`pull` among them; nothing drains the sync outbox on v3 | Chunk 10.3 |
+| **`embed`/`vector` do not exist** (EM-303), so the vector generator, the gate's cosine condition and MMR's embedding path are all inert on v3 | chunks 14–15 |
+| **No v3 eval adapter**, so the v3 pipeline has never been scored end to end | `evals/__main__.py` |
+| **The live store holds zero facts** and has not moved across any session | `stat` on `~/.hermes/entropicmem/memory.db` |
+| **Chunk 13's `visibility` change is unreleased** and changes what a non-owner may read | plan §9 item 3 |
+
+**The agent's recommendation (the owner accepts or refuses): defer past EM-306, and
+wire S3's read path into the provider first.** The reasoning is one line: the cutover
+is irreversible and owner-present, and doing it while the retrieval layer is complete
+but *unwired* lands the owner on a v3 store whose new capability nothing calls yet.
+The counter-argument is equally real — the live store is empty, so a cutover costs
+nothing to undo *today* and would start exercising v3 on real turns.
+
+**If the owner says go:** verified backup → migrate a **copy** → verify against the
+parity suite → swap, with `ENTROPICMEM_ALLOW_LIVE_MIGRATION=1` set only for that act
+(plan §6.3).
 
 ---
 
@@ -20,80 +49,64 @@
 
 Only the recent chunks; the full ledger with SHAs is `REMAINING_PLAN.md` §5.
 
-### Chunk 14 — EM-304, fusion, rerank, explainability. **DONE, MERGED (2026-10-07, `14552be`)**
+### Chunk 15 — EM-305, the gate, supersession collapse, MMR. **DONE, MERGED (2026-10-07, `50601b3`)**
 
-- `em/retrieval/fusion.py`: weighted RRF over the generators that ran, §3.6's feature rerank, a total deterministic tie-break, the per-hit explanation, and a scoped feature loader. Every number is hand-computed in the tests to 1e-9, which is the card's AC.
-- **The `G_active` trap is pinned both ways:** a bm25-only rank-1 hit normalises to **1.0**, and the *wrong* denominator (all six configured generators) is shown to give 0.270 — under §3.6's `gate.min_score` of 0.30, which is why the plan warns about it.
-- **A test-quality finding worth remembering.** `updated_at` also *feeds* `recency`, so varying it changes the score and the `(score desc, updated_at desc, id asc)` tie-break never runs — the first tie-break test proved nothing. `evergreen` (recency 1.0 whatever the timestamp) is what makes an exact tie reachable, and the test now asserts the scores are equal before asserting the order.
-- `load_features` re-applies §3.5 through the same `scope_sql` and `status='active'`: this is the last point before a row's content would be shown, so a generator's scope mistake cannot surface here. A fused key with no features is dropped, never ranked.
-- Episodes get **named** defaults (`EPISODE_DEFAULTS`) where the schema has no column, and `start_at` fills the `valid_from` slot the age formula wants — not silent zeros.
-- Deliberately left: `ranking.*` config (EM-407), `superseded_note` (EM-305), and the `why_retrieved_tokens` wiring (the provider card).
-- 53 new tests; **1916 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12**; 22 mutation checks. **Two escaped on the first pass and both were real test gaps:** a no-op denominator mutation (now removed for real, with a new all-zero-weight test), and the tie-break test above.
+- `em/retrieval/gate.py`: §3.6's four support conditions (coverage ≥ 0.34, cosine ≥ `gate.min_cosine[model]`, an entity hit, pinned) then `score ≥ 0.30`. **Pinned bypasses outright**, per §3.6's own generator table. `GateResult` exposes `empty` and `keeps_only_pinned` so a block containing nothing but pinned constraints is a decision the renderer can see.
+- **The "post-stem" coverage trap is resolved exactly.** §3.6 wants coverage "post-stem" and the stdlib has no porter stemmer, so a Python-only comparison under-counts on every hidden stem (`preferences`/`preferred`, `runs`/`running`) — and the gate is a **hard filter**, so it would silently abstain on answers the generators had found. Coverage is measured with **the same tokenizer**: a transient in-memory FTS5 declared identically to `memories_fts`, one `MATCH` per query term, which also keeps the cost at one table build plus ≤ 12 probes regardless of candidate count.
+- `em/retrieval/diversity.py`: the collapse and MMR. **§3.6's "exact-hash duplicates across scopes" cannot use the hash** — `_content_hash` mixes the scope into the digest — so it groups on the loaded text and prefers the narrower scope. A live chain (a `restore` leaving two active members) keeps the successor. A predecessor changed < 30 days adds the `superseded_note` flag and comes back on `CollapseResult` for the renderer. MMR is λ = 0.7 over the top 20 on Jaccard, with the cosine path off until EM-303.
+- Gaps recorded: `gate.*` config (EM-407, same as `ranking.*`), the cosine condition and MMR's embedding path (EM-303), and the `include_history` flag (the provider's — this layer supplies the predecessors, and `MemoryStore.history()` already walks the chain).
+- 50 new tests; **1966 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12**; **23 mutation checks, all caught on the first pass** — but only after fixing three tests I had got wrong: the diversity mappings were keyed by bare id instead of `Ranking.key` (so every text lookup returned `""` and the tests passed for the wrong reason), the chain guard dropped the successor rather than the ancestor, and one abstention label asserted a match porter itself does not make (`deployment` → `deploy`), where abstaining is correct.
 
-### Chunk 13 — §3.5's `visibility` half. **DONE, MERGED, OWNER-RATIFIED (2026-10-07, `fd9e06f`). Internal only.**
+### Chunk 14 — EM-304, fusion. **DONE, MERGED (2026-10-07, `14552be`)**
 
-- Measured: `MemoryDraft.visibility` defaulted to `'user'` and **nothing set it**, so every profile-wide write carried the value §3.5 reserves for user-scoped rows — the shape §3.5 makes owner-only. **The direction was the point:** the read clause alone would have hidden every profile-wide memory from non-owners.
-- Write: the draft default is `''` = derive from the scope, explicit preserved. Read: `row_is_owner_only` owns both owner-only conditions and `_in_scope`/`scope_sql` both call it.
-- `_outbox` gained the sensitivity gate it never had (its docstring claimed it); v2 published every non-sensitive fact, so this restores v2. Investigated and answered: the only outbox consumer is v2's `publish()`, unreachable on v3, and nothing had been queued by the old path.
-- `MemoryStore.list` was investigated and left exact, with a regression test pinning both directions.
-- Reversible: no migration, no rewrite of existing rows.
+- Weighted RRF over the generators that ran, §3.6's feature rerank, the deterministic tie-break, the explanation, and the scoped feature loader. The `G_active` trap is pinned both ways (1.0 for a bm25-only hit; the wrong denominator shown to give 0.270, under the 0.30 gate). 53 tests; 22 mutation checks; two escaped first pass and both were real test gaps.
 
-### Chunk 12 — EM-301, the `QueryAnalyzer`. **DONE, MERGED (2026-10-07, `85afea4`)**
+### Chunks 11–13 — EM-302, EM-301, and the `visibility` fix. **DONE, MERGED**
 
-- `analyze()` → `AnalyzedQuery`. Two findings: the `memories_vocab` view holds **porter stems** (bridged with an FTS5 `MATCH` count), and an all-stopword query needs v2's fallback. Intent: 39/42 = 92.9% on a labelled table with three declared misses.
+- EM-302's generators, EM-301's analyzer (the porter-stem vocabulary finding; the all-stopword fallback), and §3.5's visibility half (owner-ratified, internal only). Details in `REMAINING_PLAN.md` §5.
 
-**S3's retrieval is three parts in: an analyzer, generators, and fusion. EM-305 completes the pipeline.**
+**S3's retrieval pipeline is complete end to end and unwired. EM-306 is next.**
 
 ---
 
-## Part B: Chunk 15 — EM-305, the gate, supersession collapse and MMR
+## Part B: Chunk 16 — EM-306, the calibration and tuning harness
 
 ### The card (master plan §5, verbatim)
 
-**EM-305 — Gate, supersession collapse, MMR · M**
-- **Files:** `em/retrieval/gate.py`, `em/retrieval/diversity.py`. **Spec:** §3.6. Collapse also groups `status=active` memories linked by `superseded_by` chains (safety) and exact-hash duplicates across scopes (prefer narrower scope).
-- **AC:** abstention scenarios ≥ 0.95 correct; `update` scenarios return only the latest version by default and both with `include_history=True`.
+**EM-306 — Calibration & tuning harness · M**
+- **Depends on:** EM-301–305, EM-002.
+- **Spec:** split scenarios into `dev` (70%) / `holdout` (30%) by id hash. `python -m evals tune --params gate.min_score,gate.min_coverage,ranking.w_* --grid …` optimising `0.4*recall@5 + 0.3*mrr + 0.3*abstain_correct − 0.2*noise_rate`. Write chosen defaults into `em/config.py` with a comment linking the result file. Per embedding model cosine thresholds calibrated separately.
+- **AC:** holdout metrics reported in PR; defaults committed; §6.3 gates updated to the new baseline.
 
-### The §3.6 text it implements (verbatim)
+### Two prerequisites that do not exist yet — measure them first, they change the plan
 
-**Abstention gate** (`em/retrieval/gate.py`) — a candidate is *supported* iff at least one holds:
-- lexical coverage ≥ `gate.min_coverage` (default 0.34) where coverage = matched non-stopword query terms (post-stem) / total query terms, computed in Python on the candidate text;
-- vector cosine ≥ `gate.min_cosine[model]` (defaults: `bge-small-en-v1.5: 0.62`, `all-MiniLM-L6-v2: 0.38`, tuned in EM-306);
-- an entity hit from the analyzer;
-- `pinned`.
-Then require `score ≥ gate.min_score` (default 0.30). If no candidate survives, the memory section is omitted entirely (only pinned constraints and core deltas may remain).
+**Re-measured on 2026-10-07, not assumed:**
 
-**Collapse & diversity:** drop `superseded` (but mark successor with `(updated <date>; was: <old summary>)` when the old one was a candidate or changed < 30 days ago). MMR with λ = 0.7 using embedding cosine (fallback: token Jaccard) over the top 20.
+1. **There is no v3 adapter.** `evals/__main__.py` raises `unknown adapter: … (v3 lands with S2)` — the message is stale (S2 is merged), and `--adapter` still only accepts `v2`. **The v3 pipeline has therefore never been scored end to end.** Tuning it is impossible until it can be run, so the adapter comes first. It is plumbing, not retrieval code: every stage exists and is tested, so the adapter drives `analyze → GENERATORS → fuse → rank → apply_gate → collapse → mmr`.
+2. **There is no `tune` command**, and no `em/config.py`. §3.6 puts the tuned defaults in `em/config.py` with a comment linking the result file, so **this chunk is where that module starts** — deliberately narrow (the keys this chunk tunes), not a config system. `ranking.*` (EM-304), `gate.*` (EM-305) and `extra_stopwords` (EM-301) are its first tenants, and EM-407 owns the rest.
 
-### The trap to expect first — coverage is "post-stem", and Python has no stemmer
+**If the two together are too big for one chunk, split and say which half landed:** 16a the v3 adapter plus the corrected adapter message (and a first honest v3 baseline committed as an `evals/baselines/` file), then 16b the `tune` command, `em/config.py`, and the committed defaults. **Do not tune against numbers produced by a harness that does not exist.**
 
-This is the Chunk 12 finding arriving again on a harder surface. Coverage is *"matched non-stopword query terms (post-stem) / total query terms, computed in Python on the candidate text"*, but ``memories_fts`` is porter-tokenized and there is no porter stemmer in the standard library, so a naive substring/token comparison will under-count for exactly the words that matter (`staging` in the text, `staging` in the query, matching fine in FTS — but `run` vs `running`, `prefer` vs `preferences` will not). Since the gate is a hard filter, an under-count silently abstains on answers that were found. **Decide deliberately and say which**, in the same spirit as `vocabulary`:
+### The objective, and what "holdout" has to mean
 
-* ask FTS5 (one `MATCH` per query term against a scratch expression, or reuse the same tokenizer) so coverage is measured with the tokenizer that actually matched; or
-* compute it on raw tokens and **bound the error in a recorded deviation** with a test that shows which shapes under-count.
+`0.4*recall@5 + 0.3*mrr + 0.3*abstain_correct − 0.2*noise_rate`, maximised on **dev** and **reported** on **holdout** — splitting scenarios 70/30 **by id hash**, so the split is stable across runs and a scenario cannot drift between halves. The AC is that the *holdout* figures go in the PR: a default chosen on dev and confirmed on holdout is the entire point, and a default reported on the data it was chosen from is not evidence.
 
-Do not ship a silent under-count.
+### The thin margin, and the owner's standing constraint
 
-### What is already in the repo, so do not rebuild it
-
-- `em/retrieval/fusion.py` produces the `Ranking` list, in score order, each with `signals` (so the gate can see whether an `entity` hit was involved), `score`, `rrf_n` and `why`. `superseded_note` is deliberately not emitted — **this card emits it**.
-- `em/retrieval/candidates.py` has `scope_sql`; `fusion.load_features` already re-applies §3.5 and can be extended (or given a sibling) for whatever this card needs. `Candidate` stays three fields.
-- `em/retrieval/query.py`'s `AnalyzedQuery` has `terms` (the post-stopword tokens) and `entities` — coverage's numerator and the entity-hit support condition come from there.
-- `fusion.legacy_tokens` consumes `why`, so a new flag flows through with no further change.
+EM-301's intent table is **92.9% on 42 samples**, and the owner has ruled that **the gate must not depend on the intent table**. `fusion.weights_for` already selects weights from `intent`, so tuning `ranking.w_*` per intent is legitimate — but if the tuned result turns out to *depend* on the gate keying on intent, stop and widen the table first (more samples, not different labels; the three known misses are documented by name and stay declared). **EM-306 is where the margin gets fixed**, and this chunk is the only place that can say whether 42 samples was enough.
 
 ### Size guards — stop and report if
 
-* **`gate.*` config does not exist** (EM-407), the same gap as `ranking.*`. Take the thresholds as parameters with §3.6's defaults and record it.
-* **the vector half of the support test cannot run.** `gate.min_cosine[model]` needs an embedding backend and a model name, which is EM-303; a `Ranking` carries no cosine. Implement the lexical/entity/pinned conditions and a **documented, disabled** cosine hook rather than inventing a cosine — say so plainly.
-* **`include_history=True` needs a read that does not exist.** The `update` AC needs both versions of a superseded pair; `MemoryStore.history()` exists (walks `superseded_by` backwards), so check it before building anything.
-* MMR's "over the top 20" and the collapse's "changed < 30 days ago" are the only card-specific numbers; if either needs a field no row carries, report rather than guess.
+* **the v3 adapter needs a driver that does not exist.** It should compose existing, tested functions. If it needs prefetch, the provider, a config module beyond the narrow one above, or a write path, that is a cross-card dependency — report rather than building it here.
+* **a threshold cannot be measured at all.** §3.6 says `gate.min_cosine[model]` is calibrated per embedding model and EM-303 does not exist, so the cosine grid is **empty**; say so plainly and calibrate the other parameters rather than inventing cosines.
+* **the objective cannot improve on dev without gaming it.** The hard suite has 4 paraphrase misses that share no words with the stored fact (§6.2) — vectors are the fix and they are EM-303's. If the tuned numbers only move by loosening the gate, that is a noise-rate trade, not a calibration, and the holdout will say so. Report it.
 
 ### Pre-flight
 
-1. `main` must be at `14552be` or later: Chunk 14 merged there. `git merge-base --is-ancestor 14552be main` proves it.
-2. **Baseline:** `pytest -q` gives **1916 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
-3. **Re-measure from the code**, not from this file: `fusion.Ranking`'s fields, whether anything already carries candidate *text*, `MemoryStore.history`, the `superseded_by`/`content_hash` columns, and whether `em/config.py` exists yet.
-4. **Verify CI with the check-runs API on the commit**, not `ghx run list --branch main --limit 1`, which can return a stale run and look green (see `MASTER_TODO.md`).
+1. `main` must be at `50601b3` or later: Chunk 15 merged there. `git merge-base --is-ancestor 50601b3 main` proves it.
+2. **Baseline:** `pytest -q` gives **1966 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
+3. **Re-measure from the code**, not from this file: `evals/__main__.py`'s adapter registry and gate table, `evals/runner.py`, `evals/dataset.py`'s scenario ids, whether an id-hash split helper exists, and the current `evals/baselines/` files.
+4. **Verify CI with the check-runs API on the commit** (`ghx api repos/Ufonik88/EntropicMem/commits/<sha>/check-runs`), not `ghx run list --branch main --limit 1`, which can return a stale run and look green.
 
 ### Document control (before and after)
 
@@ -102,5 +115,5 @@ Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file *
 ### End of chunk
 
 1. Push, green CI on the exact SHA, `git merge --ff-only`, delete the branch.
-2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.2/§9/§11.
-3. **Replace this file's Part A with this chunk and Part B with the next piece — EM-306 (calibration), and bring the cutover decision to the owner**, who revisits it after EM-305.
+2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.2/§9/§11, **and §6.3's gates** — the AC says the new baseline is written down.
+3. **Replace this file's Part A with this chunk and Part B with the next piece** — and re-state the cutover decision's status (still due, or taken).

@@ -13,10 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `52ca33b`, which is the
-merge commit for Chunk 14 — its code is `14552be`, its docs `52ca33b`. CI is verified
-on that exact commit with the check-runs API (22 check-runs, none failing), not with
-`run list`, which can hand back a stale run.
+**Last reconciled:** 2026-10-07, against branch `main` at `52ca33b` (Chunk 14's
+merge commit), with **Chunk 15 merged on top of it — its code is `50601b3`**. CI is
+verified on the exact commit with the check-runs API, not with `run list`, which can
+hand back a stale run and look green.
 
 ---
 
@@ -121,6 +121,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 12 | **EM-301, the `QueryAnalyzer`** | **Done, merged** (`85afea4`) |
 | 13 | **§3.5's `visibility` half** — the write stamp and the read guard | **Done, merged** (`fd9e06f`); **owner-ratified**, internal only, no release |
 | 14 | **EM-304 — fusion, rerank, explainability** | **Done, merged** (`14552be`) |
+| 15 | **EM-305 — gate, supersession collapse, MMR** | **Done, merged** (`50601b3`) |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -204,25 +205,57 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-### Chunk 14 — EM-304, fusion, rerank and explainability. **Unblocked.**
+### OWNER DECISION NOW DUE: the v3 cutover
 
-Both of its dependencies are merged: EM-302's generators produce the ranked
-`Candidate` triples and EM-301's analyzer produces the `AnalyzedQuery` they consume.
+**EM-305 was the milestone the owner set: "revisit only after EM-305, and bring me
+the decision rather than making it."** It is reached. The decision is the owner's;
+nothing below is done without it.
 
-- **Files:** `em/retrieval/fusion.py`. **Spec:** "exactly §3.6 formulas" —
-  `rrf(d) = Σ_g w_g / (60 + rank_g(d))`, normalised over the generators that
-  *actually ran and returned ≥ 1 candidate* (normalising over all configured
-  generators would cap a bm25-only hit at ≈ 0.25 and make `min_score` meaningless);
-  the four intent weight tables; the feature rerank
-  `0.60*rrf_n + 0.15*importance + 0.10*recency + 0.10*confidence + 0.05*feedback`
-  with the `decay_class` half-lives; all weights in `ranking.*` config; the `explain`
-  structure; and a deterministic tie-break `(score desc, updated_at desc, id asc)`.
-- **AC:** "unit tests with synthetic ranks reproduce hand-computed scores to 1e-9."
-- **Watch for:** §3.6's `why_retrieved` becomes a list of
-  `{"signal": …, "rank": …, "contrib": …}` plus flags, keeping the legacy flat token
-  list in `why_retrieved_tokens` for one minor version.
-- **Then EM-305** (gate, supersession collapse, MMR) — and the cutover comes back to
-  the owner for a decision **after** EM-305, not before.
+What an informed decision needs, all of it measured rather than asserted:
+
+* **The retrieval layer is now end to end** — analyzer (EM-301), generators
+  (EM-302), fusion and rerank (EM-304), gate, collapse and MMR (EM-305). The v3
+  store has the machinery that justifies it.
+* **What v3 still cannot do on the live path:** the provider and the CLI serve a
+  v3 store, but S3's read path is not wired into the provider's prefetch, and the
+  CLI still refuses seven v2-only commands by name (Chunk 10.3). `publish`/`pull`
+  (S5) refuse, and nothing drains the sync outbox on v3.
+* **The live store holds zero facts** (`~/.hermes/entropicmem/memory.db`, v2
+  schema) and did not move across any run this session.
+* **`embed`/`vector` do not exist yet** (EM-303), so on v3 the vector generator,
+  the gate's cosine condition and MMR's embedding path are all inert — retrieval
+  is lexical plus entities plus episodes.
+* **EM-306 (calibration) has not run**, so §3.6's thresholds are the plan's
+  numbers rather than tuned ones.
+* **Chunk 13's `visibility` change is ratified but unreleased**, and it changes
+  what a non-owner may read; the cutover would be the first time it matters to a
+  real store.
+
+**The agent's recommendation, for the owner to accept or refuse:** defer the cutover
+to after EM-306, and prefer to wire S3's read path into the provider first — the
+cutover is irreversible and owner-present, and doing it while the retrieval layer
+is complete but *unwired* lands the owner on a v3 store whose new capability
+nothing calls yet.
+
+**If the owner says go, the procedure is in plan §6.3:** verified backup, migrate a
+**copy**, verify against the parity suite, then swap — with
+`ENTROPICMEM_ALLOW_LIVE_MIGRATION=1` set only for that act.
+
+### Chunk 16 — EM-306, the calibration harness (§3.6). **Next.**
+
+Owner's instruction: "treat as the fix for the thin intent margin, not a
+nice-to-have. Its AC is exactly this tuning; widen the weight table there."
+
+- **Spec (§3.6):** split scenarios into `dev` (70%) / `holdout` (30%) by id hash;
+  `python -m evals tune --params gate.min_score,gate.min_coverage,ranking.w_*
+  --grid …` optimising `0.4*recall@5 + 0.3*mrr + 0.3*abstain_correct −
+  0.2*noise_rate`; write the chosen defaults into `em/config.py` with a comment
+  linking the result file; calibrate `gate.min_cosine` per embedding model.
+- **AC:** holdout metrics reported in PR; defaults committed; §6.3 gates updated.
+- **It is also where the thin margin gets fixed:** EM-301's intent table is
+  **92.9% on 42 samples**, and the owner's standing constraint is that **the gate
+  must not depend on it** — if tuning shows the gate keyed on intent, widen the
+  table first.
 
 ### Known gaps, recorded so they are not lost
 
@@ -260,28 +293,24 @@ Both of its dependencies are merged: EM-302's generators produce the ranked
   `RetrievalContext` does not carry.
 * **`EM-211`'s seven CLI refusals** — each names the card that lifts it. Closing
   them is S3/S5/S6 work, not a bug.
+* **S3's read path is not wired into the provider.** The retrieval layer is complete
+  and unwired, exactly as the facade was before Chunk 9. Prefetch still uses v2's
+  scoring on a v2 store; on a v3 store the facade's read half serves it.
+* **`gate.*` config (EM-305)** joins `ranking.*` and `extra_stopwords` as
+  parameters with the spec's defaults, all waiting on `em/config.py` (EM-407).
 
-### The v3 cutover — DECIDED 2026-10-07: **deferred**, deliberately
+### The v3 cutover — **the decision is due now; see above**
 
-Available and technically ready (a v2 store keeps the v2 engine, a v3 store gets the
-facade, selected by `PRAGMA user_version`, so nothing migrates by accident), but the
-call is **not now**, for four reasons:
-
-1. **The live store holds zero facts**, so there is nothing to cut over and nothing
-   to gain.
-2. On v3 the CLI still refuses seven commands, so the owner's daily driver would be
-   degraded on the store they actually use.
-3. **S3 is mid-flight** — cutting over now lands the owner on a v3 store *without* the
-   retrieval that justifies v3, and the parity suite does not yet cover the v3 read
-   path end to end.
-4. It is irreversible and needs the owner present, so it should happen once,
-   deliberately. **Revisit after EM-305.**
+Previously deferred (2026-10-07) on four grounds, three of which still hold: the live
+store holds zero facts, the CLI still refuses seven commands on v3, and the act is
+irreversible and owner-present. The fourth — "S3 is mid-flight" — has changed: S3's
+retrieval is complete. **The owner decides; the agent does not.**
 
 ## Gates that must be green before anything reaches `main`
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1916 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **1966 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |

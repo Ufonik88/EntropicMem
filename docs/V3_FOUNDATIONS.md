@@ -28,8 +28,9 @@ em.retrieval (S3)        query.py: AnalyzedQuery + analyze() — EM-301's text
                           cross-checked against _in_scope over a row matrix).
                           fusion.py: EM-304's weighted RRF, feature rerank,
                           deterministic tie-break and explanation, with the
-                          feature loader. vector is EM-303's; the full temporal
-                          grammar is EM-310's; the gate/MMR are EM-305's.
+                          feature loader; gate.py and diversity.py: EM-305's
+                          abstention gate, the collapse and MMR. vector is
+                          EM-303's; the full temporal grammar is EM-310's.
 em.jobs   (EM-209)        worker.py: claims jobs, runs handlers OUTSIDE transactions
                           cli.py: `entropicmem worker run`, the cron entry point (refuses a live path)
         |
@@ -185,6 +186,21 @@ These are decisions the writes chunk made that are not obvious from the signatur
   view is a cheap indexed read and this is correct today; the cache wants the
   counter, which is a store change and not the analyzer's. Recorded so the next
   reader does not think the cache exists.
+- **Coverage is measured with the tokenizer itself (EM-305).** §3.6 defines
+  coverage "post-stem" and the gate is a **hard filter**, so a Python-only
+  comparison under-counts on every stem the surface form hides and silently
+  abstains on answers the generators had found. `gate.coverage` puts the candidate
+  texts into a transient in-memory FTS5 declared with the *same* tokenizer as
+  `memories_fts` and matches each query term once. Do not "simplify" it into a
+  substring or token-set test.
+- **`gate.*` config does not exist either (EM-305).** Same gap as `ranking.*`:
+  `gate.GateConfig` carries §3.6's numbers as overridable defaults, and EM-407 owns
+  the config module. The gate's cosine condition and MMR's embedding path are
+  present but **off** — both need EM-303 — and a caller can supply a cosine.
+- **§3.6's "exact-hash duplicates across scopes" groups on text, not on the hash
+  (EM-305).** `MemoryStore._content_hash` mixes the scope into the digest, so the
+  hash cannot see the pair. The collapse groups on the loaded text, which is what
+  the hash was derived from.
 - **`ranking.*` config does not exist (EM-304).** §3.6 says the rerank weights and
   half-lives live in `ranking.*`. There is still no `em/config.py` (EM-407), so
   `fusion.RankWeights` carries the spec's numbers as defaults and the caller may

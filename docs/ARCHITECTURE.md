@@ -50,12 +50,18 @@ single version source for the whole repo.
 | `em.store.audit` | The hash-chained `audit_log`, appended inside the caller's transaction (invariant 3) |
 | `em.store.jobs` | `JobQueue`: enqueue / claim / complete / fail, `dedupe_key`, leases, dead-letter |
 | `em.store.backup` | `BackupManager`: `create`, `verify`, `rotate`, and a guarded `restore` |
-| `em.store.migrations` | The migration framework, migrations `0001`–`0003`, and `assert_safe_db_path` |
+| `em.store.migrations` | The migration framework, migrations `0001`–`0004`, and `assert_safe_db_path` |
 | `em.jobs.worker` | `JobWorker` + `HandlerRegistry`: claim, run outside the write transaction (invariant 2), lease heartbeat, retry with backoff |
 | `em.jobs.cli` | `entropicmem worker run`: the job entry point a cron can call |
 | `em.formation.entity_linker` | The two-sighting linker **and** `make_link_handler`: it runs as a `link:<memory_id>:<version>` job, never inside a write (invariant 2) |
 | `em.facade.contract` | The provider contract derived by AST scan over the provider source; `tests/parity/` is its gate. `PROVIDER_ATTRIBUTES` is empty, so the provider reaches the engine only through methods both engines implement |
 | `em.facade.engine` | `V3Engine`: the whole `LegacyEngine` API over `em.store` — reads, writes and the mirror call. Complete as a library, **not wired in**; see the facade rules in [`V3_FOUNDATIONS.md`](V3_FOUNDATIONS.md) |
+| `em.retrieval.query` | EM-301's `QueryAnalyzer`: text normalisation, IDF term selection, intent, entity detection, and the common temporal shapes |
+| `em.retrieval.temporal` | The `TimeRange` a query may carry (the full temporal grammar is EM-310) |
+| `em.retrieval.candidates` | EM-302's candidate generators (`bm25`, `entity`, `episodic`, `recent`, `pinned`), `Candidate`, `RetrievalContext`, and `scope_sql` — the §3.5 rule as SQL |
+| `em.retrieval.fusion` | EM-304's weighted RRF, feature rerank, deterministic tie-break and explanation, plus the scoped feature loader |
+| `em.retrieval.gate` | EM-305's abstention gate: the four support conditions, then the score threshold |
+| `em.retrieval.diversity` | EM-305's supersession/duplicate collapse and MMR diversity |
 
 The ten invariants in [`V3_FOUNDATIONS.md`](V3_FOUNDATIONS.md) are the rules for
 this package: transactions belong to the caller, no slow work inside a write

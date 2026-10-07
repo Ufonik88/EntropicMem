@@ -97,6 +97,8 @@ EntropicMem/
 │   │   ├── graph_static.py      # Hardened stdlib server for `graph serve`
 │   │   ├── policy.py / pii.py   # Write policy + PII redaction
 │   │   ├── embeddings.py        # Vector search (optional)
+│   │   ├── em/                  # v3 storage + retrieval core (in development)
+│   │   ├── em_internal/         # The six shared-name engine modules (EM-212)
 │   │   └── entropicmem.py       # CLI
 │   └── README.md                # Plugin quick reference
 ├── skills/entropicmem/          # /learn skill: instructions + references + templates
@@ -108,7 +110,7 @@ EntropicMem/
 ├── evals/                       # Eval framework: ci + hard suites, baselines, perf bench
 ├── benchmarks/                  # Frozen recall benchmark (corpus, probes, runner)
 ├── docs/                        # User-facing docs (see index below)
-├── tests/                       # 900+ tests
+├── tests/                       # 1,900+ tests
 └── .github/workflows/test.yml   # CI: pytest (3.10 to 3.13) + ruff + plugin validate
 ```
 
@@ -241,7 +243,7 @@ EntropicMem's memory engine, vault and Hermes integration run locally and make n
 
 Also: the shared publish store lives at `$HERMES_HOME/entropicmem-shared/` (the root home in profile mode), and `graph export` writes to `./export` in the current directory unless you pass `--output-dir`.
 
-## Known Limitations (2.8.0)
+## Known Limitations (2.8.x)
 
 - **Synonym / paraphrase recall.** Retrieval is lexical (FTS5) unless the optional semantic stack is installed and enabled (`embeddings_enabled: true`). A query that shares no words with the stored fact ("what city am I based in?" against "The user lives in Cape Town") returns nothing. The hard eval suite's ageing category scores 0.733 recall@5 for exactly this reason; semantic retrieval is Sprint 3 (EM-303).
 - **Per-user isolation.** `owner_user_ids` is an interim owner/guest guard. Fully scoped per-user storage (Alice cannot recall Bob's facts) is Sprint 4.
