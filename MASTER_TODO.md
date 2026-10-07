@@ -13,8 +13,8 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `7212969`, with Chunk
-10.4 (the CLI routing) on `em/em-211-cli-routing`. A later docs-only commit moving
+**Last reconciled:** 2026-10-07, against branch `main` at `c50d7b6`, which is the
+commit Chunk 10.4 was merged at after green CI on it. A later docs-only commit moving
 the tip without changing code, tests or counts is expected; see plan §11.
 
 ---
@@ -113,7 +113,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 7.2 | The **§3.5 owner-only rule** for sensitive reads | **Done, merged** (`563afe5`) |
 | 8 | EM-212's **package move** | **Done, merged** (`025f012`, in `c922970`) |
 | 9 | The **provider** selects its engine by `user_version` | **Done, merged** (`b615bcf`) |
-| 10 | **CLI parity** on v3 — 10.0 guard → 10.1 reads → 10.2 maintenance → 10.3 refusals → 10.4 route | 10.0–10.3 merged; **10.4 committed, not merged** (`250320a`). **EM-211's AC is met except for seven named refusals** |
+| 10 | **CLI parity** on v3 — 10.0 guard → 10.1 reads → 10.2 maintenance → 10.3 refusals → 10.4 route | **Done, merged** (`250320a`). **EM-211's AC is met except for seven named refusals** |
 | 11 | **S3 begins** — EM-302, candidate generators (the critical path) | Next |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
@@ -128,13 +128,13 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Chunk 10's fourth slice (10.4, the routing)** — `250320a`, the CLI now selects
-its engine by the store's version, plus the profile-pass-through fix, on the local
-branch `em/em-211-cli-routing`. **Not pushed, not merged, no CI run yet.** `origin/main`
-is `7212969`. Locally green on both Python 3.10 and 3.12 — **1751 passed / 3
-skipped / 3 xfailed**, `ruff==0.16.2` clean, eval gate with no gated metric
-regressed, `perf-smoke` warm p95 4.428 ms against the 20 ms budget, `tests/unit`
-green standalone. Push, green CI on the exact SHA, `git merge --ff-only`.
+**Nothing.** Chunk 10.4 is merged to `main` at `c50d7b6` with green CI on that exact
+SHA, and the `em/em-211-cli-routing` branch is deleted. The remote carries `main`
+and `release/2.8.x` only, and the Marketplace entry is untouched (still 2.8.1 at
+`7e02412`) — a chunk leaves it alone unless the chunk *is* a release.
+
+Eight consecutive merges have now gone green on the **first** CI run, all because
+the suite was checked on Python 3.10 as well as 3.12 before pushing.
 
 ## What is done
 

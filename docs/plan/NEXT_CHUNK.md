@@ -123,13 +123,13 @@
 - `memory project`'s guard sits before path resolution, so a refusing command does not create vault/index directories.
 - 12 new tests, including one asserting every refusal names a trigger.
 
-### Chunk 10.4 — the CLI routes. **DONE, COMMITTED, NOT MERGED (2026-10-07, `250320a`)**
+### Chunk 10.4 — the CLI routes. **DONE, MERGED (2026-10-07, `250320a`, in `c50d7b6`)**
 
 - `_engine()` selects through the same `open_engine` the provider uses, so the CLI's ported commands run against a **v3** store and the v2-only ones still refuse by name (their guards run before `_engine()`). **EM-211's AC is met except for seven named refusals.**
 - **The chunk's point is the v2 regression pass:** routing changed engine construction for *every* store. A subprocess suite runs the real CLI against a v3 store (remember → list → recall, history, audit, pending, episode stats, timeline) and against a v2 store, including that a v2 store is **not migrated**.
 - **Fixed alongside: a latent v2 regression Chunk 9 introduced.** `MemoryEngine.profile_id()` resolves `explicit > hermes_home basename > 'default'`, and Chunk 9 passed `profile_id=self._profile_id or "default"` — making it explicit and overriding the home-derived slug a v2 store has always carried. `open_engine` now takes `profile_id=None` meaning **"the engine decides"**. Two regression tests pin it; reverting the fix reddens exactly the one on the provider path, which is where the bug lived and where nothing else looked.
 - 18 new tests + 2 regression tests; 1751 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; six mutation checks, all caught.
-- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+- **Merged** to `main` at `c50d7b6`; green on the exact SHA, first CI run, all 11 jobs.
 
 **EM-211 and EM-212 are code-complete, and both the provider and the CLI serve a v3 store.** EM-211's AC is met except for the seven refusals. **The cutover is the only thing left, and it is the owner's call.**
 
@@ -137,7 +137,7 @@
 
 ## Part B: Chunk 11 — S3's first card: EM-302 candidate generators. **NEXT PIECE, NOT STARTED**
 
-**Updated:** 2026-10-07, 10.4 committed (not yet merged); **Chunk 11 (S3 begins) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §6.2 and §9, then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, 10.4 merged to `main` at `c50d7b6`; **Chunk 11 (S3 begins) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §6.2 and §9, then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Why this one.** S2's remainder is essentially done: the provider and the CLI both select their engine, and EM-211's AC holds except for seven named refusals. The cutover is the owner's call and needs the owner present — so the next *development* piece is the plan's critical path, which starts at S3. EM-302 is also where one of the refusals begins to lift (`embed --rebuild` → EM-303, its successor).
 
@@ -161,7 +161,7 @@
 **Size guard — stop and report if:** the `RetrievalContext`/`Candidate` shapes turn out to need §3.x text that is not in the repo (the master plan lives on the owner's machine — record the gap rather than inventing fields); a generator needs the v3 retriever or the graph before it can exist; or the card needs more than about five commits. EM-302 is an `M`; if it is really two cards, split it and say which half landed.
 
 ### 11.0 Pre-flight (read-only)
-1. `main` must contain 10.4 once merged; if unmerged, stack on its branch and say so.
+1. `main` must be at `c50d7b6` or later: Chunks 10.0–10.4 are all merged there. `git merge-base --is-ancestor c50d7b6 main` proves it.
 2. **Baseline:** `pytest -q` gives **1751 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
 3. **Re-measure from the code.** Read `em/facade/engine.py`'s read half (the scoring it borrows from v2 and the TODO S3 replaces), `em/store/memories.py`'s `_in_scope` and `MemoryStore.list` (the scope SQL that exists), and check whether `em/retrieval/` exists yet. Confirm which §3.x spec text is actually available in the repo before designing the types.
 
