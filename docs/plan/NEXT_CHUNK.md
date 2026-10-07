@@ -103,65 +103,59 @@
 
 ---
 
-## Part B: Chunk 10 — CLI parity on v3 (the cutover's prerequisite). **NEXT PIECE, NOT STARTED**
+## Part B: Chunk 10 — CLI parity on v3. **THE ROUTE IS DECIDED; 10.1 is the next piece**
 
-**Updated:** 2026-10-07, Chunk 9 merged to `main` at `0200424`; **Chunk 10 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
+**Updated:** 2026-10-07, the route decided and its first step landed. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
 
-**Topic.** The CLI's `_engine(db)` still builds `MemoryEngine`, so the CLI cannot read a v3 store. EM-211's AC says "CLI commands work unchanged" on a v3 DB, and the cutover cannot happen before this lands — cutting a store over first leaves the CLI reading v3 with a v2 engine.
+### The route, decided (keep it simple, keep it honest)
 
-**Why not just point `_engine()` at the selector (Chunk 9's `open_engine`).** Because the facade only implements the **provider's** 13 calls (`PROVIDER_CALLS`). The CLI calls about **28 more**, so pointing it at the facade today breaks most commands. This chunk is the work of closing that gap (or deciding, command by command, that some of it should not be closed).
+The gap is measured: the facade implements the provider's 13 calls; the CLI makes about 28 more. Three of those groups are different problems and get different answers.
 
-**Measured from the code — the gap, exactly.**
-
-Facade contract (13): `add_episode, close, consolidate, extract_and_store, find_mirrored, forget, get_fact, next_episode_wave, prune_pending, recall_hybrid, recall_with_relevance, remember, stats, touch`.
-
-CLI-only calls the facade lacks (28):
-
-```
-backfill discard_pending embedding_stats episode_stats get_versions list_audit
-list_episodes list_facts list_pending list_triples migrate profile_id
-project_to_vault promote_pending publish pull rebuild_embeddings rebuild_fts
-recall recall_episodes recall_for_agent recall_related reinforce timeline
-triple_inconsistencies triple_neighbors triple_path triple_stats
-```
-
-They are not one kind of thing, and that is the design decision this chunk must make first:
-
-| Group | Calls | Shape |
+| Group | Calls | Decision |
 |---|---|---|
-| **Reads/listing** | `list_facts`, `list_pending`, `list_episodes`, `get_versions`, `episode_stats`, `embedding_stats`, `list_audit` | v3 stores have all of this (`MemoryStore.list`, `history`, `EpisodeStore.list_episodes`, `audit_log`); the work is a translation layer and the return shapes the CLI expects |
-| **Recall variants** | `recall`, `recall_episodes`, `recall_for_agent`, `recall_related`, `reinforce` | `recall` is the v2 name for `recall_with_relevance`; the others are graph- or episode-flavoured and some have no v3 equivalent yet (S3 territory) |
-| **Maintenance** | `promote_pending`, `discard_pending`, `rebuild_fts`, `timeline` | v3 has `set_status` transitions and an FTS table; mostly translation |
-| **v2-only subsystems** | `triple_*` (4), `rebuild_embeddings`, `publish`, `pull`, `backfill`, `project_to_vault`, `migrate` | **No v3 equivalent at all.** Knowledge triples, the embeddings rebuild, the shared-store publish/pull, and vault projection are separate v3 cards (S3/S5/S6) |
-| **Identity** | `profile_id` | trivial; read from the store's scope |
+| **Reads / listing** | `list_facts`, `list_pending`, `list_episodes`, `get_versions`, `episode_stats`, `embedding_stats`, `list_audit`, `profile_id`, `recall` (alias) | **Port.** v3 has all of it; the work is translation and return shapes. |
+| **Maintenance + mappable recall** | `promote_pending`, `discard_pending`, `reinforce`, `rebuild_fts`, `timeline`, `recall_episodes` | **Port.** `set_status`, `touch`, episode FTS. `rebuild_fts` may be a no-op on v3 (triggers maintain it) — decide and say so. |
+| **v2-only subsystems** | `triple_*` (4), `rebuild_embeddings`, `publish`, `pull`, `backfill`, `project_to_vault`, `migrate`, `recall_related` | **REFUSE clearly on a v3 store**, naming the card that will bring it (triples → S5, embeddings → S3/EM-303, publish/pull/backfill → S5, project_vault → S6, graph recall → S6). Porting them needs v3 features that do not exist yet. |
 
-**Proposed split — do NOT start the whole gap at once.** 28 methods across five groups is several chunks, exactly as EM-211 was four.
+**Why refuse rather than port the last group.** They are not translations; they are features the v3 store has not built. Porting them inside a "parity" chunk would silently become S3/S5/S6 work with no plan behind it. A clear refusal is honest, keeps the cutover predictable, and is a two-line change per command. **A silent wrong answer is not acceptable; a named absence is.**
 
-- **10.1 — the read/listing group + `profile_id`.** Biggest user-visible win, smallest semantics risk, and the return shapes are already known from v2. This is a good, stoppable slice.
-- **10.2 — the recall variants and maintenance.** Decide per method whether it is translation or S3 work; stop and report if `recall_related`/`recall_episodes` turn out to need the v3 retriever.
-- **10.3 — the v2-only subsystems.** This is the decision the owner should see: for each of `triple_*`, `rebuild_embeddings`, `publish`/`pull`/`backfill`, `project_to_vault`, either (a) port it, (b) **refuse it clearly on a v3 store** with a message naming the card that will bring it, or (c) leave it v2-only forever. **Recommend (b) by default** — a clear refusal is honest and unblocks the cutover; a silent wrong answer is not. Whatever is chosen, record it.
+**Why refusing also makes the cutover safe.** After 10.1 and 10.2 land, the CLI serves a v3 store for everything except the refused group. The cutover can then proceed knowing exactly what a user loses — and the 3.0 upgrade notes list it. Without the refusals, a user could run `entropicmem triples` against a v3 store and get a confusing failure instead of a named one.
 
-**In scope for 10.1.** The read/listing methods the facade can serve from the v3 store; the CLI's `_engine()` routing through `open_engine` **for those commands only** if a partial switch is safe, or a full switch once the group is complete (decide and say which); tests that each affected CLI command works against a v3 store and is unchanged against a v2 one.
+### Sequencing and estimates
 
-**Out of scope.** The cutover. Anything in group 10.3 unless the owner picks (a). Releases, tags, the catalog, schema changes, S3 itself, and anything touching `~/.hermes/entropicmem*`.
+Effort is given in **sessions and commits**, not calendar dates — the pace depends on when the owner runs sessions, which no plan can know. One session is one chunk, per `AGENTS.md`.
 
-**Size guard — stop and report if:** a "read" method turns out to need the v3 retriever or graph (that is S3/S6, not translation); the CLI's expected return type cannot be produced without changing the provider contract; or the group needs more than about five commits. Take the next slice instead of widening this one.
+| Step | What | Estimate |
+|---|---|---|
+| **10.0** | **DONE.** The CLI refuses a v3 store clearly instead of handing it to the v2 engine (this commit). Nothing silently misbehaves in the meantime. | done |
+| **10.1** | Port the reads/listing group + `profile_id` + the `recall` alias. | **~7 methods, 5–7 commits, 1 session** |
+| **10.2** | Port maintenance + `recall_episodes`; decide `rebuild_fts` (= no-op?) and `timeline`. | **~6 methods, 3–5 commits, 1 session** |
+| **10.3** | Make the v2-only group **refuse clearly** on a v3 store, each naming its card. | **~9 commands, 2–3 commits, ≤ 1 session** |
+| **10.4** | Route `_engine()` through `open_engine` and run the full CLI suite against a **v3** store. This is the exit: EM-211's AC ("CLI commands work unchanged") is met for everything not refused. | **1 commit** |
 
-### 10.0 Pre-flight (read-only)
-1. `main` must be at `0200424` or later: Chunks 5–9 are all merged there, with green CI on each exact SHA. `git merge-base --is-ancestor 0200424 main` proves it.
-2. **Baseline:** `pytest -q` gives **1687 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
-3. **Re-measure from the code.** Re-derive the CLI's engine-method set (`grep -rhoE '\b(engine|eng)\.[a-z_]+\(' plugins/entropicmem/scripts/entropicmem.py`) and diff it against `em/facade/contract.PROVIDER_CALLS`; check `tests/test_cli_hermes_home.py::test_the_cli_builds_engines_only_through_the_helper` (the CLI equivalent of Chunk 9's provider drift guard), and work out, per command, which calls it actually makes.
+**Total to CLI parity: about 3 sessions, ~12 commits.** Then the cutover (owner-gated) becomes available, and S3/S5/S6 can fill in the refused group later.
 
-### 10.0a Document control (do this before and after the chunk)
-Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth.
+### 10.1 in detail (the next piece)
 
-### 10.1 The first slice (test first)
-- Test first: each command in the slice runs green against a **v3 store** and produces the same output shape it does against a v2 one.
-- Mutation-check: break one translation and confirm its command test goes red.
-- **Docs:** CHANGELOG; the EM-211 rows in `REMAINING_PLAN.md` §5/§6.1/§11; `docs/CLI_REFERENCE.md` if any command's behaviour changes on a v3 store.
+- **In scope:** `list_facts`, `list_pending`, `list_episodes`, `get_versions`, `episode_stats`, `embedding_stats`, `list_audit`, `profile_id`, and `recall` as an alias of the existing `recall_with_relevance`. Implemented **on the facade** (`V3Engine`), tested at the facade level against a real v3 store, with the return shape each CLI command expects.
+- **Out of scope:** everything in 10.2/10.3/10.4, and the cutover.
+- **Test first:** each method against a v3 store; mutation-check the two that carry logic (the `list_*` filters and `get_versions`' ordering).
+- **Size guard — stop and report if:** a "read" method needs the v3 retriever or the graph (S3/S6, not translation), the CLI's expected return type cannot be produced without changing the provider contract, or the slice needs more than about seven commits. Take 10.2 first instead of widening.
 
-### 10.2 End of chunk
+### 10.1.0 Pre-flight (read-only)
+1. `main` must contain this route's first step (the CLI guard). `git merge-base --is-ancestor <10.0 sha> main` proves it.
+2. **Baseline:** `pytest -q` gives **1692 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
+3. **Re-measure from the code.** For each command in the slice, read what it does with the engine's return value (the CLI has its own expectations the facade must meet); check `tests/test_cli_hermes_home.py::test_the_cli_builds_engines_only_through_the_helper` (the drift guard), and `docs/CLI_REFERENCE.md` for the documented output.
+
+### 10.1.1 The slice (test first)
+- Test first: each method on a v3 store, asserting the shape the CLI needs.
+- Mutation-check the filters and the ordering.
+- **Docs:** CHANGELOG; `REMAINING_PLAN.md` §5/§6.1/§11; `docs/CLI_REFERENCE.md` only if a documented behaviour changes.
+
+### 10.1.2 End of chunk
 1. Push, green CI on the exact SHA, `git merge --ff-only`, delete the branch.
 2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.1/§9/§11.
-3. **Replace this file's Part B with the next slice (10.2 or 10.3)**, or with the cutover if the gap has closed. Say which and why.
-4. Report to the owner in plain language.
+3. **Replace this file's Part B with Chunk 10.2.** Do not plan further ahead.
+
+### Explicitly out of scope
+- The cutover; the v2-only group's port; releases, tags, the catalog; schema changes; S3 itself; the 14 remaining unprefixed modules; `~/.hermes/entropicmem*`.
