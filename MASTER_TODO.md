@@ -13,11 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` with **Chunk 17 merged on top of
-`7bfcf64` — its code is `f0a7c70`**. This line used to name a *tip*, which the next docs
-commit then falsified; it now names the chunk's code commit, and `In flight` names
-nothing. CI is verified on the exact commit with the check-runs API, not with `run
-list`, which can hand back a stale run and look green.
+**Last reconciled:** 2026-10-07, against branch `main` at `7bfcf64` — Chunk 16's merge commit, named deliberately instead of the tip. The guard only requires a commit
+that is a genuine ancestor, and a *tip* is falsified by the very next docs commit — which
+is why every chunk used to need a third, reconcile-only commit. **Chunk 17's code is
+`f0a7c70`, merged on top of that.**
 
 ---
 
