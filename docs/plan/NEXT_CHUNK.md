@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-06, Chunk 7.1 merged to `main` at `64a2685`; **Chunk 7.2 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, Chunk 7.2 committed (not yet merged); **Chunk 8 (EM-212's package move) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
@@ -71,72 +71,58 @@
 - 17 new tests; 1643 passed / 3 skipped / 4 xfailed on Python 3.10 **and** 3.12; seven mutation checks. One existing test updated rather than weakened: it counted all jobs and now counts per type.
 - **Merged** to `main` at `64a2685`; green on the exact SHA, first CI run, `identity-guard` included.
 
-**EM-210 is fully closed. EM-211 is nearly done: reads, writes, the mirror call and the link job are in; only the §3.5 owner-only read rule (7.2) remains.**
+### Chunk 7.2 — the §3.5 owner-only rule for sensitive reads. **DONE, COMMITTED, NOT MERGED (2026-10-07, `563afe5`)**
+
+- `feat(em-211): sensitive memories are owner-only on read`: the facade's reads were profile-wide, so in a profile with a gateway user any user could read a `sensitive`/`secret` memory. The rule now lives in `_in_scope` — the one function invariant 5 names — and all four facade read paths route through it: `get_fact` passes `scope`, FTS recall and the literal-LIKE fallback filter through `_in_scope`, and `find_mirrored` does too.
+- **The decision:** `Scope.is_owner` defaults to **False** (fail-closed), and a profile-wide caller (`user == ""`) is the owner context. Only a scoped caller can leak, so the default makes it assert ownership; a wiring mistake then hides the owner's own sensitive rows (visible) rather than showing them to a guest (silent). This mirrors the provider's `_is_guest()`. `V3Engine` takes `is_owner` as a constructor argument, never an environment read.
+- 26 new tests: a 15-case truth table, the fail-closed default, the four read paths, and a migrated `secret` row (which the write policy refuses to create). 1669 passed / 3 skipped / 4 xfailed on Python 3.10 and 3.12. Six mutation checks. No existing test needed changing.
+- **Known gap recorded, not fixed:** `MemoryStore.list` keeps profile+user only, so the facade's `prune_pending`/`consolidate` are not tier-filtered. They are the owner's operations and the facade is unwired.
+- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+
+**EM-211 is now code-complete and unwired: reads, writes, the mirror call, the link job and the owner-only read rule are all in.** The provider still constructs v2's `MemoryEngine`, so the card's AC is unmet — and wiring is not a normal chunk (see `MASTER_TODO.md`): `V3Engine.__init__` calls `migrate()`, so pointing the provider at a v2 store migrates it, which *is* the cutover. Wiring and the cutover are a pair and owner-gated.
 
 ---
 
-## Part B: Chunk 7.2 — the §3.5 owner-only rule for sensitive reads. **NEXT PIECE, NOT STARTED**
+## Part B: Chunk 8 — EM-212's package move. **NEXT PIECE, NOT STARTED**
 
-**Topic:** the last piece of EM-211, and the read-side scope gap deferred since Chunk 4.
+**Why this one, and not the wiring.** EM-211 is code-complete; its AC needs the provider wired onto the facade — but `V3Engine.__init__` calls `migrate()`, so a wired provider opening a v2 store migrates it in place, which *is* the v3 cutover. That makes wiring owner-gated (plan §9). EM-212 is the next piece because it is safe, self-contained and unblocked: it touches the plugin's module namespace, not the live data path.
 
-**Why this chunk.** The facade's reads are profile-wide today. `get_fact` calls `MemoryStore.get(id)` with **no scope at all**, and `recall_with_relevance` / `_like_fallback` build raw SQL with no scope or sensitivity clause. So in a profile that has a gateway user, any user of that profile can read a `sensitive` or `secret` memory. Chunk 5 fixed the **write** side (scope is set correctly on every row); this is the read side.
+**Topic.** No unprefixed engine module may be registered in the host process. `_backend.resolve_paths` puts `scripts/` on `sys.path`, so a bare `import vault` resolves through the shared `sys.modules` — and the Hermes host runs many plugins in one process. Another plugin's `vault` (or `index`, `security`, `policy`, `embeddings`, `retrieval`) is returned instead of EntropicMem's. The first step already landed (2026-09-27): `_backend` loads its own `vault.py` by file path under a private name. **The rest of the card is open.**
 
-**What already exists (measured from the code, so the chunk is not re-derived).**
+**Measured from the code (this is the size guard).** `plugins/entropicmem/scripts/` holds **20 top-level modules**:
 
-| Piece | Where | State |
-|---|---|---|
-| `_in_scope(row, scope)` | `em/store/memories.py` | Exists. Same profile **and** (same user **or** `scope_user == ''`). Its docstring says the owner-only rule "lands with the facade (EM-211), which knows the gateway identity" |
-| `MemoryStore.get(id, *, scope=None)` | same | Already accepts a scope and calls `_in_scope` — `get_fact` just passes nothing |
-| `MemoryStore.list(*, scope, ...)` | same | Requires a scope, filters profile+user only |
-| `Scope.is_owner`, `Scope.author` | `em/store/types.py` | Exist on the type; nothing sets them from a gateway today |
-| Facade reads | `em/facade/engine.py` | `get_fact` unscoped; `recall_with_relevance`, `_like_fallback`, `find_mirrored` hand-written SQL with no sensitivity clause |
+```
+embeddings entropicmem graph_export graph_query graph_static index
+injection_screen memory_engine parity_audit pii policy retrieval
+security session_digest stopwords temporal textutil triple_extract vault
+```
 
-**The rule to implement.** A memory whose `sensitivity` is `sensitive` or `secret` is readable only when the caller **is the owner** of that scope. Everything else keeps the current rule. `_in_scope` is the single place it belongs (invariant 5), so every read that already goes through it inherits the rule and there is one function to test.
+The card's acceptance criterion names six of them — **`vault`, `index`, `security`, `policy`, `embeddings`, `retrieval`** — and is pinned by the strict xfail `test_em212_plan_ac_no_unprefixed_engine_modules_in_process` in `tests/test_backend_namespace.py`. It loads `memory_engine` in a clean interpreter the way the plugin does and asserts none of those six is in `sys.modules`. **That xfail flipping to passing is the exit signal.** It is a strict xfail, so it must not be weakened — it flips.
 
-**In scope.**
-- The rule in `_in_scope`, with a truth-table test: owner/guest × `sensitive`/`secret`/`internal`/`public` × profile-wide/user-scoped.
-- Apply it on every facade read: `get_fact` passes `self.scope`; `recall_with_relevance` and `_like_fallback` gain the scope and sensitivity clauses; `find_mirrored` gains the sensitivity clause (it already filters scope).
-- `V3Engine` accepts the caller's identity (`is_owner`, and the gateway user it already takes as `scope_user`) and threads it into `self.scope`. Constructor argument, never an environment read — the same rule the existing `scope_user` follows.
-- A test that a guest **cannot** read another user's sensitive row through each of the four read paths, and that an owner **can**. The leak test is the point: if the rule is deleted, it must fail loudly.
-- Mutation-check: drop the sensitivity branch and confirm the guest-read test goes red; drop the scope clause from `recall` and confirm the cross-user test goes red.
+**Proposed split — do not start the whole card at once.** The plan says split it; 20 modules and every intra-package import is more than one chunk.
 
-**The decision this chunk must surface, not bury.** What happens when the facade is constructed without a known identity? Two options, and they are not equivalent:
+- **8.1 — the six named modules only.** Move `vault`, `index`, `security`, `policy`, `embeddings`, `retrieval` under a package root (e.g. `scripts/em_internal/`), rewrite the intra-package imports to relative or qualified ones, keep `memory_engine`'s and `entropicmem.py`'s imports working, and keep `python3 scripts/entropicmem.py` working via a thin shim. Flip the xfail. **Stop and report if the move needs changes to `em/`** (it should not) or if the provider's deferred imports break in a way that is not a one-line path update.
+- **8.2 — the rest, if the card's intent (no unprefixed module *at all*) is wanted.** The other 14 modules are not named by the AC, so this is optional and should be a deliberate follow-up, not scope creep. Say so in the CHANGELOG either way.
 
-- **fail-closed** (`is_owner=False` by default): a misconfigured facade hides sensitive rows even from the owner. Safe against a leak, but a silent data-visibility bug.
-- **fail-open** (`is_owner=True` by default): the owner always sees their own data, but forgetting to pass the identity leaks sensitive rows to guests.
+**In scope for 8.1.** The move, the import rewrite, the CLI shim, `_backend`'s remaining bare imports, the xfail flip, and a test that the six names are genuinely absent from a clean interpreter while the engine still imports.
 
-`Scope.is_owner` currently defaults to `True`, which is the fail-open choice. **Do not silently inherit that default.** Decide deliberately, write the reason down, and test whichever is chosen. This is the one genuinely owner-facing judgement in the chunk.
+**Out of scope.** The provider wiring and the v3 cutover (owner-gated). Any schema change or migration. The `em/` package (it is already namespaced). S3 and later. Anything touching `~/.hermes/entropicmem*`.
 
-**Size guard — this chunk may split further.** The rule, the facade reads and the tests are self-contained. Threading the identity from the provider is **not**: the provider still constructs the v2 `MemoryEngine`, so there is nothing to pass the gateway user *to* until the wiring chunk. If the work starts needing provider changes, stop and land the rule + facade half alone, then plan the wiring. `V3Engine` taking an `is_owner` argument satisfies this chunk; the provider supplying it is the wiring chunk's job.
+### 8.0 Pre-flight (read-only)
+1. `main` must be at `64a2685` or later (Chunks 5, 6, 7.1), and Chunk 7.2 once merged. If 7.2 is unmerged, stack on its branch and say so.
+2. **Baseline:** `pytest -q` gives **1669 passed, 3 skipped, 4 xfailed** on **both Python 3.10 and 3.12**. Run 3.10 as well as your default interpreter — two of the last three chunks shipped a bug only the 3.10 leg saw.
+3. **Re-measure from the code.** Read `_backend.resolve_paths` and its `_own_module`, `tests/test_backend_namespace.py` (both the xfail and the decoy-module repro), and every `from vault import` / `from index import` / `from policy import` / `from retrieval import` / `from embeddings import` / `from security import` site in `scripts/` and the provider.
 
-### 7.2.0 Pre-flight (read-only)
-1. `main` must be at `64a2685` or later: Chunks 5, 6 and 7.1 are all merged there, with green CI on each exact SHA. `git merge-base --is-ancestor 64a2685 main` proves it.
-2. **Baseline:** `pytest -q` gives **1643 passed, 3 skipped, 4 xfailed** on **both Python 3.10 and 3.12** (2 skipped on a machine that has the private digest list). Run 3.10 as well as your default interpreter — the last two chunks each shipped a bug only the 3.10 leg could see.
-3. **Re-measure from the code.** Read `_in_scope`, `MemoryStore.get` / `list`, every read in `em/facade/engine.py`, `Scope.is_owner`, and how the provider tracks the gateway user (`_gateway_user_id`, `_is_guest`) — that is where the identity will come from when the provider is wired.
+### 8.0a Document control (do this before and after the chunk)
+Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth — committed is not merged. `tests/test_master_todo.py` enforces it.
 
-### 7.2.0a Document control (do this before and after the chunk)
-Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file
-**before** starting and **again before finishing**. Merge state counts as truth —
-a chunk committed without CI merged is "committed, not merged", never "landed".
-`tests/test_master_todo.py` fails the suite if this page and the plan disagree
-about it, and it now understands decimal chunk ids (7.1, 7.2) because sub-chunks
-are real.
+### 8.1 The move (one commit, test first)
+- Test first: the six names absent from a clean interpreter **while the engine still imports and the CLI still runs**; a decoy `vault` module in `sys.modules` must not be handed back; `hermes plugins validate` emits no module-shadow warning.
+- Mutation-check: restore one bare import and confirm the xfail/repro goes red; leave one name registered and confirm the AC test is red for the right reason.
+- **Docs:** CHANGELOG; the EM-212 rows in `REMAINING_PLAN.md` §5, §6.1 and §11; the EM-212 entry in `docs/V3_FOUNDATIONS.md`; drop the strict xfail only by **flipping it to a passing test**, never by deleting it.
 
-### 7.2.1 The rule (one commit, test first)
-
-- Test first: the `_in_scope` truth table, then the four facade read paths.
-- Mutation-check as above.
-- **Docs:** CHANGELOG (**Security** section — this is a privacy rule); the EM-211 rows in `REMAINING_PLAN.md` §5, §6.1 and §11; the EM-211 entry and the `_in_scope` deferral note in `docs/V3_FOUNDATIONS.md`.
-
-### 7.2.2 End of chunk
+### 8.2 End of chunk
 1. Push, green CI on the exact SHA, `git merge --ff-only`, delete the branch.
 2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.1/§9/§11.
-3. **Replace this file's Part B with the next piece.** EM-211's four sub-chunks are then all done; the candidates are the **wiring** chunk (switch the provider onto the facade — a separate, owner-aware decision) and **EM-212's package move**. Say which and why; do not plan both.
+3. **Replace this file's Part B with the next piece** — with EM-211 and EM-212 both done, that is the **wiring + cutover** (owner-gated) or **S3 (retrieval v3)**. Say which and why; do not plan both.
 4. Report to the owner in plain language.
-
-### Explicitly out of scope for Chunk 7.2
-- **Switching the provider onto the facade.** The facade is completed and tested, not switched on.
-- Releases, tags, the catalog, the tool rename, the v3 cutover.
-- Any schema change or new migration; `0001`–`0003` stay untouched.
-- S3 and later, EM-212's package move, retention (settled at 7 routine + 5 safety).
-- Anything touching `~/.hermes/entropicmem*`.

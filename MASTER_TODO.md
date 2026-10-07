@@ -13,8 +13,8 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-06, against branch `main` at `64a2685`, which is the
-commit Chunk 7.1 was merged at after green CI on it. A later docs-only commit moving
+**Last reconciled:** 2026-10-07, against branch `em/em-211-owner-only-reads` at
+`563afe5`, branching from `main` at `6f9a3cf`. A later docs-only commit moving
 the tip without changing code, tests or counts is expected; see plan §11.
 
 ---
@@ -93,7 +93,7 @@ means one thing:
 | 5 | Facade **writes** over `em.store` | **Done, merged** (`36355f3`, in `e25db32`) |
 | 6 | Facade **mirror call** | **Done, merged** (`6bd4b47`, in `e25db32`) |
 | 7.1 | The **entity-link job** (`link:<memory_id>:<version>`) | **Done, merged** (`96c4ccb`) |
-| 7.2 | The **§3.5 owner-only rule** for sensitive reads | Next |
+| 7.2 | The **§3.5 owner-only rule** for sensitive reads | **Done** (`563afe5`) — committed, **not merged** |
 
 **EM-211's acceptance criterion is not met and S2's exit criteria still fail.**
 The reason has been the same after every chunk so far: the facade is complete as
@@ -105,14 +105,14 @@ read three landed chunks as the card being done.
 
 ### In flight
 
-**Nothing.** Chunk 7.1 is merged to `main` at `64a2685` with green CI on that
-exact SHA, and the `em/em-211-linker-job` branch is deleted. The remote carries
-`main` and `release/2.8.x` only.
+**Chunk 7.2, on the local branch `em/em-211-owner-only-reads`** — one commit,
+`563afe5` (the owner-only read rule), with the docs close-out beside it.
 
-Worth noting for the next chunk: this merge went green on the **first** CI run,
-unlike the Chunks 5/6 merge. The difference was running the suite on Python 3.10
-locally as well as 3.12 before pushing — the gate that caught the timestamp bug
-last time is now part of the routine.
+**Not pushed, not merged, no CI run yet.** `origin/main` is `6f9a3cf`. Locally
+green on both Python 3.10 and 3.12 — **1669 passed / 3 skipped / 4 xfailed**,
+`ruff==0.16.2` clean, eval gate with no gated metric regressed, `perf-smoke` warm
+p95 3.927 ms against the 20 ms budget. Push, wait for green on the exact SHA, then
+`git merge --ff-only`.
 
 ## What is done
 
@@ -127,10 +127,11 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 - **EM-210 closed in two chunks:** `snapshot()` covers both databases, and
   `snapshot_if_due()` throttles destructive callers to one snapshot per reason
   per hour. Retention settled at 7 routine + 5 safety.
-- **EM-211 Chunks 4, 5, 6 and 7.1**: the facade's read half, its write half, the
-  mirror call, and the entity-link job. `PROVIDER_ATTRIBUTES` is now empty, so the
-  provider reaches the engine only through methods both engines implement, and
-  entity linking runs off the write path as `link:<memory_id>:<version>`.
+- **EM-211 Chunks 4, 5, 6, 7.1 and 7.2 — the facade is now code-complete**: its
+  read half, its write half, the mirror call, the entity-link job, and the §3.5
+  owner-only rule for sensitive reads. `PROVIDER_ATTRIBUTES` is empty, entity
+  linking runs off the write path as `link:<memory_id>:<version>`, and a
+  `sensitive`/`secret` row is readable only by its owner.
 - **EM-212 partially done**: `_backend` loads its own `vault.py` by path. The
   package move is still open.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
@@ -144,35 +145,47 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-**Chunk 7.2 — the §3.5 owner-only rule for sensitive reads.** This is the last
-piece of EM-211 and the read-side scope gap deferred since Chunk 4: `get_fact`,
-`recall_with_relevance`, `_like_fallback` and `find_mirrored` read profile-wide
-today, so a `sensitive`/`secret` memory is visible to any user of the profile.
+**EM-211's code is complete; what it still lacks is the wiring.** All four
+sub-chunks are done (reads, writes, mirror, linker) plus the owner-only read rule,
+but the provider still constructs v2's `MemoryEngine`. The card's AC — "full legacy
+test suite green on a v3 DB" — cannot be met until the provider runs on the facade,
+and **that is not a normal chunk.**
 
-The reason it is its own chunk: the rule needs the **gateway identity**, and
-`V3Engine` only takes a `scope_user` string. Wiring the provider's gateway user
-into the facade means touching the provider — the size guard in
-[NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md) Part B says stop and split when that
-happens, and it did. `_in_scope` is the single place the rule belongs (invariant
-5), with a truth-table test.
+### The finding that makes wiring owner-gated
 
-Then, in order:
+`V3Engine.__init__` calls `migrate(conn)`. Pointing the provider at an existing v2
+database therefore **migrates it in place** on first use — that is not a side
+effect, it *is* the v3 cutover, the operation the rules reserve for the owner with
+the owner present. Two consequences:
 
-- **Wiring the provider onto the facade.** EM-211's four sub-chunks are then all
-  done, but the card's AC still needs the provider switched over. A separate
-  decision, not scheduled.
-- **EM-212's package move.** Split it first; it is multi-file. Pinned by a strict
-  xfail that flips when it lands.
-- **The v3 cutover**, owner-gated, with the owner present — then **EM-904**, the
-  3.0 release that re-pins the catalog and renames the tool.
-- **S3 (retrieval v3)**, on the critical path in plan §6.2:
-  EM-302 → EM-304 → EM-305 → EM-403 → EM-503 → EM-901 → EM-904.
+1. **Wiring must not be done unilaterally.** It cannot land as a quiet refactor;
+   the moment a wired provider opens the live store, the store is v3.
+2. **The recommended shape is engine selection by store version**, not a single
+   hard swap: the provider reads `PRAGMA user_version`, uses the v2 engine for a
+   v2 store and the facade for a v3 one. Then the wiring can land and be tested
+   without touching anyone's data, and the cutover becomes a separate, deliberate
+   owner action (migrate a copy, verify, swap). This has to be designed, not
+   assumed — see the wiring notes below.
+
+### The order I recommend
+
+1. **EM-212's package move** — the next *chunk*, because it is safe, self-contained
+   and unblocked. It moves the engine modules under a package namespace so no
+   unprefixed `vault`/`index`/`security` module is registered in the host process,
+   with a CLI shim. Pinned by a strict xfail that flips when it lands. It touches
+   nothing on the live path.
+2. **Wiring + the v3 cutover** — owner-gated, and now understood to be a *pair*.
+   Design engine selection by store version first; then migrate a copy, verify
+   against the parity suite, and only then cut over with the owner present.
+3. **S3 (retrieval v3)** after that, on the critical path in plan §6.2:
+   EM-302 → EM-304 → EM-305 → EM-403 → EM-503 → EM-901 → EM-904 — ending in
+   **EM-904**, the 3.0 release that re-pins the catalog and renames the tool.
 
 ## Gates that must be green before anything reaches `main`
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1643 passed / 3 skipped / 4 xfailed** |
+| Tests | `python -m pytest -q` | **1669 passed / 3 skipped / 4 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
@@ -249,6 +262,21 @@ Each is a deliberate, recorded decision. The full table with reasons is in
   owner's instruction to stop asking.
 - **`add_episode` ignores `linked_fact_ids`, `domain` and `source`.** v3's
   `episodes` table has no column for them and adding one means a migration.
+- **`Scope.is_owner` defaults to `False` — fail-closed, on purpose.** Flipping it
+  to `True` silently reopens the guest-reads-sensitive leak that Chunk 7.2 closed.
+  A profile-wide caller (`user == ""`) is the owner context regardless, which is
+  why the default facade and the CLI do not need to assert anything.
+- **Sensitive rows are owner-only on read; profile-wide rows are not.** The rule
+  restricts *tiers* (`sensitive`/`secret`), not profile-wide rows as such — those
+  stay shared knowledge for the profile. Do not "simplify" one into the other.
+- **Entity linking is two-sighting, so promotion links only the memory that trips
+  the counter.** The earlier memory that also mentioned the phrase is not
+  retro-linked, and its link job has already run, so it stays unlinked until its
+  content changes. This is EM-208's semantics and Chunk 7.1 asserted it rather
+  than changed it. Two ways to close the hole, both deliberate and neither done:
+  link the whole sighting list at promotion (prevents *new* holes, a small change
+  to `EntityStore.link`), and the plan's `reconcile` job (S5) repairs *existing*
+  ones. See [plan §6.1](docs/plan/REMAINING_PLAN.md).
 
 ---
 
