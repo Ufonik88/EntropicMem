@@ -123,49 +123,57 @@
 - `memory project`'s guard sits before path resolution, so a refusing command does not create vault/index directories.
 - 12 new tests, including one asserting every refusal names a trigger.
 
-**EM-211 and EM-212 are code-complete, the provider is wired, and the whole CLI surface is prepared: reads and maintenance ported, v2-only features refusing by name.** What remains is **10.4 — the routing** — and then the cutover.
+### Chunk 10.4 — the CLI routes. **DONE, COMMITTED, NOT MERGED (2026-10-07, `250320a`)**
+
+- `_engine()` selects through the same `open_engine` the provider uses, so the CLI's ported commands run against a **v3** store and the v2-only ones still refuse by name (their guards run before `_engine()`). **EM-211's AC is met except for seven named refusals.**
+- **The chunk's point is the v2 regression pass:** routing changed engine construction for *every* store. A subprocess suite runs the real CLI against a v3 store (remember → list → recall, history, audit, pending, episode stats, timeline) and against a v2 store, including that a v2 store is **not migrated**.
+- **Fixed alongside: a latent v2 regression Chunk 9 introduced.** `MemoryEngine.profile_id()` resolves `explicit > hermes_home basename > 'default'`, and Chunk 9 passed `profile_id=self._profile_id or "default"` — making it explicit and overriding the home-derived slug a v2 store has always carried. `open_engine` now takes `profile_id=None` meaning **"the engine decides"**. Two regression tests pin it; reverting the fix reddens exactly the one on the provider path, which is where the bug lived and where nothing else looked.
+- 18 new tests + 2 regression tests; 1751 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; six mutation checks, all caught.
+- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+
+**EM-211 and EM-212 are code-complete, and both the provider and the CLI serve a v3 store.** EM-211's AC is met except for the seven refusals. **The cutover is the only thing left, and it is the owner's call.**
 
 ---
 
-## Part B: Chunk 10.4 — route the CLI and prove it on a v3 store. **NEXT PIECE, NOT STARTED**
+## Part B: Chunk 11 — S3's first card: EM-302 candidate generators. **NEXT PIECE, NOT STARTED**
 
-**Updated:** 2026-10-07, 10.2 and 10.3 merged to `main` at `f36c5e6`; **10.4 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
+**Updated:** 2026-10-07, 10.4 committed (not yet merged); **Chunk 11 (S3 begins) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §6.2 and §9, then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
-**Topic.** The last piece of CLI parity. `_engine()` currently **refuses** a v3 store (10.0's guard) because the facade could not serve the CLI. It now can: 10.1 ported the reads, 10.2 the maintenance, and 10.3 makes the v2-only features refuse by name. This chunk routes `_engine()` through the selector and proves the whole CLI surface against a v3 store.
+**Why this one.** S2's remainder is essentially done: the provider and the CLI both select their engine, and EM-211's AC holds except for seven named refusals. The cutover is the owner's call and needs the owner present — so the next *development* piece is the plan's critical path, which starts at S3. EM-302 is also where one of the refusals begins to lift (`embed --rebuild` → EM-303, its successor).
 
-**What changes, measured from the code.**
+**What the card requires (plan §6.2, verbatim recorded there).** `em/retrieval/candidates.py`:
 
-| Piece | Where | Change |
-|---|---|---|
-| The v3 refusal | `entropicmem._engine()` (the `if kind == "v3": raise SystemExit(...)`) | Replace with the selection: `open_engine(path, profile_id=..., hermes_home=..., pii_locales=..., scope_user="", is_owner=...)`. The CLI is the owner context (profile-wide), which is the facade's default |
-| The drift guard | `tests/test_cli_hermes_home.py::test_the_cli_builds_engines_only_through_the_helper` | Should keep passing — `_engine()` is still the only construction site |
-| `_store_is_v3` / `_refuse_on_v3` | `entropicmem.py` | Unchanged; they are what keeps the v2-only commands honest once routing lands |
-| The ported commands | `memory stats/list/reindex`, `recall` (own scope), `history`, `pending list/promote/discard/prune`, `audit`, `episode`, `timeline`, `embed` (stats) | Should work unchanged against a v3 store |
+* each generator is a function `(ctx: RetrievalContext) -> list[Candidate]`, where `RetrievalContext` carries `aq`, `scope`, `now`, `limits` and `deadline`;
+* **all SQL filters by scope through a single helper** `scope_sql(scope) -> (clause, params)` implementing §3.5, with a unit-tested truth table;
+* the BM25 query uses per-column weights;
+* the episodic generator returns `owner_type='episode'`;
+* **AC:** every generator has tests including **scope isolation** (user A never sees user B's rows) and the **deadline** (a generator returns a partial result within 5 ms of the deadline).
 
-**In scope.**
-- The routing, with the v2 path untouched (a v2 store must behave exactly as before — that is the regression risk).
-- A CLI-level test suite run **against a v3 store**: the ported commands succeed, and each refused command exits with its named message rather than a traceback.
-- A test that a v2 store is still served by `MemoryEngine` and that nothing about its behaviour moved.
+**Two things to carry in, both already decided — do not re-derive them.**
 
-**Out of scope.** The cutover (owner-gated). Filling in the refused group (S3/S5/S6). Releases/tags/catalog. Schema changes. The 14 remaining unprefixed modules. `~/.hermes/entropicmem*`.
+1. **`scope_sql` must express the owner-only tier rule, not just profile/user.** §3.5 now means: same profile, and (same user or a profile-wide row), **and** a `sensitive`/`secret` row only for its owner. That rule lives in `MemoryStore._in_scope` (Chunk 7.2) and is the authoritative version; `scope_sql` is its SQL form for the retrieval layer, so its truth table test should mirror the one in `tests/unit/test_em_owner_only_reads.py`. If the two ever disagree, `_in_scope` wins.
+2. **The rung that this card is *not*.** EM-303 (embeddings) lifts the `embed --rebuild` refusal, EM-304 the fusion/rerank, EM-305 the gate. Do not pull them forward: EM-302 is candidates only, and the facade/CLI keep using v2's scoring until EM-304 lands.
 
-**Size guard — stop and report if:** a ported command turns out to need something the facade still lacks (that is a 10.5, not a widening); the routing changes v2 behaviour; or the CLI drift guard needs weakening (it does not).
+**In scope.** The retrieval package's first module, the generator functions, `scope_sql`, the deadline discipline, and the tests the AC names.
 
-### 10.4.0 Pre-flight (read-only)
-1. `main` must be at `f36c5e6` or later: 10.0–10.3 are all merged there. `git merge-base --is-ancestor f36c5e6 main` proves it.
-2. **Baseline:** `pytest -q` gives **1734 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
-3. **Re-measure from the code.** Read `_engine()`, `test_the_cli_builds_engines_only_through_the_helper`, and every command that calls `_engine()`; list which ones the facade can serve and confirm each refused one has a guard *before* its `_engine()` call.
+**Out of scope.** Embeddings (EM-303), fusion and reranking (EM-304), the gate and MMR (EM-305), `EM-309` sync ids — and everything already frozen: the cutover, releases/tags/catalog, schema changes, the seven refusals beyond their named cards, and `~/.hermes/entropicmem*`.
 
-### 10.4.0a Document control (before and after)
+**Size guard — stop and report if:** the `RetrievalContext`/`Candidate` shapes turn out to need §3.x text that is not in the repo (the master plan lives on the owner's machine — record the gap rather than inventing fields); a generator needs the v3 retriever or the graph before it can exist; or the card needs more than about five commits. EM-302 is an `M`; if it is really two cards, split it and say which half landed.
+
+### 11.0 Pre-flight (read-only)
+1. `main` must contain 10.4 once merged; if unmerged, stack on its branch and say so.
+2. **Baseline:** `pytest -q` gives **1751 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
+3. **Re-measure from the code.** Read `em/facade/engine.py`'s read half (the scoring it borrows from v2 and the TODO S3 replaces), `em/store/memories.py`'s `_in_scope` and `MemoryStore.list` (the scope SQL that exists), and check whether `em/retrieval/` exists yet. Confirm which §3.x spec text is actually available in the repo before designing the types.
+
+### 11.0a Document control (before and after)
 Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth.
 
-### 10.4.1 The routing (test first)
-- Test first: the ported commands against a **v3** store (a real one, migrated in the test); each refused command exiting with its named message; and a **v2 store regression pass** — the same commands, unchanged behaviour.
-- Mutation-check: make `_engine()` always build `MemoryEngine` and confirm the v3 tests go red; make it always build the facade and confirm the v2 regression tests go red.
-- **Docs:** CHANGELOG (**Changed** — the CLI can now read a v3 store); the EM-211 rows in `REMAINING_PLAN.md` §5/§6.1/§11; `docs/CLI_REFERENCE.md` if any command's availability changes.
+### 11.1 The module (test first)
+- Test first: the `scope_sql` truth table (mirroring `_in_scope`), each generator's shape, **scope isolation**, and a **deadline** test that a slow generator returns partial work rather than overrunning.
+- Mutation-check: break `scope_sql`'s owner-only clause and confirm the isolation test goes red; remove the deadline check and confirm the deadline test goes red.
+- **Docs:** CHANGELOG; the EM-302 row in `REMAINING_PLAN.md` §6.2/§5; `docs/V3_FOUNDATIONS.md`'s layer map gains `em/retrieval`.
 
-### 10.4.2 End of chunk
+### 11.2 End of chunk
 1. Push, green CI on the exact SHA, `git merge --ff-only`, delete the branch.
-2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.1/§9/§11.
-3. **Replace this file's Part B with the next piece.** With the CLI routed, EM-211's AC is met for everything not refused, and the candidates are **the v3 cutover** (owner-gated) and **S3**. Recommend the cutover if the owner is ready, else S3; say which and why.
-4. Report to the owner in plain language.
+2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.2/§9/§11.
+3. **Replace this file's Part B with Chunk 12 (EM-303, embeddings)** — the next card on the critical path, and the one that lifts the `embed --rebuild` refusal. Do not plan further ahead.

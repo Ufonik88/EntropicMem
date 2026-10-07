@@ -13,8 +13,9 @@ Hermes provider (plugins/entropicmem/__init__.py)   <- unchanged in S2; talks to
 em.facade  (EM-211)       contract.py: the exact API + behaviours the provider relies on
         |                 engine.py: V3Engine, the whole LegacyEngine API over em.store
         |                 select.py: which engine a store needs, by user_version
-        |                   (code-complete AND the provider selects it — Chunk 9.
-        |                    The CLI still builds the v2 engine: Chunk 10.)
+        |                   (the PROVIDER and the CLI both select it — Chunks 9, 10.
+        |                    A chunk leaves it alone unless it is a release; the
+        |                    cutover is the owner's act.)
         v
 em.formation              entity_linker.py (EM-208): turns memories into graph links
 em.jobs   (EM-209)        worker.py: claims jobs, runs handlers OUTSIDE transactions
@@ -144,7 +145,7 @@ Scheduled backups: `enqueue_daily_backup(JobQueue(conn))`, handled by `make_back
   - **Chunk 7.1 — the link job: DONE (`96c4ccb`, committed, not merged).** `MemoryStore` enqueues `link:<memory_id>:<version>` beside the `embed` enqueue; `make_link_handler` in `em/formation/entity_linker.py` runs the linker outside any write transaction (invariant 2) and is idempotent across a retry; `entropicmem worker run` registers the type.
   - **Chunk 7.2 — the §3.5 owner-only rule: DONE (`563afe5`, committed, not merged).** A `sensitive`/`secret` row is readable only by its owner, enforced in `_in_scope` and applied on all four facade read paths. `Scope.is_owner` defaults to **False** (fail-closed); a profile-wide caller (`user == ""`) is the owner context, so the default facade and the CLI are unaffected. `V3Engine` takes `is_owner` as a constructor argument.
   - **Chunk 9 — the provider's engine selection: DONE (`em/em-211-provider-wiring`, committed, not merged).** `em/facade/select.py` picks by `PRAGMA user_version`, read **read-only before any engine is constructed**, so opening a v2 store cannot migrate it; all nine `MemoryEngine(` sites in the provider route through one `_open_engine()`. The gateway identity is threaded in (`is_owner = not _is_guest()`).
-  - **Chunk 10 — CLI parity: NEXT.** The CLI calls ~28 methods the facade lacks, so it still builds `MemoryEngine`; the cutover waits on this, because a v3 store with a v2 CLI is broken.
+  - **Chunk 10 — CLI parity: DONE (`em/em-211-cli-routing`, committed, not merged).** The reads (10.1), the maintenance calls (10.2) and the by-name refusals (10.3) landed; 10.4 routes `_engine()` through `select.py`, so the CLI serves either engine. **The AC is met except for seven v2-only features, each refused by name with the card that lifts it.**
 
 ### The facade's write rules worth knowing before you build on it
 
