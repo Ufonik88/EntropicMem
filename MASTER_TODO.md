@@ -121,7 +121,8 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 12 | **EM-301, the `QueryAnalyzer`** | **Done, merged** (`85afea4`) |
 | 13 | **§3.5's `visibility` half** — the write stamp and the read guard | **Done, merged** (`fd9e06f`); **owner-ratified**, internal only, no release |
 | 14 | **EM-304 — fusion, rerank, explainability** | **Done, merged** (`14552be`) |
-| 15 | **EM-305 — gate, supersession collapse, MMR** | **Done, merged** (`50601b3`) |
+| 15 | **EM-305 — gate, supersession collapse, MMR** | **Done, merged** (`50601b3`); two review-driven pins added at `9f4b39b` |
+| 16 | **The v3 eval adapter** (P1) — the first end-to-end v3 number | **Done, merged** (`ff0d3c3`) |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -208,57 +209,75 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-### OWNER DECISION NOW DUE: the v3 cutover
+### The v3 cutover — **DECIDED 2026-10-07: deferred, with an explicit re-decision point**
 
-**EM-305 was the milestone the owner set: "revisit only after EM-305, and bring me
-the decision rather than making it."** It is reached. The decision is the owner's;
-nothing below is done without it.
+The owner ruled: **defer the cutover; wire S3's read path into the provider first.**
+The reasoning is recorded: the retrieval layer is complete but *unwired*, so a cutover
+lands the owner on a v3 store whose new capability nothing calls. The owner also
+rejected "defer indefinitely" and set the condition explicitly:
 
-What an informed decision needs, all of it measured rather than asserted:
+> **Reconsidered when (a) the provider reads through S3, and (b) the v3 adapter has
+> produced one end-to-end eval number. Not before.**
 
-* **The retrieval layer is now end to end** — analyzer (EM-301), generators
-  (EM-302), fusion and rerank (EM-304), gate, collapse and MMR (EM-305). The v3
-  store has the machinery that justifies it.
-* **What v3 still cannot do on the live path:** the provider and the CLI serve a
-  v3 store, but S3's read path is not wired into the provider's prefetch, and the
-  CLI still refuses seven v2-only commands by name (Chunk 10.3). `publish`/`pull`
-  (S5) refuse, and nothing drains the sync outbox on v3.
-* **The live store holds zero facts** (`~/.hermes/entropicmem/memory.db`, v2
-  schema) and did not move across any run this session.
-* **`embed`/`vector` do not exist yet** (EM-303), so on v3 the vector generator,
-  the gate's cosine condition and MMR's embedding path are all inert — retrieval
-  is lexical plus entities plus episodes.
-* **EM-306 (calibration) has not run**, so §3.6's thresholds are the plan's
-  numbers rather than tuned ones.
-* **Chunk 13's `visibility` change is ratified but unreleased**, and it changes
-  what a non-owner may read; the cutover would be the first time it matters to a
-  real store.
+**(b) is now met.** The evidence from the v3 adapter, against v2 on the same runs:
 
-**The agent's recommendation, for the owner to accept or refuse:** defer the cutover
-to after EM-306, and prefer to wire S3's read path into the provider first — the
-cutover is irreversible and owner-present, and doing it while the retrieval layer
-is complete but *unwired* lands the owner on a v3 store whose new capability
-nothing calls yet.
+| suite | v3 | v2 |
+|---|---|---|
+| **ci** overall | recall@5 1.000 · abstain 1.000 · noise 0.143 · must_not_ok 1.000 | identical |
+| **hard** overall | **recall@5 0.933** · abstain 1.000 · **noise 0.172** · must_not_ok 1.000 | 0.939 · 1.000 · 0.219 · 1.000 |
+| hard/ageing | **0.733** | **0.733** |
 
-**If the owner says go, the procedure is in plan §6.3:** verified backup, migrate a
-**copy**, verify against the parity suite, then swap — with
-`ENTROPICMEM_ALLOW_LIVE_MIGRATION=1` set only for that act.
+Parity on recall with **lower noise** — the gate working — and `ageing` at 0.733 for
+both, which is §6.2's predicted lexical-only figure because the four paraphrase misses
+share no words with the stored fact and vectors are EM-303's.
 
-### Chunk 16 — EM-306, the calibration harness (§3.6). **Next.**
+**(a) is the next chunk.** The agent's proposed form is a **shadow read** behind a
+flag: serve v2 as today, compute S3 post-turn over a v3 copy, and log divergence. That
+gets the real-turn signal the "empty store" counter-argument wants without committing
+the live store. See `NEXT_CHUNK.md` Part B.
 
-Owner's instruction: "treat as the fix for the thin intent margin, not a
-nice-to-have. Its AC is exactly this tuning; widen the weight table there."
+**Two owner questions, answered from the code:**
 
-- **Spec (§3.6):** split scenarios into `dev` (70%) / `holdout` (30%) by id hash;
-  `python -m evals tune --params gate.min_score,gate.min_coverage,ranking.w_*
-  --grid …` optimising `0.4*recall@5 + 0.3*mrr + 0.3*abstain_correct −
-  0.2*noise_rate`; write the chosen defaults into `em/config.py` with a comment
-  linking the result file; calibrate `gate.min_cosine` per embedding model.
-- **AC:** holdout metrics reported in PR; defaults committed; §6.3 gates updated.
-- **It is also where the thin margin gets fixed:** EM-301's intent table is
-  **92.9% on 42 samples**, and the owner's standing constraint is that **the gate
-  must not depend on it** — if tuning shows the gate keyed on intent, widen the
-  table first.
+* **Chunk 13's release vehicle.** `release/2.8.x` carries **no `em/` directory at all**
+  (verified with `git ls-tree`), so the visibility fix *cannot* be a 2.8.x patch — its
+  only vehicle is the release that ships `em/` (3.0). It does **not** need to land
+  before the cutover: the code is already on `main`, the fix adds no migration, and
+  shipping code is an independent act from migrating the live store. Recorded in
+  plan §9 item 3.
+* **Provider wiring behind a flag?** Yes — but not as a flag *on the v3 read path*,
+  because engine selection is by `PRAGMA user_version`, so such a flag only exists
+  once the store **is** v3. The shadow form is the one that satisfies "exercise v3 on
+  real turns without committing the store", at the cost of a lagging copy.
+
+### What is next — the owner's priority order
+
+The owner set the order explicitly; do not reorder it without asking.
+
+| # | Work | Why now | State |
+|:--|:--|:--|:--|
+| **P0** | **Wire S3's read path into the provider (prefetch)** | Nothing else produces real-turn signal until this exists, and it is the precondition for any honest cutover | **Next** |
+| **P1** | **The v3 eval adapter** | The v3 pipeline had never been scored end to end; without a number the cutover decision is evidence-free | **DONE** (`ff0d3c3`) — and it is one of the two re-decision conditions |
+| **P2** | **EM-306** (the `tune` command, `em/config.py`) | Only meaningful once P1 can measure it | Ready |
+| **P3** | **The cutover** | Against the re-decision point above | Held |
+
+**P0's proposed form — a shadow read behind a flag** (the owner floated this and left
+the implementation to the agent; it is a proposal, not a decision):
+
+* `ENTROPICMEM_SHADOW_V3=<path>` on the provider. The turn is served by **v2** exactly
+  as today, so nothing about the live store changes.
+* Post-turn and off the turn path, S3 runs over the v3 **copy** at `<path>` and the
+  provider logs `{query, v2_ids, v3_ids}` to a divergence log. Latency on the turn is
+  untouched.
+* The copy is the honest limitation: without S5's sync wiring there is no way to keep a
+  second store in step, so the shadow signal **lags** — real, but not a live mirror.
+  Refresh it on demand (or from a cron) and say so in the log.
+* It also needs a **v3 copy of a v2 store**, which is the migration path itself — so
+  P0 exercises the migration repeatedly on copies long before the real cutover. That is
+  a feature, not a side effect.
+
+**EM-306's detail is in `docs/plan/NEXT_CHUNK.md` Part B** — including its two
+prerequisites, one of which (the v3 adapter) P1 has now cleared, and the owner's
+standing constraint that **the gate must not depend on the 92.9%-on-42 intent table**.
 
 ### Known gaps, recorded so they are not lost
 
@@ -313,7 +332,7 @@ retrieval is complete. **The owner decides; the agent does not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1966 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **1980 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
