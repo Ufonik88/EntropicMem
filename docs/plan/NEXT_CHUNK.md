@@ -131,49 +131,62 @@
 - 18 new tests + 2 regression tests; 1751 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; six mutation checks, all caught.
 - **Merged** to `main` at `c50d7b6`; green on the exact SHA, first CI run, all 11 jobs.
 
-**EM-211 and EM-212 are code-complete, and both the provider and the CLI serve a v3 store.** EM-211's AC is met except for the seven refusals. **The cutover is the only thing left, and it is the owner's call.**
+### EM-302's first piece — `scope_sql`. **DONE, COMMITTED, NOT MERGED (2026-10-07, `0066fb5`)**
+
+- `em.retrieval` created, with **`scope_sql(scope) -> (clause, params)`**: the §3.5 rule as SQL, the helper every generator filters through, unit-tested. The **generators are deliberately not written** — see Part B.
+- **`may_read_owner_only(scope)` moved into `em/store/types.py`**, next to `Scope` and `OWNER_ONLY_TIERS`. `_in_scope` uses it as a predicate and `scope_sql` uses it to decide the SQL exclusion, so the plan's "if the two ever disagree, `_in_scope` wins" is true by construction rather than by test. The tier names come from the same tuple on both sides.
+- The tests **cross-check the two forms over a real row matrix** instead of restating the rule, with a guard that the matrix discriminates so the check cannot pass vacuously.
+- 6 new tests; 1757 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; six mutation checks. The `is_owner` mutant reddens four tests across two suites — the shared predicate working.
+- `em.retrieval` added to `pyproject` (invariant 9), verified by the packaging guard.
+- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+
+**EM-211 and EM-212 are code-complete, both engines serve a v3 store, and S3 has begun.** EM-211's AC is met except for the seven refusals; the cutover is the owner's call; **EM-302 is blocked on card text that is not in the repo.**
 
 ---
 
-## Part B: Chunk 11 — S3's first card: EM-302 candidate generators. **NEXT PIECE, NOT STARTED**
+## Part B: Chunk 11 continued — EM-302, **BLOCKED ON CARD TEXT**. The unblocked alternative is EM-303.
 
-**Updated:** 2026-10-07, 10.4 merged to `main` at `c50d7b6`; **Chunk 11 (S3 begins) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §6.2 and §9, then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, EM-302's `scope_sql` landed; **the generators are blocked, and EM-303 is the next unblocked piece**. **Read first:** `MASTER_TODO.md` (§ "Waiting on the owner"), then this file's Part B, then `AGENTS.md`.
 
-**Why this one.** S2's remainder is essentially done: the provider and the CLI both select their engine, and EM-211's AC holds except for seven named refusals. The cutover is the owner's call and needs the owner present — so the next *development* piece is the plan's critical path, which starts at S3. EM-302 is also where one of the refusals begins to lift (`embed --rebuild` → EM-303, its successor).
+### Why this is blocked, precisely
 
-**What the card requires (plan §6.2, verbatim recorded there).** `em/retrieval/candidates.py`:
+The size guard for this chunk says: *"stop and report if the `RetrievalContext`/`Candidate` shapes turn out to need §3.x text that is not in the repo (the master plan lives on the owner's machine — record the gap rather than inventing fields)."* That is what happened. §6.2's card summary fixes the shapes' **names**, not their fields:
 
-* each generator is a function `(ctx: RetrievalContext) -> list[Candidate]`, where `RetrievalContext` carries `aq`, `scope`, `now`, `limits` and `deadline`;
-* **all SQL filters by scope through a single helper** `scope_sql(scope) -> (clause, params)` implementing §3.5, with a unit-tested truth table;
-* the BM25 query uses per-column weights;
-* the episodic generator returns `owner_type='episode'`;
-* **AC:** every generator has tests including **scope isolation** (user A never sees user B's rows) and the **deadline** (a generator returns a partial result within 5 ms of the deadline).
+| Missing | Consequence of guessing |
+|---|---|
+| **`Candidate`'s fields** | The summary says generators return `list[Candidate]` and names exactly one field (`owner_type='episode'`). Everything else a candidate carries is unrecorded. |
+| **`RetrievalContext`'s field types** | `aq`, `scope`, `now`, `limits`, `deadline` are named but untyped: is `aq` a term list, a raw string, a weighted struct? Is `deadline` wall-clock or monotonic? What is in `limits`? |
+| **The generator set** | The card says "candidate generators" (plural); the summary names BM25 and an episodic one. The full list is not recorded. |
+| **BM25's per-column weights** | "per-column weights" is stated; the columns and the weights are not. |
+| **The §3.6 formulas** | Needed by EM-304 ("exactly §3.6 formulas", deterministic `score desc, updated_at desc, id asc` tie-break). Not needed to *write* EM-302, but they are written against `Candidate`, which is why guessing its shape puts EM-304 on sand. |
 
-**Two things to carry in, both already decided — do not re-derive them.**
+**The ask, whenever it suits:** paste the **EM-302 card text from master plan §5** (and the §3.6 extract if handy) into this file or into §6.2. That is the §1 gap the plan already records for most cards after S2, now with a concrete consumer. Nothing else is needed.
 
-1. **`scope_sql` must express the owner-only tier rule, not just profile/user.** §3.5 now means: same profile, and (same user or a profile-wide row), **and** a `sensitive`/`secret` row only for its owner. That rule lives in `MemoryStore._in_scope` (Chunk 7.2) and is the authoritative version; `scope_sql` is its SQL form for the retrieval layer, so its truth table test should mirror the one in `tests/unit/test_em_owner_only_reads.py`. If the two ever disagree, `_in_scope` wins.
-2. **The rung that this card is *not*.** EM-303 (embeddings) lifts the `embed --rebuild` refusal, EM-304 the fusion/rerank, EM-305 the gate. Do not pull them forward: EM-302 is candidates only, and the facade/CLI keep using v2's scoring until EM-304 lands.
+### What already landed, and why it is safe to have landed it
 
-**In scope.** The retrieval package's first module, the generator functions, `scope_sql`, the deadline discipline, and the tests the AC names.
+`scope_sql` is fully specified in the repo — the signature is in §6.2 and the rule it implements is §3.5, whose authoritative form is `MemoryStore._in_scope`. It does not depend on `Candidate`. It is also the piece worth getting right first, since it is the one place the retrieval layer could leak an owner-only row to a guest. See Part A.
 
-**Out of scope.** Embeddings (EM-303), fusion and reranking (EM-304), the gate and MMR (EM-305), `EM-309` sync ids — and everything already frozen: the cutover, releases/tags/catalog, schema changes, the seven refusals beyond their named cards, and `~/.hermes/entropicmem*`.
+### The unblocked alternative: Chunk 11′ — EM-303, embeddings
 
-**Size guard — stop and report if:** the `RetrievalContext`/`Candidate` shapes turn out to need §3.x text that is not in the repo (the master plan lives on the owner's machine — record the gap rather than inventing fields); a generator needs the v3 retriever or the graph before it can exist; or the card needs more than about five commits. EM-302 is an `M`; if it is really two cards, split it and say which half landed.
+If the card text is not to hand, **EM-303 is the next development piece and does not need it.** Records from §6.2:
 
-### 11.0 Pre-flight (read-only)
-1. `main` must be at `c50d7b6` or later: Chunks 10.0–10.4 are all merged there. `git merge-base --is-ancestor c50d7b6 main` proves it.
-2. **Baseline:** `pytest -q` gives **1751 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
-3. **Re-measure from the code.** Read `em/facade/engine.py`'s read half (the scoring it borrows from v2 and the TODO S3 replaces), `em/store/memories.py`'s `_in_scope` and `MemoryStore.list` (the scope SQL that exists), and check whether `em/retrieval/` exists yet. Confirm which §3.x spec text is actually available in the repo before designing the types.
+* an **`embed` job handler** — `MemoryStore.add` already enqueues `embed:<id>:<version>`, and nothing consumes it yet;
+* upsert into `embeddings` on **`(owner_type, owner_id, model)`**, so re-runs are harmless;
+* **must respect the 2.8.1 opt-in** (`embeddings_enabled` / `ENTROPICMEM_EMBEDDINGS`): no model download without it;
+* target: the hard-suite ageing **recall@5 from 0.733 to 0.90**. The four misses share no words with the stored fact — **do not build a synonym table and do not edit the fixture**;
+* it is also what lifts the CLI's `embed --rebuild` refusal (Chunk 10.3).
 
-### 11.0a Document control (before and after)
+The same size guard applies: stop if the `embeddings` table's shape or the model-loading contract needs something not in the repo — record the gap rather than invent it.
+
+### Pre-flight (either path)
+1. `main` must be at `77b6c40` or later, and EM-302's `scope_sql` merged.
+2. **Baseline:** `pytest -q` gives **1757 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
+3. **Re-measure from the code.** For EM-303: `MemoryStore._enqueue_embed`, the `embeddings` table in `0002_v3_core`, `em/store/jobs.py`'s registry, `embeddings.py`'s opt-in gate, and `evals/`'s hard-suite fixture. For EM-302 once unblocked: whatever the pasted card text says.
+
+### Document control (before and after)
 Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth.
 
-### 11.1 The module (test first)
-- Test first: the `scope_sql` truth table (mirroring `_in_scope`), each generator's shape, **scope isolation**, and a **deadline** test that a slow generator returns partial work rather than overrunning.
-- Mutation-check: break `scope_sql`'s owner-only clause and confirm the isolation test goes red; remove the deadline check and confirm the deadline test goes red.
-- **Docs:** CHANGELOG; the EM-302 row in `REMAINING_PLAN.md` §6.2/§5; `docs/V3_FOUNDATIONS.md`'s layer map gains `em/retrieval`.
-
-### 11.2 End of chunk
+### End of chunk
 1. Push, green CI on the exact SHA, `git merge --ff-only`, delete the branch.
 2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.2/§9/§11.
-3. **Replace this file's Part B with Chunk 12 (EM-303, embeddings)** — the next card on the critical path, and the one that lifts the `embed --rebuild` refusal. Do not plan further ahead.
+3. **Replace this file's Part B with the next piece** — EM-302's generators once the card text lands, else the next S3 card (EM-304 after EM-303, say which and why).

@@ -18,6 +18,9 @@ em.facade  (EM-211)       contract.py: the exact API + behaviours the provider r
         |                    cutover is the owner's act.)
         v
 em.formation              entity_linker.py (EM-208): turns memories into graph links
+em.retrieval (S3)        candidates.py: scope_sql so far (the §3.5 rule as SQL,
+                          cross-checked against _in_scope). The generators
+                          wait on the master plan's EM-302 card text.
 em.jobs   (EM-209)        worker.py: claims jobs, runs handlers OUTSIDE transactions
                           cli.py: `entropicmem worker run`, the cron entry point (refuses a live path)
         |

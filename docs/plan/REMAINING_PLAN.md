@@ -242,6 +242,7 @@ S0 cards EM-001…EM-007 (fixtures, harness, xfail findings, perf smoke, Windows
 | **Chunk 10.2** | The facade's six CLI maintenance calls (`promote_pending`, `discard_pending`, `reinforce`, `rebuild_fts`, `timeline`, `recall_episodes`). `promote_pending`/`discard_pending` are §3.4 transitions, so a promoted row keeps its id — v2 re-`remember`ed and produced a new one. Recorded deviation: v3 does not re-stamp `source="promoted"` or add the tag. `rebuild_fts` is a report-only no-op (v3's FTS is trigger-maintained). 15 new tests | `cc19337` (merged in `f36c5e6`) |
 | **Chunk 10.3** | The CLI's **v2-only features now refuse by name** on a v3 store, before `_engine()` is reached: triples (S5), `embed --rebuild` (S3/EM-303), `memory project` (S6), publish/pull (S5), `migrate` (v2-only), `recall --related` (S6) and `recall --scope shared\|all` (S5). These are what stops an `AttributeError` once 10.4 routes. 12 new tests, one asserting every refusal names a trigger | `cc19337` (merged in `f36c5e6`) |
 | **Chunk 10.4** | The CLI selects its engine by `user_version` through the same `open_engine` the provider uses, so its ported commands run against a v3 store and the v2-only ones still refuse by name (their guards run before `_engine()`). **EM-211's AC is met except for seven named refusals.** The chunk's point is the **v2 regression pass**: routing changed engine construction for every store, and a subprocess suite proves a v2 store still works and is **not migrated**. Fixed alongside: Chunk 9 passed `profile_id=self._profile_id or "default"`, making the profile *explicit* and overriding the `hermes_home`-derived slug a v2 store has always carried — `open_engine` now takes `profile_id=None` meaning "the engine decides". 18 new tests + 2 regression tests; 1751 passed / 3 skipped / 3 xfailed; six mutation checks | `250320a` (merged in `c50d7b6`) |
+| **EM-302 (first piece)** | `em.retrieval` created, with **`scope_sql`** — the §3.5 rule as SQL, the helper every generator filters through. `may_read_owner_only(scope)` moved into `em/store/types.py` so `_in_scope` (the predicate) and `scope_sql` (the SQL) share one definition of the owner context and cannot drift; the tier names come from `OWNER_ONLY_TIERS` on both sides. Tests cross-check the two forms over a real row matrix instead of restating the rule, plus a guard that the matrix discriminates. **The generators are not written: the `Candidate` shape is not in the repo** (see `NEXT_CHUNK.md` Part B). 6 new tests; 1757 passed / 3 skipped / 3 xfailed; six mutation checks | `0066fb5` (**unmerged**) |
 | **PII locale fix** | `pii_locales` (EM-115 packs) now reaches redaction on **both** engines: `MemoryDraft` carries them to `MemoryStore._redact`, which passes them to `redact_pii`, and `V3Engine` takes and forwards them. v2 took the packs on the engine; v3 had silently dropped them, so a store configured for the `za` pack lost that detection. The tier gate (redact only `sensitive`/`secret`) is deliberate and tested, and stays. 3 new tests | `a518f3f` (merged in `87243f8`) |
 | Vault path fix (contributor) | `tests/test_vault.py` compares resolved paths instead of raw strings so the explicit-precedence check passes off Linux (macOS `/tmp` → `/private/tmp`); author email rewritten to the contributor's GitHub noreply on merge so no personal address entered published history | `1b5c71ccf` |
 
@@ -315,10 +316,11 @@ Cards are grouped by the master plan's sprints. **"(plan text needed)"** marks c
 **Stays true:** `SKILL.md` keeps describing the installed version until EM-806/EM-904 bump it.
 
 ### 6.2 S3: retrieval v3 (critical path starts here)
-- **EM-302 — Candidate generators · M.**
-  - **Files:** `em/retrieval/candidates.py`.
+- **EM-302 — Candidate generators · M. — STARTED, BLOCKED ON CARD TEXT.**
+  - **Files:** `em/retrieval/candidates.py` (created; `scope_sql` landed, the generators are not written).
   - **Spec:** each generator is a function `(ctx: RetrievalContext) -> list[Candidate]` where `RetrievalContext` has `aq`, `scope`, `now`, `limits`, `deadline`. All SQL filters by scope via a single helper `scope_sql(scope) -> (clause, params)` implementing §3.5 (unit-tested truth table). BM25 query uses per-column weights. Episodic generator returns `owner_type='episode'`.
   - **AC:** each generator has tests incl. scope isolation (user A never sees user B's rows); deadline respected (generator returns partial within 5 ms of deadline).
+  - **BLOCKED:** the `Candidate` shape, `RetrievalContext`'s field types, the generator set and BM25's per-column weights are **not recorded in the repo** — the master plan lives on the owner's machine (§1). The size guard says record the gap rather than invent fields; §11 and `NEXT_CHUNK.md` Part B carry the precise list and the ask.
 - **EM-303: embeddings.**
   - An `embed` job handler. Jobs are already queued by `MemoryStore.add` as `embed:<id>:<version>`.
   - Upsert into `embeddings` on `(owner_type, owner_id, model)` so re-runs are harmless.
@@ -449,11 +451,11 @@ approval. The plan does not have to be finished for EntropicMem to be useful.
 |---|---|
 | **Released version** | `v2.8.1`, tag at `7e02412` on the protected `release/2.8.x`. This is what the Hermes catalog pins and what users install. |
 | **Development line** | `main` at `e058e93be` or later, version `3.0.0.dev0`. All of S2 (the `em/` storage core) is merged; none of it is wired into the provider yet. `main` must stay green and releasable. |
-| **Last landed chunk** | **Chunk 10.1: the facade's CLI reads** (`f439e55`), merged at `b807e4c`. **Chunks 10.2 and 10.3 are merged at `f36c5e6`.** Chunk 10.0 (`a518f3f`) merged at `87243f8`. |
+| **Last landed chunk** | **Chunk 10.4** (`250320a`), merged at `c50d7b6`. **EM-302's first piece (`scope_sql`) is committed and unmerged** — see the In flight row. |
 | **Same-day hygiene batch** | Five no-bump commits: the CI action majors, `perf-smoke` diagnostics, the concurrency-test flake fix, the `ARCHITECTURE.md` v3 section, and two new doc guards. |
 | **Next piece of development** | **Chunk 7: the `EntityLinker` job** — enqueue `link:<memory_id>:<version>` on write, a handler registered in `em/jobs/cli.py`, never inside `MemoryStore.add` (invariant 2), and with it the §3.5 owner-only rule for sensitive rows. Scoped in `NEXT_CHUNK.md` Part B with a size guard that splits it into 7.1 (the job) and 7.2 (the scope rule) if the rule turns out to need provider changes. It completes EM-211's four chunks. |
-| **In flight** | **Nothing.** `em/em-211-cli-maintenance` merged to `main` at `f36c5e6` and deleted; the remote carries `main` and `release/2.8.x` only, and the Marketplace entry is untouched. CI green on the exact SHA before the merge and again on `main` after it, on the **first** run. |
-| **Stage** | **The provider serves either engine; the CLI's reads, maintenance and refusals are all in place; only the routing is left.** 10.4 routes `_engine()` through the selector and runs the CLI suite against a v3 store, which meets EM-211's AC for everything not refused. Then the cutover. |
+| **In flight** | **EM-302's first piece, on the branch `em/em-302-scope-sql` and NOT merged** — the `em.retrieval` package, the shared owner predicate and `scope_sql`. Locally green on Python 3.10 and 3.12 (**1757 passed / 3 skipped / 3 xfailed**), `ruff==0.16.2` clean, eval gate clean. Not pushed yet; `origin/main` is `77b6c40`. |
+| **Stage** | **S2 remainder done; S3 begun and blocked on the master plan's EM-302 card text.** The provider and the CLI both serve a v3 store; the cutover is the owner's call. EM-302's `scope_sql` landed; its generators need the `Candidate` shape, which only the master plan records. |
 
 ### Verify before you touch anything
 
@@ -462,9 +464,9 @@ cd ~/Documents/Coding\ Projects/EntropicMem
 git fetch --all --prune && git status -sb && git log --oneline -12
 git ls-remote --heads origin        # expect exactly main + release/2.8.x
 
-# The repo's own pre-flight. Expect 1751 passed, 3 skipped, 3 xfailed (about 1 minute on a warm box).
+# The repo's own pre-flight. Expect 1757 passed, 3 skipped, 3 xfailed (about 1 minute on a warm box).
 # 3 skips here because the private digest list is not configured on this machine; on the
-# Hermes host it is, so the run there is 1751 passed, 2 skipped, 3 xfailed.
+# Hermes host it is, so the run there is 1757 passed, 2 skipped, 3 xfailed.
 env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_INDEX_DB -u ENTROPICMEM_VAULT_PATH \
   ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1 python3 -m pytest -q
 
@@ -492,19 +494,17 @@ that day, before that day's own memory writes.
 
 ### The expected counts drift, on purpose
 
-The suite total rises with every card: 1462 at Chunk 2's pre-flight, 1495 after the hygiene batch, 1509 after Chunk 3.1, 1519 after Chunk 3.2, 1542 after Chunk 4, 1604 after Chunk 5 (1542 + 56 new unit + 6 new parity params), 1609 once `tests/test_master_todo.py` added its 5 document-control tests, 1624 after Chunk 6 (+15: five `mirror-scan` parity scenarios × 2 engines, plus five v3 unit tests), 1626 once the two Python-3.10 timestamp-parser regression tests landed, 1643 after Chunk 7.1 (+17), 1669 after Chunk 7.2 (+26), 1671 after Chunk 8 (whose xfail flip moved the xfail count 4 to 3), 1687 after Chunk 9 (+16), 1692 after the CLI guard and the PII locale fix (+5), 1707 after 10.1 (+15), 1734 after 10.2 + 10.3 (+27), **1751 after 10.4** (+17 net; the 10.0 refusal test became a routing test). **Run the suite on 3.10 as well as the default interpreter: the `Z`-suffix bug below was invisible to 3.12 and only the 3.10 CI leg caught it.** Read the expected number from `NEXT_CHUNK.md`'s pre-flight (§7.0 for the current chunk), which is rewritten at the end of each chunk, and **stop and report on a mismatch** instead of assuming the older number is right.
+The suite total rises with every card: 1462 at Chunk 2's pre-flight, 1495 after the hygiene batch, 1509 after Chunk 3.1, 1519 after Chunk 3.2, 1542 after Chunk 4, 1604 after Chunk 5 (1542 + 56 new unit + 6 new parity params), 1609 once `tests/test_master_todo.py` added its 5 document-control tests, 1624 after Chunk 6 (+15: five `mirror-scan` parity scenarios × 2 engines, plus five v3 unit tests), 1626 once the two Python-3.10 timestamp-parser regression tests landed, 1643 after Chunk 7.1 (+17), 1669 after Chunk 7.2 (+26), 1671 after Chunk 8 (whose xfail flip moved the xfail count 4 to 3), 1687 after Chunk 9 (+16), 1692 after the CLI guard and the PII locale fix (+5), 1707 after 10.1 (+15), 1734 after 10.2 + 10.3 (+27), 1751 after 10.4 (+17 net; the 10.0 refusal test became a routing test), **1757 after EM-302's `scope_sql`** (+6). **Run the suite on 3.10 as well as the default interpreter: the `Z`-suffix bug below was invisible to 3.12 and only the 3.10 CI leg caught it.** Read the expected number from `NEXT_CHUNK.md`'s pre-flight (§7.0 for the current chunk), which is rewritten at the end of each chunk, and **stop and report on a mismatch** instead of assuming the older number is right.
 
-The skipped count moved from 2 to 3 at Chunk 5. Nothing was skipped or xfailed to get there: the extra skip is `tests/evals/test_no_personal_data.py`, which skips when the private digest list is not configured on the machine running the suite (and *fails* when `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` and the list is missing — which is how CI runs it). On the Hermes host the list exists, so the run there is 1751 passed / 2 skipped / 3 xfailed. Read the two numbers as a pair.
+The skipped count moved from 2 to 3 at Chunk 5. Nothing was skipped or xfailed to get there: the extra skip is `tests/evals/test_no_personal_data.py`, which skips when the private digest list is not configured on the machine running the suite (and *fails* when `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` and the list is missing — which is how CI runs it). On the Hermes host the list exists, so the run there is 1757 passed / 2 skipped / 3 xfailed. Read the two numbers as a pair.
 
 Documentation-only commits move the tip SHA without changing code, tests or counts. When they do, `§2` and this table keep the last **code** state, which is why both say "or later"; a later tip that only touched `docs/`, `README.md` or `CHANGELOG.md` is expected.
 
 ### What to do next, in order
 
-1. **Chunk 10.4, the routing** — the last piece of CLI parity: `_engine()` routes through `open_engine`, and the CLI suite runs against a v3 store. 10.2 (maintenance) and 10.3 (refusals) have landed.
-2. Then **the v3 cutover** (owner-gated, owner-scheduled).
-3. **S3 (retrieval v3)** after the S2 remainder, on the critical path in §6.2: EM-302 → EM-304 → EM-305 → EM-403 → EM-503 → EM-901 → EM-904.
-
-The EM-210 gaps are both closed: Chunk 3.1 built the snapshot, Chunk 3.2 the throttle, and Chunk 5 made the facade's destructive paths use the throttle.
+1. **Paste the EM-302 card text (master plan §5), and the §3.6 extract if handy.** It is the one thing blocking S3: the `Candidate` shape and `RetrievalContext`'s field types are not in the repo, and the plan's size guard says record the gap rather than invent them. `MASTER_TODO.md` (“Waiting on the owner”) and `NEXT_CHUNK.md` Part B carry the precise list.
+2. **EM-303 (embeddings), if card text is not available yet** — it is on the critical path, its spec in §6.2 is self-contained, and it does not depend on the `Candidate` shape.
+3. **The v3 cutover**, owner-gated and owner-scheduled, once the owner is present.
 
 ### Frozen until the owner says otherwise
 
