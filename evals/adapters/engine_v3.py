@@ -43,8 +43,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from em.clock import to_iso  # noqa: E402
-from em.retrieval import candidates, diversity, fusion, gate  # noqa: E402
-from em.retrieval import query as query_analyzer  # noqa: E402
+from em.retrieval import pipeline  # noqa: E402
 from em.store.db import Store  # noqa: E402
 from em.store.memories import MemoryStore  # noqa: E402
 from em.store.migrations import migrate  # noqa: E402
@@ -191,40 +190,15 @@ class EngineV3Adapter(AdapterBase):
     ) -> Tuple[List[Any], Dict[Any, Any]]:
         """Drive §3.6's pipeline. Returns ``(rankings, rows)``.
 
-        ``rows`` is always returned so the caller can render text for keys that the
-        gate dropped as well as those it kept.
+        The sequence itself lives in ``em.retrieval.pipeline``, because the provider's
+        shadow read (P0) needs exactly the same one — two copies of an "identical"
+        pipeline is how they stop being identical. ``rows`` comes back either way so
+        the caller can render text for keys the gate dropped as well as those it kept.
         """
-        conn = handle.extra["conn"]
-        scope = handle.extra["scope"]
-        now = datetime.now(timezone.utc)
-
-        analyzed = query_analyzer.analyze(query, conn=conn, scope=scope, now=now)
-        results = {
-            name: generator(
-                candidates.RetrievalContext(conn=conn, aq=analyzed, scope=scope, now=now)
-            )
-            for name, generator in candidates.GENERATORS.items()
-        }
-        fused = fusion.fuse(results, intent=analyzed.intent)
-        features = fusion.load_features(conn, scope=scope, keys=fused.keys())
-        ranked = fusion.rank(fused, features, now=now)
-        rows = gate.load_rows(conn, scope=scope, keys=[r.key for r in ranked])
-        texts = {key: info.text for key, info in rows.items()}
-
-        if not with_gate:
-            return ranked, rows
-
-        coverages = gate.coverage(list(analyzed.terms), texts)
-        gated = gate.apply_gate(ranked, rows=rows, coverages=coverages)
-        if gated.empty:
-            return [], rows
-
-        lives = [r.key for r in gated.survivors]
-        collapsed = diversity.collapse(
-            gated.survivors,
-            texts=texts,
-            scope_users={key: info.scope_user for key, info in rows.items()},
-            predecessors=diversity.load_predecessors(conn, scope=scope, keys=lives),
-            now=now,
+        outcome = pipeline.retrieve(
+            handle.extra["conn"],
+            scope=handle.extra["scope"],
+            query=query,
+            with_gate=with_gate,
         )
-        return diversity.mmr(collapsed.kept, texts=texts), rows
+        return outcome.rankings, outcome.rows

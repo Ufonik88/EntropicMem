@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from agent.memory_provider import MemoryProvider
 
+from . import _shadow
 from ._backend import (
     ensure_scripts_on_path,
     hermes_home_from_kwargs,
@@ -637,11 +638,47 @@ class EntropicMemMemoryProvider(MemoryProvider):
                     self._store_cache(enhanced_query, fact_block)
 
             blocks = [b for b in (core_block, fact_block) if b]
-            return "\n\n".join(blocks)
+            response = "\n\n".join(blocks)
+            self._spawn_shadow(q, response)
+            return response
 
         except Exception as e:
             logger.debug("EntropicMem prefetch failed: %s", e)
             return ""
+
+    def _spawn_shadow(self, query: str, response: str) -> None:
+        """P0: run S3 over the shadow copy, **after** the response exists and off the turn path.
+
+        This is the whole contract of the shadow: the answer the caller gets is the
+        one v2 produced, and nothing here can change it or delay it. ``_shadow.run``
+        never raises, and ``_spawn`` puts it on a background thread, so a slow or
+        broken shadow costs a log line at worst.
+
+        Returns immediately — including when the feature is off, which is the default
+        (``ENTROPICMEM_SHADOW_V3`` unset).
+        """
+        if not self._memory_db or _shadow.shadow_path() is None:
+            return
+        live_db = str(self._memory_db)
+        profile = self._profile_id or ""
+        injected = _shadow.injected_ids(response)
+
+        def _shadow_work() -> None:
+            # `_shadow.run` already promises never to raise; this is the belt to that
+            # braces, because an unhandled exception on a daemon thread surfaces in
+            # the host's logs as a mystery traceback attributed to no turn.
+            try:
+                _shadow.run(live_db, profile=profile, query=query, v2_ids=injected)
+            except Exception:  # noqa: BLE001 - a diagnostic is never worth a traceback
+                logger.debug("EntropicMem v3 shadow crashed", exc_info=True)
+
+        # Through `_spawn`, not a bare `threading.Thread`: F-005b/H3 requires every
+        # background thread in this provider to come from that one helper, so there is
+        # one place that propagates the caller's context (profile/secret scope) and one
+        # place to audit. The cost is that a host which shims `spawn_context_thread`
+        # with a non-thread makes `_spawn` return having started nothing — see the note
+        # on `_spawn`; in production the host provides a real one.
+        self._spawn(_shadow_work, "em-shadow-v3")
 
     def _is_guest(self) -> bool:
         """EM-118: gateway user is not in the (non-empty) owner list."""

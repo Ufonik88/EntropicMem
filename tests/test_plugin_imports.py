@@ -53,6 +53,11 @@ def _load_plugin_module():
     )
     mod = importlib.util.module_from_spec(spec)
     sys.modules["entropicmem_plugin_imports._backend"] = MagicMock()
+    # Register the module itself, as a real import would. Without this a relative
+    # submodule import (`from . import _shadow`) cannot resolve its parent package and
+    # raises ModuleNotFoundError for a module that is right there — a harness artefact,
+    # not a plugin defect, and one that would hide a genuine relative-import break.
+    sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
 
