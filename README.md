@@ -264,6 +264,7 @@ These are pinned by strict `xfail` tests in `tests/regressions/test_findings_v27
 | [docs/VISUALIZER.md](docs/VISUALIZER.md) | Graph UI: zoom, overlays, wikilink resolution, security model |
 | [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md) | Encrypted backup + restore drill |
 | [MASTER_TODO.md](MASTER_TODO.md) | **Start here** (agents and humans): where the project is, what is in flight, what is next, the gates, and the document-control rule |
+| [docs/MARKETPLACE.md](docs/MARKETPLACE.md) | The Hermes Marketplace entry: the pin-is-the-release rule, the owner-gated release procedure, catalog PR mechanics, and the pitfalls |
 | [docs/plan/REMAINING_PLAN.md](docs/plan/REMAINING_PLAN.md) | **Project status** (§2 state, §11 how to pick it up), what is left of the v3 plan, and the rules for doing it in small chunks |
 | [docs/plan/NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md) | The single next development chunk, planned one ahead (Part A is the chunk that just landed) |
 | [docs/BACKFILL_PROCEDURE.md](docs/BACKFILL_PROCEDURE.md) | Opt-in shared-store backfill for multi-profile sync |

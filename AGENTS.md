@@ -4,7 +4,10 @@
 canonical page: where the project is, what is in flight, what is next, and the
 gates. Then this file, which is the rules. Then
 `docs/V3_FOUNDATIONS.md` before touching `plugins/entropicmem/scripts/em/`, and
-`docs/plan/NEXT_CHUNK.md` for the single chunk currently planned.
+`docs/plan/NEXT_CHUNK.md` for the single chunk currently planned. For anything
+touching the Hermes Marketplace — the catalog entry, a re-pin, or a release —
+read [`docs/MARKETPLACE.md`](docs/MARKETPLACE.md) first; the release procedure is
+owner-gated end to end.
 
 This works the same on any harness or platform: everything needed is a file in
 the repo, and nothing depends on which agent or machine you are.

@@ -81,6 +81,24 @@ What `em/` contains today: `em.clock` (freezable UTC, ULIDs), `em.store`
 worker, `entropicmem worker run`), `em.formation` (`EntityLinker`), and
 `em.facade` (the provider-facing contract plus `V3Engine`).
 
+### Hermes Marketplace — the catalog entry
+
+The plugin is listed in the Hermes catalog as `plugin-catalog/entropicmem.yaml`
+in `NousResearch/hermes-agent`. **The pin is the release:** the entry names an
+exact 40-hex commit, and that commit is what every install clones.
+
+**Verified live 2026-10-07:** `entropicmem` version **2.8.1**, pinned at
+`7e02412366408234629e759a575edc31eb138721` (= the `v2.8.1` tag commit on
+`release/2.8.x`), subdir `plugins/entropicmem`, capabilities matching
+`plugin.yaml` exactly (7 tools, 5 hooks). `main` is **not** what users install.
+
+**Releases and re-pins are owner-gated end to end**, and a chunk of work leaves
+the entry untouched unless that chunk *is* a release. The full procedure — tag
+ordering, catalog PR mechanics, fresh-`HERMES_HOME` install verification, and the
+pitfalls that have already cost time — is in
+[docs/MARKETPLACE.md](docs/MARKETPLACE.md). Read it before doing anything that
+touches the entry, a tag, or `release/2.8.x`.
+
 ### EM-211, the legacy facade — nearly done, merged, and unwired
 
 The facade is the card that lets the provider run on v3 without being rewritten.
