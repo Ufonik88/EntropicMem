@@ -13,10 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `14552be`, Chunk 14's code
-commit; its docs commit sits on top and moves the tip without changing code, tests
-or counts, which is expected — see plan §11. CI is verified on the commit itself
-with the check-runs API, not `run list`.
+**Last reconciled:** 2026-10-07, against branch `main` at `52ca33b`, which is the
+merge commit for Chunk 14 — its code is `14552be`, its docs `52ca33b`. CI is verified
+on that exact commit with the check-runs API (22 check-runs, none failing), not with
+`run list`, which can hand back a stale run.
 
 ---
 
@@ -134,14 +134,13 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunk 13 (§3.5's `visibility` half) is merged to `main` at `04ab0a2`
-— its code is `fd9e06f` — with green CI on the exact SHA before the merge and again
-on `main` after it, all 11 jobs, both on the **first** run. The branch is deleted,
-the remote carries `main` and `release/2.8.x` only, and the Marketplace entry is
-untouched (still 2.8.1 at `7e02412`) — a chunk leaves it alone unless the chunk *is*
-a release.
+**Nothing.** Chunk 14 (EM-304, fusion) is merged to `main` at `52ca33b` — its code
+is `14552be` — with CI verified on the exact commit before the merge and again on
+`main` after it, both on the **first** run. The branch is deleted, the remote carries
+`main` and `release/2.8.x` only, and the Marketplace entry is untouched (still 2.8.1
+at `7e02412`) — a chunk leaves it alone unless the chunk *is* a release.
 
-Twelve consecutive merges have now gone green on the **first** CI run, all because
+Thirteen consecutive merges have now gone green on the **first** CI run, all because
 the suite was checked on Python 3.10 as well as 3.12 before pushing.
 
 **A measurement trap worth knowing:** `ghx run list --branch main --limit 1` can
@@ -152,9 +151,12 @@ success. Verify with the check-runs API on the commit instead
 which is the check the rule actually names. This bit once on 2026-10-07 and was
 caught only because the reported SHA did not match the pushed one.
 
-**Chunk 13's change is internal only.** It was agent-proposed and owner-authorised
-for implementation, not ruled on by the owner, and it must not reach the marketplace
-without an explicit release approval. See plan §9 item 3.
+**Chunk 13's change is internal only** — ratified by the owner on 2026-10-07 as a
+ruling on the behaviour change, and still in no release. It must not reach the
+marketplace until the owner explicitly approves a release. See plan §9 item 3.
+
+**The cutover stays held.** The owner revisits it after EM-305 and decides; the agent
+brings the decision. Do not switch the live store.
 
 ### Where the master plan is
 
