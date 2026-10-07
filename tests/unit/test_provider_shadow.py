@@ -342,6 +342,81 @@ def test_a_stale_copy_is_refreshed_and_a_fresh_one_reused(monkeypatch, tmp_path,
     assert third["copy_refreshed"] is True, "a copy past the bound must be refreshed"
 
 
+# --- id spaces: the defect the end-to-end run found -----------------------
+
+
+def test_a_migrated_memory_compares_equal_through_its_legacy_id(monkeypatch, tmp_path):
+    """v2 and v3 name one memory differently, and a raw comparison calls it a divergence.
+
+    The unit tests all passed while **every real line would have been meaningless**:
+    v2 returns the 16-hex content id, v3 returns a ``mem_…`` ULID for the *same* row, so
+    the raw sets never intersect, every line reports "v3 fabricated a hit", and the
+    ``v3_only == 0`` promotion condition would have tripped on the first day. Found by
+    running the shadow end to end against a real migrated store — not by a unit test.
+    """
+    from memory_engine import MemoryEngine
+
+    live = tmp_path / "live" / "memory.db"
+    live.parent.mkdir(parents=True, exist_ok=True)
+    engine = MemoryEngine(live, profile_id="default")
+    memory_id = engine.remember(
+        "the staging server runs Ubuntu 22.04 with nginx", importance=0.8, source="agent"
+    )
+    engine.close()
+
+    monkeypatch.setenv(_shadow.SHADOW_ENV, str(tmp_path / "shadow" / "memory.db"))
+    line = _shadow.run(
+        live,
+        profile="default",
+        query="what does the staging server run",
+        v2_ids=[memory_id],
+        destination=tmp_path / "d.jsonl",
+    )
+
+    assert line["v3_ids"] == [memory_id], "the v3 hit must be compared by its legacy_id"
+    assert line["divergence"] == [] and line["v3_only"] == []
+
+
+def test_a_row_written_only_to_v3_keeps_its_own_id(monkeypatch, tmp_path):
+    """A row with no legacy counterpart still reads as itself, so it shows as v3-only."""
+    from em.store.db import Store
+    from em.store.memories import MemoryStore
+    from em.store.migrations import migrate
+    from em.store.types import MemoryDraft, Scope
+
+    shadow_db = tmp_path / "shadow" / "memory.db"
+    shadow_db.parent.mkdir(parents=True, exist_ok=True)
+    store = Store(str(shadow_db))
+    with store.writer() as conn:
+        migrate(conn)
+    with store.transaction() as conn:
+        result = MemoryStore(conn).add(
+            MemoryDraft(content="a row written straight to v3"), scope=Scope(profile="default"),
+            actor="tester",
+        )
+    mapped = _shadow.comparison_ids(store.reader(), [result.id])
+    store.close()
+    assert mapped == [result.id]
+
+
+def test_comparison_ids_passes_an_unknown_id_through(tmp_path):
+    """An id the copy does not hold is returned unchanged rather than dropped."""
+    from em.store.db import Store
+    from em.store.migrations import migrate
+
+    shadow_db = tmp_path / "shadow" / "memory.db"
+    shadow_db.parent.mkdir(parents=True, exist_ok=True)
+    store = Store(str(shadow_db))
+    with store.writer() as conn:
+        migrate(conn)
+    try:
+        assert _shadow.comparison_ids(store.reader(), ["mem_not_in_this_store"]) == [
+            "mem_not_in_this_store"
+        ]
+    finally:
+        store.close()
+
+
 # --- the shared shape and the pre-declared thresholds ---------------------
 
 

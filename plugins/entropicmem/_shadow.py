@@ -139,18 +139,49 @@ def refresh(live_db: str | Path, shadow_db: Path) -> None:
         connection.close()
 
 
+def comparison_ids(conn: sqlite3.Connection, ids: Sequence[str]) -> List[str]:
+    """Map v3 ids onto the ids **v2 knows**, so the two sets are comparable.
+
+    The two stacks name the same memory differently: v2 uses the 16-hex content id and
+    v3 uses a ``mem_…`` ULID, keeping the v2 id in ``legacy_id`` — which is exactly what
+    that column is for. Comparing raw ids therefore marks **every** memory as a
+    divergence, reports "v3 fabricated a hit" on every line, and would trip the
+    ``v3_only == 0`` promotion condition on the first day. The comparison id is
+    ``COALESCE(legacy_id, id)``: a migrated row compares by the id v2 already uses, and
+    a row written straight to v3 keeps its own, so it still reads as v3-only.
+
+    Discovered by running the shadow end to end against a real migrated store; the unit
+    tests passed while every real line would have been meaningless.
+    """
+    wanted = list(dict.fromkeys(ids))
+    if not wanted:
+        return []
+    marks = ",".join("?" for _ in wanted)
+    try:
+        rows = conn.execute(
+            f"SELECT id, COALESCE(legacy_id, id) AS comparison FROM memories"
+            f" WHERE id IN ({marks})",
+            wanted,
+        ).fetchall()
+        mapping = {row["id"]: row["comparison"] for row in rows}
+    except sqlite3.Error:
+        return wanted
+    return [mapping.get(item, item) for item in wanted]
+
+
 def shadow_ids(shadow_db: Path, *, profile: str, query: str) -> List[str]:
-    """Run S3 over the copy and return the ids the gate would inject."""
+    """Run S3 over the copy and return the injected ids, mapped for comparison."""
     from em.retrieval.pipeline import retrieve
     from em.store.db import Store
     from em.store.types import Scope
 
     store = Store(str(shadow_db))
     try:
+        connection = store.reader()
         outcome = retrieve(
-            store.reader(), scope=Scope(profile=profile or "default"), query=query, with_gate=True
+            connection, scope=Scope(profile=profile or "default"), query=query, with_gate=True
         )
-        return outcome.ids
+        return comparison_ids(connection, outcome.ids)
     finally:
         store.close()
 
