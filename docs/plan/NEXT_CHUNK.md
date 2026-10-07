@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-07, Chunk 7.2 committed (not yet merged); **Chunk 8 (EM-212's package move) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, Chunk 7.2 merged to `main` at `783aae9`; **Chunk 8 (EM-212's package move) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
@@ -71,13 +71,13 @@
 - 17 new tests; 1643 passed / 3 skipped / 4 xfailed on Python 3.10 **and** 3.12; seven mutation checks. One existing test updated rather than weakened: it counted all jobs and now counts per type.
 - **Merged** to `main` at `64a2685`; green on the exact SHA, first CI run, `identity-guard` included.
 
-### Chunk 7.2 — the §3.5 owner-only rule for sensitive reads. **DONE, COMMITTED, NOT MERGED (2026-10-07, `563afe5`)**
+### Chunk 7.2 — the §3.5 owner-only rule for sensitive reads. **DONE, MERGED (2026-10-07, `563afe5`, in `783aae9`)**
 
 - `feat(em-211): sensitive memories are owner-only on read`: the facade's reads were profile-wide, so in a profile with a gateway user any user could read a `sensitive`/`secret` memory. The rule now lives in `_in_scope` — the one function invariant 5 names — and all four facade read paths route through it: `get_fact` passes `scope`, FTS recall and the literal-LIKE fallback filter through `_in_scope`, and `find_mirrored` does too.
 - **The decision:** `Scope.is_owner` defaults to **False** (fail-closed), and a profile-wide caller (`user == ""`) is the owner context. Only a scoped caller can leak, so the default makes it assert ownership; a wiring mistake then hides the owner's own sensitive rows (visible) rather than showing them to a guest (silent). This mirrors the provider's `_is_guest()`. `V3Engine` takes `is_owner` as a constructor argument, never an environment read.
 - 26 new tests: a 15-case truth table, the fail-closed default, the four read paths, and a migrated `secret` row (which the write policy refuses to create). 1669 passed / 3 skipped / 4 xfailed on Python 3.10 and 3.12. Six mutation checks. No existing test needed changing.
 - **Known gap recorded, not fixed:** `MemoryStore.list` keeps profile+user only, so the facade's `prune_pending`/`consolidate` are not tier-filtered. They are the owner's operations and the facade is unwired.
-- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+- **Merged** to `main` at `783aae9`; green on the exact SHA, first CI run, `identity-guard` included.
 
 **EM-211 is now code-complete and unwired: reads, writes, the mirror call, the link job and the owner-only read rule are all in.** The provider still constructs v2's `MemoryEngine`, so the card's AC is unmet — and wiring is not a normal chunk (see `MASTER_TODO.md`): `V3Engine.__init__` calls `migrate()`, so pointing the provider at a v2 store migrates it, which *is* the cutover. Wiring and the cutover are a pair and owner-gated.
 
@@ -109,7 +109,7 @@ The card's acceptance criterion names six of them — **`vault`, `index`, `secur
 **Out of scope.** The provider wiring and the v3 cutover (owner-gated). Any schema change or migration. The `em/` package (it is already namespaced). S3 and later. Anything touching `~/.hermes/entropicmem*`.
 
 ### 8.0 Pre-flight (read-only)
-1. `main` must be at `64a2685` or later (Chunks 5, 6, 7.1), and Chunk 7.2 once merged. If 7.2 is unmerged, stack on its branch and say so.
+1. `main` must be at `783aae9` or later: Chunks 5, 6, 7.1 and 7.2 are all merged there, with green CI on each exact SHA. `git merge-base --is-ancestor 783aae9 main` proves it.
 2. **Baseline:** `pytest -q` gives **1669 passed, 3 skipped, 4 xfailed** on **both Python 3.10 and 3.12**. Run 3.10 as well as your default interpreter — two of the last three chunks shipped a bug only the 3.10 leg saw.
 3. **Re-measure from the code.** Read `_backend.resolve_paths` and its `_own_module`, `tests/test_backend_namespace.py` (both the xfail and the decoy-module repro), and every `from vault import` / `from index import` / `from policy import` / `from retrieval import` / `from embeddings import` / `from security import` site in `scripts/` and the provider.
 

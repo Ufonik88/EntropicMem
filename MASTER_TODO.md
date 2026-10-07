@@ -13,8 +13,8 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `em/em-211-owner-only-reads` at
-`563afe5`, branching from `main` at `6f9a3cf`. A later docs-only commit moving
+**Last reconciled:** 2026-10-07, against branch `main` at `783aae9`, which is the
+commit Chunk 7.2 was merged at after green CI on it. A later docs-only commit moving
 the tip without changing code, tests or counts is expected; see plan §11.
 
 ---
@@ -93,7 +93,7 @@ means one thing:
 | 5 | Facade **writes** over `em.store` | **Done, merged** (`36355f3`, in `e25db32`) |
 | 6 | Facade **mirror call** | **Done, merged** (`6bd4b47`, in `e25db32`) |
 | 7.1 | The **entity-link job** (`link:<memory_id>:<version>`) | **Done, merged** (`96c4ccb`) |
-| 7.2 | The **§3.5 owner-only rule** for sensitive reads | **Done** (`563afe5`) — committed, **not merged** |
+| 7.2 | The **§3.5 owner-only rule** for sensitive reads | **Done, merged** (`563afe5`) |
 
 **EM-211's acceptance criterion is not met and S2's exit criteria still fail.**
 The reason has been the same after every chunk so far: the facade is complete as
@@ -105,14 +105,11 @@ read three landed chunks as the card being done.
 
 ### In flight
 
-**Chunk 7.2, on the local branch `em/em-211-owner-only-reads`** — one commit,
-`563afe5` (the owner-only read rule), with the docs close-out beside it.
-
-**Not pushed, not merged, no CI run yet.** `origin/main` is `6f9a3cf`. Locally
-green on both Python 3.10 and 3.12 — **1669 passed / 3 skipped / 4 xfailed**,
-`ruff==0.16.2` clean, eval gate with no gated metric regressed, `perf-smoke` warm
-p95 3.927 ms against the 20 ms budget. Push, wait for green on the exact SHA, then
-`git merge --ff-only`.
+**Nothing.** Chunk 7.2 is merged to `main` at `783aae9` with green CI on that exact
+SHA, and the `em/em-211-owner-only-reads` branch is deleted. The remote carries
+`main` and `release/2.8.x` only. Two consecutive merges have now gone green on the
+**first** CI run, both because the suite was checked on Python 3.10 as well as 3.12
+before pushing.
 
 ## What is done
 
