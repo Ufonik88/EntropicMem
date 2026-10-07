@@ -317,18 +317,62 @@ def test_the_provider_builds_engines_only_through_the_helper():
 # --- the CLI's guard ----------------------------------------------------------
 
 
-def test_the_cli_refuses_a_v3_store_clearly(tmp_path):
-    """The CLI cannot read v3 yet (CLI parity pending), so it says so.
+def test_the_cli_serves_a_v3_store_through_the_facade(tmp_path):
+    """Chunk 10.4: the CLI routes by store version, exactly as the provider does.
 
-    Handing a v3 store to the v2 engine would fail confusingly part-way through
-    a command; refusing up front is the honest behaviour until the facade covers
-    the CLI's calls.
+    Until 10.4 this refused; the refusal was correct only while the facade could
+    not serve the CLI's calls. It can now (10.1/10.2), and the v2-only commands
+    refuse before they get here (10.3).
     """
     import entropicmem
 
-    with pytest.raises(SystemExit) as exc:
-        entropicmem._engine(v3_store(tmp_path))
-    assert "v3" in str(exc.value)
+    engine = entropicmem._engine(v3_store(tmp_path))
+    try:
+        assert isinstance(engine, V3Engine)
+    finally:
+        engine.close()
+
+
+def test_the_cli_does_not_override_a_home_derived_profile(tmp_path, monkeypatch):
+    """The trap 10.4 had to avoid, and a bug Chunk 9 left on the provider path.
+
+    ``MemoryEngine.profile_id()`` resolves ``explicit > hermes_home basename >
+    'default'``. Passing ``profile_id="default"`` would make it *explicit* and
+    silently restamp every write in a non-default home. Selection must pass the
+    profile through untouched — ``None`` means "let the engine decide".
+    """
+    import entropicmem
+
+    home = tmp_path / "alice-home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.delenv("ENTROPICMEM_MEMORY_DB", raising=False)
+    engine = entropicmem._engine()
+    try:
+        assert engine.profile_id() == "alice-home", (
+            "the CLI must let MemoryEngine resolve the slug from hermes_home"
+        )
+    finally:
+        engine.close()
+
+
+def test_the_provider_does_not_override_a_home_derived_profile(tmp_path):
+    """The same trap on the provider path (Chunk 9, fixed in Chunk 10.4)."""
+    from plugins.entropicmem import EntropicMemMemoryProvider
+
+    home = tmp_path / "bob-home"
+    home.mkdir()
+    provider = EntropicMemMemoryProvider(config={})
+    provider._scripts_dir = SCRIPTS
+    provider._memory_db = home / "entropicmem" / "memory.db"
+    provider._hermes_home = home
+    provider._profile_id = None  # no explicit identity: the home decides
+
+    engine = provider._open_engine()
+    try:
+        assert engine.profile_id() == "bob-home"
+    finally:
+        engine.close()
 
 
 def test_the_cli_still_opens_a_v2_store(tmp_path):

@@ -416,34 +416,37 @@ def _write_template(path: Path, ttype: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _engine(db: "Path | None" = None) -> MemoryEngine:
+def _engine(db: "Path | None" = None):
     """The only way the CLI builds an engine.
 
     Passes the resolved Hermes home, so everything the engine derives from it
-    (the shared publish store in particular) follows HERMES_HOME exactly as the
-    provider does. A bare ``MemoryEngine(path)`` fell back to ``~/.hermes`` for
-    those, and the CLI and a running agent then disagreed on where the shared
-    log lives. A test guards against bare constructions creeping back.
+    (the profile slug, the shared publish store) follows HERMES_HOME exactly as
+    the provider does. A bare ``MemoryEngine(path)`` fell back to ``~/.hermes``
+    for those, and the CLI and a running agent then disagreed on where the
+    shared log lives. A test guards against bare constructions creeping back.
 
-    **A v3 store is refused, on purpose.** The CLI calls about 28 methods the
-    facade does not implement, so it cannot be pointed at the facade yet (CLI
-    parity is its own card). Handing a v3 store to the v2 engine would fail
-    confusingly halfway through a command, so it is refused up front instead —
-    the Hermes agent can read that store, the CLI cannot yet.
+    **Selection is by the store's own schema**, through the same ``open_engine``
+    the provider uses: a v2 store gets the v2 engine, a v3 store the facade.
+    Nothing migrates — the version is read read-only before either engine is
+    constructed.
+
+    ``profile_id`` is deliberately not passed: ``MemoryEngine.profile_id()``
+    resolves ``explicit > hermes_home basename > 'default'``, so an explicit
+    ``"default"`` here would change what a v2 store is stamped with. The facade
+    needs a concrete profile and coerces on its own side.
+
+    The v2-only commands are refused *before* they reach this function (see
+    ``_refuse_on_v3``), so anything that gets here can be served by either engine.
     """
     path = db if db is not None else _memory_db_path()
-    from em.facade.select import StoreVersionError, store_kind
+    from em.facade.select import StoreVersionError, open_engine
 
     try:
-        kind = store_kind(path)
+        return open_engine(path, hermes_home=hermes_home_path())
     except StoreVersionError as exc:
+        # A store newer than this build. Refuse it here rather than let every
+        # command fail differently.
         raise SystemExit(f"Error: {exc}") from exc
-    if kind == "v3":
-        raise SystemExit(
-            f"Error: {path} is a v3 store, and the CLI cannot read one yet "
-            "(CLI parity is pending; the Hermes agent can)."
-        )
-    return MemoryEngine(path, hermes_home=hermes_home_path())
 
 
 #: CLI features whose backing store does not exist on v3 yet. Each names the card

@@ -90,7 +90,7 @@ def _peek(path: Path) -> tuple[int, set[str]]:
 def open_engine(
     db_path: Union[Path, str],
     *,
-    profile_id: str = "default",
+    profile_id: Optional[str] = None,
     hermes_home: Optional[Path] = None,
     pii_locales: Optional[list] = None,
     scope_user: str = "",
@@ -103,6 +103,12 @@ def open_engine(
     know which engine it will get. ``hermes_home`` reaches the v2 engine only (the
     facade derives its paths from the store); the PII locale packs reach both, so
     a v3 store keeps the locale-aware redaction a v2 store had.
+
+    ``profile_id=None`` means **"let the engine decide"**, which is not the same
+    as ``"default"``: ``MemoryEngine.profile_id()`` resolves
+    ``explicit > hermes_home basename > 'default'``, so passing ``"default"``
+    would override the home-derived slug a v2 store has always been stamped with.
+    The facade needs a concrete profile and coerces to ``"default"`` itself.
 
     Both imports are deferred. The v2 one especially: at 3.0
     ``memory_engine.py`` becomes a shim over this facade, so importing it at

@@ -1579,7 +1579,12 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
         return open_engine(
             self._memory_db,
-            profile_id=self._profile_id or "default",
+            # Not `or "default"`: `MemoryEngine.profile_id()` resolves
+            # explicit > hermes_home basename > 'default', so inventing an
+            # explicit value here would stamp every v2 write with "default"
+            # instead of the profile slug the store has always carried. The
+            # facade coerces None to "default" for its own scope.
+            profile_id=self._profile_id,
             hermes_home=self._hermes_home,
             pii_locales=self._config.get("locale_packs") or [],
             scope_user=getattr(self, "_gateway_user_id", None) or "",
