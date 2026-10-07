@@ -172,7 +172,7 @@ These are decisions the writes chunk made that are not obvious from the signatur
 - **EM-213** is done, re-scoped on 2026-09-26: the Hermes catalog verifies the plugin against `provides_tools`/`provides_hooks`, so they stay and only the duplicate `hooks:` list went. `test_f011_plugin_manifest_declares_tools_and_hooks_once` pins it. Do not remove the provides lists.
 - **EM-303 (embeddings, S3).** An `embed` job handler. Jobs are already queued by `MemoryStore.add`. Upsert into `embeddings` on `(owner_type, owner_id, model)` so re-runs are harmless.
 - **Wiring `EntityLinker`.** Run it from a job (`link:<memory_id>:<version>`), not inside `MemoryStore.add`, to keep entity work out of the write transaction.
-- **§3.5's `visibility` half is not implemented — a recorded privacy gap, not a settled one.** §3.5 makes a *profile-wide* row (`scope_user=''`) owner-only when `sensitivity IN ('sensitive','secret')` **or `visibility='user'`**. `_in_scope` implements the tier half only. It matters because `MemoryDraft.visibility` defaults to `'user'`, so a profile-wide write made with the default is, per the plan, owner-only — and today it is not. That is a leak in the tightening direction, so it needs fixing rather than only recording; it is left for its own card because implementing it reclassifies rows that already exist, and `MemoryStore.list` (`scope_user=?` exactly, no tier filter) would need the same treatment. On `MASTER_TODO.md` under gaps.
+- **§3.5's `visibility` half is implemented (Chunk 13) — write stamp *and* read guard, agent-proposed and internal only.** Two row conditions, one definition: `em.store.types.row_is_owner_only` returns True for a `sensitive`/`secret` tier **or** for a *profile-wide* row (`scope_user=''`) stamped `visibility='user'`; `_in_scope` and `candidates.scope_sql` both call it, and the chat dimension goes through `chat_in_scope` the same way. The write side derives `MemoryDraft.visibility` from the scope (`'profile'` profile-wide, `'user'` otherwise, explicit preserved) — **and the direction matters**: the read clause alone would have hidden every profile-wide memory from non-owners. **Reversible: no migration, no rewrite of existing rows**, so a code revert is the whole story; rows written while it is live keep their stamp, which is why a revert restores future behaviour rather than history. It is in no release and needs the owner's explicit approval before one. **`MemoryStore.list` deliberately keeps `scope_user=?` exact** — a scoped caller can only receive rows already scoped to them, so the profile-wide rules govern rows it cannot return; that is why the Chunk 7.2 note is not a leak. See the `## Recorded deviations` note on publication below.
 - **§3.5's chat half now lives in one place (Chunk 11, EM-302).** `scope_chat IN (<chat>, '')` was already emitted by `MemoryStore.list` but not by the row predicate `_in_scope`. `em.store.types.chat_in_scope` is now the single decision, called by `_in_scope` and rendered into SQL by `scope_sql`; a no-op while `scope.chat` is empty (every caller today). The scope cross-check matrix includes chat rows, so the two forms cannot drift again.
 - **EM-302's `vector` generator is EM-303's, deliberately.** §3.6 gates it on an embedding backend ("only if backend available and coverage ≥ 50%") and forbids re-reading vector blobs per query, so it belongs with the backends and the numpy cache. `em/retrieval/__init__.py` records it.
 - **§3.6's IDF cache has no key, and its cache key is the reason (EM-301).** §3.6
@@ -200,6 +200,15 @@ These are decisions the writes chunk made that are not obvious from the signatur
 - **EM-302's "current session" `recent` window is not wired.** §3.6 reads "in current session / last 48 h"; the 48 h window is implemented, and the session half needs a session id that the card's `RetrievalContext` (aq, scope, now, limits, deadline) does not carry. It also needed a read connection, so `RetrievalContext` carries `conn` as well — the one field added beyond the card's list, because the stated signature `(ctx) -> list[Candidate]` leaves a generator nowhere else to get one.
 
 ## Recorded deviations from the plan
+
+**One behaviour change this line carries, stated plainly:** `MemoryStore._outbox`
+publishes a row when it is not an owner-only tier **and** its visibility is
+`'profile'`/`'shared'`. Before Chunk 13 the first half was satisfied by accident —
+every profile-wide write was stamped `'user'` by the old default, so nothing
+profile-wide was ever queued at all. v2's gate was `_publish_allowed(sensitivity)`,
+so v2 published every non-sensitive fact, and Chunk 13 restores that with the tier
+check explicit. No consumer exists yet (publish/pull are S5), so this is inert today.
+
 
 The code is the fact. These lines are the plan's words, what the code does, and why the difference stays.
 

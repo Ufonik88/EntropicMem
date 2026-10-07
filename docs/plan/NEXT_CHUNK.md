@@ -1,12 +1,14 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-07, Chunk 12 (EM-301, the `QueryAnalyzer`) merged to `main`; **Chunk 13 (§3.5's `visibility` fix) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, Chunk 13 (the §3.5 `visibility` fix) merged to `main`; **Chunk 14 (EM-304, fusion) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
-**Decisions already taken 2026-10-07 (plan §9):** the §3.5 `visibility` gap is **approved for fixing**, and the **v3 cutover is deferred** (the live store has zero facts, the CLI still refuses seven commands on v3, and S3 is mid-flight). Neither needs the owner again.
+**Owner rulings in force (plan §9):**
+- **The v3 cutover is deferred, and the owner revisits it after EM-305 — the owner decides, the agent brings the decision.** Do not switch the live store, and do not pre-empt the call.
+- **Chunk 13's `visibility` change is internal only.** It was proposed by the implementing agent and *authorised for implementation* by the owner; the owner has **not** signed off on the behaviour change, and it must not reach the marketplace without an explicit release approval.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
-**The master plan is at `~/Documents/EntropicMem Dev docs/EntropicMem_v3_Master_Plan.md`** (the owner's document, deliberately not committed). EM-302's and EM-301's cards plus §3.6 are transcribed into `REMAINING_PLAN.md` §6.2. **Before starting a card whose text is not there, read that file** — and if it is unreachable, stop and report rather than inventing fields.
+**The master plan is at `~/Documents/EntropicMem Dev docs/EntropicMem_v3_Master_Plan.md`** (the owner's document, deliberately not committed). EM-301's, EM-302's and EM-304's cards plus §3.6 are transcribed into `REMAINING_PLAN.md` §6.2. **Before starting a card whose text is not there, read that file** — and if it is unreachable, stop and report rather than inventing fields.
 
 ---
 
@@ -14,71 +16,88 @@
 
 Only the recent chunks; the full ledger with SHAs is `REMAINING_PLAN.md` §5.
 
+### Chunk 13 — §3.5's `visibility` half. **DONE, MERGED (2026-10-07, `fd9e06f`). Agent-proposed, internal only.**
+
+- **The bug, measured:** `MemoryDraft.visibility` defaulted to `'user'` and **nothing anywhere set it**, so every `MemoryStore.add` — the facade's `remember` included — stamped `'user'` whether the row was profile-wide or user-scoped. §3.5 pairs `'user'` with a *user-scoped* write and makes a *profile-wide* row carrying it **owner-only** — so the store produced, for every write, exactly the shape its own plan calls private.
+- **The direction was the point, and it is why the read clause could not ship alone:** the read clause by itself would have hidden every profile-wide memory from non-owners. The write stamp is the real fix; the read guard is the defence. `test_a_non_owner_still_sees_an_ordinary_profile_wide_row` is the regression guard.
+- **Write:** the draft's default is now `''` = *derive from the scope* — `'profile'` profile-wide, `'user'` otherwise, an explicit value preserved and never overridden. A `str` default cannot distinguish "asked for `user`" from "nobody said", and the difference is load-bearing.
+- **Read:** `em.store.types.row_is_owner_only` owns both owner-only conditions (the tier, and a profile-wide row stamped `'user'`); `_in_scope` and `candidates.scope_sql` both call it, so predicate and SQL cannot drift. The cross-check matrix gained the row shape **and** the semantics are asserted directly — a cross-check alone would pass if both implementations were wrong together.
+- **A consequence found and fixed:** `_outbox` never checked sensitivity, despite its docstring; that was sufficient *by accident* because the old default meant profile-wide writes were never queued. v2's gate was `_publish_allowed(sensitivity)`, so v2 published every non-sensitive fact; the tier check is now explicit. Without it this chunk would have started sending profile-wide `sensitive` rows to the sync outbox.
+- **`MemoryStore.list` investigated and left alone, reason recorded:** its `scope_user=?` is *exact*, so a scoped caller only ever receives rows already scoped to them — the Chunk 7.2 "not tier-filtered" note is not a leak.
+- **Reversible:** no migration (`test_the_change_adds_no_migration`), no rewrite of existing rows.
+- 30 new tests; **1862 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12**; 13 mutation checks, all caught.
+
 ### Chunk 12 — EM-301, the `QueryAnalyzer`. **DONE, MERGED (2026-10-07, `85afea4`)**
 
-- `em/retrieval/query.py` now has `analyze(text, *, conn, scope, now, extra_stopwords, max_terms) -> AnalyzedQuery`: `<memory-context>` stripped, `\w+` tokens, stopwords and 1-character tokens dropped, **up to 12 terms chosen by IDF**, intent classified, entities resolved, temporal window detected. EM-302's generators finally have a real producer.
-- **Two findings that would each have been a silent bug:**
-  - **The vocabulary view holds porter *stems*.** `memories_fts` is `tokenize='porter unicode61'`, so `memories_vocab` carries `stage`, not `staging`; a raw-token IDF lookup would miss for every stemmed word, report df 0, and collapse IDF into a *length* ordering — the IDF would look implemented and be inert. The view stays the base map (§3.6's source); each term it lacks is counted with an FTS5 `MATCH`, which applies the same tokenizer.
-  - **An all-stopword query needs a fallback §3.6 does not specify.** `"who am I"` is the `profile` intent's own example and every word in it is a stopword. v2's EM-104 rule is carried forward so an identity question still retrieves something.
-- **The intent table is measured against 42 real phrasings**, including **three the heuristic genuinely misses** and two that match more than one pattern (pinning the declared precedence). 39/42 = 92.9% against the AC's ≥ 30 queries / ≥ 90%; the three misses are declared by name rather than deleted from the table.
-- Entity detection is one profile-scoped indexed `IN` probe over normalised n-grams up to 4 tokens, longest first — the profile join is deliberate, because `entity_aliases` alone is keyed by alias and two profiles' "Acme" would collide.
-- **Migration `0004`** creates `memories_vocab`. The plan says "0003"; that number is taken. `em/retrieval/stopwords.py` is **the same 180-word list v2 uses**, pinned identical by a test.
-- Gaps recorded, not invented: `write_generation` (nothing defines the counter §3.6's IDF cache would key on) and `query_rewrite` (no config module, no hook); the full temporal grammar is EM-310's.
-- 37 new tests; **1832 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12**; 19 mutation checks. **One escaped and was worth keeping:** the first "rare term beats common term" test tied on length, so it passed with IDF entirely unwired — the replacement makes the *common* term longer, so only a working document frequency puts the rare one first.
+- `analyze()` → `AnalyzedQuery`: `<memory-context>` stripped, `\w+` tokens, stopwords dropped, ≤12 terms by IDF, intent, entities, temporal window. Two findings: the `memories_vocab` view holds **porter stems** (a raw-token IDF lookup would silently collapse into length ordering — bridged with an FTS5 `MATCH` count), and an all-stopword query (`"who am I"`) needs v2's fallback, which §3.6 does not specify.
+- The intent table is **42 measured phrasings, 39/42 = 92.9%**, with three declared misses. Migration `0004` adds `memories_vocab`. 37 tests; 19 mutation checks.
 
 ### Chunk 11 — EM-302, the candidate generators. **DONE, MERGED (2026-10-07, `33b2b31`)**
 
-- Five generators, each `(ctx: RetrievalContext) -> list[Candidate]`: `bm25` (`memories_fts`, §3.6's `bm25(memories_fts, 1.0, 0.5, 0.3, 0.1)` column weights), `entity` (`memory_entities`, then one hop via `relations` at ×0.5), `episodic` (`episodes_fts` + time window, `owner_type='episode'`), `recent` (48 h, gated to `temporal`/`lookup`), `pinned`. `Candidate` is exactly §3.6's ranked `(owner_type, owner_id, raw_score)`. **`vector` is EM-303's.**
-- Deadline discipline is structural: checked *before* any SQL and between pages, so an expired generator issues no query and one that expires mid-scan returns a partial list.
-- `scope_sql` gained §3.5's chat dimension, retiring a drift where `MemoryStore.list` filtered `scope_chat` and `_in_scope` did not.
+- `bm25` (with §3.6's `1.0, 0.5, 0.3, 0.1` weights), `entity` (＋1 hop at ×0.5), `episodic` (`owner_type='episode'`), `recent`, `pinned`; `Candidate` = §3.6's ranked `(owner_type, owner_id, raw_score)`. **`vector` is EM-303's.** Deadline discipline is structural.
 
-**S3's retrieval base is in place, and EM-304 (fusion) is unblocked.**
+**S3's retrieval base is complete: an analyzer, generators, and a fixed scope model. EM-304 is unblocked.**
 
 ---
 
-## Part B: Chunk 13 — §3.5's `visibility` half
+## Part B: Chunk 14 — EM-304, fusion, rerank and explainability
 
-**Approved 2026-10-07 (plan §9 item 3).** This is a correctness fix, and the *direction* of the fix is the whole point — read that item before touching anything.
+### The card (master plan §5, verbatim)
 
-### The finding
+**EM-304 — Fusion, rerank, explainability · M**
+- **Files:** `em/retrieval/fusion.py`. **Spec:** exactly §3.6 formulas; all weights in `ranking.*` config; `explain` structure; deterministic tie-break `(score desc, updated_at desc, id asc)`.
+- **AC:** unit tests with synthetic ranks reproduce hand-computed scores to 1e-9.
 
-`MemoryDraft.visibility` defaults to `'user'` and **no call site anywhere sets it**, so every `MemoryStore.add` — the facade's `remember` included — stamps `'user'` whether the row is profile-wide or user-scoped. §3.5 pairs `'user'` with a *user-scoped* write (`scope_user=<user>`) and profile-wide with `'profile'`; the v2→v3 migration also stamps `'profile'` for migrated facts. So a profile-wide row carrying `'user'` is self-contradictory, and §3.5's owner rule makes **exactly that combination** owner-only.
+### The §3.6 formulas it implements (verbatim)
 
-### The trap
+**Fusion** (`em/retrieval/fusion.py`): weighted Reciprocal Rank Fusion
+`rrf(d) = Σ_g w_g / (60 + rank_g(d))`; normalised `rrf_n(d) = rrf(d) / Σ_{g ∈ G_active} (w_g / 61)` ∈ [0,1], where `G_active` = generators that **ran and returned ≥ 1 candidate** for this query (normalising over all configured generators would cap a bm25-only hit at ≈ 0.25 and make `min_score` meaningless).
 
-**Implementing the read clause alone is the wrong fix and would be a visible regression.** Every profile-wide memory in existence carries `visibility='user'`, so the read clause by itself would hide *all* of them from non-owners — the opposite of §3.5's intent that profile-wide `public`/`internal` rows are shared knowledge. The write path is the real bug; the read clause is the defensive half.
+Default generator weights by intent:
 
-### What the chunk does
+| intent | bm25 | vector | entity | episodic | recent | pinned |
+|---|---|---|---|---|---|---|
+| lookup | 1.0 | 1.0 | 0.7 | 0.3 | 0.2 | 0.5 |
+| profile | 0.6 | 0.8 | 0.6 | 0.1 | 0.1 | 1.0 |
+| temporal | 0.7 | 0.6 | 0.5 | 1.0 | 0.8 | 0.3 |
+| procedural | 1.0 | 1.0 | 0.5 | 0.4 | 0.2 | 0.5 |
 
-1. **Write path.** `MemoryDraft.visibility` gains a "derive from scope" default: a profile-wide write (`scope.user == ''`) is stamped `'profile'`, a user-scoped write `'user'`, and an explicit value passed by a caller is preserved. Whatever mechanism you choose, `MemoryDraft` currently cannot distinguish "explicitly `'user'`" from "defaulted to `'user'`" — that is why the default has to change rather than the call sites.
-2. **Read path.** `_in_scope` and `scope_sql` implement §3.5's second owner-only condition: a *profile-wide* row with `visibility='user'` is owner-only. They must keep sharing one definition per dimension, the way `may_read_owner_only` and `chat_in_scope` already work — the cross-check in `tests/unit/test_em_retrieval_scope_sql.py` is what proves it, and its row matrix should grow a `visibility` column.
-3. **`MemoryStore.list`.** It keeps profile+user only (a recorded gap since Chunk 7.2, and it does not filter tiers). Either bring it under the same rule or record why not — do not leave the divergence implicit.
+**Feature rerank** — final score in [0,1]:
+```
+score = 0.60*rrf_n + 0.15*importance + 0.10*recency + 0.10*confidence + 0.05*feedback
+recency  = 1.0                                         if decay_class == 'evergreen' or pinned
+         = max(0.5, 0.5 ** (age_days / 180))           if 'standard'
+         = 0.5 ** (age_days / 14)                      if 'volatile'
+age_days = now - max(updated_at, last_accessed_at, valid_from)
+feedback = clamp(0.5 + 0.1*(helpful - 2*unhelpful), 0, 1)
+```
+Weights and half-lives are config (`ranking.*`). `why_retrieved` becomes a list of `{"signal": "bm25", "rank": 3, "contrib": 0.12}` plus flags (`temporal_filter`, `entity:<name>`, `superseded_note`). Keep the legacy flat token list in `why_retrieved_tokens` for one minor version.
 
-### Acceptance
+### What is already in the repo, so do not rebuild it
 
-* a profile-wide write is stamped `visibility='profile'`, and a non-owner **still** sees a profile-wide `public`/`internal` row (the regression guard — this is the test that matters);
-* a user-scoped write is stamped `'user'`;
-* an explicit `visibility='user'` on a profile-wide write is owner-only on read, in both the predicate and the SQL form;
-* an explicit `visibility='profile'` on a profile-wide write is readable by the profile;
-* the existing `_in_scope`/`scope_sql` cross-check still passes with `visibility` in the matrix.
+- `em/retrieval/candidates.py` has the five generators, `Candidate` (three fields), `RetrievalContext`, and `GENERATORS` (a name → function mapping, so the *generator name* is known to the caller and does not need to be on the candidate).
+- `em/retrieval/query.py` has `AnalyzedQuery` with `intent`, so the weight table is selected from data.
+- `em/facade/engine.py`'s read half already computes a `why_retrieved` list of flat tokens (the v2-compatible shape) and `memory_engine.py`'s helpers are the v2 reference for what the provider expects. Keep the legacy list working.
 
 ### Size guards — stop and report if
 
-* the fix turns out to require a **migration** (restamping existing rows). It may not: v3 stores are unreleased and unreachable, so existing rows are test fixtures. If it does, that is an owner decision, not a silent schema change.
-* the regression guard cannot pass without weakening it — that would mean §3.5's two clauses are being read the wrong way round, so stop rather than adjust the test.
+* **`ranking.*` config does not exist.** There is no `em/config.py` (it is EM-407), exactly as with EM-301's `extra_stopwords`. Take the weights and half-lives as parameters defaulting to §3.6's numbers, and **record the gap** — do not invent a config system.
+* **the rerank features need a row fetch that has no home.** `Candidate` carries only `(owner_type, owner_id, raw_score)`, but rerank needs `importance`, `confidence`, `decay_class`, `pinned`, `updated_at`, `last_accessed_at`, `valid_from` and the feedback counters — for **both** memories and episodes, and filtered by scope. Decide where that load lives (a loader in `fusion.py`, or a helper on `RetrievalContext`), keep §3.5's scope rule on it, and **say which and why**. If it needs `MemoryStore` API that does not exist, that is a cross-card dependency — report rather than reaching into another card.
+* the card needs the gate or MMR — those are **EM-305**; `fusion.py` ends at the ranked, explained list.
 
 ### Pre-flight
 
-1. `main` must be at `85afea4` or later: Chunk 12 merged there. `git merge-base --is-ancestor TBD_SHA main` proves it.
-2. **Baseline:** `pytest -q` gives **1832 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
-3. **Re-measure from the code**, not from this file: `MemoryDraft.visibility` and every `MemoryDraft(` call site; `_insert`'s use of `draft.visibility`; `_in_scope`; `MemoryStore.list`; the migration's `visibility='profile'` stamp; and `scope_sql`. Confirm the "no call site sets it" claim still holds — if the facade has started passing one, the analysis changes.
+1. `main` must be at `fd9e06f` or later: Chunk 13 merged there. `git merge-base --is-ancestor fd9e06f main` proves it.
+2. **Baseline:** `pytest -q` gives **1862 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
+3. **Re-measure from the code**, not from this file: `em/retrieval/candidates.py`'s `Candidate`/`GENERATORS`, `query.py`'s `AnalyzedQuery`, whether anything already loads candidate rows for rerank, what the facade's `why_retrieved` currently contains, and whether `em/config.py` exists yet.
+4. **The AC is a numeric reproduction**, so write the hand-computed expectations out first and let the test fail on the arithmetic — do not derive the expectation from the implementation.
 
 ### Document control (before and after)
 
-Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth.
+Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth. Chunk 13's change stays **internal**; do not touch the Marketplace entry.
 
 ### End of chunk
 
 1. Push, green CI on the exact SHA, `git merge --ff-only`, delete the branch.
 2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.2/§9/§11.
-3. **Replace this file's Part A with this chunk and Part B with the next piece** — EM-304 (`fusion`), which is unblocked.
+3. **Replace this file's Part A with this chunk and Part B with the next piece** — EM-305 (gate, supersession collapse, MMR), after which the cutover decision goes back to the owner.

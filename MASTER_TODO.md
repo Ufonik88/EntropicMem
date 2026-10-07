@@ -13,9 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `3899012`, which is the
-merge commit for Chunk 12 — its code is `85afea4`, its docs `3899012`. CI is green
-on that exact SHA on `main` (all 11 jobs) as well as on the branch.
+**Last reconciled:** 2026-10-07, against branch `main` at `fd9e06f`, Chunk 13's code
+commit; its docs commit sits on top and moves the tip without changing code, tests
+or counts, which is expected — see plan §11. CI is confirmed on `main` after the
+merge.
 
 ---
 
@@ -118,6 +119,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 10 | **CLI parity** on v3 — 10.0 guard → 10.1 reads → 10.2 maintenance → 10.3 refusals → 10.4 route | **Done, merged** (`250320a`). **EM-211's AC is met except for seven named refusals** |
 | 11 | **S3 begins** — EM-302, candidate generators (the critical path) | **Done, merged** (`0066fb5` the scope helper, `33b2b31` the generators). `vector` is EM-303's |
 | 12 | **EM-301, the `QueryAnalyzer`** | **Done, merged** (`85afea4`) |
+| 13 | **§3.5's `visibility` half** — the write stamp and the read guard | **Done, merged** (`fd9e06f`). Agent-proposed, owner-authorised; **internal only, no release** |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -187,33 +189,40 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-### Chunk 13 — §3.5's `visibility` fix (approved), then EM-304.
+### Chunk 14 — EM-304, fusion, rerank and explainability. **Unblocked.**
 
-**EM-304 (`fusion`, rerank, explainability) is now unblocked** — its last dependency,
-EM-301, is merged, so `em/retrieval/` has a real `AnalyzedQuery` producer and the
-generators that consume one. EM-304 is "exactly §3.6 formulas" with `explain`, all
-weights in `ranking.*` config, and a deterministic `score desc, updated_at desc,
-id asc` tie-break; its AC is unit tests reproducing hand-computed scores to 1e-9.
+Both of its dependencies are merged: EM-302's generators produce the ranked
+`Candidate` triples and EM-301's analyzer produces the `AnalyzedQuery` they consume.
 
-**Order:** Chunk 13 is the `visibility` fix recorded under "Known gaps" below — it is
-approved, it is small, and it touches the same `_in_scope`/`scope_sql`/`MemoryDraft`
-surface that has just been worked on, so doing it next avoids a second pass. EM-304
-follows immediately after; nothing blocks it either way.
+- **Files:** `em/retrieval/fusion.py`. **Spec:** "exactly §3.6 formulas" —
+  `rrf(d) = Σ_g w_g / (60 + rank_g(d))`, normalised over the generators that
+  *actually ran and returned ≥ 1 candidate* (normalising over all configured
+  generators would cap a bm25-only hit at ≈ 0.25 and make `min_score` meaningless);
+  the four intent weight tables; the feature rerank
+  `0.60*rrf_n + 0.15*importance + 0.10*recency + 0.10*confidence + 0.05*feedback`
+  with the `decay_class` half-lives; all weights in `ranking.*` config; the `explain`
+  structure; and a deterministic tie-break `(score desc, updated_at desc, id asc)`.
+- **AC:** "unit tests with synthetic ranks reproduce hand-computed scores to 1e-9."
+- **Watch for:** §3.6's `why_retrieved` becomes a list of
+  `{"signal": …, "rank": …, "contrib": …}` plus flags, keeping the legacy flat token
+  list in `why_retrieved_tokens` for one minor version.
+- **Then EM-305** (gate, supersession collapse, MMR) — and the cutover comes back to
+  the owner for a decision **after** EM-305, not before.
 
 ### Known gaps, recorded so they are not lost
 
-* **§3.5's `visibility` half — DECIDED 2026-10-07: fix it, as Chunk 13, right after
-  EM-301.** Measured, not inferred: `MemoryDraft.visibility` defaults to `'user'` and
-  **nothing anywhere sets it**, so every `MemoryStore.add` — the facade's `remember`
-  included — stamps `'user'` whether the row is profile-wide or user-scoped. §3.5
-  pairs `'user'` with a user-scoped write and `'profile'` with a profile-wide one, so
-  the combination is self-contradictory; and §3.5's owner rule makes exactly that
-  combination owner-only. **The write path is the real fix** — implementing the read
-  clause alone would hide every profile-wide memory from non-owners, the opposite of
-  §3.5's intent — so Chunk 13 does the write path (derive visibility from the scope)
-  **and** the read clause (the defensive half). Not urgent: v3 stores are unreleased
-  and the live store is v2 with zero facts, so nothing user-reachable is exposed while
-  it waits. Full reasoning in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
+* **§3.5's `visibility` half — FIXED in Chunk 13 (`fd9e06f`), and the decision is an
+  agent proposal, not an owner ruling.** *Provenance:* the implementing agent proposed
+  the fix and the owner authorised it to be implemented; the owner has **not** ruled on
+  the behaviour change itself, and it is **internal only** — in no release, and not to
+  reach the marketplace without the owner's explicit approval of a release. Measured,
+  not inferred: the `MemoryDraft.visibility` default was `'user'` and **nothing
+  anywhere set it**, so every write carrying a profile-wide scope was stamped with the
+  value §3.5 reserves for user-scoped rows — the exact shape §3.5 makes owner-only.
+  **The direction was the point:** the read clause alone would have hidden every
+  profile-wide memory from non-owners, so the write stamp was the real fix and the read
+  guard is the defence. Reversible: no migration, no rewrite of existing rows. Full
+  reasoning in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
 * **`vector` (EM-303)** — §3.6's sixth generator, deferred to the card that builds
   the embedding backend and its numpy cache, which its spec requires.
 * **§3.6's IDF cache and `query_rewrite` have no source (EM-301)** — nothing defines
@@ -249,7 +258,7 @@ call is **not now**, for four reasons:
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1832 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **1862 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
