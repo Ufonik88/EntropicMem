@@ -123,7 +123,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 14 | **EM-304 — fusion, rerank, explainability** | **Done, merged** (`14552be`) |
 | 15 | **EM-305 — gate, supersession collapse, MMR** | **Done, merged** (`50601b3`); two review-driven pins added at `9f4b39b` |
 | 16 | **The v3 eval adapter** (P1) — the first end-to-end v3 number | **Done, merged** (`ff0d3c3`) |
-| 17 | **P0a — the v3 shadow read** | **Done, merged** (`f0a7c70`, id-space fix `636a685`). P0b (v3 serves prefetch *from* S3) is not |
+| 17 | **P0a — the v3 shadow read** | **Done, merged** (`f0a7c70`, id-space fix `636a685`, test fix `d1060c1`). P0b (v3 serves prefetch *from* S3) is not |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -271,9 +271,16 @@ first real run also showed v3 injecting exactly what v2 injected, divergence emp
 
 ### START HERE TOMORROW
 
-**The repo is at a clean resting point: everything merged, all gates green, nothing in
-flight, the live store and the Marketplace entry untouched. P0a is done and verified end
-to end; P0b has not been started.**
+**The repo is at a clean resting point: everything merged, `main`'s checks all green
+(22/0 on `d1060c1`), nothing in flight, the live store and the Marketplace entry
+untouched. P0a is done and verified end to end; P0b has not been started.**
+
+**Two defects were found *after* the first wrap-up, both by testing rather than by
+review, and both are fixed and merged:** the shadow compared v2's content ids against
+v3's `mem_…` ULIDs (so every line would have read as a divergence), and EM-302's deadline
+AC test asserted a wall-clock bound that flaked on Windows. Read both in the CHANGELOG —
+they are the argument for running the thing once against real data and for never
+asserting on a stopwatch.
 
 1. **Read:** this file, then `docs/plan/NEXT_CHUNK.md` **Part B** (that is the chunk), then
    `REMAINING_PLAN.md` §9 for the decisions in force.
@@ -396,12 +403,14 @@ a 3.12-only local run passed while `em/facade/engine.py` could not parse its own
 that only shows on the CI floor is exactly the kind local green cannot rule out.
 
 Two gates have flapped on unchanged code before, and `perf-smoke` has now done it
-**three times** — on 2026-10-07 at `f36c5e6` (Chunks 10.2/10.3), and again the same
-day at `a70028a` (Chunk 11). At `f36c5e6` the branch and local runs were both ~4–5 ms
+**four times** — on 2026-10-07 at `f36c5e6` (Chunks 10.2/10.3), at `a70028a` (Chunk 11),
+and at `d1060c1` (session close), each time on a **tests-only or docs-only** change. At `f36c5e6` the branch and local runs were both ~4–5 ms
 p95, the `main` run came back **p95 69.392 ms with p50 4.544 and max 109.506**, and a
 rerun of the *same SHA* returned **p95 5.388 ms (p50 3.437)**. At `a70028a` the failed
-run was **p95 51.752 ms with p50 4.769 and max 96.29**, and the rerun of the *same
-SHA* was green. The tell each time is the p50: a low p50 with a huge max is one noisy
+run was **p95 51.752 ms with p50 4.769 and max 96.29**; at `d1060c1` it was **p95
+47.011 ms with p50 4.628 and max 81.13**, on a change that touches no production code.
+The rerun of the *same SHA* was green every time, and the check-runs API is what
+confirms it. The tell each time is the p50: a low p50 with a huge max is one noisy
 shared runner, not a regression. (Chunk 11's code is not even on the perf path —
 `evals/perf.py` builds `MemoryEngine` directly, not through `_open_engine`, and
 `em/store`'s scope helpers are not imported by it.) The way to tell a flake from a
