@@ -93,6 +93,22 @@ def may_read_owner_only(scope: "Scope") -> bool:
     return scope.user == "" or bool(scope.is_owner)
 
 
+def chat_in_scope(scope: "Scope", row_chat: str) -> bool:
+    """True when a row's ``scope_chat`` is readable in this scope (§3.5).
+
+    Chat scoping only narrows reads when the caller is *in* a chat
+    (``scope.chat`` non-empty): the row must belong to that chat or be
+    chat-wide (``''``). With no chat — every caller today — everything passes,
+    so this is a no-op until something sets ``scope.chat``.
+
+    ``MemoryStore.list`` already emitted exactly this clause (``scope_chat=?
+    OR scope_chat=''``); ``_in_scope`` did not, which was a drift between the
+    row predicate and one of its SQL callers. Both now go through this
+    function, so there is one answer.
+    """
+    return not scope.chat or row_chat in (scope.chat, "")
+
+
 @dataclass(frozen=True)
 class Scope:
     """One turn's resolved scope. Mirrors the plan's ``ScopeContext``.

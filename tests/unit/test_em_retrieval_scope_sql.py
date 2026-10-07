@@ -36,8 +36,15 @@ GUEST = Scope(profile="default", user="alice")
 SCOPED_OWNER = Scope(profile="default", user="alice", is_owner=True)
 OTHER_USER = Scope(profile="default", user="bob")
 OTHER_PROFILE = Scope(profile="other")
+# The chat dimension (§3.5): a chat-scoped caller reads its own chat and
+# chat-wide rows only. `MemoryStore.list` already emitted this clause while
+# `_in_scope` did not; both go through `chat_in_scope` now, and this matrix is
+# what proves the SQL form and the predicate still agree.
+CHAT_GUEST = Scope(profile="default", user="alice", chat="chat-1")
+CHAT_OWNER = Scope(profile="default", chat="chat-1")
+OTHER_CHAT = Scope(profile="default", user="alice", chat="chat-9")
 
-SCOPES = (OWNER, GUEST, SCOPED_OWNER, OTHER_USER, OTHER_PROFILE)
+SCOPES = (OWNER, GUEST, SCOPED_OWNER, OTHER_USER, OTHER_PROFILE, CHAT_GUEST, CHAT_OWNER, OTHER_CHAT)
 
 
 @pytest.fixture
@@ -63,6 +70,9 @@ def seed(store) -> None:
         (GUEST, "sensitive", "alice's own, sensitive"),
         (OTHER_PROFILE, "internal", "another profile, ordinary"),
         (OTHER_PROFILE, "sensitive", "another profile, sensitive"),
+        (CHAT_GUEST, "internal", "alice's own, in chat-1"),
+        (CHAT_OWNER, "internal", "profile-wide, in chat-1"),
+        (OTHER_CHAT, "internal", "alice's own, in chat-9"),
     )
     with store.transaction() as conn:
         mem = MemoryStore(conn)
@@ -113,9 +123,10 @@ def test_sql_and_in_scope_select_the_same_rows(store):
 def test_the_matrix_actually_discriminates(store):
     """Guard the guard: if every scope saw everything, the cross-check is vacuous."""
     seed(store)
+    total = store.reader().execute("SELECT COUNT(*) FROM memories").fetchone()[0]
     seen = [by_predicate(store, scope) for scope in SCOPES]
-    assert len(seen[0]) > len(seen[1]), "a guest must see strictly fewer rows than the owner"
-    assert len(seen[0]) > len(seen[3]), "and fewer than a different user"
+    assert all(len(s) < total for s in seen), "a scope saw every row, so the matrix is vacuous"
+    assert len({frozenset(s) for s in seen}) >= 4, "the scopes barely differ"
     assert all(len(s) > 0 for s in seen), "every scope sees at least its own rows"
 
 

@@ -32,6 +32,7 @@ from .types import (
     Scope,
     Status,
     WriteResult,
+    chat_in_scope,
     check_transition,
     may_read_owner_only,
 )
@@ -769,21 +770,32 @@ def _scope_of(row: Mapping[str, Any]) -> Scope:
 
 
 def _in_scope(row: Mapping[str, Any], scope: Scope) -> bool:
-    """§3.5 read rule: profile, user, and the owner-only rule for sensitive rows.
+    """§3.5 read rule: profile, user, chat, and the owner rule for sensitive rows.
 
-    A row is visible when it is in the caller's profile and either scoped to the
-    caller or profile-wide. On top of that, a row whose tier is in
-    :data:`OWNER_ONLY_TIERS` (``sensitive``/``secret``) is visible only to its
-    owner. This is the one place the rule lives, so every read that goes through
-    it — ``get``, and the facade's recall paths — inherits it (invariant 5).
+    A row is visible when it is in the caller's profile, reads in the caller's
+    chat context, and is either scoped to the caller or profile-wide. On top of
+    that, a row whose tier is in :data:`OWNER_ONLY_TIERS`
+    (``sensitive``/``secret``) is visible only to its owner.
+
+    The tier decision comes from :func:`em.store.types.may_read_owner_only` and
+    the chat decision from :func:`em.store.types.chat_in_scope` — the same two
+    functions ``em.retrieval.candidates.scope_sql`` renders into SQL — so the
+    row predicate and the query form cannot disagree about who may read what.
     """
     if row["scope_profile"] != scope.profile:
         return False
     if not _owner_may_read(row, scope):
         return False
+    try:
+        chat = row["scope_chat"]
+    except (KeyError, IndexError):
+        chat = ""
+    if not chat_in_scope(scope, chat):
+        return False
     if row["scope_user"] == scope.user:
         return True
     return row["scope_user"] == ""
+
 
 
 def _owner_may_read(row: Mapping[str, Any], scope: Scope) -> bool:
