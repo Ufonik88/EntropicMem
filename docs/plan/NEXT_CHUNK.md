@@ -108,7 +108,7 @@
 - 15 new tests; 1707 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; nine mutation checks, all caught.
 - **Merged** to `main` at `b807e4c`; green on the exact SHA, first CI run.
 
-### Chunk 10.2 — the facade's CLI maintenance calls. **DONE, COMMITTED, NOT MERGED (2026-10-07, `cc19337`)**
+### Chunk 10.2 — the facade's CLI maintenance calls. **DONE, MERGED (2026-10-07, `cc19337`, in `f36c5e6`)**
 
 - Six state-changing calls: `promote_pending`, `discard_pending`, `reinforce`, `rebuild_fts`, `timeline`, `recall_episodes`. Tests assert the **transition**, not the return value.
 - **v3's model shows in promotion:** v2 re-`remember`ed the quarantine row into a new durable fact and produced a new id; on v3 the pending row **is** the memory, so promotion is a `pending -> active` edge and the id is unchanged. Recorded deviation: no `source="promoted"` re-stamp and no `"promoted"` tag (the store does not allow editing `source`).
@@ -116,7 +116,7 @@
 - `recall_episodes` windows in the facade (not via `search_episodes`, which filters a different column), through a shared `_episode_to_v2` mapper so the two episode reads cannot drift.
 - 15 new tests.
 
-### Chunk 10.3 — the CLI's by-name refusals. **DONE, COMMITTED, NOT MERGED (2026-10-07, `cc19337`)**
+### Chunk 10.3 — the CLI's by-name refusals. **DONE, MERGED (2026-10-07, `cc19337`, in `f36c5e6`)**
 
 - Seven v2-only features now exit up front, before `_engine()`, naming the card that lifts them: `triple` (S5), `embed --rebuild` (S3/EM-303), `memory project` (S6), `publish`/`pull` (S5), `migrate` (v2-only), `recall --related` (S6), `recall --scope shared|all` (S5).
 - **The tests monkeypatch `_engine` to raise**, so a passing test proves the refusal fired first. That is what makes them meaningful *now*, while 10.0's coarser refusal is still in force — after 10.4 these guards are the only thing between a v3 store and an `AttributeError`.
@@ -129,7 +129,7 @@
 
 ## Part B: Chunk 10.4 — route the CLI and prove it on a v3 store. **NEXT PIECE, NOT STARTED**
 
-**Updated:** 2026-10-07, 10.2 and 10.3 committed (not yet merged); **10.4 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
+**Updated:** 2026-10-07, 10.2 and 10.3 merged to `main` at `f36c5e6`; **10.4 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
 
 **Topic.** The last piece of CLI parity. `_engine()` currently **refuses** a v3 store (10.0's guard) because the facade could not serve the CLI. It now can: 10.1 ported the reads, 10.2 the maintenance, and 10.3 makes the v2-only features refuse by name. This chunk routes `_engine()` through the selector and proves the whole CLI surface against a v3 store.
 
@@ -152,7 +152,7 @@
 **Size guard — stop and report if:** a ported command turns out to need something the facade still lacks (that is a 10.5, not a widening); the routing changes v2 behaviour; or the CLI drift guard needs weakening (it does not).
 
 ### 10.4.0 Pre-flight (read-only)
-1. `main` must contain 10.2/10.3 once merged; if unmerged, stack on this branch and say so.
+1. `main` must be at `f36c5e6` or later: 10.0–10.3 are all merged there. `git merge-base --is-ancestor f36c5e6 main` proves it.
 2. **Baseline:** `pytest -q` gives **1734 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
 3. **Re-measure from the code.** Read `_engine()`, `test_the_cli_builds_engines_only_through_the_helper`, and every command that calls `_engine()`; list which ones the facade can serve and confirm each refused one has a guard *before* its `_engine()` call.
 

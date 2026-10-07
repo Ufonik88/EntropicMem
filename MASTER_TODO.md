@@ -13,8 +13,8 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `04bb88c`, with Chunk 10's
-second and third slices on `em/em-211-cli-maintenance`. A later docs-only commit moving
+**Last reconciled:** 2026-10-07, against branch `main` at `f36c5e6`, which is the
+commit Chunks 10.2 and 10.3 were merged at after green CI on it. A later docs-only commit moving
 the tip without changing code, tests or counts is expected; see plan §11.
 
 ---
@@ -113,7 +113,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 7.2 | The **§3.5 owner-only rule** for sensitive reads | **Done, merged** (`563afe5`) |
 | 8 | EM-212's **package move** | **Done, merged** (`025f012`, in `c922970`) |
 | 9 | The **provider** selects its engine by `user_version` | **Done, merged** (`b615bcf`) |
-| 10 | **CLI parity** on v3 — split 10.0 guard → 10.1 reads → 10.2 maintenance → 10.3 refusals → 10.4 route | 10.0–10.1 **merged**; 10.2–10.3 **done** (`cc19337`, not merged); 10.4 next. The cutover waits on 10.4 |
+| 10 | **CLI parity** on v3 — split 10.0 guard → 10.1 reads → 10.2 maintenance → 10.3 refusals → 10.4 route | 10.0–10.3 **done, merged**; **10.4 next**. The cutover waits on 10.4 |
 
 **EM-211's acceptance criterion is still not met, and S2's exit criteria still
 fail — but for the first time the reason is narrow and named.** Chunk 9 wired the
@@ -126,13 +126,14 @@ because after a cutover the CLI would read a v3 store with a v2 engine.
 
 ### In flight
 
-**Chunk 10's second and third slices (10.2, the maintenance calls, and 10.3, the
-refusals)** — `cc19337`, on the local branch `em/em-211-cli-maintenance`. **Not pushed, not
-merged, no CI run yet.** `origin/main` is `04bb88c`. Locally green on both Python
-3.10 and 3.12 — **1734 passed / 3 skipped / 3 xfailed**, `ruff==0.16.2` clean,
-eval gate with no gated metric regressed, `perf-smoke` warm p95 4.421 ms against
-the 20 ms budget, `tests/unit` green standalone. Push, green CI on the exact SHA,
-`git merge --ff-only`.
+**Nothing.** Chunks 10.2 and 10.3 are merged to `main` at `f36c5e6` with green CI on
+that exact SHA, and the `em/em-211-cli-maintenance` branch is deleted. The remote
+carries `main` and `release/2.8.x` only, and the Marketplace entry is untouched
+(still 2.8.1 at `7e02412`) — a chunk leaves it alone unless the chunk *is* a
+release.
+
+Seven consecutive merges have now gone green on the **first** CI run, all because
+the suite was checked on Python 3.10 as well as 3.12 before pushing.
 
 ## What is done
 
@@ -211,10 +212,16 @@ a 3.12-only local run passed while `em/facade/engine.py` could not parse its own
 `uv python install 3.10` and a second venv is enough to catch that class. A bug
 that only shows on the CI floor is exactly the kind local green cannot rule out.
 
-Two gates have flapped on unchanged code before (`perf-smoke` once, the v3
-concurrency AC test once). The way to tell a flake from a regression is a rerun
-of the **same** SHA. Never widen a budget, skip a test or mark a job
-non-blocking to clear red.
+Two gates have flapped on unchanged code before, and `perf-smoke` has now done it
+**twice** — the second time on 2026-10-07 at `f36c5e6`, the Chunks 10.2/10.3 merge:
+the branch run and the local run were both ~4–5 ms p95, the `main` run came back
+**p95 69.392 ms with p50 4.544 and max 109.506**, and a rerun of the *same SHA*
+returned **p95 5.388 ms (p50 3.437, max 8.142)**. The tell is the p50: a low p50
+with a huge max is one noisy shared runner, not a regression. (That chunk's code
+is not even on the perf path — `evals/perf.py` builds `MemoryEngine` directly, not
+through `_open_engine`.) The way to tell a flake from a regression is a rerun of
+the **same** SHA. Never widen a budget, skip a test or mark a job non-blocking to
+clear red.
 
 ---
 
