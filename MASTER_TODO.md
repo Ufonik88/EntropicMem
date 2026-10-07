@@ -13,8 +13,8 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `783aae9`, which is the
-commit Chunk 7.2 was merged at after green CI on it. A later docs-only commit moving
+**Last reconciled:** 2026-10-07, against branch `main` at `ed03ad8`, with Chunk 8
+committed on `em/em-212-package-move` (see In flight). A later docs-only commit moving
 the tip without changing code, tests or counts is expected; see plan §11.
 
 ---
@@ -123,11 +123,19 @@ read three landed chunks as the card being done.
 
 ### In flight
 
-**Nothing.** Chunk 7.2 is merged to `main` at `783aae9` with green CI on that exact
-SHA, and the `em/em-211-owner-only-reads` branch is deleted. The remote carries
-`main` and `release/2.8.x` only. Two consecutive merges have now gone green on the
-**first** CI run, both because the suite was checked on Python 3.10 as well as 3.12
-before pushing.
+| Chunk | Card | State |
+|---|---|---|
+| 8 | EM-212's package move | Committed (`025f012`), **not merged** |
+
+**Chunk 8 is on the local branch `em/em-212-package-move`** — `025f012` (the move),
+with this docs close-out beside it. **Not pushed, not merged, no CI run yet.** `origin/main`
+is `ed03ad8`. Locally green on both Python 3.10 and 3.12 — **1671 passed / 3
+skipped / 3 xfailed**, `ruff==0.16.2` clean, eval gate with no gated metric
+regressed, `perf-smoke` warm p95 3.973 ms against the 20 ms budget. Push, green CI
+on the exact SHA, `git merge --ff-only`.
+
+**One gate could not be run here:** `hermes plugins validate` (the module-shadow
+half of EM-212's AC) needs a `hermes-agent` checkout.
 
 ## What is done
 
@@ -147,8 +155,11 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   owner-only rule for sensitive reads. `PROVIDER_ATTRIBUTES` is empty, entity
   linking runs off the write path as `link:<memory_id>:<version>`, and a
   `sensitive`/`secret` row is readable only by its owner.
-- **EM-212 partially done**: `_backend` loads its own `vault.py` by path. The
-  package move is still open.
+- **EM-212 done (Chunk 8)**: the six shared-name engine modules (`vault`, `index`,
+  `security`, `policy`, `embeddings`, `retrieval`) live under `scripts/em_internal/`,
+  so the import system registers `em_internal.*` and never the bare names, and the
+  strict xfail flipped to a passing test. The other 14 modules still carry
+  unprefixed names — the AC names only the six.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
   identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
   test that prints its full distribution, and a document-control guard that
@@ -175,23 +186,21 @@ the owner present. Two consequences:
 
 1. **Wiring must not be done unilaterally.** It cannot land as a quiet refactor;
    the moment a wired provider opens the live store, the store is v3.
-2. **The recommended shape is engine selection by store version**, not a single
-   hard swap: the provider reads `PRAGMA user_version`, uses the v2 engine for a
-   v2 store and the facade for a v3 one. Then the wiring can land and be tested
-   without touching anyone's data, and the cutover becomes a separate, deliberate
-   owner action (migrate a copy, verify, swap). This has to be designed, not
-   assumed — see the wiring notes below.
+2. **The shape is decided (owner, 2026-10-07): engine selection by store
+   `user_version`** — the v2 engine for a v2 store, the facade for a v3 one — not a
+   single hard swap. The wiring can then land and be tested without touching
+   anyone's data, and the cutover stays a separate, deliberate owner action
+   (migrate a copy, verify, swap). No `migrate()` runs on a v2 store as a side
+   effect of wiring.
 
-### The order I recommend
+### The order (settled)
 
-1. **EM-212's package move** — the next *chunk*, because it is safe, self-contained
-   and unblocked. It moves the engine modules under a package namespace so no
-   unprefixed `vault`/`index`/`security` module is registered in the host process,
-   with a CLI shim. Pinned by a strict xfail that flips when it lands. It touches
-   nothing on the live path.
-2. **Wiring + the v3 cutover** — owner-gated, and now understood to be a *pair*.
-   Design engine selection by store version first; then migrate a copy, verify
-   against the parity suite, and only then cut over with the owner present.
+1. **Chunk 8: EM-212's package move — DONE** (see In flight). It touched the
+   plugin's module namespace, not the live data path, and the strict xfail
+   flipped to a passing test.
+2. **Chunk 9: the wiring, engine selection by `user_version`** — the approach the
+   owner settled (2026-10-07). Scoped in `NEXT_CHUNK.md` Part B. **The cutover
+   itself stays a separate, owner-scheduled act**, not part of the wiring chunk.
 3. **S3 (retrieval v3)** after that, on the critical path in plan §6.2:
    EM-302 → EM-304 → EM-305 → EM-403 → EM-503 → EM-901 → EM-904 — ending in
    **EM-904**, the 3.0 release that re-pins the catalog and renames the tool.
@@ -200,7 +209,7 @@ the owner present. Two consequences:
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1669 passed / 3 skipped / 4 xfailed** |
+| Tests | `python -m pytest -q` | **1671 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |

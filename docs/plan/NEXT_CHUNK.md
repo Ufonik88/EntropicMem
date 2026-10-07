@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-07, Chunk 7.2 merged to `main` at `783aae9`; **Chunk 8 (EM-212's package move) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, Chunk 8 committed (not yet merged); **Chunk 9 (the wiring by `user_version`) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
@@ -79,50 +79,73 @@
 - **Known gap recorded, not fixed:** `MemoryStore.list` keeps profile+user only, so the facade's `prune_pending`/`consolidate` are not tier-filtered. They are the owner's operations and the facade is unwired.
 - **Merged** to `main` at `783aae9`; green on the exact SHA, first CI run, `identity-guard` included.
 
-**EM-211 is now code-complete and unwired: reads, writes, the mirror call, the link job and the owner-only read rule are all in.** The provider still constructs v2's `MemoryEngine`, so the card's AC is unmet — and wiring is not a normal chunk (see `MASTER_TODO.md`): `V3Engine.__init__` calls `migrate()`, so pointing the provider at a v2 store migrates it, which *is* the cutover. Wiring and the cutover are a pair and owner-gated.
+### Chunk 8 — EM-212's package move. **DONE, COMMITTED, NOT MERGED (2026-10-07, `025f012`)**
+
+- `fix(em-212): the engine's shared-name modules live under a package`: `vault`, `index`, `security`, `policy`, `embeddings` and `retrieval` moved under `scripts/em_internal/`, so the import system registers `em_internal.*` and never the bare names. The strict xfail **flipped to a passing test**.
+- The move is what the card's AC names — six modules, and the six `hermes plugins validate` warned about. `_backend._own_module` (the path-loading shim) is deleted in favour of a qualified import, because a qualified name cannot collide.
+- **Three silent coverage losses were repaired**, each of which the move would have hidden: `test_f005`'s non-recursive glob stopped seeing the moved modules; `test_plugin_imports`'s module list stopped checking them for the 2026-08-14 bug class; and the packaging guard only required `em.*`, so `em_internal` could have shipped missing from the wheel. All three now cover the package, and each was mutation-checked.
+- 52 files touched (6 renames). 1671 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; the xfail count dropping 4→3 **is** the flip. Provider, CLI and `graph_server` all still import.
+- **The other 14 modules keep unprefixed names, deliberately** — the AC names only the six. Moving them is a follow-up, not a silent omission.
+- **`hermes plugins validate` was not run**: it needs a `hermes-agent` checkout, so the "no module-shadow warning" half of the AC is unverified locally.
+- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+
+**EM-211 and EM-212 are both code-complete.** EM-211 is unwired (its AC needs the provider on the facade) and EM-212's six named modules are namespaced (its AC also wants `hermes plugins validate`, unrun here).
 
 ---
 
-## Part B: Chunk 8 — EM-212's package move. **NEXT PIECE, NOT STARTED**
+## Part B: Chunk 9 — the wiring, engine selection by `user_version`. **NEXT PIECE, NOT STARTED**
 
-**Why this one, and not the wiring.** EM-211 is code-complete; its AC needs the provider wired onto the facade — but `V3Engine.__init__` calls `migrate()`, so a wired provider opening a v2 store migrates it in place, which *is* the v3 cutover. That makes wiring owner-gated (plan §9). EM-212 is the next piece because it is safe, self-contained and unblocked: it touches the plugin's module namespace, not the live data path.
+**Topic.** The provider still constructs v2's `MemoryEngine`. EM-211's four sub-chunks are code-complete, so the facade can serve every call the provider makes — but nothing selects it. This chunk puts the selection in: **the v2 engine for a v2 store, the facade for a v3 one**, keyed on `PRAGMA user_version`.
 
-**Topic.** No unprefixed engine module may be registered in the host process. `_backend.resolve_paths` puts `scripts/` on `sys.path`, so a bare `import vault` resolves through the shared `sys.modules` — and the Hermes host runs many plugins in one process. Another plugin's `vault` (or `index`, `security`, `policy`, `embeddings`, `retrieval`) is returned instead of EntropicMem's. The first step already landed (2026-09-27): `_backend` loads its own `vault.py` by file path under a private name. **The rest of the card is open.**
+**Why that shape, and not a swap.** `V3Engine.__init__` calls `migrate(conn)`. A wired provider pointed at an existing v2 store would therefore migrate it in place — that *is* the v3 cutover, which the rules reserve for the owner with the owner present. Selecting by store version means the wiring lands and is fully testable **without opening anyone's store for a migration**, and the cutover stays a separate, deliberate act. This is the approach the owner settled on 2026-10-07.
 
-**Measured from the code (this is the size guard).** `plugins/entropicmem/scripts/` holds **20 top-level modules**:
+**What already exists (measured from the code).**
 
-```
-embeddings entropicmem graph_export graph_query graph_static index
-injection_screen memory_engine parity_audit pii policy retrieval
-security session_digest stopwords temporal textutil triple_extract vault
-```
+| Piece | Where | State |
+|---|---|---|
+| `MemoryEngine(` construction sites | `plugins/entropicmem/__init__.py`, `scripts/entropicmem.py` | **11 sites**, and two factories already funnel most of them |
+| Provider factory | `EntropicMemMemoryProvider._memory_engine()` (`__init__.py:1568`) | Exists — the seam |
+| CLI factory | `_engine(db)` (`entropicmem.py:419`) | Exists — the seam. `tests/test_...` asserts no bare `MemoryEngine(...)` in the CLI |
+| `PRAGMA user_version` | `em/store/migrations/__init__.py` | Read at `:327`; `migrate()` refuses a store newer than this build |
+| Facade | `em/facade/engine.py` `V3Engine` | Code-complete; takes `profile_id`, `scope_user`, `scope_chat`, `is_owner` |
+| Provider contract | `em/facade/contract.py` | `PROVIDER_CALLS` derived from the provider source; `PROVIDER_ATTRIBUTES` empty |
 
-The card's acceptance criterion names six of them — **`vault`, `index`, `security`, `policy`, `embeddings`, `retrieval`** — and is pinned by the strict xfail `test_em212_plan_ac_no_unprefixed_engine_modules_in_process` in `tests/test_backend_namespace.py`. It loads `memory_engine` in a clean interpreter the way the plugin does and asserts none of those six is in `sys.modules`. **That xfail flipping to passing is the exit signal.** It is a strict xfail, so it must not be weakened — it flips.
+**In scope.**
+- **Engine selection, in the two factories only.** Read `PRAGMA user_version` **read-only** and choose: a store at the v2 baseline (or with no `em` tables at all) → `MemoryEngine`; a v3 store → `V3Engine`. A store that is neither → refuse loudly, the way `entropicmem worker run` already refuses a non-v3 database.
+- **Pass the gateway identity into the facade** — `scope_user = self._gateway_user_id`, `is_owner = not self._is_guest()` (the same computation `_is_guest()` already makes, so the default config with an empty `owner_user_ids` stays the owner context and nobody becomes a guest). This is the half of the §3.5 rule that Chunk 7.2 deliberately left for here.
+- A test that a **v2 store is not migrated** by the wired path, and a test that a v3 store selects the facade. Those two are the whole point of the chunk.
+- A test that `user_version` is read without opening the database read-write.
 
-**Proposed split — do not start the whole card at once.** The plan says split it; 20 modules and every intra-package import is more than one chunk.
+**Out of scope — and this is the boundary that matters.**
+- **The v3 cutover.** No migration of any real store, no `ENTROPICMEM_ALLOW_LIVE_MIGRATION=1`, no switch-over. The wiring makes the cutover *possible*, not *done*.
+- Releases, tags, the catalog, the tool rename.
+- Any schema change or new migration; `0001`–`0003` stay untouched.
+- Moving the other 14 modules under a package (EM-212's deliberate remainder).
+- S3 and later.
 
-- **8.1 — the six named modules only.** Move `vault`, `index`, `security`, `policy`, `embeddings`, `retrieval` under a package root (e.g. `scripts/em_internal/`), rewrite the intra-package imports to relative or qualified ones, keep `memory_engine`'s and `entropicmem.py`'s imports working, and keep `python3 scripts/entropicmem.py` working via a thin shim. Flip the xfail. **Stop and report if the move needs changes to `em/`** (it should not) or if the provider's deferred imports break in a way that is not a one-line path update.
-- **8.2 — the rest, if the card's intent (no unprefixed module *at all*) is wanted.** The other 14 modules are not named by the AC, so this is optional and should be a deliberate follow-up, not scope creep. Say so in the CHANGELOG either way.
+**Size guard — stop and report if any of these appears.** Moving `_locate_mirror`/recall call sites themselves (they should not need to change: they go through the factory); a provider behaviour change other than engine selection; any code path that migrates on selection; or the contract test demanding a `PROVIDER_CALLS` change beyond what the selection needs. If the facade turns out to be missing something the provider calls, **stop** — that is a Chunk 10, not a quiet widening of this one.
 
-**In scope for 8.1.** The move, the import rewrite, the CLI shim, `_backend`'s remaining bare imports, the xfail flip, and a test that the six names are genuinely absent from a clean interpreter while the engine still imports.
+### 9.0 Pre-flight (read-only)
+1. `main` must be at `ed03ad8` or later, and Chunk 8 (`em/em-212-package-move`) merged. If Chunk 8 is unmerged, stack on its branch and say so.
+2. **Baseline:** `pytest -q` gives **1671 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**. Run 3.10 as well as your default interpreter.
+3. **Re-measure from the code.** Read `_memory_engine()` and `_engine()`, every `MemoryEngine(` site, `is_guest`/`_gateway_user_id`, `V3Engine.__init__`, and how `entropicmem worker run` refuses a non-v3 store (`em/jobs/cli.py` — copy that shape for the "neither v2 nor v3" case).
 
-**Out of scope.** The provider wiring and the v3 cutover (owner-gated). Any schema change or migration. The `em/` package (it is already namespaced). S3 and later. Anything touching `~/.hermes/entropicmem*`.
-
-### 8.0 Pre-flight (read-only)
-1. `main` must be at `783aae9` or later: Chunks 5, 6, 7.1 and 7.2 are all merged there, with green CI on each exact SHA. `git merge-base --is-ancestor 783aae9 main` proves it.
-2. **Baseline:** `pytest -q` gives **1669 passed, 3 skipped, 4 xfailed** on **both Python 3.10 and 3.12**. Run 3.10 as well as your default interpreter — two of the last three chunks shipped a bug only the 3.10 leg saw.
-3. **Re-measure from the code.** Read `_backend.resolve_paths` and its `_own_module`, `tests/test_backend_namespace.py` (both the xfail and the decoy-module repro), and every `from vault import` / `from index import` / `from policy import` / `from retrieval import` / `from embeddings import` / `from security import` site in `scripts/` and the provider.
-
-### 8.0a Document control (do this before and after the chunk)
+### 9.0a Document control (do this before and after the chunk)
 Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth — committed is not merged. `tests/test_master_todo.py` enforces it.
 
-### 8.1 The move (one commit, test first)
-- Test first: the six names absent from a clean interpreter **while the engine still imports and the CLI still runs**; a decoy `vault` module in `sys.modules` must not be handed back; `hermes plugins validate` emits no module-shadow warning.
-- Mutation-check: restore one bare import and confirm the xfail/repro goes red; leave one name registered and confirm the AC test is red for the right reason.
-- **Docs:** CHANGELOG; the EM-212 rows in `REMAINING_PLAN.md` §5, §6.1 and §11; the EM-212 entry in `docs/V3_FOUNDATIONS.md`; drop the strict xfail only by **flipping it to a passing test**, never by deleting it.
+### 9.1 The selection (one commit, test first)
+- Test first: a v2 fixture DB selects `MemoryEngine` **and is byte-for-byte unmigrated afterwards** (compare `user_version` before and after, and that no `em` tables appeared); a v3 store selects `V3Engine`; a store that is neither is refused; the identity passed to the facade matches `not _is_guest()`.
+- Mutation-check: make selection always choose the facade and confirm the "v2 store untouched" test goes red; drop the identity plumbing and confirm a guest can read the owner's sensitive row through the wired path.
+- **Docs:** CHANGELOG (**Changed** — the provider can now run on either engine); the EM-211 rows in `REMAINING_PLAN.md` §5, §6.1 and §11; `docs/V3_FOUNDATIONS.md`'s layer map.
 
-### 8.2 End of chunk
+### 9.2 End of chunk
 1. Push, green CI on the exact SHA, `git merge --ff-only`, delete the branch.
 2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.1/§9/§11.
-3. **Replace this file's Part B with the next piece** — with EM-211 and EM-212 both done, that is the **wiring + cutover** (owner-gated) or **S3 (retrieval v3)**. Say which and why; do not plan both.
+3. **Replace this file's Part B with the next piece** — with the wiring landed, the candidates are the **v3 cutover** (owner-scheduled, now unblocked) and **S3 (retrieval v3)**. Say which and why; do not plan both.
 4. Report to the owner in plain language.
+
+### Explicitly out of scope for Chunk 9
+- The cutover, releases, tags, the catalog, the tool rename.
+- Any schema change or migration.
+- The 14 remaining unprefixed modules.
+- S3 and later, and anything touching `~/.hermes/entropicmem*`.
