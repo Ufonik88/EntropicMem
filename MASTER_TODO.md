@@ -13,10 +13,11 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `209abcf`, which is the
-docs tip; EM-302 (the candidate generators) was merged at `33b2b31` after green CI
-on that exact commit. A later docs-only commit moving the tip without changing code,
-tests or counts is expected; see plan §11.
+**Last reconciled:** 2026-10-07, against branch `main` at `a70028a`, which is the
+merge commit for Chunk 11 — its code is `33b2b31`, its docs `a70028a`. A later
+docs-only commit moving the tip without changing code, tests or counts is expected;
+see plan §11. CI was green on `a70028a` **on `main`**, all 11 jobs, after a green
+run of the same SHA on the branch.
 
 ---
 
@@ -251,15 +252,17 @@ a 3.12-only local run passed while `em/facade/engine.py` could not parse its own
 that only shows on the CI floor is exactly the kind local green cannot rule out.
 
 Two gates have flapped on unchanged code before, and `perf-smoke` has now done it
-**twice** — the second time on 2026-10-07 at `f36c5e6`, the Chunks 10.2/10.3 merge:
-the branch run and the local run were both ~4–5 ms p95, the `main` run came back
-**p95 69.392 ms with p50 4.544 and max 109.506**, and a rerun of the *same SHA*
-returned **p95 5.388 ms (p50 3.437, max 8.142)**. The tell is the p50: a low p50
-with a huge max is one noisy shared runner, not a regression. (That chunk's code
-is not even on the perf path — `evals/perf.py` builds `MemoryEngine` directly, not
-through `_open_engine`.) The way to tell a flake from a regression is a rerun of
-the **same** SHA. Never widen a budget, skip a test or mark a job non-blocking to
-clear red.
+**three times** — on 2026-10-07 at `f36c5e6` (Chunks 10.2/10.3), and again the same
+day at `a70028a` (Chunk 11). At `f36c5e6` the branch and local runs were both ~4–5 ms
+p95, the `main` run came back **p95 69.392 ms with p50 4.544 and max 109.506**, and a
+rerun of the *same SHA* returned **p95 5.388 ms (p50 3.437)**. At `a70028a` the failed
+run was **p95 51.752 ms with p50 4.769 and max 96.29**, and the rerun of the *same
+SHA* was green. The tell each time is the p50: a low p50 with a huge max is one noisy
+shared runner, not a regression. (Chunk 11's code is not even on the perf path —
+`evals/perf.py` builds `MemoryEngine` directly, not through `_open_engine`, and
+`em/store`'s scope helpers are not imported by it.) The way to tell a flake from a
+regression is a rerun of the **same** SHA. Never widen a budget, skip a test or mark
+a job non-blocking to clear red.
 
 ---
 
