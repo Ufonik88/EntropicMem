@@ -45,11 +45,12 @@ from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple
 
 from ..clock import to_iso
 from ..store.types import OWNER_ONLY_TIERS, Scope, may_read_owner_only
-from .query import AnalyzedQuery
+from .query import MAX_TERMS, AnalyzedQuery
 
 __all__ = [
     "BM25_WEIGHTS",
     "Candidate",
+    "MAX_TERMS",
     "GENERATOR_LIMITS",
     "GENERATORS",
     "OWNER_TYPE_EPISODE",
@@ -85,10 +86,6 @@ GENERATOR_LIMITS: Mapping[str, int] = {
 BM25_WEIGHTS: Tuple[float, ...] = (1.0, 0.5, 0.3, 0.1)
 
 _BM25_CALL = "bm25(memories_fts, " + ", ".join(repr(w) for w in BM25_WEIGHTS) + ")"
-
-#: §3.6 caps an analyzed query at 12 terms; EM-301 selects them, this is the
-#: guard, so an over-long term list cannot build an enormous MATCH expression.
-MAX_TERMS = 12
 
 #: Rows fetched per page. The deadline is checked between pages, which is what
 #: makes an interrupted generator return a *partial* list rather than nothing.
