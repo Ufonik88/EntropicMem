@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-07, P0a (the v3 shadow read) merged to `main`; **P0b — a v3 store serving prefetch *from* S3 — is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md`, then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, end of session. P0a (the v3 shadow read) is merged and verified end to end, including the id-space fix the end-to-end run found; **P0b — a v3 store serving prefetch *from* S3 — is the next piece and has not been started.** The repo is at a clean resting point: all gates green, nothing in flight, the live store and the Marketplace entry untouched. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md`, then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Owner decisions in force:**
 - **The cutover is deferred until (a) the provider reads through S3 and (b) the v3 adapter has produced one end-to-end eval number.** **(b) is met.** **(a) is half-met:** P0a's shadow reads S3 off the turn path over a copy, but on a v3 store prefetch still uses the v2 scoring the facade borrows. **Do not switch the live store without the owner's explicit go.**

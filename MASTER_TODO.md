@@ -123,7 +123,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 14 | **EM-304 — fusion, rerank, explainability** | **Done, merged** (`14552be`) |
 | 15 | **EM-305 — gate, supersession collapse, MMR** | **Done, merged** (`50601b3`); two review-driven pins added at `9f4b39b` |
 | 16 | **The v3 eval adapter** (P1) — the first end-to-end v3 number | **Done, merged** (`ff0d3c3`) |
-| 17 | **P0a — the v3 shadow read** | **Done, merged** (`f0a7c70`). P0b (v3 serves prefetch *from* S3) is not |
+| 17 | **P0a — the v3 shadow read** | **Done, merged** (`f0a7c70`, id-space fix `636a685`). P0b (v3 serves prefetch *from* S3) is not |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -243,7 +243,10 @@ not yet *serve* from it, which is what condition (a) means. See `NEXT_CHUNK.md` 
 divergence is a **lower bound**; v3 has no cosine condition until EM-303, so it is not
 an apples-to-apples quality comparison; and the promotion observable was fixed in
 advance — **≥ 200 turns, copy within 900 s, divergence ≤ 10%, `v3_only` never once
-non-zero, off-turn p95 ≤ 150 ms.**
+non-zero, off-turn p95 ≤ 150 ms.** One thing the first real run settled: ids are
+compared through **`COALESCE(legacy_id, id)`**, because v2's content id and v3's `mem_…`
+ULID name the same row — without that mapping every line reads as a divergence. The
+first real run also showed v3 injecting exactly what v2 injected, divergence empty.
 
 **Two owner questions, answered from the code:**
 
@@ -265,6 +268,29 @@ non-zero, off-turn p95 ≤ 150 ms.**
   because engine selection is by `PRAGMA user_version`, so such a flag only exists
   once the store **is** v3. The shadow form is the one that satisfies "exercise v3 on
   real turns without committing the store", at the cost of a lagging copy.
+
+### START HERE TOMORROW
+
+**The repo is at a clean resting point: everything merged, all gates green, nothing in
+flight, the live store and the Marketplace entry untouched. P0a is done and verified end
+to end; P0b has not been started.**
+
+1. **Read:** this file, then `docs/plan/NEXT_CHUNK.md` **Part B** (that is the chunk), then
+   `REMAINING_PLAN.md` §9 for the decisions in force.
+2. **Build P0b — on a v3 store, serve prefetch _from_ S3** rather than from the v2 scoring
+   `V3Engine` borrows. Behind `ENTROPICMEM_V3_RETRIEVAL`, **default off**. The seam is
+   `em/facade/engine.py`'s read half (its lazy `memory_engine` import); reuse
+   `em.retrieval.pipeline.retrieve` — **never a fourth pipeline**.
+3. **Guards, all in Part B:** the flag must not change behaviour when off (byte-identical,
+   the way P0a's full-response test does it); prefetch latency is now **on** the turn path,
+   so measure before/after against the shadow's pre-declared **p95 ≤ 150 ms**; the renderer
+   stays minimal and **must not become EM-307**.
+4. **Pre-flight:** `pytest -q` gives **1998 passed / 3 skipped / 3 xfailed** on **both Python
+   3.10 and 3.12**; `git merge-base --is-ancestor 519e627 main` proves the base.
+5. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not `run list`.
+6. **After P0b:** P0c (collect the shadow data against the pre-declared observable), then
+   **P2/EM-306**. When (a) and (b) are both met, **bring the cutover decision back to the
+   owner** — the owner decides, the agent does not.
 
 ### What is next — the owner's priority order
 
@@ -349,7 +375,7 @@ retrieval is complete. **The owner decides; the agent does not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1995 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **1998 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
