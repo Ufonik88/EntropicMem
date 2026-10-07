@@ -13,10 +13,9 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `85afea4`, which is **Chunk
-12's code commit**; its docs commit sits on top and moves the tip without changing
-code, tests or counts, which is expected — see plan §11. CI is green on the branch,
-and is confirmed on `main` after the merge.
+**Last reconciled:** 2026-10-07, against branch `main` at `3899012`, which is the
+merge commit for Chunk 12 — its code is `85afea4`, its docs `3899012`. CI is green
+on that exact SHA on `main` (all 11 jobs) as well as on the branch.
 
 ---
 
@@ -132,10 +131,12 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** EM-302 (both pieces) is merged to `main` with green CI on each merged
-SHA, and both feature branches are deleted. The remote carries `main` and
-`release/2.8.x` only, and the Marketplace entry is untouched (still 2.8.1 at
-`7e02412`) — a chunk leaves it alone unless the chunk *is* a release.
+**Nothing.** Chunk 12 (EM-301) is merged to `main` at `3899012` — its code is
+`85afea4` — with green CI on the exact SHA before the merge and again on `main`
+after it, all 11 jobs, on the **first** run. The branch is deleted, the remote
+carries `main` and `release/2.8.x` only, and the Marketplace entry is untouched
+(still 2.8.1 at `7e02412`) — a chunk leaves it alone unless the chunk *is* a
+release.
 
 Eleven consecutive merges have now gone green on the **first** CI run, all because
 the suite was checked on Python 3.10 as well as 3.12 before pushing.
