@@ -13,8 +13,8 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `ed03ad8`, with Chunk 8
-committed on `em/em-212-package-move` (see In flight). A later docs-only commit moving
+**Last reconciled:** 2026-10-07, against branch `main` at `c922970`, which is the
+commit Chunk 8 was merged at after green CI on it. A later docs-only commit moving
 the tip without changing code, tests or counts is expected; see plan §11.
 
 ---
@@ -123,21 +123,13 @@ read three landed chunks as the card being done.
 
 ### In flight
 
-| Chunk | Card | State |
-|---|---|---|
-| 8 | EM-212's package move | Committed (`025f012`), **not merged** |
+**Nothing.** Chunk 8 is merged to `main` at `c922970` with green CI on that exact
+SHA, and the `em/em-212-package-move` branch is deleted. The remote carries `main`
+and `release/2.8.x` only, and the Marketplace entry is untouched (still 2.8.1 at
+`7e02412`) — a chunk of work leaves it alone unless the chunk *is* a release.
 
-**Chunk 8 is on the local branch `em/em-212-package-move`** — `025f012` (the move),
-with this docs close-out beside it. **Not pushed, not merged, no CI run yet.** `origin/main`
-is `ed03ad8`. Locally green on both Python 3.10 and 3.12 — **1671 passed / 3
-skipped / 3 xfailed**, `ruff==0.16.2` clean, eval gate with no gated metric
-regressed, `perf-smoke` warm p95 3.973 ms against the 20 ms budget. Push, green CI
-on the exact SHA, `git merge --ff-only`.
-
-**`hermes plugins validate` runs in CI**, and it passed on this branch: no
-module-shadow warning, and the only two warnings are the known, expected
-`provides_*` "declared but not registered" pair. Locally it cannot be run (it
-needs a `hermes-agent` checkout); CI covers it.
+Three consecutive merges have now gone green on the **first** CI run, all because
+the suite was checked on Python 3.10 as well as 3.12 before pushing.
 
 ## What is done
 

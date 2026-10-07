@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-07, Chunk 8 committed (not yet merged); **Chunk 9 (the wiring by `user_version`) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, Chunk 8 merged to `main` at `c922970`; **Chunk 9 (the wiring by `user_version`) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
@@ -79,7 +79,7 @@
 - **Known gap recorded, not fixed:** `MemoryStore.list` keeps profile+user only, so the facade's `prune_pending`/`consolidate` are not tier-filtered. They are the owner's operations and the facade is unwired.
 - **Merged** to `main` at `783aae9`; green on the exact SHA, first CI run, `identity-guard` included.
 
-### Chunk 8 — EM-212's package move. **DONE, COMMITTED, NOT MERGED (2026-10-07, `025f012`)**
+### Chunk 8 — EM-212's package move. **DONE, MERGED (2026-10-07, `025f012`, in `c922970`)**
 
 - `fix(em-212): the engine's shared-name modules live under a package`: `vault`, `index`, `security`, `policy`, `embeddings` and `retrieval` moved under `scripts/em_internal/`, so the import system registers `em_internal.*` and never the bare names. The strict xfail **flipped to a passing test**.
 - The move is what the card's AC names — six modules, and the six `hermes plugins validate` warned about. `_backend._own_module` (the path-loading shim) is deleted in favour of a qualified import, because a qualified name cannot collide.
@@ -87,7 +87,7 @@
 - 52 files touched (6 renames). 1671 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; the xfail count dropping 4→3 **is** the flip. Provider, CLI and `graph_server` all still import.
 - **The other 14 modules keep unprefixed names, deliberately** — the AC names only the six. Moving them is a follow-up, not a silent omission.
 - **The AC's second half is confirmed by CI.** `hermes plugins validate` runs as the `plugin-validate` job and passed: `✓ loadable`, `✓ built-in tool collisions — no collisions`, `✓ security scan — safe`, no module-shadow warning, and only the known `provides_*` warnings.
-- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+- **Merged** to `main` at `c922970`; green on the exact SHA, first CI run, `identity-guard` and `plugin-validate` included.
 
 **EM-211 and EM-212 are both code-complete.** EM-211 is unwired (its AC needs the provider on the facade) and EM-212's six named modules are namespaced (its AC also wants `hermes plugins validate`, unrun here).
 
@@ -126,7 +126,7 @@
 **Size guard — stop and report if any of these appears.** Moving `_locate_mirror`/recall call sites themselves (they should not need to change: they go through the factory); a provider behaviour change other than engine selection; any code path that migrates on selection; or the contract test demanding a `PROVIDER_CALLS` change beyond what the selection needs. If the facade turns out to be missing something the provider calls, **stop** — that is a Chunk 10, not a quiet widening of this one.
 
 ### 9.0 Pre-flight (read-only)
-1. `main` must be at `ed03ad8` or later, and Chunk 8 (`em/em-212-package-move`) merged. If Chunk 8 is unmerged, stack on its branch and say so.
+1. `main` must be at `c922970` or later: Chunks 5–7.2 and 8 are all merged there, with green CI on each exact SHA. `git merge-base --is-ancestor c922970 main` proves it.
 2. **Baseline:** `pytest -q` gives **1671 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**. Run 3.10 as well as your default interpreter.
 3. **Re-measure from the code.** Read `_memory_engine()` and `_engine()`, every `MemoryEngine(` site, `is_guest`/`_gateway_user_id`, `V3Engine.__init__`, and how `entropicmem worker run` refuses a non-v3 store (`em/jobs/cli.py` — copy that shape for the "neither v2 nor v3" case).
 
