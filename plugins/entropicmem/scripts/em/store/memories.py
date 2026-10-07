@@ -26,6 +26,7 @@ from ..clock import new_id, to_iso, utc_now
 from .audit import append as audit_append
 from .jobs import JobQueue
 from .types import (
+    OWNER_ONLY_TIERS,
     MemoryDraft,
     MemoryPatch,
     Scope,
@@ -758,11 +759,35 @@ def _scope_of(row: Mapping[str, Any]) -> Scope:
 
 
 def _in_scope(row: Mapping[str, Any], scope: Scope) -> bool:
-    """§3.5 read rule, minimum viable: same profile, and either the same user
-    or a profile-wide row. Owner-only filtering for sensitive rows lands with
-    the facade (EM-211), which knows the gateway identity."""
+    """§3.5 read rule: profile, user, and the owner-only rule for sensitive rows.
+
+    A row is visible when it is in the caller's profile and either scoped to the
+    caller or profile-wide. On top of that, a row whose tier is in
+    :data:`OWNER_ONLY_TIERS` (``sensitive``/``secret``) is visible only to its
+    owner. This is the one place the rule lives, so every read that goes through
+    it — ``get``, and the facade's recall paths — inherits it (invariant 5).
+    """
     if row["scope_profile"] != scope.profile:
+        return False
+    if not _owner_may_read(row, scope):
         return False
     if row["scope_user"] == scope.user:
         return True
     return row["scope_user"] == ""
+
+
+def _owner_may_read(row: Mapping[str, Any], scope: Scope) -> bool:
+    """False only when an owner-only tier is read by a non-owner.
+
+    "Owner" is a profile-wide caller (``scope.user == ''`` — the v2 single-owner,
+    no-gateway and CLI case) or a caller that explicitly asserts
+    ``scope.is_owner``. A guest has a non-empty ``user`` and ``is_owner`` False,
+    so it is neither.
+    """
+    try:
+        tier = row["sensitivity"]
+    except (KeyError, IndexError):
+        tier = "internal"
+    if tier not in OWNER_ONLY_TIERS:
+        return True
+    return scope.user == "" or bool(scope.is_owner)

@@ -89,7 +89,7 @@ from ..store.audit import append as audit_append
 from ..store.backup import BackupManager
 from ..store.db import Store
 from ..store.episodes import EpisodeStore
-from ..store.memories import MemoryStore
+from ..store.memories import MemoryStore, _in_scope  # noqa: F401  (the one §3.5 rule)
 from ..store.migrations import migrate
 from ..store.types import MemoryDraft, Scope
 
@@ -237,15 +237,25 @@ class V3Engine:
         profile_id: str = "default",
         scope_user: str = "",
         scope_chat: str = "",
+        is_owner: bool = False,
     ) -> None:
         self.db_path = Path(db_path)
         self.store = Store(self.db_path)
         # Profile-wide by default (v2 had one owner per DB): the facade maps a
         # v2 profile onto Scope(profile=..., user="") — §3.5's profile-wide
-        # read. The gateway identity / owner-only rule lands with a later
-        # EM-211 chunk, which is why this is a constructor argument and never
-        # an environment read.
-        self.scope = Scope(profile=profile_id, user=scope_user, chat=scope_chat)
+        # read, which is also the owner context, so the default facade reads and
+        # writes exactly as v2 did.
+        #
+        # ``scope_user`` and ``is_owner`` are the gateway identity the provider
+        # will supply when it is wired onto this facade. ``is_owner`` defaults to
+        # False (fail-closed): a scoped caller must assert ownership to read a
+        # `sensitive`/`secret` row, so a wiring mistake hides the owner's own
+        # sensitive rows — a visible bug — instead of showing them to a guest,
+        # which is a silent one. The provider computes it as `not _is_guest()`.
+        # Never an environment read: identity is passed in, always.
+        self.scope = Scope(
+            profile=profile_id, user=scope_user, chat=scope_chat, is_owner=is_owner
+        )
         with self.store.writer() as conn:
             migrate(conn)
 
@@ -269,9 +279,11 @@ class V3Engine:
         """Resolve by v3 id, v2 ``legacy_id`` (the mirror-lookup path) or id prefix.
 
         A ``deleted`` row reads as absent: v2's ``forget`` removed the row, so
-        callers test absence with ``is None``.
+        callers test absence with ``is None``. The read is scoped: a sensitive or
+        secret row resolves only for its owner, so a guest gets ``None`` exactly
+        as if it were not there.
         """
-        row = MemoryStore(self._reader()).get(entropic_id)
+        row = MemoryStore(self._reader()).get(entropic_id, scope=self.scope)
         if row is None or row["status"] == "deleted":
             return None
         return _row_to_fact(row)
@@ -312,11 +324,17 @@ class V3Engine:
             params.extend([self.scope.user])
 
         rows = self._reader().execute(
-            f"SELECT id, content, tags FROM memories WHERE {' AND '.join(clauses)}"
+            f"SELECT id, content, tags, scope_profile, scope_user, sensitivity"
+            f" FROM memories WHERE {' AND '.join(clauses)}"
             " ORDER BY rid",
             params,
         ).fetchall()
         for row in rows:
+            # §3.5 again: a sensitive mirror is owner-only like any other read,
+            # so a guest cannot locate (and therefore cannot replace or remove)
+            # the owner's mirrored row.
+            if not _in_scope(dict(row), self.scope):
+                continue
             try:
                 tag_list = json.loads(row["tags"] or "[]")
             except (TypeError, ValueError):
@@ -396,7 +414,7 @@ class V3Engine:
         match_failed = False
         rows: list = []
         if fts_query:
-            rows, fts_reason = v2.run_fts_match(
+            found, fts_reason = v2.run_fts_match(
                 self._reader(),
                 "SELECT m.*, bm25(memories_fts) AS rank"
                 " FROM memories_fts JOIN memories m ON memories_fts.rowid = m.rid"
@@ -405,6 +423,10 @@ class V3Engine:
                 (fts_query, *params, top_k * 2),
             )
             match_failed = fts_reason == v2.FTS_REASON_MATCH_ERROR
+            # §3.5: the authoritative rule, applied through the one function that
+            # defines it, so recall cannot drift from get_fact. The SQL already
+            # narrowed by status; this adds scope and the owner-only tier.
+            rows = [row for row in found if _in_scope(dict(row), self.scope)]
 
         if not rows:
             if not v2._like_fallback_ok(query, match_failed):
@@ -472,6 +494,10 @@ class V3Engine:
         ).fetchall()
         results = []
         for row in rows:
+            # §3.5, the same rule as the FTS path — the exact-query fallback must
+            # not become a way around the owner-only tier.
+            if not _in_scope(dict(row), self.scope):
+                continue
             fact = _row_to_fact(dict(row))
             fact.relevance_score = fact.importance * 0.8
             if fact.relevance_score >= min_relevance:

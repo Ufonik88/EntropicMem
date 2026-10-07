@@ -75,6 +75,10 @@ def check_transition(current: str, target: str, reason: str = "") -> None:
 
 # --- scope (§3.5) ---------------------------------------------------------
 
+#: Tiers that only their owner may read (§3.5). Everything else is readable by
+#: anyone in scope, which is the rule ``_in_scope`` already applied.
+OWNER_ONLY_TIERS: tuple[str, ...] = ("sensitive", "secret")
+
 
 @dataclass(frozen=True)
 class Scope:
@@ -82,6 +86,15 @@ class Scope:
 
     ``user`` is the gateway id, or the owner id for local CLI sessions, and
     ``scope_user=''`` means profile-wide.
+
+    ``is_owner`` defaults to ``False`` **on purpose** — it is fail-closed. Only a
+    scoped caller can leak (a guest is exactly a caller with a non-empty
+    ``user``), so the default makes such a caller prove ownership instead of
+    inheriting it. A misconfiguration then hides the owner's own sensitive rows,
+    which is a visible bug, rather than showing them to a guest, which is a
+    silent one. A profile-wide caller (``user == ''``) is the owner context
+    regardless — the v2 single-owner, no-gateway and CLI case — so the default
+    facade keeps working without every call site asserting ownership.
     """
 
     profile: str
@@ -89,7 +102,7 @@ class Scope:
     chat: str = ""
     chat_type: str = ""
     author: str = ""
-    is_owner: bool = True
+    is_owner: bool = False
 
     @property
     def profile_wide(self) -> bool:
