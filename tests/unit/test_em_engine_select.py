@@ -1,0 +1,272 @@
+"""EM-211 Chunk 9: the provider selects its engine by the store's schema version.
+
+The provider used to construct v2's ``MemoryEngine`` unconditionally. It now
+picks: a v2 store gets ``MemoryEngine``, a v3 store gets the facade. Selection is
+by ``PRAGMA user_version``, read **read-only, before any engine is constructed** —
+because ``V3Engine.__init__`` calls ``migrate()``, so constructing it over a v2
+store would perform the v2-to-v3 cutover as a side effect of merely opening it.
+
+That ordering is what the most important test here protects: **opening a v2 store
+must leave it byte-for-byte unmigrated.** The cutover is the owner's act, not a
+consequence of the provider starting up.
+
+Rules: invented data only. The v2 fixture is always copied, never mutated in place.
+"""
+
+from __future__ import annotations
+
+import ast
+import shutil
+import sqlite3
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[2]
+SCRIPTS = REPO / "plugins" / "entropicmem" / "scripts"
+FIXTURES = REPO / "tests" / "fixtures" / "db"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from em.facade.engine import V3Engine  # noqa: E402
+from em.facade.select import StoreVersionError, open_engine, store_kind  # noqa: E402
+from em.store.db import Store  # noqa: E402
+from em.store.migrations import LATEST, migrate  # noqa: E402
+
+
+def v2_store(tmp_path: Path) -> Path:
+    """A copy of the committed v2.7.0 fixture — the real thing, not a mock."""
+    dest = tmp_path / "v2" / "memory.db"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(FIXTURES / "v2_7_0.db", dest)
+    return dest
+
+
+def v3_store(tmp_path: Path) -> Path:
+    path = tmp_path / "v3" / "memory.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    store = Store(str(path))
+    try:
+        with store.writer() as conn:
+            migrate(conn)
+    finally:
+        store.close()
+    return path
+
+
+def snapshot(path: Path) -> dict:
+    """What must not change when a v2 store is merely opened."""
+    conn = sqlite3.connect(path)
+    try:
+        return {
+            "user_version": conn.execute("PRAGMA user_version").fetchone()[0],
+            "tables": {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")},
+        }
+    finally:
+        conn.close()
+
+
+# --- the detector -------------------------------------------------------------
+
+
+def test_a_missing_file_is_a_new_v2_store(tmp_path):
+    """Nothing there yet: the v2 engine creates it, exactly as it does today."""
+    assert store_kind(tmp_path / "does-not-exist.db") == "v2"
+
+
+def test_the_v2_fixture_is_a_v2_store(tmp_path):
+    assert store_kind(v2_store(tmp_path)) == "v2"
+
+
+def test_a_migrated_store_is_a_v3_store(tmp_path):
+    assert store_kind(v3_store(tmp_path)) == "v3"
+
+
+def test_a_store_newer_than_this_build_is_refused(tmp_path):
+    path = v3_store(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(f"PRAGMA user_version = {LATEST + 1}")
+        conn.commit()
+    finally:
+        conn.close()
+    with pytest.raises(StoreVersionError):
+        store_kind(path)
+
+
+def test_a_versioned_store_without_the_v3_tables_is_refused(tmp_path):
+    """A version bump from somewhere else is not a v3 store we can serve.
+
+    Refusing beats handing it to ``migrate()``, which would run our migrations
+    against a database that is not ours.
+    """
+    path = tmp_path / "foreign.db"
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE something_else (x)")
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+    finally:
+        conn.close()
+    with pytest.raises(StoreVersionError):
+        store_kind(path)
+
+
+# --- the selector -------------------------------------------------------------
+
+
+def test_open_engine_gives_the_v2_engine_for_a_v2_store(tmp_path):
+    from memory_engine import MemoryEngine
+
+    engine = open_engine(v2_store(tmp_path), profile_id="default")
+    try:
+        assert isinstance(engine, MemoryEngine)
+    finally:
+        engine.close()
+
+
+def test_open_engine_gives_the_facade_for_a_v3_store(tmp_path):
+    engine = open_engine(v3_store(tmp_path), profile_id="default")
+    try:
+        assert isinstance(engine, V3Engine)
+    finally:
+        engine.close()
+
+
+def test_opening_a_v2_store_does_not_migrate_it(tmp_path):
+    """The whole reason selection happens before construction."""
+    path = v2_store(tmp_path)
+    before = snapshot(path)
+
+    engine = open_engine(path, profile_id="default")
+    engine.close()
+
+    after = snapshot(path)
+    assert after["user_version"] == before["user_version"] == 0, (
+        "a v2 store must not be migrated by merely opening it"
+    )
+    assert "memories" not in after["tables"], "no v3 tables may appear"
+    assert "schema_migrations" not in after["tables"], "our bookkeeping must not appear"
+    assert after["tables"] == before["tables"], "the schema must be untouched"
+    assert not (path.parent / "migrate-backups").exists(), "no migration backup may be taken"
+
+
+def test_a_v3_store_is_served_without_a_further_migration(tmp_path):
+    """`migrate()` inside the facade is a no-op once the store is current."""
+    path = v3_store(tmp_path)
+    before = snapshot(path)
+    engine = open_engine(path, profile_id="default")
+    engine.close()
+    assert snapshot(path) == before
+
+
+def test_the_selector_passes_pii_locales_only_to_v2(tmp_path):
+    """v3 redaction has no locale packs; the argument must not leak into the facade."""
+    engine = open_engine(v2_store(tmp_path), profile_id="default", pii_locales=["en_ZA"])
+    try:
+        assert engine.pii_locales == ["en_ZA"]
+    finally:
+        engine.close()
+    # and the facade simply takes no such argument
+    facade = open_engine(v3_store(tmp_path), profile_id="default", pii_locales=["en_ZA"])
+    try:
+        assert isinstance(facade, V3Engine)
+        assert not hasattr(facade, "pii_locales")
+    finally:
+        facade.close()
+
+
+# --- the provider -------------------------------------------------------------
+
+
+def make_provider(db: Path, *, gateway_user: str | None = None, owners: list | None = None):
+    from plugins.entropicmem import EntropicMemMemoryProvider, _backend
+
+    _backend.ensure_scripts_on_path(SCRIPTS)
+    provider = EntropicMemMemoryProvider(
+        config={"owner_user_ids": owners or [], "vault_path": str(db.parent / "vault")}
+    )
+    provider._scripts_dir = SCRIPTS
+    provider._memory_db = db
+    provider._profile_id = "default"
+    provider._hermes_home = db.parent
+    provider._gateway_user_id = gateway_user
+    return provider
+
+
+def test_the_provider_opens_the_v2_engine_for_a_v2_store(tmp_path):
+    from memory_engine import MemoryEngine
+
+    engine = make_provider(v2_store(tmp_path))._open_engine()
+    try:
+        assert isinstance(engine, MemoryEngine)
+    finally:
+        engine.close()
+
+
+def test_the_provider_opens_the_facade_for_a_v3_store(tmp_path):
+    engine = make_provider(v3_store(tmp_path))._open_engine()
+    try:
+        assert isinstance(engine, V3Engine)
+    finally:
+        engine.close()
+
+
+def test_the_provider_does_not_migrate_a_v2_store_on_startup(tmp_path):
+    path = v2_store(tmp_path)
+    before = snapshot(path)
+    engine = make_provider(path)._open_engine()
+    engine.close()
+    assert snapshot(path) == before, "opening the provider must not cut a store over"
+
+
+def test_the_provider_passes_the_gateway_identity(tmp_path):
+    """The half of the §3.5 rule Chunk 7.2 left for here."""
+    engine = make_provider(v3_store(tmp_path), gateway_user="bob", owners=["alice"])._open_engine()
+    try:
+        assert engine.scope.user == "bob"
+        assert engine.scope.is_owner is False, "bob is not in owner_user_ids"
+    finally:
+        engine.close()
+
+
+def test_the_default_config_is_the_owner_context(tmp_path):
+    """An empty owner list means nobody is a guest — v2's single-pool behaviour."""
+    engine = make_provider(v3_store(tmp_path), gateway_user="bob", owners=[])._open_engine()
+    try:
+        assert engine.scope.is_owner is True
+    finally:
+        engine.close()
+
+    owner = make_provider(v3_store(tmp_path), gateway_user="alice", owners=["alice"])._open_engine()
+    try:
+        assert owner.scope.is_owner is True
+    finally:
+        owner.close()
+
+
+def test_the_provider_builds_engines_only_through_the_helper():
+    """Drift guard: a tenth raw construction would decide the engine by accident.
+
+    Nine inline ``MemoryEngine(...)`` sites were routed through ``_open_engine``
+    in Chunk 9. The provider must not construct an engine itself again, or that
+    site would bypass the version check and could migrate a v2 store.
+    """
+    provider = REPO / "plugins" / "entropicmem" / "__init__.py"
+    tree = ast.parse(provider.read_text(encoding="utf-8"))
+    raw = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "MemoryEngine"
+    ]
+    assert not raw, (
+        f"MemoryEngine(...) constructed directly at lines {raw}; route it through "
+        "_open_engine() so the store version decides the engine"
+    )
+    assert "_open_engine" in provider.read_text(encoding="utf-8"), (
+        "the provider must name its engine factory"
+    )

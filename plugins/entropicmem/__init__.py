@@ -696,9 +696,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     def _build_fact_block(self, enhanced_query: str) -> str:
         """Run the smart-context pipeline; return the formatted fact block ('' when nothing selected)."""
-        from memory_engine import MemoryEngine
 
-        engine = MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or [])
+        engine = self._open_engine()
         try:
             # Phase 1.2 & 2.2: candidates with relevance scoring and domain filtering
             candidates = self._get_candidates(engine, enhanced_query)
@@ -733,9 +732,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
     def _touch_injected(self, fact_ids: List[str]) -> None:
         """EM-106: batched background last_accessed bump for injected facts."""
         try:
-            from memory_engine import MemoryEngine
 
-            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
+            with self._open_engine() as engine:
                 engine.touch(fact_ids)
         except Exception as e:
             logger.debug("EntropicMem touch_on_inject failed: %s", e)
@@ -808,8 +806,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         def _run():
             try:
                 ensure_scripts_on_path(self._scripts_dir)
-                from memory_engine import MemoryEngine
-                with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
+                with self._open_engine() as engine:
                     engine.extract_and_store(
                         user_text=user_content,
                         assistant_text=assistant_content,
@@ -1143,10 +1140,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return
         try:
             ensure_scripts_on_path(self._scripts_dir)
-            from memory_engine import MemoryEngine
 
             domain = "People" if target == "user" else "Knowledge"
-            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
+            with self._open_engine() as engine:
                 old_id = self._locate_mirror(engine, metadata) if action != "add" else None
                 if action == "remove":
                     if old_id:
@@ -1298,10 +1294,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
         constraints = extract_constraints(messages)
         if not constraints:
             return ""  # nothing to hand off → nothing to checkpoint
-        from memory_engine import MemoryEngine
 
         sid = self._session_id or ""
-        with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
+        with self._open_engine() as engine:
             engine.add_episode(
                 title=f"Pre-compress constraints for session {sid or 'unknown'}"[:120],
                 summary=constraints,
@@ -1325,7 +1320,6 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return
         try:
             ensure_scripts_on_path(self._scripts_dir)
-            from memory_engine import MemoryEngine
             from session_digest import episode_id_for, extractive_digest
 
             digest = extractive_digest(messages or [])
@@ -1333,7 +1327,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 return  # empty / tool-only transcript, no-op
 
             sid = self._session_id or ""
-            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
+            with self._open_engine() as engine:
                 # EM-112: cadence flushes get a fresh wave id (ep_sess_{sid}_w{n})
                 # so earlier waves are never overwritten; session end keeps the
                 # single ep_sess_{sid} covering the tail.
@@ -1395,9 +1389,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
             ensure_scripts_on_path(self._scripts_dir)
             from em_internal.index import VaultIndex
             from em_internal.vault import Vault
-            from memory_engine import MemoryEngine
 
-            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
+            with self._open_engine() as engine:
                 # EM-118: guest writes are stamped with the gateway user and a
                 # guest_tool source for later scoping/auditing
                 write_source, write_actor, write_tags = "agent_tool", "agent_tool", []
@@ -1455,9 +1448,8 @@ class EntropicMemMemoryProvider(MemoryProvider):
         limit = int(args.get("limit") or 8)
         try:
             ensure_scripts_on_path(self._scripts_dir)
-            from memory_engine import MemoryEngine
 
-            with MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or []) as engine:
+            with self._open_engine() as engine:
                 # v2.2.0 G3: hybrid retrieval — FTS5 BM25 + vector similarity
                 # fusion when embeddings exist; graceful FTS-only fallback.
                 rows = engine.recall_hybrid(
@@ -1565,8 +1557,37 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return _tool_error(str(e))
 
 
+    def _open_engine(self):
+        """Open the engine this store's schema calls for.
+
+        A v2 store gets the v2 ``MemoryEngine``, a v3 store gets the facade —
+        decided by the store's own ``user_version``, read read-only *before* any
+        engine is constructed, so opening a v2 store cannot migrate it. That
+        ordering is deliberate: ``V3Engine.__init__`` runs ``migrate()``, and the
+        v2-to-v3 cutover is the owner's act, not a side effect of startup. See
+        ``em.facade.select``.
+
+        The gateway identity is threaded here too, which is the half of the §3.5
+        owner-only rule the facade's read chunk left for the wiring: a guest gets
+        ``is_owner=False``, and the default config (no ``owner_user_ids``) has no
+        guests at all, so it stays the owner context exactly as v2 did.
+        """
+        if not self._scripts_dir:
+            raise RuntimeError("EntropicMem not initialized")
+        ensure_scripts_on_path(self._scripts_dir)
+        from em.facade.select import open_engine
+
+        return open_engine(
+            self._memory_db,
+            profile_id=self._profile_id or "default",
+            hermes_home=self._hermes_home,
+            pii_locales=self._config.get("locale_packs") or [],
+            scope_user=getattr(self, "_gateway_user_id", None) or "",
+            is_owner=not self._is_guest(),
+        )
+
     def _memory_engine(self):
-        """Shared helper: ensure scripts on path and open a MemoryEngine context.
+        """Shared helper: ensure scripts on path and open an engine context.
 
         Returns (engine, None) on success, or (None, error_json) on failure.
         The caller must check the second element before using engine.
@@ -1580,9 +1601,10 @@ class EntropicMemMemoryProvider(MemoryProvider):
         """
         if not self._memory_db or not self._scripts_dir:
             return None, _tool_error("EntropicMem not initialized")
-        ensure_scripts_on_path(self._scripts_dir)
-        from memory_engine import MemoryEngine
-        engine = MemoryEngine(self._memory_db, profile_id=self._profile_id, hermes_home=self._hermes_home, pii_locales=self._config.get("locale_packs") or [])
+        try:
+            engine = self._open_engine()
+        except Exception as exc:  # noqa: BLE001 - a store we cannot serve is a tool error
+            return None, _tool_error(str(exc))
         return engine, None
 
     def _stats(self, args: dict) -> str:
