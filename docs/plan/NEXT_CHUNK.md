@@ -99,63 +99,57 @@
 - 16 new tests; 1687 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; seven mutation checks, the key one being that **opening a v2 store leaves it byte-for-byte unmigrated**.
 - **Merged** to `main` at `0200424`; green on the exact SHA, first CI run, `identity-guard` and `plugin-validate` included.
 
-**EM-211 and EM-212 are both code-complete, and the provider half of EM-211 is wired.** What remains of EM-211 is the CLI (Chunk 10) and the cutover.
+### Chunk 10.1 — the facade's CLI read/listing calls. **DONE, COMMITTED, NOT MERGED (2026-10-07, `f439e55`)**
+
+- The first slice of the route: eight methods (`list_facts`, `list_pending`, `list_audit`, `get_versions`, `episode_stats`, `embedding_stats`, `list_episodes`, `recall`), each returning **the shape its CLI command prints**. Nothing calls them yet — the CLI still refuses v3 (10.0) and is routed in 10.4.
+- **Two refusals by name**, not silent partials: `list_episodes(domain=...)` (v3 episodes carry `kind`) and `recall(scope='shared'|'all')` (shared store is S5).
+- `get_versions` normalises two v3-vs-v2 differences — the creation-row duplicate and the order — **both verified against v2 by probe**, not assumed.
+- **Plan correction:** `profile_id()` was dropped from the slice; its only CLI caller is `cmd_migrate --status`, which is in the refuse group.
+- 15 new tests; 1707 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; nine mutation checks, all caught.
+- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+
+**EM-211 and EM-212 are both code-complete, the provider is wired, and the CLI's read calls have landed.** What remains of EM-211 is 10.2–10.4 and the cutover.
 
 ---
 
-## Part B: Chunk 10 — CLI parity on v3. **THE ROUTE IS DECIDED; 10.1 is the next piece**
+## Part B: Chunk 10.2 — the CLI's maintenance calls. **NEXT PIECE, NOT STARTED**
 
-**Updated:** 2026-10-07, the route decided and its first step landed. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
+**Updated:** 2026-10-07, 10.1 committed (not yet merged); **10.2 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
 
-### The route, decided (keep it simple, keep it honest)
+**Topic.** The second slice of the CLI-parity route: the calls that change state rather than list it. Same rule as 10.1 — return what the CLI prints, refuse by name where v3 genuinely cannot, and verify against v2 rather than assume.
 
-The gap is measured: the facade implements the provider's 13 calls; the CLI makes about 28 more. Three of those groups are different problems and get different answers.
+**The slice, measured from the CLI's call sites (re-measure before starting).**
 
-| Group | Calls | Decision |
+| Method | CLI use | v3 shape to check |
 |---|---|---|
-| **Reads / listing** | `list_facts`, `list_pending`, `list_episodes`, `get_versions`, `episode_stats`, `embedding_stats`, `list_audit`, `profile_id`, `recall` (alias) | **Port.** v3 has all of it; the work is translation and return shapes. |
-| **Maintenance + mappable recall** | `promote_pending`, `discard_pending`, `reinforce`, `rebuild_fts`, `timeline`, `recall_episodes` | **Port.** `set_status`, `touch`, episode FTS. `rebuild_fts` may be a no-op on v3 (triggers maintain it) — decide and say so. |
-| **v2-only subsystems** | `triple_*` (4), `rebuild_embeddings`, `publish`, `pull`, `backfill`, `project_to_vault`, `migrate`, `recall_related` | **REFUSE clearly on a v3 store**, naming the card that will bring it (triples → S5, embeddings → S3/EM-303, publish/pull/backfill → S5, project_vault → S6, graph recall → S6). Porting them needs v3 features that do not exist yet. |
+| `promote_pending(id)` | `pending promote` prints `{"ok": true, "entropic_id": eid}`; falsy id means "not found" | `MemoryStore.set_status(id, "active", reason="promote")` — legal `pending -> active`? Confirm the reason is in `TRANSITION_REASONS` |
+| `discard_pending(id)` | `pending discard` prints `{"ok": bool}` | `set_status(id, "deleted", reason="discard")` — same check |
+| `prune_pending(older_than_days)` | already on the facade (Chunk 5) | nothing to do — confirm it satisfies the CLI's call |
+| `reinforce(ids)` | bumps what v2 bumped; the CLI passes ids it just recalled | read v2's body; map to `MemoryStore.touch(field=...)`. **Do not guess** — v2's `touch` and `reinforce` differ |
+| `rebuild_fts()` | `memory reindex` prints `fts_before -> fts_after`, `facts` | v3's FTS is trigger-maintained, so this is likely a **report-only no-op**; decide and say so |
+| `timeline(...)` | chronological listing | read the CLI's use; map to episodes or memories |
+| `recall_episodes(query, ...)` | episode FTS | v3 has `EpisodeStore.search_episodes` — confirm the return shape the CLI prints |
 
-**Why refuse rather than port the last group.** They are not translations; they are features the v3 store has not built. Porting them inside a "parity" chunk would silently become S3/S5/S6 work with no plan behind it. A clear refusal is honest, keeps the cutover predictable, and is a two-line change per command. **A silent wrong answer is not acceptable; a named absence is.**
+**In scope.** Those methods on the facade, tested at the facade level against a v3 store with the CLI's keys, plus the refusals if any of them turns out to be v2-only (name the card).
 
-**Why refusing also makes the cutover safe.** After 10.1 and 10.2 land, the CLI serves a v3 store for everything except the refused group. The cutover can then proceed knowing exactly what a user loses — and the 3.0 upgrade notes list it. Without the refusals, a user could run `entropicmem triples` against a v3 store and get a confusing failure instead of a named one.
+**Out of scope.** 10.3's refusals for the v2-only group, 10.4's routing, the cutover, releases/tags/catalog, schema changes, S3, `~/.hermes/entropicmem*`.
 
-### Sequencing and estimates
+**Size guard — stop and report if:** a method needs the v3 retriever or the graph (S3/S6), a "maintenance" call turns out to need a v3 feature that does not exist (that is 10.3's refusal, not a port), or the slice needs more than about five commits.
 
-Effort is given in **sessions and commits**, not calendar dates — the pace depends on when the owner runs sessions, which no plan can know. One session is one chunk, per `AGENTS.md`.
+### 10.2.0 Pre-flight (read-only)
+1. `main` must contain 10.1's commit once merged; if 10.1 is unmerged, stack on its branch and say so.
+2. **Baseline:** `pytest -q` gives **1707 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
+3. **Re-measure from the code.** For each method above, read the CLI call site for the expected keys, and v2's body for the semantics. Check `pending promote`/`discard` print shapes and the `TRANSITION_REASONS` table before choosing a reason.
 
-| Step | What | Estimate |
-|---|---|---|
-| **10.0** | **DONE.** The CLI refuses a v3 store clearly instead of handing it to the v2 engine (this commit). Nothing silently misbehaves in the meantime. | done |
-| **10.1** | Port the reads/listing group + `profile_id` + the `recall` alias. | **~7 methods, 5–7 commits, 1 session** |
-| **10.2** | Port maintenance + `recall_episodes`; decide `rebuild_fts` (= no-op?) and `timeline`. | **~6 methods, 3–5 commits, 1 session** |
-| **10.3** | Make the v2-only group **refuse clearly** on a v3 store, each naming its card. | **~9 commands, 2–3 commits, ≤ 1 session** |
-| **10.4** | Route `_engine()` through `open_engine` and run the full CLI suite against a **v3** store. This is the exit: EM-211's AC ("CLI commands work unchanged") is met for everything not refused. | **1 commit** |
+### 10.2.0a Document control (before and after)
+Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth.
 
-**Total to CLI parity: about 3 sessions, ~12 commits.** Then the cutover (owner-gated) becomes available, and S3/S5/S6 can fill in the refused group later.
+### 10.2.1 The slice (test first)
+- Test first: each method on a v3 store with the CLI's keys; the state transitions asserted through `get_fact`/`stats`, not the store's raw rows.
+- Mutation-check the two that carry logic (the status reasons and the `rebuild_fts` numbers).
+- **Docs:** CHANGELOG; `REMAINING_PLAN.md` §5/§6.1/§11.
 
-### 10.1 in detail (the next piece)
-
-- **In scope:** `list_facts`, `list_pending`, `list_episodes`, `get_versions`, `episode_stats`, `embedding_stats`, `list_audit`, `profile_id`, and `recall` as an alias of the existing `recall_with_relevance`. Implemented **on the facade** (`V3Engine`), tested at the facade level against a real v3 store, with the return shape each CLI command expects.
-- **Out of scope:** everything in 10.2/10.3/10.4, and the cutover.
-- **Test first:** each method against a v3 store; mutation-check the two that carry logic (the `list_*` filters and `get_versions`' ordering).
-- **Size guard — stop and report if:** a "read" method needs the v3 retriever or the graph (S3/S6, not translation), the CLI's expected return type cannot be produced without changing the provider contract, or the slice needs more than about seven commits. Take 10.2 first instead of widening.
-
-### 10.1.0 Pre-flight (read-only)
-1. `main` must contain this route's first step (the CLI guard). `git merge-base --is-ancestor <10.0 sha> main` proves it.
-2. **Baseline:** `pytest -q` gives **1692 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
-3. **Re-measure from the code.** For each command in the slice, read what it does with the engine's return value (the CLI has its own expectations the facade must meet); check `tests/test_cli_hermes_home.py::test_the_cli_builds_engines_only_through_the_helper` (the drift guard), and `docs/CLI_REFERENCE.md` for the documented output.
-
-### 10.1.1 The slice (test first)
-- Test first: each method on a v3 store, asserting the shape the CLI needs.
-- Mutation-check the filters and the ordering.
-- **Docs:** CHANGELOG; `REMAINING_PLAN.md` §5/§6.1/§11; `docs/CLI_REFERENCE.md` only if a documented behaviour changes.
-
-### 10.1.2 End of chunk
+### 10.2.2 End of chunk
 1. Push, green CI on the exact SHA, `git merge --ff-only`, delete the branch.
 2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.1/§9/§11.
-3. **Replace this file's Part B with Chunk 10.2.** Do not plan further ahead.
-
-### Explicitly out of scope
-- The cutover; the v2-only group's port; releases, tags, the catalog; schema changes; S3 itself; the 14 remaining unprefixed modules; `~/.hermes/entropicmem*`.
+3. **Replace this file's Part B with Chunk 10.3** (the refusals for the v2-only group). Do not plan further ahead.

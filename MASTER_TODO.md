@@ -13,8 +13,8 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `87243f8`, which is the
-commit the CLI-parity route's first step was merged at. A later docs-only commit moving
+**Last reconciled:** 2026-10-07, against branch `main` at `742cef9`, with Chunk 10's
+first slice (10.1) on `em/em-211-cli-reads`. A later docs-only commit moving
 the tip without changing code, tests or counts is expected; see plan §11.
 
 ---
@@ -113,7 +113,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 7.2 | The **§3.5 owner-only rule** for sensitive reads | **Done, merged** (`563afe5`) |
 | 8 | EM-212's **package move** | **Done, merged** (`025f012`, in `c922970`) |
 | 9 | The **provider** selects its engine by `user_version` | **Done, merged** (`b615bcf`) |
-| 10 | **CLI parity** on v3 — split 10.0 guard → 10.1 reads → 10.2 maintenance → 10.3 refusals → 10.4 route | 10.0 **done, merged** (`a518f3f`); 10.1 next. The cutover waits on 10.4 |
+| 10 | **CLI parity** on v3 — split 10.0 guard → 10.1 reads → 10.2 maintenance → 10.3 refusals → 10.4 route | 10.0 **done, merged**; 10.1 **done** (`f439e55`, not merged); 10.2 next. The cutover waits on 10.4 |
 
 **EM-211's acceptance criterion is still not met, and S2's exit criteria still
 fail — but for the first time the reason is narrow and named.** Chunk 9 wired the
@@ -126,14 +126,12 @@ because after a cutover the CLI would read a v3 store with a v2 engine.
 
 ### In flight
 
-**Nothing.** The CLI-parity route's first step (10.0) and the PII locale fix are
-merged to `main` at `87243f8` with green CI on that exact SHA, and the
-`em/em-211-cli-parity-route` branch is deleted. The remote carries `main` and
-`release/2.8.x` only, and the Marketplace entry is untouched (still 2.8.1 at
-`7e02412`).
-
-Five consecutive merges have now gone green on the **first** CI run, all because
-the suite was checked on Python 3.10 as well as 3.12 before pushing.
+**Chunk 10's first slice (10.1, the CLI's read/listing calls)** — `f439e55`, the
+facade's eight CLI reads, on the local branch `em/em-211-cli-reads`. **Not pushed, not merged, no
+CI run yet.** `origin/main` is `742cef9`. Locally green on both Python 3.10 and
+3.12 — **1707 passed / 3 skipped / 3 xfailed**, `ruff==0.16.2` clean, eval gate
+with no gated metric regressed, `perf-smoke` warm p95 4.811 ms against the 20 ms
+budget. Push, green CI on the exact SHA, `git merge --ff-only`.
 
 ## What is done
 
@@ -176,12 +174,12 @@ sessions, which no plan can know. One chunk per session.
 | Step | What | Estimate |
 |---|---|---|
 | **10.0** | The CLI **refuses a v3 store clearly** instead of handing it to the v2 engine | **done** |
-| **10.1** | Port the CLI's read/listing calls to the facade (`list_facts`, `list_pending`, `list_episodes`, `get_versions`, `episode_stats`, `embedding_stats`, `list_audit`, `profile_id`, `recall` alias) | ~7 methods, 5–7 commits, **1 session** |
+| **10.1** | Port the CLI's read/listing calls to the facade (`list_facts`, `list_pending`, `list_episodes`, `get_versions`, `episode_stats`, `embedding_stats`, `list_audit`, `recall`; `profile_id` dropped — its only caller is in the refuse group) | **done** |
 | **10.2** | Port maintenance (`promote_pending`, `discard_pending`, `reinforce`, `rebuild_fts`, `timeline`, `recall_episodes`) | ~6 methods, 3–5 commits, **1 session** |
 | **10.3** | Make the **v2-only group refuse clearly** on v3, each naming its card (triples → S5, embeddings → S3, publish/pull/backfill → S5, vault projection → S6, graph recall → S6) | 2–3 commits, **≤ 1 session** |
 | **10.4** | Route `_engine()` through `open_engine` and run the CLI suite against a **v3** store — this meets EM-211's AC for everything not refused | 1 commit |
 
-**Total to CLI parity: about 3 sessions, ~12 commits.** Then **the v3 cutover**
+**Total to CLI parity: about 3 sessions, ~12 commits** (10.1 landed in one, with 8 methods rather than 9 — `profile_id` was dropped after measuring). Then **the v3 cutover**
 (owner-gated) becomes available, and S3/S5/S6 can fill in the refused group later.
 
 **The shape of the answer, in one line:** port what maps, refuse what does not, and
@@ -192,7 +190,7 @@ wrong answer is not.
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1692 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **1707 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
