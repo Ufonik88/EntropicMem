@@ -13,8 +13,8 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `77b6c40`, with EM-302's
-first piece on `em/em-302-scope-sql`. A later docs-only commit moving
+**Last reconciled:** 2026-10-07, against branch `main` at `50c5310`, which is the
+commit EM-302's `scope_sql` was merged at after green CI on it. A later docs-only commit moving
 the tip without changing code, tests or counts is expected; see plan §11.
 
 ---
@@ -114,7 +114,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 8 | EM-212's **package move** | **Done, merged** (`025f012`, in `c922970`) |
 | 9 | The **provider** selects its engine by `user_version` | **Done, merged** (`b615bcf`) |
 | 10 | **CLI parity** on v3 — 10.0 guard → 10.1 reads → 10.2 maintenance → 10.3 refusals → 10.4 route | **Done, merged** (`250320a`). **EM-211's AC is met except for seven named refusals** |
-| 11 | **S3 begins** — EM-302, candidate generators (the critical path) | **Started**: `scope_sql` + the `em.retrieval` package landed. **Blocked on missing card text** — see below |
+| 11 | **S3 begins** — EM-302, candidate generators (the critical path) | `scope_sql` + `em.retrieval` **merged** (`0066fb5`). **Generators blocked on missing card text** — see below |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -128,13 +128,17 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Chunk 11's first piece (EM-302's `scope_sql`)** — `0066fb5`, the `em.retrieval`
-package, the shared `may_read_owner_only` predicate, and the cross-checked scope
-helper — on the local branch `em/em-302-scope-sql`. **Not pushed, not merged, no CI run yet.**
-`origin/main` is `77b6c40`. Locally green on both Python 3.10 and 3.12 — **1757
-passed / 3 skipped / 3 xfailed**, `ruff==0.16.2` clean, eval gate with no gated
-metric regressed, `tests/unit` green standalone. Push, green CI on the exact SHA,
-`git merge --ff-only`.
+**Nothing.** EM-302's `scope_sql` is merged to `main` at `50c5310` with green CI on
+that exact SHA, and the `em/em-302-scope-sql` branch is deleted. The remote carries
+`main` and `release/2.8.x` only, and the Marketplace entry is untouched (still
+2.8.1 at `7e02412`) — a chunk leaves it alone unless the chunk *is* a release.
+
+Nine consecutive merges have now gone green on the **first** CI run, all because
+the suite was checked on Python 3.10 as well as 3.12 before pushing.
+
+**The next development step needs the owner**: EM-302's generators are blocked on
+the master plan's card text (see "Waiting on the owner" above), and EM-303 is the
+unblocked alternative.
 
 ## What is done
 

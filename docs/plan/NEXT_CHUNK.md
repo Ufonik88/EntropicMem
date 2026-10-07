@@ -131,14 +131,14 @@
 - 18 new tests + 2 regression tests; 1751 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; six mutation checks, all caught.
 - **Merged** to `main` at `c50d7b6`; green on the exact SHA, first CI run, all 11 jobs.
 
-### EM-302's first piece — `scope_sql`. **DONE, COMMITTED, NOT MERGED (2026-10-07, `0066fb5`)**
+### EM-302's first piece — `scope_sql`. **DONE, MERGED (2026-10-07, `0066fb5`, in `50c5310`)**
 
 - `em.retrieval` created, with **`scope_sql(scope) -> (clause, params)`**: the §3.5 rule as SQL, the helper every generator filters through, unit-tested. The **generators are deliberately not written** — see Part B.
 - **`may_read_owner_only(scope)` moved into `em/store/types.py`**, next to `Scope` and `OWNER_ONLY_TIERS`. `_in_scope` uses it as a predicate and `scope_sql` uses it to decide the SQL exclusion, so the plan's "if the two ever disagree, `_in_scope` wins" is true by construction rather than by test. The tier names come from the same tuple on both sides.
 - The tests **cross-check the two forms over a real row matrix** instead of restating the rule, with a guard that the matrix discriminates so the check cannot pass vacuously.
 - 6 new tests; 1757 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; six mutation checks. The `is_owner` mutant reddens four tests across two suites — the shared predicate working.
 - `em.retrieval` added to `pyproject` (invariant 9), verified by the packaging guard.
-- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+- **Merged** to `main` at `50c5310`; green on the exact SHA, first CI run.
 
 **EM-211 and EM-212 are code-complete, both engines serve a v3 store, and S3 has begun.** EM-211's AC is met except for the seven refusals; the cutover is the owner's call; **EM-302 is blocked on card text that is not in the repo.**
 
@@ -179,7 +179,7 @@ If the card text is not to hand, **EM-303 is the next development piece and does
 The same size guard applies: stop if the `embeddings` table's shape or the model-loading contract needs something not in the repo — record the gap rather than invent it.
 
 ### Pre-flight (either path)
-1. `main` must be at `77b6c40` or later, and EM-302's `scope_sql` merged.
+1. `main` must be at `50c5310` or later: EM-302's `scope_sql` is merged there. `git merge-base --is-ancestor 50c5310 main` proves it.
 2. **Baseline:** `pytest -q` gives **1757 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
 3. **Re-measure from the code.** For EM-303: `MemoryStore._enqueue_embed`, the `embeddings` table in `0002_v3_core`, `em/store/jobs.py`'s registry, `embeddings.py`'s opt-in gate, and `evals/`'s hard-suite fixture. For EM-302 once unblocked: whatever the pasted card text says.
 
