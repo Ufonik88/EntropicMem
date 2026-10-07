@@ -13,9 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `50c5310`, which is the
-commit EM-302's `scope_sql` was merged at after green CI on it. A later docs-only commit moving
-the tip without changing code, tests or counts is expected; see plan §11.
+**Last reconciled:** 2026-10-07, against branch `main` at `209abcf`, which is the
+docs tip; EM-302 (the candidate generators) was merged at `33b2b31` after green CI
+on that exact commit. A later docs-only commit moving the tip without changing code,
+tests or counts is expected; see plan §11.
 
 ---
 
@@ -78,8 +79,9 @@ owner-gated.
 What `em/` contains today: `em.clock` (freezable UTC, ULIDs), `em.store`
 (`db`/portable locking, numbered migrations `0001`–`0003`, `MemoryStore`,
 `episodes`, `entities`, `jobs`, `backup`, hash-chained `audit`), `em.jobs` (queue,
-worker, `entropicmem worker run`), `em.formation` (`EntityLinker`), and
-`em.facade` (the provider-facing contract plus `V3Engine`).
+worker, `entropicmem worker run`), `em.formation` (`EntityLinker`), `em.retrieval`
+(S3 has begun — `AnalyzedQuery`, `TimeRange`, and EM-302's candidate generators),
+and `em.facade` (the provider-facing contract plus `V3Engine`).
 
 ### Hermes Marketplace — the catalog entry
 
@@ -114,7 +116,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 8 | EM-212's **package move** | **Done, merged** (`025f012`, in `c922970`) |
 | 9 | The **provider** selects its engine by `user_version` | **Done, merged** (`b615bcf`) |
 | 10 | **CLI parity** on v3 — 10.0 guard → 10.1 reads → 10.2 maintenance → 10.3 refusals → 10.4 route | **Done, merged** (`250320a`). **EM-211's AC is met except for seven named refusals** |
-| 11 | **S3 begins** — EM-302, candidate generators (the critical path) | `scope_sql` + `em.retrieval` **merged** (`0066fb5`). **Generators blocked on missing card text** — see below |
+| 11 | **S3 begins** — EM-302, candidate generators (the critical path) | **Done, merged** (`0066fb5` the scope helper, `33b2b31` the generators, merged at `33b2b31`). `vector` is EM-303's |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -128,17 +130,25 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** EM-302's `scope_sql` is merged to `main` at `50c5310` with green CI on
-that exact SHA, and the `em/em-302-scope-sql` branch is deleted. The remote carries
-`main` and `release/2.8.x` only, and the Marketplace entry is untouched (still
-2.8.1 at `7e02412`) — a chunk leaves it alone unless the chunk *is* a release.
+**Nothing.** EM-302 (both pieces) is merged to `main` with green CI on each merged
+SHA, and both feature branches are deleted. The remote carries `main` and
+`release/2.8.x` only, and the Marketplace entry is untouched (still 2.8.1 at
+`7e02412`) — a chunk leaves it alone unless the chunk *is* a release.
 
-Nine consecutive merges have now gone green on the **first** CI run, all because
-the suite was checked on Python 3.10 as well as 3.12 before pushing.
+Ten consecutive merges have now gone green on the **first** CI run, all because the
+suite was checked on Python 3.10 as well as 3.12 before pushing.
 
-**The next development step needs the owner**: EM-302's generators are blocked on
-the master plan's card text (see "Waiting on the owner" above), and EM-303 is the
-unblocked alternative.
+### Where the master plan is
+
+The v3 master plan (1,587 lines) is on the owner's machine at
+`~/Documents/EntropicMem Dev docs/EntropicMem_v3_Master_Plan.md`, with a copy under
+the Claude session that wrote it. It is **not** committed (it is the owner's
+document), so cards after S2 have had to be fetched by hand — which is what
+blocked this chunk until the file was found. EM-302's card and the §3.6 text it
+points at are now **transcribed into plan §6.2**, so that gap is closed for this
+card at least. Before starting a card whose text is not in §6.2, read the file; if
+it is unreachable, stop and report rather than inventing fields (plan §6.2's size
+guard).
 
 ## What is done
 
@@ -174,45 +184,53 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-### Waiting on the owner: the EM-302 card text
+### Chunk 12 — EM-301, the `QueryAnalyzer` (§3.6). **Ready, unblocked.**
 
-**This is the one thing blocking S3.** The v3 master plan lives on the owner's
-machine (plan §1) and the repo does not carry it, so it carries only §6.2's card
-*summary*. That summary fixes the shapes' *names* but not their fields:
+The card text is in the master plan, and EM-302 built the interface it fills in:
+`em/retrieval/query.py` holds `AnalyzedQuery` and `em/retrieval/temporal.py` holds
+`TimeRange`, both currently types only. EM-301 adds the analyzer that produces one:
+`\w+` tokenising, casefold, the ~180-word English stopword list plus config
+`extra_stopwords`, tokens of `len >= 2`, prefix `*` only for `len >= 4`, max 12
+terms selected **by IDF** from `memories_fts`'s vocabulary, the intent heuristic
+(`profile`/`temporal`/`procedural`/`lookup`), and entity-alias lookup.
 
-| What is missing | Why it blocks |
-|---|---|
-| **`Candidate`'s fields** | The summary says generators return `list[Candidate]` and names exactly one field (`owner_type='episode'` for the episodic generator). Nothing records the rest. |
-| **`RetrievalContext`'s field shapes** | `aq`, `scope`, `now`, `limits`, `deadline` are named but not typed — is `aq` a struct (terms? raw text? weights?), is `deadline` wall-clock or monotonic, what is in `limits`? |
-| **The generator set** | The card says "candidate generators" (plural) and the summary names BM25 and an episodic one. The full list is not recorded. |
-| **BM25's per-column weights** | The summary says the query uses them; the columns and the weights are not given. |
+It is the last missing dependency of EM-304 (`fusion`, "exactly §3.6 formulas"),
+which is the next thing on the critical path. Two things to carry in:
 
-The plan's size guard says exactly this: *"record the gap rather than inventing
-fields."* Inventing them would put EM-304 on sand, since its spec is "exactly §3.6
-formulas" with a deterministic `score desc, updated_at desc, id asc` tie-break —
-which is written against the `Candidate` shape.
+* **the vocabulary needs a migration**, and the plan's "migration 0003" is already
+  taken by `0003_audit_append_only`, so it becomes **0004** (a new migration — never
+  edit an applied one);
+* **the AC is a labelled-query table**: ≥ 30 queries, ≥ 90% intent accuracy.
 
-**What to paste, when convenient:** the EM-302 card text from master plan §5
-(and, if handy, the §3.6 extract). That is the same §1 gap the plan already
-records for most cards after S2, now with a concrete consumer. Nothing else is
-needed to unblock.
+### Known gaps, recorded so they are not lost
 
-### Meanwhile
+* **§3.5's `visibility` half is not implemented — a privacy gap, and the most
+  important thing on this page.** A *profile-wide* row (`scope_user=''`) is
+  owner-only when `sensitivity IN ('sensitive','secret')` **or `visibility='user'`**;
+  `_in_scope` implements only the tier half, and `MemoryDraft.visibility` defaults to
+  `'user'`, so a profile-wide write made with the default is currently readable by
+  non-owners. This needs its own card (it reclassifies existing rows, and
+  `MemoryStore.list` would need the same treatment), not a quiet edit. Full reasoning
+  in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
+* **`vector` (EM-303)** — §3.6's sixth generator, deferred to the card that builds
+  the embedding backend and its numpy cache, which its spec requires.
+* **`recent`'s "current session" half** — §3.6 reads "in current session / last
+  48 h"; the 48 h window is implemented and the session half needs a session id
+  `RetrievalContext` does not carry.
+* **`EM-211`'s seven CLI refusals** — each names the card that lifts it. Closing
+  them is S3/S5/S6 work, not a bug.
 
-**The cutover is available and is the owner's call** — it needs the owner present
-and is the last step before 3.0 for real.
+### The v3 cutover
 
-**S3's other pieces are not blocked in the same way**: EM-303 (embeddings) has
-enough recorded in §6.2 to begin — an `embed` job handler, upsert into
-`embeddings` on `(owner_type, owner_id, model)`, the 2.8.1 opt-in respected, and a
-recall@5 target. It does not depend on the `Candidate` shape. If the owner prefers
-not to paste card text yet, **EM-303 is the next unblocked development piece.**
+Available and technically ready: a v2 store keeps the v2 engine and a v3 store gets
+the facade, selected by `PRAGMA user_version`, so nothing migrates by accident. The
+cutover is the owner's deliberate act and needs them present.
 
 ## Gates that must be green before anything reaches `main`
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1757 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **1795 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
@@ -305,9 +323,11 @@ Each is a deliberate, recorded decision. The full table with reasons is in
   pinned by `test_public_content_is_not_redacted`. What *was* an accident — the
   locale packs being dropped — was fixed: `pii_locales` now reaches redaction on
   both engines, so a store configured for the `za` pack keeps that detection.
-- **Sensitive rows are owner-only on read; profile-wide rows are not.** The rule
-  restricts *tiers* (`sensitive`/`secret`), not profile-wide rows as such — those
-  stay shared knowledge for the profile. Do not "simplify" one into the other.
+- **Sensitive rows are owner-only on read; profile-wide rows are not — yet.** The
+  rule restricts *tiers* (`sensitive`/`secret`), not profile-wide rows as such — those
+  stay shared knowledge for the profile. Do not "simplify" one into the other. Note
+  §3.5's second owner-only condition (`visibility='user'`, on a profile-wide row) is
+  **not implemented** — see "Known gaps"; it is a leak to fix, not a settled rule.
 - **Entity linking is two-sighting, so promotion links only the memory that trips
   the counter.** The earlier memory that also mentioned the phrase is not
   retro-linked, and its link job has already run, so it stays unlinked until its

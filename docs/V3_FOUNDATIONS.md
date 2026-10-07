@@ -18,9 +18,12 @@ em.facade  (EM-211)       contract.py: the exact API + behaviours the provider r
         |                    cutover is the owner's act.)
         v
 em.formation              entity_linker.py (EM-208): turns memories into graph links
-em.retrieval (S3)        candidates.py: scope_sql so far (the §3.5 rule as SQL,
-                          cross-checked against _in_scope). The generators
-                          wait on the master plan's EM-302 card text.
+em.retrieval (S3)        query.py: AnalyzedQuery (EM-301 fills in the analyzer)
+                          temporal.py: TimeRange (EM-310 fills in the parser)
+                          candidates.py: EM-302's generators (bm25, entity,
+                          episodic, recent, pinned), Candidate, RetrievalContext,
+                          and scope_sql (the §3.5 rule as SQL, cross-checked
+                          against _in_scope over a row matrix). vector is EM-303's.
 em.jobs   (EM-209)        worker.py: claims jobs, runs handlers OUTSIDE transactions
                           cli.py: `entropicmem worker run`, the cron entry point (refuses a live path)
         |
@@ -166,6 +169,10 @@ These are decisions the writes chunk made that are not obvious from the signatur
 - **EM-213** is done, re-scoped on 2026-09-26: the Hermes catalog verifies the plugin against `provides_tools`/`provides_hooks`, so they stay and only the duplicate `hooks:` list went. `test_f011_plugin_manifest_declares_tools_and_hooks_once` pins it. Do not remove the provides lists.
 - **EM-303 (embeddings, S3).** An `embed` job handler. Jobs are already queued by `MemoryStore.add`. Upsert into `embeddings` on `(owner_type, owner_id, model)` so re-runs are harmless.
 - **Wiring `EntityLinker`.** Run it from a job (`link:<memory_id>:<version>`), not inside `MemoryStore.add`, to keep entity work out of the write transaction.
+- **§3.5's `visibility` half is not implemented — a recorded privacy gap, not a settled one.** §3.5 makes a *profile-wide* row (`scope_user=''`) owner-only when `sensitivity IN ('sensitive','secret')` **or `visibility='user'`**. `_in_scope` implements the tier half only. It matters because `MemoryDraft.visibility` defaults to `'user'`, so a profile-wide write made with the default is, per the plan, owner-only — and today it is not. That is a leak in the tightening direction, so it needs fixing rather than only recording; it is left for its own card because implementing it reclassifies rows that already exist, and `MemoryStore.list` (`scope_user=?` exactly, no tier filter) would need the same treatment. On `MASTER_TODO.md` under gaps.
+- **§3.5's chat half now lives in one place (Chunk 11, EM-302).** `scope_chat IN (<chat>, '')` was already emitted by `MemoryStore.list` but not by the row predicate `_in_scope`. `em.store.types.chat_in_scope` is now the single decision, called by `_in_scope` and rendered into SQL by `scope_sql`; a no-op while `scope.chat` is empty (every caller today). The scope cross-check matrix includes chat rows, so the two forms cannot drift again.
+- **EM-302's `vector` generator is EM-303's, deliberately.** §3.6 gates it on an embedding backend ("only if backend available and coverage ≥ 50%") and forbids re-reading vector blobs per query, so it belongs with the backends and the numpy cache. `em/retrieval/__init__.py` records it.
+- **EM-302's "current session" `recent` window is not wired.** §3.6 reads "in current session / last 48 h"; the 48 h window is implemented, and the session half needs a session id that the card's `RetrievalContext` (aq, scope, now, limits, deadline) does not carry. It also needed a read connection, so `RetrievalContext` carries `conn` as well — the one field added beyond the card's list, because the stated signature `(ctx) -> list[Candidate]` leaves a generator nowhere else to get one.
 
 ## Recorded deviations from the plan
 
