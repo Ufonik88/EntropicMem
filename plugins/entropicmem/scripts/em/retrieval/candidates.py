@@ -119,13 +119,16 @@ def scope_sql(scope: Scope, *, table: str = "m", owner_only: bool = True) -> Tup
     * same profile, and
     * the row is the caller's own or profile-wide, and
     * in a chat context, the row belongs to that chat or is chat-wide, and
-    * an owner-only tier (``sensitive``/``secret``) is excluded unless the caller
-      is the owner context.
+    * an owner-only row is excluded unless the caller is the owner context — a
+      ``sensitive``/``secret`` tier, or a profile-wide row stamped
+      ``visibility='user'`` (the two conditions of
+      :func:`em.store.types.row_is_owner_only`).
 
-    The owner decision comes from :func:`em.store.types.may_read_owner_only` and
-    the chat decision from :func:`em.store.types.chat_in_scope` — the same two
-    functions ``MemoryStore._in_scope`` calls — so the SQL form and the
-    row-by-row form cannot disagree about who may read what, and
+    The row decision comes from :func:`em.store.types.row_is_owner_only`, the
+    caller decision from :func:`em.store.types.may_read_owner_only` and the chat
+    decision from :func:`em.store.types.chat_in_scope` — the same three functions
+    ``MemoryStore._in_scope`` calls — so the SQL form and the row-by-row form
+    cannot disagree about who may read what, and
     ``tests/unit/test_em_retrieval_scope_sql.py`` cross-checks them against real
     rows rather than trusting that.
 
@@ -148,15 +151,17 @@ def scope_sql(scope: Scope, *, table: str = "m", owner_only: bool = True) -> Tup
         params.append(scope.chat)
 
     if owner_only and not may_read_owner_only(scope):
-        # Exclude the owner-only tiers. The tier names come from the same tuple
-        # `_in_scope` consults, so adding one there cannot forget the SQL side.
-        #
-        # No `IS NULL` escape is needed: `sensitivity` is NOT NULL in the schema
-        # (pinned by a test), and if that ever changes, `NOT IN` excludes the
-        # NULLs — the safe direction, since a row of unknown tier must not reach
-        # a non-owner.
+        # Exclude every owner-only row: the tiers, and the profile-wide row
+        # stamped `visibility='user'`. The tier names come from the same tuple
+        # `row_is_owner_only` consults, so adding one there cannot forget the SQL
+        # side. No `IS NULL` escape is needed for `sensitivity`: it is NOT NULL in
+        # the schema (pinned by a test), and if that ever changed, `IN` would be
+        # false for the NULL and the row would be excluded — the safe direction.
         placeholders = ", ".join("?" for _ in OWNER_ONLY_TIERS)
-        clause += f" AND {prefix}sensitivity NOT IN ({placeholders})"
+        clause += (
+            f" AND NOT ({prefix}sensitivity IN ({placeholders})"
+            f" OR ({prefix}scope_user = '' AND {prefix}visibility = 'user'))"
+        )
         params.extend(OWNER_ONLY_TIERS)
 
     return clause, params

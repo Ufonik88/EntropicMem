@@ -480,10 +480,10 @@ def test_the_full_set_comes_back_when_there_is_no_deadline(store):
 
 def test_owner_only_false_omits_the_tier_clause_for_a_table_without_sensitivity(store):
     clause, params = scope_sql(ALICE, table="e", owner_only=False)
-    assert "sensitivity" not in clause
+    assert "sensitivity" not in clause and "visibility" not in clause
     assert params == [ALICE.profile, ALICE.user]
     clause, params = scope_sql(ALICE, table="e")
-    assert "sensitivity NOT IN (?, ?)" in clause
+    assert "sensitivity IN (?, ?)" in clause and "visibility" in clause
 
 
 def test_the_chat_dimension_is_emitted_only_when_the_scope_is_in_a_chat():
@@ -494,7 +494,7 @@ def test_the_chat_dimension_is_emitted_only_when_the_scope_is_in_a_chat():
 
     guest_in_chat = Scope(profile="default", user="alice", chat="chat-1")
     clause, params = scope_sql(guest_in_chat)
-    assert "scope_chat = ?" in clause and "sensitivity NOT IN (?, ?)" in clause
+    assert "scope_chat = ?" in clause and "sensitivity IN (?, ?)" in clause
     assert params == ["default", "alice", "chat-1", "sensitive", "secret"]
 
     plain, params = scope_sql(ALICE)

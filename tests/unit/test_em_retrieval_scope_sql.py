@@ -93,6 +93,15 @@ def seed(store) -> None:
             scope=OWNER, actor="tester",
         )
         conn.execute("UPDATE memories SET sensitivity='secret' WHERE id=?", (result.id,))
+    # §3.5's *second* owner-only condition: a profile-wide row stamped
+    # `visibility='user'`. `add` deliberately no longer produces this shape — it
+    # derives the stamp from the scope — so it is forced here, which is precisely
+    # why the guard has to exist.
+    with store.transaction() as conn:
+        result = MemoryStore(conn).add(
+            MemoryDraft(content="profile-wide, visibility=user"), scope=OWNER, actor="tester"
+        )
+        conn.execute("UPDATE memories SET visibility='user' WHERE id=?", (result.id,))
 
 
 def by_sql(store, scope) -> set:
@@ -130,6 +139,38 @@ def test_the_matrix_actually_discriminates(store):
     assert all(len(s) > 0 for s in seen), "every scope sees at least its own rows"
 
 
+def _id_of(store, content: str) -> str:
+    return store.reader().execute(
+        "SELECT id FROM memories WHERE content=?", (content,)
+    ).fetchone()["id"]
+
+
+def test_a_profile_wide_row_stamped_visibility_user_is_owner_only(store):
+    """The semantics stated directly.
+
+    The cross-check below compares two implementations, so it would still pass if
+    *both* forgot §3.5's second owner-only condition. This asserts the behaviour
+    itself, in both forms.
+    """
+    seed(store)
+    target = _id_of(store, "profile-wide, visibility=user")
+    assert target not in by_predicate(store, GUEST)
+    assert target not in by_predicate(store, OTHER_USER)
+    assert target in by_predicate(store, OWNER)
+    assert target in by_predicate(store, SCOPED_OWNER), "a self-asserted owner reads it"
+    assert target not in by_sql(store, GUEST)
+    assert target in by_sql(store, OWNER)
+
+
+def test_a_user_scoped_row_stamped_visibility_user_is_not_owner_only(store):
+    """The condition is *profile-wide* rows only: `visibility='user'` on a row
+    scoped to a user is the ordinary shape and belongs to that user."""
+    seed(store)
+    mine = _id_of(store, "alice's own, ordinary")
+    assert mine in by_sql(store, GUEST)
+    assert mine in by_predicate(store, GUEST)
+
+
 def test_the_owner_clause_is_excluded_for_the_owner_context(store):
     """A profile-wide or self-asserted owner gets no tier filter at all."""
     for scope in (OWNER, SCOPED_OWNER):
@@ -140,7 +181,8 @@ def test_the_owner_clause_is_excluded_for_the_owner_context(store):
 
 def test_the_owner_clause_is_emitted_for_a_guest(store):
     clause, params = scope_sql(GUEST)
-    assert "sensitivity NOT IN (?, ?)" in clause, clause
+    assert "NOT (m.sensitivity IN (?, ?)" in clause, clause
+    assert "(m.scope_user = '' AND m.visibility = 'user')" in clause, clause
     assert params == [GUEST.profile, GUEST.user, "sensitive", "secret"], params
 
 

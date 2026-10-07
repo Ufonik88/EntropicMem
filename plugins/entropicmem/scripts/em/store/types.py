@@ -8,7 +8,7 @@ mutated after it is handed to ``MemoryStore.add``.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 # --- §3.4 status machine -------------------------------------------------
 
@@ -93,6 +93,42 @@ def may_read_owner_only(scope: "Scope") -> bool:
     return scope.user == "" or bool(scope.is_owner)
 
 
+def row_is_owner_only(row: "Mapping[str, Any]") -> bool:
+    """True when §3.5 makes this row readable by its owner alone.
+
+    Two conditions, and only these two:
+
+    * the tier is in :data:`OWNER_ONLY_TIERS` (``sensitive``/``secret``); or
+    * the row is **profile-wide** (``scope_user == ''``) yet stamped
+      ``visibility='user'``.
+
+    The second is not redundant. §3.5 pairs ``visibility='user'`` with a
+    *user-scoped* write (``scope_user=<user>``) and ``'profile'`` with a
+    profile-wide one, so the combination means "written for one user, stored for
+    the whole profile" — an incoherent state the plan resolves in the safe
+    direction. It is also the row shape the store used to produce for **every**
+    write, because ``MemoryDraft.visibility`` used to default to ``'user'``; that
+    default now derives from the scope, and this predicate is the guard for rows
+    that already exist or that a caller deliberately stamps.
+
+    A user-scoped row with ``visibility='user'`` is **not** owner-only: that is
+    the ordinary shape and it belongs to the user it is scoped to.
+
+    Missing columns answer "not owner-only", so a table without
+    ``sensitivity``/``visibility`` (``episodes``) is unaffected.
+    """
+    try:
+        tier = row["sensitivity"]
+    except (KeyError, IndexError, TypeError):
+        tier = "internal"
+    if tier in OWNER_ONLY_TIERS:
+        return True
+    try:
+        return row["scope_user"] == "" and row["visibility"] == "user"
+    except (KeyError, IndexError, TypeError):
+        return False
+
+
 def chat_in_scope(scope: "Scope", row_chat: str) -> bool:
     """True when a row's ``scope_chat`` is readable in this scope (§3.5).
 
@@ -156,7 +192,16 @@ class MemoryDraft:
     evidence: str = ""
     summary: str = ""
     tags: tuple[str, ...] = ()
-    visibility: str = "user"
+    #: §3.5's write stamp. **Empty means "derive from the scope"** — a
+    #: profile-wide write becomes ``'profile'`` (shared knowledge for the
+    #: profile) and a user-scoped write ``'user'``. It is empty by default
+    #: because a plain ``str`` default cannot tell "the caller asked for
+    #: ``'user'``" from "nobody said anything", and the difference is load
+    #: bearing: §3.5 makes a *profile-wide* row carrying ``'user'`` owner-only,
+    #: so defaulting to ``'user'`` would silently mark every profile-wide
+    #: memory private. ``MemoryStore._insert`` resolves it before the row is
+    #: written; ``''`` never reaches the column (the CHECK forbids it).
+    visibility: str = ""
     importance: float = 0.5
     confidence: float = 0.8
     pinned: bool = False

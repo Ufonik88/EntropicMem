@@ -35,6 +35,7 @@ from .types import (
     chat_in_scope,
     check_transition,
     may_read_owner_only,
+    row_is_owner_only,
 )
 
 # Columns a caller may never set directly: they are maintained by the store.
@@ -223,7 +224,7 @@ class MemoryStore:
                 scope.profile,
                 scope.user,
                 scope.chat,
-                draft.visibility,
+                _resolved_visibility(draft, scope),
                 draft.kind,
                 content,
                 draft.summary,
@@ -327,12 +328,33 @@ class MemoryStore:
             dedupe_key=f"link:{memory_id}:{version}",
         )
 
-    def _outbox(self, memory_id: str, op: str, version: int, ts: str, payload: Mapping[str, Any]) -> None:
+    def _outbox(
+        self,
+        memory_id: str,
+        op: str,
+        version: int,
+        ts: str,
+        payload: Mapping[str, Any],
+        *,
+        sensitivity: str,
+    ) -> None:
         """Append to the sync outbox when the memory is publishable.
 
-        Only ``public``/``internal`` visibility leaves the profile; anything
-        sensitive stays local, which is the whole point of the outbox.
+        Two conditions, both required: the tier must not be owner-only
+        (``sensitive``/``secret`` stays local, which is the whole point of the
+        outbox) and the visibility must be ``'profile'`` or ``'shared'`` (a
+        user-scoped or chat row never leaves the profile). That is exactly v2's
+        gate, ``_publish_allowed(sensitivity)``, plus the v3 visibility dimension.
+
+        **The tier half was missing while looking present.** The docstring always
+        said sensitive rows stay local, but the code checked only ``visibility`` —
+        and that happened to be enough, because every profile-wide write used to be
+        stamped ``'user'`` by the old default and so was never queued at all.
+        Resolving the stamp from the scope removes that accident, so the tier check
+        is explicit now instead of implied.
         """
+        if sensitivity in OWNER_ONLY_TIERS:
+            return
         if payload.get("visibility") not in ("profile", "shared"):
             return
         self._conn.execute(
@@ -424,10 +446,11 @@ class MemoryStore:
                 "domain": draft.domain,
                 "kind": draft.kind,
                 "tags": sorted(draft.tags),
-                "visibility": draft.visibility,
+                "visibility": _resolved_visibility(draft, scope),
                 "importance": draft.importance,
                 "confidence": draft.confidence,
             },
+            sensitivity=draft.sensitivity,
         )
         seq = audit_append(
             self._conn, "add", actor, mid, {"kind": draft.kind, "domain": draft.domain, "version": 1},
@@ -770,21 +793,23 @@ def _scope_of(row: Mapping[str, Any]) -> Scope:
 
 
 def _in_scope(row: Mapping[str, Any], scope: Scope) -> bool:
-    """§3.5 read rule: profile, user, chat, and the owner rule for sensitive rows.
+    """§3.5 read rule: profile, user, chat, and the owner-only rows.
 
     A row is visible when it is in the caller's profile, reads in the caller's
     chat context, and is either scoped to the caller or profile-wide. On top of
-    that, a row whose tier is in :data:`OWNER_ONLY_TIERS`
-    (``sensitive``/``secret``) is visible only to its owner.
+    that, an owner-only row — a ``sensitive``/``secret`` tier, or a profile-wide
+    row stamped ``visibility='user'`` — is visible only to its owner.
 
-    The tier decision comes from :func:`em.store.types.may_read_owner_only` and
-    the chat decision from :func:`em.store.types.chat_in_scope` — the same two
-    functions ``em.retrieval.candidates.scope_sql`` renders into SQL — so the
+    Two decisions, each with one definition: :func:`em.store.types.row_is_owner_only`
+    says whether the *row* is owner-only and
+    :func:`em.store.types.may_read_owner_only` says whether the *caller* is the
+    owner; :func:`em.store.types.chat_in_scope` covers the chat dimension.
+    ``em.retrieval.candidates.scope_sql`` renders the same three into SQL, so the
     row predicate and the query form cannot disagree about who may read what.
     """
     if row["scope_profile"] != scope.profile:
         return False
-    if not _owner_may_read(row, scope):
+    if row_is_owner_only(row) and not may_read_owner_only(scope):
         return False
     try:
         chat = row["scope_chat"]
@@ -798,18 +823,20 @@ def _in_scope(row: Mapping[str, Any], scope: Scope) -> bool:
 
 
 
-def _owner_may_read(row: Mapping[str, Any], scope: Scope) -> bool:
-    """False only when an owner-only tier is read by a non-owner.
+def _resolved_visibility(draft: MemoryDraft, scope: Scope) -> str:
+    """§3.5's write stamp for a draft, resolving :attr:`MemoryDraft.visibility`.
 
-    "Owner" is a profile-wide caller (``scope.user == ''`` — the v2 single-owner,
-    no-gateway and CLI case) or a caller that explicitly asserts
-    ``scope.is_owner``. A guest has a non-empty ``user`` and ``is_owner`` False,
-    so it is neither.
+    A profile-wide write is ``'profile'`` — shared knowledge for the profile,
+    which is what v2's single-owner store effectively was — and a user-scoped
+    write is ``'user'``. A caller that passes a value keeps it: ``'shared'`` and
+    ``'chat'`` are only ever deliberate.
+
+    This also decides publication: ``_outbox`` queues a row for sync when its
+    visibility is ``'profile'`` or ``'shared'``. Before this resolver existed the
+    default was ``'user'``, so a profile-wide write was *never* queued — while v2's
+    gate was ``_publish_allowed(sensitivity)``, i.e. v2 published every
+    non-sensitive fact. Resolving here restores that.
     """
-    try:
-        tier = row["sensitivity"]
-    except (KeyError, IndexError):
-        tier = "internal"
-    if tier not in OWNER_ONLY_TIERS:
-        return True
-    return may_read_owner_only(scope)
+    if draft.visibility:
+        return draft.visibility
+    return "profile" if scope.user == "" else "user"
