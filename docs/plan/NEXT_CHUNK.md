@@ -1,102 +1,72 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-07, Chunk 16 (the v3 eval adapter, P1) merged to `main`; **P0 — wire S3's read path into the provider — is the next piece.** **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, P0a (the v3 shadow read) merged to `main`; **P0b — a v3 store serving prefetch *from* S3 — is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md`, then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Owner decisions in force:**
-- **The cutover is deferred, with an explicit re-decision point: reconsidered when (a) the provider reads through S3, and (b) the v3 adapter has produced one end-to-end eval number — not before.** **(b) is met** (ci parity, hard recall@5 0.933 with lower noise). **Do not switch the live store without the owner's explicit go.**
-- **Priority order P0 → P1 (done) → P2 → P3.** P0 is the provider wiring; P2 is EM-306.
-- **Chunk 13's visibility change is ratified and internal only.** It **cannot be a 2.8.x patch** — `release/2.8.x` carries no `em/` at all (verified with `git ls-tree`) — so its only vehicle is 3.0. It does **not** need to land before the cutover, and it must not be bundled with it: a security-relevant change should not be hostage to a migration decision.
-- **EM-305's gate must not depend on EM-301's intent table** (92.9% on 42 samples).
+- **The cutover is deferred until (a) the provider reads through S3 and (b) the v3 adapter has produced one end-to-end eval number.** **(b) is met.** **(a) is half-met:** P0a's shadow reads S3 off the turn path over a copy, but on a v3 store prefetch still uses the v2 scoring the facade borrows. **Do not switch the live store without the owner's explicit go.**
+- **Priority order P0 → P1 (done) → P2 → P3.** **The owner decides the cutover; the agent brings it.**
+- **Chunk 13 is forward-only, ratified, and internal only.** No data needs repairing (the migration stamps `visibility='profile'`; the live store is v2/`user_version=0`), and its only release vehicle is 3.0 — `release/2.8.x` carries no `em/` at all.
+- **EM-305's gate must not depend on EM-301's intent table** (92.9% on 42).
 
-**Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
+**Plan exactly one chunk.** Two commits: code+tests+CHANGELOG, then docs with the reconciliation folded in. **`MASTER_TODO`'s `In flight` no longer names a commit** — that was the drift; `Last reconciled` carries the SHA.
 
-**Two commits per chunk is the target:** code+tests+CHANGELOG, then the docs commit with the reconciliation folded in.
-
-**The master plan is at `~/Documents/EntropicMem Dev docs/EntropicMem_v3_Master_Plan.md`** (the owner's document, deliberately not committed). EM-301's…EM-306's cards plus §3.6 and §4 are transcribed into `REMAINING_PLAN.md` §6.2. **Before starting a card whose text is not there, read that file** — and if it is unreachable, stop and report rather than inventing fields.
+**The master plan is at `~/Documents/EntropicMem Dev docs/EntropicMem_v3_Master_Plan.md`.** EM-301…EM-306 plus §3.6/§4 are transcribed into `REMAINING_PLAN.md` §6.2.
 
 ---
 
 ## Part A: what has landed
 
-Only the recent chunks; the full ledger with SHAs is `REMAINING_PLAN.md` §5.
+### Chunk 17 — P0a, the v3 shadow read. **DONE, MERGED (2026-10-07, `f0a7c70`)**
 
-### Chunk 16 — the v3 eval adapter (P1). **DONE, MERGED (2026-10-07, `ff0d3c3`)**
+- `plugins/entropicmem/_shadow.py`: enabled only by `ENTROPICMEM_SHADOW_V3=<path>` (**unset = inert**). v2 serves the turn; S3 runs **post-turn, off the turn path**, over a **v3 copy**; one divergence line per turn.
+- **Asserted, not inspected:** the **full provider response** is byte-identical with the shadow on and off (system prompt, context query, first prefetch, *cached* second prefetch, an abstaining query); and the shadow is **not on the turn path**, proven by blocking its thread on an event and showing the response still returns. Plus a test that the flag actually enables the work, because byte-identity is meaningless otherwise.
+- **Both biases travel with every number:** `copy_age_s` / `copy_refreshed` / `stale` (the copy **lags**, so divergence is a **lower bound**), and a `caveat` (no cosine until EM-303, so **not** an apples-to-apples quality comparison against v2).
+- **Promotion observable fixed before collecting:** ≥ 200 turns, copy within 900 s, divergence ≤ 10%, **`v3_only` never non-zero**, off-turn p95 ≤ 150 ms. Agent proposal, owner may adjust.
+- **Live store never written** (read-only refresh; a test asserts bytes+mtime unchanged). The copy is **migrated** on refresh, so the cutover path runs often on throwaway data.
+- **`em/retrieval/pipeline.py` extracted** so the eval adapter and the shadow share **one** pipeline. Proven behaviour-preserving: 40 of 45 ci metrics byte-identical, the five being `latency_ms`.
+- **Two real findings kept:** `test_f005_uses_spawn_context_thread` (a *passing* regression test) rejected a bare `threading.Thread` — F-005b/H3 requires every background thread to come from `_spawn`, and the shadow now does; and `test_plugin_imports.py`'s loader never registered its own module, so `from . import _shadow` failed for a module sitting right there — the loader now registers itself as a real import does.
+- 15 new tests. **1995 passed / 3 skipped / 3 xfailed on 3.10 and 3.12**; v2 eval gate green; v3 ci numbers unchanged.
 
-- `evals/adapters/engine_v3.py` drives **the real pipeline** (`analyze → GENERATORS → fuse → rank → gate → collapse → mmr`) over a migrated v3 store. `search` runs without the gate (ranking metrics measure ORDER — the v2 adapter's own `min_relevance=0.0` split); `prefetch` runs with it and returns `''` on abstention.
-- **First end-to-end v3 numbers**, against v2 on the same runs:
+### Chunk 16 — the v3 eval adapter (P1). **DONE, MERGED (`ff0d3c3`)**
 
-  | suite | v3 | v2 |
-  |---|---|---|
-  | **ci** overall | recall@5 1.000 · abstain 1.000 · noise 0.143 · must_not_ok 1.000 | identical |
-  | **hard** overall | **recall@5 0.933** · abstain 1.000 · **noise 0.172** · must_not_ok 1.000 | 0.939 · 1.000 · 0.219 · 1.000 |
-  | hard/ageing | **0.733** | **0.733** |
+- `evals/adapters/engine_v3.py` over a migrated v3 store; `search` without the gate (ORDER), `prefetch` with it (abstention). **ci at full parity with v2; hard recall@5 0.933 vs v2's 0.939 with noise 0.172 vs 0.219; `ageing` 0.733 for both** (§6.2's predicted lexical-only figure). Baselines `evals/baselines/v3-{ci,hard}.json`. **CI's gate deliberately still v2.**
 
-  Parity on recall with **lower noise**, and `ageing` at 0.733 for both — §6.2's predicted lexical-only figure, because the four paraphrase misses share no words with the stored fact and vectors are EM-303's. Reproducing the *known* number exactly is a cross-check on the adapter.
-- Baselines: `evals/baselines/v3-ci.json`, `v3-hard.json`. **CI's gate is deliberately unchanged** (still v2 against `v2.8.0-ci.json`) — making v3 fail a build is a decision about what CI enforces and belongs with EM-306.
-- 10 tests in `tests/evals/test_adapter_v3.py`, which is also what runs the adapter in CI.
+### Chunk 15 and earlier
 
-### Chunk 15 — EM-305, the gate, collapse and MMR. **DONE, MERGED (2026-10-07, `50601b3`, pins at `9f4b39b`)**
-
-- The four support conditions then the score threshold; **pinned bypasses**. Coverage is measured with **the index's own tokenizer** (the "post-stem" trap resolved exactly), and the coupling is now **pinned by a test** that reads the schema — `gate.index_tokenizer` / `tokenizer_matches_index`.
-- The collapse groups duplicates on **loaded text**, because `_content_hash` mixes the scope into the digest; it prefers the narrower scope and keeps the successor of a live chain. MMR λ = 0.7 over the top 20 on Jaccard. `diversity._require_texts` refuses a mapping keyed by anything but `Ranking.key` — the class, not the incident, behind the draft bug that passed for the wrong reason.
-- 54 tests; **23 mutation checks all caught first pass**; two review-driven guards proven red by mutation.
-
-### Chunks 11–14 — EM-302, EM-301, the `visibility` fix, EM-304. **DONE, MERGED**
-
-Details in `REMAINING_PLAN.md` §5. **S3's retrieval pipeline is complete, scored end to end, and still unwired — which is exactly what P0 fixes.**
+EM-305 (gate/collapse/MMR, with the tokenizer coupling and the key-shape guard mutation-proven), EM-304, EM-301/302, the `visibility` fix. `REMAINING_PLAN.md` §5.
 
 ---
 
-## Part B: P0 — wire S3's read path into the provider
+## Part B: P0b — serve prefetch from S3 on a v3 store
 
-**The owner's words:** *"Nothing else produces signal until this exists, and it's the precondition for any honest cutover."* And, on the empty store: *"it also means a cutover buys almost no real-turn signal… Consider a shadow read (read v3, serve v2, log divergence) behind a flag. That gets the real-turn signal the counter-argument wants without committing the store. Your call on implementation."*
+**What is missing, precisely:** a v3 store already gets `V3Engine`, and `V3Engine`'s read half borrows **v2's** scoring through a lazy `memory_engine` import (`em/facade/engine.py`). So even on a v3 store, what reaches the model is v2's ranking. P0b replaces that stage with `em.retrieval` — and that is what makes cutover re-decision condition **(a)** true.
 
-### The proposed shape (a proposal — the implementation is the agent's, the risk posture is the owner's)
+### Shape
 
-**P0a — the shadow read, behind a flag, default off.**
-
-* `ENTROPICMEM_SHADOW_V3=<path>` (or a config key) names a **v3 copy** of the store.
-* The turn is served by **v2 exactly as today**. Nothing about the live store, its schema, or the served answer changes when the flag is unset — and it is unset by default.
-* **Post-turn and off the turn path**, S3 runs over `<path>` and the provider appends `{query, v2_ids, v3_ids, timings}` to a divergence log. Latency on the turn is untouched, which is the whole point: this must not become a synchronous v3 read on the agent thread (§4.2's rule, and the reason EM-403 exists).
-* **The honest limitation:** without S5's sync wiring there is no way to keep a second store in step, so the copy **lags**. Refresh it on demand or from a cron, and record the refresh time in every divergence line so a stale copy cannot be mistaken for a live one.
-* Exercising the migration on copies repeatedly is a **feature** of this design, not a side effect: it is the migration path itself, run often, on throwaway data, long before the real cutover.
-
-**P0b — on a v3 store, prefetch reads through S3.**
-
-* A v3 store already gets the facade; this makes the *retrieval* stage of prefetch use `em.retrieval` instead of the v2 scoring the facade borrows today.
-* Behind the same kind of flag at first, so a v3 store can be compared v2-scoring-vs-S3 without a redeploy: `ENTROPICMEM_V3_RETRIEVAL=1`. The flag exists only on the v3 path, because engine selection is by `PRAGMA user_version` — **which is why the shadow (P0a) is the only form that gives real-turn signal without committing the store.**
-
-### What is already in the repo, so do not rebuild it
-
-* `plugins/entropicmem/__init__.py` — `_open_engine()` selects by `user_version`; `prefetch()` renders the block. The nine `MemoryEngine(` sites all route through the one selector.
-* `em/facade/engine.py` — `V3Engine`'s `recall_with_relevance`/`recall_hybrid` currently borrow v2's scoring through a lazy `memory_engine` import; that is the seam P0b replaces.
-* `em/retrieval/*` — the whole pipeline, and `evals/adapters/engine_v3.py` shows exactly how to drive it end to end. **Reuse that call sequence**; do not invent a second one.
-* The render shape is parsed by `evals.runner.parse_injected_ids` (`- [id] text`), and §3.6/EM-307 own the real one.
+* **Behind a flag first** — `ENTROPICMEM_V3_RETRIEVAL=1` (or a config key). A v3 store must be comparable both ways without a redeploy, and the flag defaults **off**.
+* **The seam is `V3Engine`'s recall path**, not the provider: the provider already asks the engine, so the engine is where "which ranking" belongs. Reuse `em.retrieval.pipeline.retrieve` — the same one the adapter and the shadow call. **Do not write a fourth pipeline.**
+* **The flag only exists on the v3 path.** That is not a shortcut; it is why P0a had to be a shadow over a copy.
 
 ### Size guards — stop and report if
 
-* **the flag changes v2 behaviour when it is off.** The single most important property here. A test must drive a v2 store with the flag unset and assert the served block is byte-identical to today's.
-* **the shadow needs the turn path.** If a divergence check cannot be deferred past the turn, say so — a synchronous v3 read on the agent thread is a different (and worse) design that belongs with EM-403's PrefetchService, not here.
-* **P0b pulls in S4.** §4.1–§4.2's ProviderService, `ScopeContext` and the hook rewrite are EM-401–403. This chunk makes the *retrieval stage* read through S3; it does not restructure the provider.
-* **the shadow's copy has no way to be truthful.** If the refresh cannot be made visibly timed (a stale copy silently passed off as live would be worse than no shadow at all), stop and report.
+* **the flag changes behaviour when off.** A test must drive a v3 store both ways and assert the un-flagged output is byte-identical to today's — the same discipline P0a's full-response test used.
+* **the response shape drifts.** `em.retrieval` returns rankings and rows; the provider needs a rendered block in v2's shape (`- [id] text`, `(domain · date)`). The packer and §3.6's render are **EM-307's** — so if P0b needs a renderer, keep it minimal, say so, and do not let it become EM-307.
+* **prefetch latency regresses.** P0a was off-turn; P0b is *on* it. The shadow's `shadow_ms` (p95 ≤ 150 ms) is the pre-declared budget and §4.2's; measure before and after.
+* **it needs the provider rewrite.** §4.1/§4.2's ProviderService, `ScopeContext` and the hook set are EM-401–403. P0b changes the *ranking stage*; if it starts restructuring the provider, stop.
+
+### After P0b
+
+1. **P0c — read the shadow data** against the pre-declared observable (above), with the staleness bound beside every number. Do not lower a threshold to fit the sample.
+2. **P2 — EM-306**, unchanged: `dev`/`holdout` split **by id hash**, `python -m evals tune --params gate.min_score,gate.min_coverage,ranking.w_* --grid …` for `0.4*recall@5 + 0.3*mrr + 0.3*abstain_correct − 0.2*noise_rate`, defaults into `em/config.py` (**which does not exist yet — this is where it starts**), per-model cosine last (**the grid is empty until EM-303**). AC: holdout metrics reported, defaults committed, §6.3's gates updated. **Until the CI gate on v3 lands, `tests/evals/test_adapter_v3.py` is v3's only regression protection — it runs in the default suite (it is in the 1995).**
+3. **Bump `README.md`'s test count** when it next moves (`1,900+` is still true at 1995).
 
 ### Pre-flight
 
-1. `main` must be at `ff0d3c3` or later: Chunk 16 merged there. `git merge-base --is-ancestor ff0d3c3 main` proves it.
-2. **Baseline:** `pytest -q` gives **1980 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
-3. **Re-measure from the code**, not from this file: `_open_engine` and the provider's `prefetch`, `V3Engine`'s read half, where `core_inject_mode` and the prefetch config keys live, and whether anything already writes a diagnostic log the divergence line can join.
-4. **Verify CI with the check-runs API on the commit** (`ghx api repos/Ufonik88/EntropicMem/commits/<sha>/check-runs`), not `ghx run list --branch main --limit 1`, which can return a stale run and look green.
+1. `main` must be at `f0a7c70` or later. `git merge-base --is-ancestor f0a7c70 main` proves it.
+2. **Baseline:** `pytest -q` gives **1995 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
+3. **Re-measure from the code**, not this file: `em/facade/engine.py`'s read half and its lazy v2 import; `em/facade/select.py`'s `open_engine`; `plugins/entropicmem/__init__.py`'s `_build_fact_block`/`_format_block`; `em/retrieval/pipeline.retrieve`.
+4. **Verify CI with the check-runs API on the commit**, not `ghx run list --branch main --limit 1`, which can return a stale run and look green.
 
-### After P0: EM-306 (P2)
+### Document control
 
-Its card is unchanged and still ready: `dev`/`holdout` split **by id hash**, `python -m evals tune --params gate.min_score,gate.min_coverage,ranking.w_* --grid …` optimising `0.4*recall@5 + 0.3*mrr + 0.3*abstain_correct − 0.2*noise_rate`, defaults written into `em/config.py` (which does not exist yet — this is where it starts), per-model cosine calibrated separately (**the grid is empty until EM-303**). AC: holdout metrics reported, defaults committed, §6.3's gates updated. **Its first prerequisite — the v3 adapter — is now met; the second, `em/config.py`, is this chunk's own first step.** The owner's constraint stands: **do not let the gate depend on the 92.9%-on-42 intent table** — if tuning shows it does, widen the table first.
-
-### Document control (before and after)
-
-Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**, with the reconciliation folded into the docs commit. Merge state counts as truth. Chunk 13 stays internal; do not touch the Marketplace entry.
-
-### End of chunk
-
-1. Push, green CI on the exact SHA, `git merge --ff-only`, delete the branch.
-2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§9/§11.
-3. **Replace this file's Part A with this chunk and Part B with the next piece** — EM-306, then **bring the cutover decision back to the owner** once (a) is met.
+Per `AGENTS.md`, with the reconciliation folded into the docs commit. `In flight` does not name a commit. Chunk 13 stays internal; do not touch the Marketplace entry. **Never write to the live store** — P0b is read-only, and the shadow only ever writes its own copy.

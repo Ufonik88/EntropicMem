@@ -13,10 +13,11 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `1daf3ba`, which is the
-merge commit for Chunk 16 — its code is `ff0d3c3`, its docs `1daf3ba`. CI is verified
-on the exact commit with the check-runs API, not with `run list`, which can hand back
-a stale run and look green.
+**Last reconciled:** 2026-10-07, against branch `main` with **Chunk 17 merged on top of
+`7bfcf64` — its code is `f0a7c70`**. This line used to name a *tip*, which the next docs
+commit then falsified; it now names the chunk's code commit, and `In flight` names
+nothing. CI is verified on the exact commit with the check-runs API, not with `run
+list`, which can hand back a stale run and look green.
 
 ---
 
@@ -123,6 +124,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 14 | **EM-304 — fusion, rerank, explainability** | **Done, merged** (`14552be`) |
 | 15 | **EM-305 — gate, supersession collapse, MMR** | **Done, merged** (`50601b3`); two review-driven pins added at `9f4b39b` |
 | 16 | **The v3 eval adapter** (P1) — the first end-to-end v3 number | **Done, merged** (`ff0d3c3`) |
+| 17 | **P0a — the v3 shadow read** | **Done, merged** (`f0a7c70`). P0b (v3 serves prefetch *from* S3) is not |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -136,10 +138,11 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunk 16 (the v3 eval adapter, P1) is merged to `main` at `1daf3ba` —
-its code is `ff0d3c3` — with CI verified on the exact commit before the merge. The
-branch is deleted, the remote carries `main` and `release/2.8.x` only, and the
-Marketplace entry is untouched (still 2.8.1 at `7e02412`).
+**Nothing.** The last merged chunk is recorded by `Last reconciled` above; naming a
+commit *here* makes this section stale the moment the docs commit lands, which is
+exactly why it no longer does. The branch is deleted, the remote carries `main` and
+`release/2.8.x` only, and the Marketplace entry is untouched (still 2.8.1 at
+`7e02412`).
 
 **P0 is next: wire S3's read path into the provider.** The proposed shape (a shadow
 read behind `ENTROPICMEM_SHADOW_V3`, serving v2 and logging v3 divergence over a v3
@@ -231,13 +234,28 @@ Parity on recall with **lower noise** — the gate working — and `ageing` at 0
 both, which is §6.2's predicted lexical-only figure because the four paraphrase misses
 share no words with the stored fact and vectors are EM-303's.
 
-**(a) is the next chunk.** The agent's proposed form is a **shadow read** behind a
-flag: serve v2 as today, compute S3 post-turn over a v3 copy, and log divergence. That
-gets the real-turn signal the "empty store" counter-argument wants without committing
-the live store. See `NEXT_CHUNK.md` Part B.
+**(a) is half-built.** **P0a — the shadow read — is merged:** served by v2 as today,
+S3 post-turn over a v3 copy, divergence logged with the copy's age and the caveat. **P0b
+is not:** on a v3 store, prefetch still uses the v2 scoring the facade borrows rather
+than S3. So the provider now *reads* through S3 (off the turn path, on a copy) but does
+not yet *serve* from it, which is what condition (a) means. See `NEXT_CHUNK.md` Part B.
+
+**The shadow's own honesty, so its numbers cannot be over-read:** the copy lags, so
+divergence is a **lower bound**; v3 has no cosine condition until EM-303, so it is not
+an apples-to-apples quality comparison; and the promotion observable was fixed in
+advance — **≥ 200 turns, copy within 900 s, divergence ≤ 10%, `v3_only` never once
+non-zero, off-turn p95 ≤ 150 ms.**
 
 **Two owner questions, answered from the code:**
 
+* **Chunk 13 is forward-only, and no data needs repairing.** Confirmed rather than
+  assumed: the v2→v3 migration stamps **`visibility='profile'`** for every migrated fact
+  (so migrated rows are profile-readable, *not* the owner-only shape), and the only
+  producer of the owner-only shape was `MemoryStore.add`'s old default — which no
+  released store ever ran, because the live store is `user_version=0` with v2 tables
+  only. **So there is no repair path, no backfill, and nothing hidden from a non-owner
+  today**; an explicit CHANGELOG line says so rather than leaving silence to be read as
+  "history is clean".
 * **Chunk 13's release vehicle.** `release/2.8.x` carries **no `em/` directory at all**
   (verified with `git ls-tree`), so the visibility fix *cannot* be a 2.8.x patch — its
   only vehicle is the release that ships `em/` (3.0). It does **not** need to land
@@ -332,7 +350,7 @@ retrieval is complete. **The owner decides; the agent does not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1980 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **1995 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
