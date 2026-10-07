@@ -31,6 +31,7 @@ Stdlib only (plan §3.2).
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
@@ -49,8 +50,10 @@ __all__ = [
     "RowInfo",
     "apply_gate",
     "coverage",
+    "index_tokenizer",
     "load_rows",
     "supported",
+    "tokenizer_matches_index",
 ]
 
 #: §3.6's defaults.
@@ -63,7 +66,16 @@ GATE_MIN_COSINE: Mapping[str, float] = {
 
 #: The tokenizer ``memories_fts`` is declared with (migration 0002). Coverage has
 #: to use the same one, or it measures a different notion of "the same word".
+#:
+#: **This constant is coupled to the index, and the coupling is pinned by a test
+#: (`test_the_gate_tokenizer_matches_the_index_tokenizer`) rather than trusted.** An
+#: index change that this constant did not follow would make coverage measure a
+#: different tokenizer again — and because the gate is a hard filter, it would
+#: start silently abstaining on answers the generators had found. If that test
+#: fails, re-point :func:`coverage` at the new tokenizer; do not relax the test.
 _TOKENIZE = "porter unicode61 remove_diacritics 2"
+
+_TOKENIZE_RE = re.compile(r"tokenize\s*=\s*'([^']+)'")
 
 
 @dataclass(frozen=True)
@@ -177,6 +189,25 @@ def load_rows(
             )
 
     return found
+
+
+def index_tokenizer(conn: sqlite3.Connection) -> str:
+    """The tokenizer ``memories_fts`` is *actually* declared with, read from the schema.
+
+    The authority for the coupling :data:`_TOKENIZE` depends on.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'memories_fts'"
+    ).fetchone()
+    if row is None or not row[0]:
+        return ""
+    found = _TOKENIZE_RE.search(str(row[0]))
+    return found.group(1) if found else ""
+
+
+def tokenizer_matches_index(conn: sqlite3.Connection) -> bool:
+    """True when :func:`coverage` measures with the tokenizer the index was built with."""
+    return index_tokenizer(conn) == _TOKENIZE
 
 
 def coverage(

@@ -216,6 +216,31 @@ def test_an_empty_text_is_not_treated_as_a_duplicate_of_another():
     assert [r.owner_id for r in result.kept] == ["a", "b"]
 
 
+# --- the key-shape guard (a bug class, not an incident) -------------------
+
+
+def test_a_texts_mapping_keyed_by_bare_id_is_rejected_not_ignored():
+    """The EM-305 draft bug, made impossible to reintroduce silently.
+
+    Keying `texts` by bare id makes every lookup miss, which degrades MMR to pure
+    relevance and the collapse to "no duplicates" while every assertion still
+    passes. Both stages now refuse that mapping instead of treating it as "no
+    text".
+    """
+    a, b = ranking("a", 0.9), ranking("b", 0.8)
+    bare = {"a": "staging server", "b": "invoice friday"}
+    with pytest.raises(ValueError, match="keyed by Ranking.key"):
+        mmr([a, b], texts=bare)
+    with pytest.raises(ValueError, match="keyed by Ranking.key"):
+        collapse([a, b], texts=bare, scope_users=bare)
+
+
+def test_an_empty_text_is_still_legal():
+    """Presence is the guard, not length: a row with a blank summary is real."""
+    a, b = ranking("a", 0.9), ranking("b", 0.8)
+    assert len(mmr([a, b], texts=keyed(a="", b=""))) == 2
+
+
 # --- collapse: chains ------------------------------------------------------
 
 

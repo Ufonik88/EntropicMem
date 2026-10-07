@@ -74,6 +74,27 @@ _WORD_RE = re.compile(r"\w+", re.UNICODE)
 # --- diversity ------------------------------------------------------------
 
 
+def _require_texts(rankings: Sequence[Ranking], texts: Mapping[Key, str], stage: str) -> None:
+    """Fail loudly when a ranking has no text entry — the key shapes disagree.
+
+    This is a guard for a **class** of bug, not one incident. Both stages look text
+    up by ``Ranking.key`` — ``(owner_type, owner_id)`` — and a mapping keyed by bare
+    id makes every lookup miss, silently degrading MMR to pure relevance and the
+    collapse to "no duplicates" while looking green. The first draft of EM-305's
+    tests did exactly that and passed for the wrong reason.
+
+    Presence is the check rather than non-emptiness: an *empty* text is legal (a row
+    whose summary is blank), but an *absent key* always means two callers disagree
+    about the shape.
+    """
+    missing = [ranking.key for ranking in rankings if ranking.key not in texts]
+    if missing:
+        raise ValueError(
+            f"{stage}: {len(missing)} ranking key(s) have no text (e.g. {missing[0]!r}); "
+            "the texts mapping is keyed by Ranking.key = (owner_type, owner_id)"
+        )
+
+
 def tokens(text: str) -> frozenset:
     """The candidate's token set, for the Jaccard fallback."""
     return frozenset(token.casefold() for token in _WORD_RE.findall(text or ""))
@@ -101,6 +122,7 @@ def mmr(
     to the better-ranked one. Only the head is diversified — §3.6 scopes MMR to
     "the top 20" — and the remainder keeps its order behind it.
     """
+    _require_texts(rankings, texts, "mmr")
     if len(rankings) <= 1:
         return list(rankings)
 
@@ -176,6 +198,7 @@ def collapse(
 
     The order of the input is preserved, so MMR's view of "best first" is intact.
     """
+    _require_texts(rankings, texts, "collapse")
     moment = now or datetime.now(timezone.utc)
     order = {ranking.key: index for index, ranking in enumerate(rankings)}
 

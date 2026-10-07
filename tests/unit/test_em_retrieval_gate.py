@@ -278,6 +278,32 @@ def test_gate_filters_but_does_not_reorder():
     assert [r.owner_id for r in got.survivors] == ["lower", "higher"]
 
 
+def test_the_gate_tokenizer_matches_the_index_tokenizer(store):
+    """Pin the coupling, so a future index change cannot silently break coverage.
+
+    `coverage` measures with `gate._TOKENIZE`. If migration 0002 ever changes
+    `memories_fts`'s tokenizer and this constant does not follow, coverage starts
+    measuring a different notion of "the same word" again — and because the gate is
+    a hard filter, it would silently abstain on answers the generators had found.
+    This reads the schema rather than restating the constant.
+    """
+    from em.retrieval.gate import index_tokenizer, tokenizer_matches_index
+
+    assert index_tokenizer(store.reader()) == "porter unicode61 remove_diacritics 2"
+    assert tokenizer_matches_index(store.reader()) is True
+
+
+def test_a_missing_index_is_reported_rather_than_assumed(store):
+    """A store without the FTS table reports an empty tokenizer, not a false match."""
+    from em.retrieval.gate import index_tokenizer
+
+    empty = Store(":memory:")
+    with empty.writer() as conn:
+        conn.execute("CREATE TABLE dummy (id INTEGER)")
+    assert index_tokenizer(empty.reader()) == ""
+    empty.close()
+
+
 # --- load_rows -------------------------------------------------------------
 
 
