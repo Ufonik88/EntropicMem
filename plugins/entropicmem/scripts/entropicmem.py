@@ -446,6 +446,50 @@ def _engine(db: "Path | None" = None) -> MemoryEngine:
     return MemoryEngine(path, hermes_home=hermes_home_path())
 
 
+#: CLI features whose backing store does not exist on v3 yet. Each names the card
+#: that will bring it, so a refusal is actionable rather than just "no". The
+#: *ported* commands work on either engine once the CLI is routed (Chunk 10.4);
+#: these do not, and without an explicit guard they would fail with an
+#: AttributeError the moment routing lands. A named absence is honest; a stack
+#: trace is not.
+_V3_UNAVAILABLE = {
+    "triple": "knowledge triples arrive with S5",
+    "embed --rebuild": "the embeddings rebuild arrives with S3 (EM-303)",
+    "memory project": "vault projection arrives with S6",
+    "publish": "the shared publish store arrives with S5",
+    "pull": "the shared publish store arrives with S5",
+    "migrate": (
+        "this is the v2 provenance migration; a v3 store carries its own "
+        "migrations and they are already applied"
+    ),
+    "recall --related": "graph-related recall arrives with S6",
+    "recall --scope": "the shared scope reads the shared publish store, which arrives with S5",
+}
+
+
+def _store_is_v3() -> bool:
+    """True when the configured memory database is a v3 store.
+
+    A store we cannot even identify is left to ``_engine()``, which reports a
+    version problem with a better message than this helper could.
+    """
+    from em.facade.select import StoreVersionError, store_kind
+
+    try:
+        return store_kind(_memory_db_path()) == "v3"
+    except StoreVersionError:
+        return False
+
+
+def _refuse_on_v3(feature: str) -> None:
+    """Exit with a named reason when a v2-only feature is asked of a v3 store."""
+    if _store_is_v3():
+        raise SystemExit(
+            f"Error: `entropicmem {feature}` is not available on a v3 store yet — "
+            f"{_V3_UNAVAILABLE[feature]}."
+        )
+
+
 def _memory_db_path() -> Path:
     return Path(os.environ.get(
         "ENTROPICMEM_MEMORY_DB",
@@ -1089,6 +1133,10 @@ def cmd_graph(args) -> int:
 # ── subcommand: project ──────────────────────────────────────────────────
 
 def cmd_memory(args) -> int:
+    if args.memory_command == "project":
+        # Guarded before any path is resolved: building a Vault/VaultIndex for a
+        # command that is about to refuse would create directories for nothing.
+        _refuse_on_v3("memory project")
     vault_path, index_path = _resolve_env()
     vault = Vault(vault_path)
     index = VaultIndex(index_path)
@@ -1134,6 +1182,10 @@ def cmd_memory(args) -> int:
 # ── subcommand: recall ───────────────────────────────────────────────────
 
 def cmd_recall(args) -> int:
+    if getattr(args, "related", None):
+        _refuse_on_v3("recall --related")
+    if getattr(args, "scope", "own") in ("shared", "all"):
+        _refuse_on_v3("recall --scope")
     engine = _engine()
 
     # Sprint A: graph-neighbor recall via the triples table
@@ -1357,6 +1409,8 @@ def cmd_check_deps(args) -> int:
 
 def cmd_embed(args) -> int:
     """Rebuild or report embedding coverage."""
+    if args.rebuild:
+        _refuse_on_v3("embed --rebuild")
     engine = _engine()
     if args.rebuild:
         result = engine.rebuild_embeddings()
@@ -1423,6 +1477,7 @@ def cmd_episode(args) -> int:
 
 def cmd_triple(args) -> int:
     """Knowledge triples: extract / list / stats / neighbors / path / inconsistencies (v2.2.0 G2)."""
+    _refuse_on_v3("triple")
     engine = _engine()
     cmd = getattr(args, "triple_command", None)
     if cmd == "extract":
@@ -1942,6 +1997,7 @@ def cmd_migrate(args) -> int:
     """P1 provenance migration: hold migration.lock (fail-closed window),
     upgrade schema, backfill legacy rows, stamp schema_info, release lock.
     Idempotent and re-runnable."""
+    _refuse_on_v3("migrate")
     db = _memory_db_path()
     db.parent.mkdir(parents=True, exist_ok=True)
     lock = db.parent / MemoryEngine.MIGRATION_LOCK_FILENAME
@@ -2018,6 +2074,7 @@ def cmd_worker(args) -> int:
 
 def cmd_publish(args) -> int:
     """Drain local outbox → shared log (or emit all facts with --backfill)."""
+    _refuse_on_v3("publish")
     engine = _engine()
     try:
         if getattr(args, "backfill", False):
@@ -2032,6 +2089,7 @@ def cmd_publish(args) -> int:
 
 def cmd_pull(args) -> int:
     """Apply new shared events into the local shared_facts projection."""
+    _refuse_on_v3("pull")
     engine = _engine()
     try:
         res = engine.pull()

@@ -227,6 +227,28 @@ def _decay_factor(
     return max(decay_floor, math.exp(-lam * age_days))
 
 
+def _episode_to_v2(row: Dict[str, Any]) -> Dict[str, Any]:
+    """One v3 episode row in the v2 shape the CLI prints.
+
+    Shared by ``list_episodes`` and ``recall_episodes`` so the two cannot drift:
+    the CLI reads ``episode_id``/``start_ts``/``title``/``summary`` from both, and
+    a v3-only field (``kind``) rides along rather than replacing a v2 one.
+    """
+    return {
+        "episode_id": row["id"],
+        "title": row["title"],
+        "summary": row["summary"],
+        "start_ts": row.get("start_at"),
+        "end_ts": row.get("end_at"),
+        "created_at": row["created_at"],
+        "importance": row["importance"],
+        # v3 has no per-episode domain; "" keeps the v2 key present.
+        "domain": "",
+        # v3's own field, offered alongside rather than instead.
+        "kind": row["kind"],
+    }
+
+
 class V3Engine:
     """The v2 engine API over the v3 store (EM-211: reads and writes)."""
 
@@ -1100,27 +1122,13 @@ class V3Engine:
         )
         out: List[Dict[str, Any]] = []
         for row in rows:
-            start = row.get("start_at")
-            when = start or row.get("created_at") or ""
+            found = _episode_to_v2(row)
+            when = found["start_ts"] or found["created_at"] or ""
             if from_date and when and when < from_date:
                 continue
             if to_date and when and when > (to_date + "T23:59:59"):
                 continue
-            out.append(
-                {
-                    "episode_id": row["id"],
-                    "title": row["title"],
-                    "summary": row["summary"],
-                    "start_ts": start,
-                    "end_ts": row.get("end_at"),
-                    "created_at": row["created_at"],
-                    "importance": row["importance"],
-                    # v3 has no per-episode domain; "" keeps the v2 key present.
-                    "domain": "",
-                    # v3's own field, offered alongside rather than instead.
-                    "kind": row["kind"],
-                }
-            )
+            out.append(found)
         out.sort(key=lambda e: (e.get("start_ts") or e.get("created_at") or ""))
         return out[:limit]
 
@@ -1143,3 +1151,137 @@ class V3Engine:
                 "v3 store does not have yet (S5); only 'own' is available"
             )
         return self.recall_with_relevance(query, top_k=top_k, domain=domain)
+
+    # --- CLI compatibility writes/maintenance (EM-211 Chunk 10.2) --------------
+    #
+    # Same rule as 10.1: the shape is the CLI's, not the store's. These change
+    # state, so the tests assert the transition through `get_fact`/`stats` rather
+    # than trusting the store's row.
+
+    def promote_pending(self, pending_id: str, *, actor: Optional[str] = None) -> Optional[str]:
+        """Promote a quarantined row — v2's ``promote_pending``.
+
+        v2 looked the pending row up, re-``remember``ed it into durable memory and
+        deleted the quarantine row, so promotion produced a *new* id. On v3 the
+        pending row **is** the memory, so promotion is the ``pending -> active``
+        edge and the id is unchanged — one row, one history, which is the
+        simplification the v3 model exists for.
+
+        **Deviation, recorded:** v2 re-stamped ``source="promoted"`` and added a
+        ``"promoted"`` tag. v3 keeps the original ``source`` (the store does not
+        allow editing it) and adds no tag, so a promoted memory stays
+        ``auto_extracted`` and is eligible for consolidation after the age/
+        access window like any other. Changing that would need a store change.
+        """
+        store = MemoryStore(self._reader())
+        row = store.get(pending_id, scope=self.scope)
+        if row is None or row["status"] != "pending":
+            return None
+        with self.store.transaction() as conn:
+            result = MemoryStore(conn).set_status(
+                row["id"], "active", actor=actor or "facade", reason="promote"
+            )
+        return row["id"] if result.ok else None
+
+    def discard_pending(self, pending_id: str) -> bool:
+        """Drop a quarantined row — v2's ``discard_pending`` returned whether one went.
+
+        v2 deleted the row; v3 takes the ``pending -> deleted`` edge so the row
+        stays for audit. The boolean means the same thing either way.
+        """
+        store = MemoryStore(self._reader())
+        row = store.get(pending_id, scope=self.scope)
+        if row is None or row["status"] != "pending":
+            return False
+        with self.store.transaction() as conn:
+            result = MemoryStore(conn).set_status(
+                row["id"], "deleted", actor="facade", reason="discard"
+            )
+        return result.ok
+
+    def reinforce(self, entropic_id: str) -> bool:
+        """Bump a fact's access clock and counter — v2's ``reinforce``.
+
+        ``MemoryStore.touch(field="accessed")`` does exactly what v2's UPDATE did:
+        ``last_accessed_at`` to now and ``access_count + 1``.
+        """
+        with self.store.transaction() as conn:
+            store = MemoryStore(conn)
+            row = store.get(entropic_id, scope=self.scope)
+            if row is None:
+                return False
+            store.touch([row["id"]], field="accessed")
+        return True
+
+    def rebuild_fts(self) -> Dict[str, Any]:
+        """v2's ``memory reindex`` report, on a store whose FTS cannot drift.
+
+        v2 needed this because a delete path could skip its FTS cleanup and leave
+        ghost hits. v3's ``memories_fts`` is maintained by ``memories_ai``/``ad``/
+        ``au`` triggers in the same transaction as the row, so there is nothing to
+        repair: the counts are reported and no rows are touched. It is kept as a
+        command because the CLI documents it and a user may run it after an
+        upgrade.
+        """
+        conn = self._reader()
+        facts = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+        indexed = conn.execute("SELECT COUNT(*) FROM memories_fts").fetchone()[0]
+        return {"fts_before": int(indexed), "fts_after": int(indexed), "facts": int(facts)}
+
+    def timeline(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        domain: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Any]:
+        """Facts in chronological order within a window — v2's ``timeline``."""
+        clauses = ["status='active'"]
+        params: List[Any] = []
+        if from_date:
+            clauses.append("created_at >= ?")
+            params.append(from_date)
+        if to_date:
+            clauses.append("created_at <= ?")
+            params.append(to_date + "T23:59:59")
+        if domain:
+            clauses.append("domain = ?")
+            params.append(domain)
+        rows = self._reader().execute(
+            f"SELECT * FROM memories WHERE {' AND '.join(clauses)}"
+            " ORDER BY created_at ASC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        return [_row_to_fact(dict(r)) for r in rows if _in_scope(dict(r), self.scope)]
+
+    def recall_episodes(
+        self,
+        query: str = "",
+        *,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Episode FTS with a window — v2's ``recall_episodes``.
+
+        The window is applied here rather than handed to
+        ``EpisodeStore.search_episodes``, because that filters ``created_at``
+        while v2 (and ``list_episodes`` above) use ``start_at`` falling back to
+        ``created_at``. Filtering in one place keeps the two episode reads
+        consistent with each other.
+        """
+        rows = EpisodeStore(self._reader()).search_episodes(
+            query, self.scope, None, limit=_SCAN_LIMIT
+        )
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            found = _episode_to_v2(row)
+            when = found["start_ts"] or found["created_at"] or ""
+            if from_date and when and when < from_date:
+                continue
+            if to_date and when and when > (to_date + "T23:59:59"):
+                continue
+            out.append(found)
+            if len(out) >= limit:
+                break
+        return out
