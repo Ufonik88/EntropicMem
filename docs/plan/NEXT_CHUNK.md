@@ -4,7 +4,7 @@
 
 **Owner rulings in force (plan §9):**
 - **The v3 cutover is deferred, and the owner revisits it after EM-305 — the owner decides, the agent brings the decision.** Do not switch the live store, and do not pre-empt the call.
-- **Chunk 13's `visibility` change is internal only.** It was proposed by the implementing agent and *authorised for implementation* by the owner; the owner has **not** signed off on the behaviour change, and it must not reach the marketplace without an explicit release approval.
+- **Chunk 13's `visibility` change is RATIFIED (2026-10-07) and internal only.** The agent proposed it and implemented it under the owner's authorisation; the owner then ruled on the behaviour change itself. It must not reach the marketplace until the owner explicitly approves a release.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 

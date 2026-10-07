@@ -207,7 +207,27 @@ publishes a row when it is not an owner-only tier **and** its visibility is
 every profile-wide write was stamped `'user'` by the old default, so nothing
 profile-wide was ever queued at all. v2's gate was `_publish_allowed(sensitivity)`,
 so v2 published every non-sensitive fact, and Chunk 13 restores that with the tier
-check explicit. No consumer exists yet (publish/pull are S5), so this is inert today.
+check explicit.
+
+**Who consumes the outbox, and what happens to what is already in it** (checked, not
+assumed): the only reader is v2's `MemoryEngine.publish()`, draining `emitted=0` into
+the shared `sync_events` log. On a v3 store that path is **unreachable** —
+`entropicmem publish`/`pull` are refused by name until S5 — and **no `em/` code reads
+the outbox at all**; the store writes to it and `forget` deletes from it. **Nothing had
+been queued by the old path either:** v2's `_publish_allowed` refuses
+`secret`/`sensitive` outright, and v3's old default stamped `'user'`, so `_outbox`
+returned early, and no call site ever paired an explicit `'profile'` with a sensitive
+tier. So there is **nothing to replay, drop or backfill** — already-queued rows are all
+non-sensitive, stay queued, and the v2→v3 migration leaves the table untouched (legacy
+`fact_id`s preserved until EM-309).
+
+**The visibility contract is derive-on-write-only, deliberately.** Only new writes
+derive a stamp; historical rows are never rewritten, and the read guard changes only
+what a non-owner sees. An existing profile-wide row carrying the old `'user'` default is
+**owner-only** — §3.5's literal rule, failing closed. Re-deriving those rows is a bulk
+change to who may read what, so it would be a one-off owner-approved migration rather
+than a silent rewrite; in practice there are none, because v3 was never released and the
+live store is v2 with zero facts.
 
 
 The code is the fact. These lines are the plan's words, what the code does, and why the difference stays.

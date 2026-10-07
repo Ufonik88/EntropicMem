@@ -227,6 +227,37 @@ def test_list_gives_a_profile_wide_caller_the_profile_wide_rows(store):
     assert profile_wide in listed
 
 
+def test_list_is_an_exact_scope_match_and_must_stay_one(store):
+    """Pin the invariant Chunk 13 leans on: ``list`` matches ``scope_user=?`` **exactly**.
+
+    "Why does `list` need no tier filter?" only has an answer while the match is
+    exact — a scoped caller can then receive nothing but its own rows. Widen the
+    clause in either direction and this test is the thing that notices:
+
+    * to ``scope_user=? OR scope_user=''`` → a scoped caller starts seeing
+      profile-wide rows, so ``listed(ALICE)`` grows and the first assertion fails;
+    * to an exact match again but *without* the equality, or with the profile-wide
+      caller's user empty matching everything → ``listed(OWNER)`` grows.
+
+    Behaviour is the pin rather than the source text, so a legitimate rewrite of
+    how the clause is built is fine while a widening is not.
+    """
+    profile_wide = remember(store, "profile wide", scope=OWNER)
+    mine = remember(store, "alice's own", scope=ALICE)
+    theirs = remember(store, "bob's own", scope=BOB)
+
+    def listed(scope) -> set:
+        with store.transaction() as conn:
+            return {
+                r["id"]
+                for r in MemoryStore(conn).list(scope=scope, status=("active", "pending"))
+            }
+
+    assert listed(ALICE) == {mine}, "a scoped caller must see only its own rows"
+    assert listed(BOB) == {theirs}
+    assert listed(OWNER) == {profile_wide}, "a profile-wide caller must not see user rows"
+
+
 # --- publication, the consequence this change carries ---------------------
 
 

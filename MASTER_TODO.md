@@ -214,18 +214,23 @@ Both of its dependencies are merged: EM-302's generators produce the ranked
 
 ### Known gaps, recorded so they are not lost
 
-* **§3.5's `visibility` half — FIXED in Chunk 13 (`fd9e06f`), and the decision is an
-  agent proposal, not an owner ruling.** *Provenance:* the implementing agent proposed
-  the fix and the owner authorised it to be implemented; the owner has **not** ruled on
-  the behaviour change itself, and it is **internal only** — in no release, and not to
-  reach the marketplace without the owner's explicit approval of a release. Measured,
-  not inferred: the `MemoryDraft.visibility` default was `'user'` and **nothing
-  anywhere set it**, so every write carrying a profile-wide scope was stamped with the
+* **§3.5's `visibility` half — FIXED in Chunk 13 (`fd9e06f`) and RATIFIED by the
+  owner on 2026-10-07 as a ruling** on the behaviour change: `row_is_owner_only()` as
+  the single owner-only predicate, the restored `_outbox` sensitivity gate, and
+  `_resolved_visibility()` stamped at insert. *Provenance:* the implementing agent
+  proposed it and implemented it under the owner's authorisation. It is **internal
+  only** — in no release, and not to reach the marketplace until the owner explicitly
+  approves a release. Measured, not inferred: the `MemoryDraft.visibility` default was
+  `'user'` and **nothing anywhere set it**, so every profile-wide write carried the
   value §3.5 reserves for user-scoped rows — the exact shape §3.5 makes owner-only.
   **The direction was the point:** the read clause alone would have hidden every
   profile-wide memory from non-owners, so the write stamp was the real fix and the read
-  guard is the defence. Reversible: no migration, no rewrite of existing rows. Full
-  reasoning in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
+  guard is the defence. **Contract:** derive-on-write-only — historical rows keep their
+  stamp and a pre-existing profile-wide `'user'` row is owner-only (fails closed);
+  re-deriving them would be a bulk change to who may read what, so it is a one-off
+  owner-approved migration if ever wanted, never a silent rewrite. Reversible: no
+  migration, no rewrite of existing rows. Full reasoning, including the outbox
+  consumer analysis, in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
 * **`vector` (EM-303)** — §3.6's sixth generator, deferred to the card that builds
   the embedding backend and its numpy cache, which its spec requires.
 * **§3.6's IDF cache and `query_rewrite` have no source (EM-301)** — nothing defines
@@ -261,7 +266,7 @@ call is **not now**, for four reasons:
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1862 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **1863 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
