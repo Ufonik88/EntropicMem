@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-07, Chunk 8 merged to `main` at `c922970`; **Chunk 9 (the wiring by `user_version`) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
+**Updated:** 2026-10-07, Chunk 9 committed (not yet merged); **Chunk 10 (CLI parity) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
@@ -89,63 +89,79 @@
 - **The AC's second half is confirmed by CI.** `hermes plugins validate` runs as the `plugin-validate` job and passed: `✓ loadable`, `✓ built-in tool collisions — no collisions`, `✓ security scan — safe`, no module-shadow warning, and only the known `provides_*` warnings.
 - **Merged** to `main` at `c922970`; green on the exact SHA, first CI run, `identity-guard` and `plugin-validate` included.
 
-**EM-211 and EM-212 are both code-complete.** EM-211 is unwired (its AC needs the provider on the facade) and EM-212's six named modules are namespaced (its AC also wants `hermes plugins validate`, unrun here).
+### Chunk 9 — the provider selects its engine by `user_version`. **DONE, COMMITTED, NOT MERGED (2026-10-07, `b615bcf`)**
+
+- `feat(em-211): the provider selects its engine by the store's schema`: a v2 store gets `MemoryEngine`, a v3 store the facade. All **nine** `MemoryEngine(` sites in the provider route through one `_open_engine()`, with a drift guard against a tenth.
+- **Selection happens before any engine is constructed**, from a read-only peek, because `V3Engine.__init__` calls `migrate()` — so opening a v2 store cannot cut it over. The selector refuses a store newer than this build and a versioned store with no `memories` table.
+- The gateway identity is threaded into the facade (`is_owner = not _is_guest()`), the half of the §3.5 rule Chunk 7.2 left for here. An empty `owner_user_ids` means nobody is a guest, so a default install stays the owner.
+- **The CLI was deliberately left alone.** It calls ~28 methods the facade lacks, so it keeps `MemoryEngine`. That is the next chunk, and the cutover waits on it.
+- Deviation: `pii_locales` has no facade equivalent (routed to v2 only).
+- 16 new tests; 1687 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; seven mutation checks, the key one being that **opening a v2 store leaves it byte-for-byte unmigrated**.
+- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+
+**EM-211 and EM-212 are both code-complete, and the provider half of EM-211 is wired.** What remains of EM-211 is the CLI (Chunk 10) and the cutover.
 
 ---
 
-## Part B: Chunk 9 — the wiring, engine selection by `user_version`. **NEXT PIECE, NOT STARTED**
+## Part B: Chunk 10 — CLI parity on v3 (the cutover's prerequisite). **NEXT PIECE, NOT STARTED**
 
-**Topic.** The provider still constructs v2's `MemoryEngine`. EM-211's four sub-chunks are code-complete, so the facade can serve every call the provider makes — but nothing selects it. This chunk puts the selection in: **the v2 engine for a v2 store, the facade for a v3 one**, keyed on `PRAGMA user_version`.
+**Updated:** 2026-10-07, Chunk 9 committed (not yet merged); **Chunk 10 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
 
-**Why that shape, and not a swap.** `V3Engine.__init__` calls `migrate(conn)`. A wired provider pointed at an existing v2 store would therefore migrate it in place — that *is* the v3 cutover, which the rules reserve for the owner with the owner present. Selecting by store version means the wiring lands and is fully testable **without opening anyone's store for a migration**, and the cutover stays a separate, deliberate act. This is the approach the owner settled on 2026-10-07.
+**Topic.** The CLI's `_engine(db)` still builds `MemoryEngine`, so the CLI cannot read a v3 store. EM-211's AC says "CLI commands work unchanged" on a v3 DB, and the cutover cannot happen before this lands — cutting a store over first leaves the CLI reading v3 with a v2 engine.
 
-**What already exists (measured from the code).**
+**Why not just point `_engine()` at the selector (Chunk 9's `open_engine`).** Because the facade only implements the **provider's** 13 calls (`PROVIDER_CALLS`). The CLI calls about **28 more**, so pointing it at the facade today breaks most commands. This chunk is the work of closing that gap (or deciding, command by command, that some of it should not be closed).
 
-| Piece | Where | State |
+**Measured from the code — the gap, exactly.**
+
+Facade contract (13): `add_episode, close, consolidate, extract_and_store, find_mirrored, forget, get_fact, next_episode_wave, prune_pending, recall_hybrid, recall_with_relevance, remember, stats, touch`.
+
+CLI-only calls the facade lacks (28):
+
+```
+backfill discard_pending embedding_stats episode_stats get_versions list_audit
+list_episodes list_facts list_pending list_triples migrate profile_id
+project_to_vault promote_pending publish pull rebuild_embeddings rebuild_fts
+recall recall_episodes recall_for_agent recall_related reinforce timeline
+triple_inconsistencies triple_neighbors triple_path triple_stats
+```
+
+They are not one kind of thing, and that is the design decision this chunk must make first:
+
+| Group | Calls | Shape |
 |---|---|---|
-| `MemoryEngine(` construction sites | `plugins/entropicmem/__init__.py`, `scripts/entropicmem.py` | **11 sites**, and two factories already funnel most of them |
-| Provider factory | `EntropicMemMemoryProvider._memory_engine()` (`__init__.py:1568`) | Exists — the seam |
-| CLI factory | `_engine(db)` (`entropicmem.py:419`) | Exists — the seam. `tests/test_...` asserts no bare `MemoryEngine(...)` in the CLI |
-| `PRAGMA user_version` | `em/store/migrations/__init__.py` | Read at `:327`; `migrate()` refuses a store newer than this build |
-| Facade | `em/facade/engine.py` `V3Engine` | Code-complete; takes `profile_id`, `scope_user`, `scope_chat`, `is_owner` |
-| Provider contract | `em/facade/contract.py` | `PROVIDER_CALLS` derived from the provider source; `PROVIDER_ATTRIBUTES` empty |
+| **Reads/listing** | `list_facts`, `list_pending`, `list_episodes`, `get_versions`, `episode_stats`, `embedding_stats`, `list_audit` | v3 stores have all of this (`MemoryStore.list`, `history`, `EpisodeStore.list_episodes`, `audit_log`); the work is a translation layer and the return shapes the CLI expects |
+| **Recall variants** | `recall`, `recall_episodes`, `recall_for_agent`, `recall_related`, `reinforce` | `recall` is the v2 name for `recall_with_relevance`; the others are graph- or episode-flavoured and some have no v3 equivalent yet (S3 territory) |
+| **Maintenance** | `promote_pending`, `discard_pending`, `rebuild_fts`, `timeline` | v3 has `set_status` transitions and an FTS table; mostly translation |
+| **v2-only subsystems** | `triple_*` (4), `rebuild_embeddings`, `publish`, `pull`, `backfill`, `project_to_vault`, `migrate` | **No v3 equivalent at all.** Knowledge triples, the embeddings rebuild, the shared-store publish/pull, and vault projection are separate v3 cards (S3/S5/S6) |
+| **Identity** | `profile_id` | trivial; read from the store's scope |
 
-**In scope.**
-- **Engine selection, in the two factories only.** Read `PRAGMA user_version` **read-only** and choose: a store at the v2 baseline (or with no `em` tables at all) → `MemoryEngine`; a v3 store → `V3Engine`. A store that is neither → refuse loudly, the way `entropicmem worker run` already refuses a non-v3 database.
-- **Pass the gateway identity into the facade** — `scope_user = self._gateway_user_id`, `is_owner = not self._is_guest()` (the same computation `_is_guest()` already makes, so the default config with an empty `owner_user_ids` stays the owner context and nobody becomes a guest). This is the half of the §3.5 rule that Chunk 7.2 deliberately left for here.
-- A test that a **v2 store is not migrated** by the wired path, and a test that a v3 store selects the facade. Those two are the whole point of the chunk.
-- A test that `user_version` is read without opening the database read-write.
+**Proposed split — do NOT start the whole gap at once.** 28 methods across five groups is several chunks, exactly as EM-211 was four.
 
-**Out of scope — and this is the boundary that matters.**
-- **The v3 cutover.** No migration of any real store, no `ENTROPICMEM_ALLOW_LIVE_MIGRATION=1`, no switch-over. The wiring makes the cutover *possible*, not *done*.
-- Releases, tags, the catalog, the tool rename.
-- Any schema change or new migration; `0001`–`0003` stay untouched.
-- Moving the other 14 modules under a package (EM-212's deliberate remainder).
-- S3 and later.
+- **10.1 — the read/listing group + `profile_id`.** Biggest user-visible win, smallest semantics risk, and the return shapes are already known from v2. This is a good, stoppable slice.
+- **10.2 — the recall variants and maintenance.** Decide per method whether it is translation or S3 work; stop and report if `recall_related`/`recall_episodes` turn out to need the v3 retriever.
+- **10.3 — the v2-only subsystems.** This is the decision the owner should see: for each of `triple_*`, `rebuild_embeddings`, `publish`/`pull`/`backfill`, `project_to_vault`, either (a) port it, (b) **refuse it clearly on a v3 store** with a message naming the card that will bring it, or (c) leave it v2-only forever. **Recommend (b) by default** — a clear refusal is honest and unblocks the cutover; a silent wrong answer is not. Whatever is chosen, record it.
 
-**Size guard — stop and report if any of these appears.** Moving `_locate_mirror`/recall call sites themselves (they should not need to change: they go through the factory); a provider behaviour change other than engine selection; any code path that migrates on selection; or the contract test demanding a `PROVIDER_CALLS` change beyond what the selection needs. If the facade turns out to be missing something the provider calls, **stop** — that is a Chunk 10, not a quiet widening of this one.
+**In scope for 10.1.** The read/listing methods the facade can serve from the v3 store; the CLI's `_engine()` routing through `open_engine` **for those commands only** if a partial switch is safe, or a full switch once the group is complete (decide and say which); tests that each affected CLI command works against a v3 store and is unchanged against a v2 one.
 
-### 9.0 Pre-flight (read-only)
-1. `main` must be at `c922970` or later: Chunks 5–7.2 and 8 are all merged there, with green CI on each exact SHA. `git merge-base --is-ancestor c922970 main` proves it.
-2. **Baseline:** `pytest -q` gives **1671 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**. Run 3.10 as well as your default interpreter.
-3. **Re-measure from the code.** Read `_memory_engine()` and `_engine()`, every `MemoryEngine(` site, `is_guest`/`_gateway_user_id`, `V3Engine.__init__`, and how `entropicmem worker run` refuses a non-v3 store (`em/jobs/cli.py` — copy that shape for the "neither v2 nor v3" case).
+**Out of scope.** The cutover. Anything in group 10.3 unless the owner picks (a). Releases, tags, the catalog, schema changes, S3 itself, and anything touching `~/.hermes/entropicmem*`.
 
-### 9.0a Document control (do this before and after the chunk)
-Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth — committed is not merged. `tests/test_master_todo.py` enforces it.
+**Size guard — stop and report if:** a "read" method turns out to need the v3 retriever or graph (that is S3/S6, not translation); the CLI's expected return type cannot be produced without changing the provider contract; or the group needs more than about five commits. Take the next slice instead of widening this one.
 
-### 9.1 The selection (one commit, test first)
-- Test first: a v2 fixture DB selects `MemoryEngine` **and is byte-for-byte unmigrated afterwards** (compare `user_version` before and after, and that no `em` tables appeared); a v3 store selects `V3Engine`; a store that is neither is refused; the identity passed to the facade matches `not _is_guest()`.
-- Mutation-check: make selection always choose the facade and confirm the "v2 store untouched" test goes red; drop the identity plumbing and confirm a guest can read the owner's sensitive row through the wired path.
-- **Docs:** CHANGELOG (**Changed** — the provider can now run on either engine); the EM-211 rows in `REMAINING_PLAN.md` §5, §6.1 and §11; `docs/V3_FOUNDATIONS.md`'s layer map.
+### 10.0 Pre-flight (read-only)
+1. `main` must be at `680ab1f` or later and Chunk 9 merged. If Chunk 9 is unmerged, stack on its branch and say so.
+2. **Baseline:** `pytest -q` gives **1687 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
+3. **Re-measure from the code.** Re-derive the CLI's engine-method set (`grep -rhoE '\b(engine|eng)\.[a-z_]+\(' plugins/entropicmem/scripts/entropicmem.py`) and diff it against `em/facade/contract.PROVIDER_CALLS`; check `tests/test_cli_hermes_home.py::test_the_cli_builds_engines_only_through_the_helper` (the CLI equivalent of Chunk 9's provider drift guard), and work out, per command, which calls it actually makes.
 
-### 9.2 End of chunk
+### 10.0a Document control (do this before and after the chunk)
+Per `AGENTS.md`: reconcile `MASTER_TODO.md`, `REMAINING_PLAN.md` and this file **before** starting and **again before finishing**. Merge state counts as truth.
+
+### 10.1 The first slice (test first)
+- Test first: each command in the slice runs green against a **v3 store** and produces the same output shape it does against a v2 one.
+- Mutation-check: break one translation and confirm its command test goes red.
+- **Docs:** CHANGELOG; the EM-211 rows in `REMAINING_PLAN.md` §5/§6.1/§11; `docs/CLI_REFERENCE.md` if any command's behaviour changes on a v3 store.
+
+### 10.2 End of chunk
 1. Push, green CI on the exact SHA, `git merge --ff-only`, delete the branch.
 2. Update `MASTER_TODO.md` and `REMAINING_PLAN.md` §2/§5/§6.1/§9/§11.
-3. **Replace this file's Part B with the next piece** — with the wiring landed, the candidates are the **v3 cutover** (owner-scheduled, now unblocked) and **S3 (retrieval v3)**. Say which and why; do not plan both.
+3. **Replace this file's Part B with the next slice (10.2 or 10.3)**, or with the cutover if the gap has closed. Say which and why.
 4. Report to the owner in plain language.
-
-### Explicitly out of scope for Chunk 9
-- The cutover, releases, tags, the catalog, the tool rename.
-- Any schema change or migration.
-- The 14 remaining unprefixed modules.
-- S3 and later, and anything touching `~/.hermes/entropicmem*`.

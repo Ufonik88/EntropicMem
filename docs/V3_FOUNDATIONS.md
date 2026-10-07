@@ -12,9 +12,9 @@ Hermes provider (plugins/entropicmem/__init__.py)   <- unchanged in S2; talks to
         v
 em.facade  (EM-211)       contract.py: the exact API + behaviours the provider relies on
         |                 engine.py: V3Engine, the whole LegacyEngine API over em.store
-        |                   (code-complete: reads, writes, mirror call, link job
-        |                    and the §3.5 owner-only read rule. NOT wired in yet —
-        |                    Chunk 9 selects it by store user_version.)
+        |                 select.py: which engine a store needs, by user_version
+        |                   (code-complete AND the provider selects it — Chunk 9.
+        |                    The CLI still builds the v2 engine: Chunk 10.)
         v
 em.formation              entity_linker.py (EM-208): turns memories into graph links
 em.jobs   (EM-209)        worker.py: claims jobs, runs handlers OUTSIDE transactions
@@ -143,7 +143,8 @@ Scheduled backups: `enqueue_daily_backup(JobQueue(conn))`, handled by `make_back
 - **EM-211 (legacy facade).** Split into four chunks: **reads → writes → mirror → linker** (plan §6.1, `docs/plan/REMAINING_PLAN.md`). **Reads landed 2026-10-02 (`0349b7b4b`); writes and the mirror call merged at `e25db32` (`36355f3`, `6bd4b47`); the link job (7.1) merged at `64a2685` (`96c4ccb`).** So `V3Engine` implements the whole provider-facing `LegacyEngine` contract over `em.store`, and `PROVIDER_ATTRIBUTES` is **empty** — the provider no longer reads a raw connection anywhere, which was the last thing only v2 could serve. It is registered in `_implementations()` in `tests/unit/test_em_facade_contract.py` and in both `ENGINES` and `WRITE_ENGINES` in `tests/parity/test_engine_parity.py`. **Nothing is wired into the provider yet**: the provider still constructs `MemoryEngine`, so the card's AC and S2's exit criteria are still unmet. What remains:
   - **Chunk 7.1 — the link job: DONE (`96c4ccb`, committed, not merged).** `MemoryStore` enqueues `link:<memory_id>:<version>` beside the `embed` enqueue; `make_link_handler` in `em/formation/entity_linker.py` runs the linker outside any write transaction (invariant 2) and is idempotent across a retry; `entropicmem worker run` registers the type.
   - **Chunk 7.2 — the §3.5 owner-only rule: DONE (`563afe5`, committed, not merged).** A `sensitive`/`secret` row is readable only by its owner, enforced in `_in_scope` and applied on all four facade read paths. `Scope.is_owner` defaults to **False** (fail-closed); a profile-wide caller (`user == ""`) is the owner context, so the default facade and the CLI are unaffected. `V3Engine` takes `is_owner` as a constructor argument.
-  - **Then wiring** — and it is **owner-gated**, because `V3Engine.__init__` calls `migrate()`: a wired provider opening a v2 store migrates it in place, which *is* the v3 cutover. The recommended shape is engine selection by `PRAGMA user_version` so wiring can land without migrating.
+  - **Chunk 9 — the provider's engine selection: DONE (`em/em-211-provider-wiring`, committed, not merged).** `em/facade/select.py` picks by `PRAGMA user_version`, read **read-only before any engine is constructed**, so opening a v2 store cannot migrate it; all nine `MemoryEngine(` sites in the provider route through one `_open_engine()`. The gateway identity is threaded in (`is_owner = not _is_guest()`).
+  - **Chunk 10 — CLI parity: NEXT.** The CLI calls ~28 methods the facade lacks, so it still builds `MemoryEngine`; the cutover waits on this, because a v3 store with a v2 CLI is broken.
 
 ### The facade's write rules worth knowing before you build on it
 
@@ -173,5 +174,6 @@ The code is the fact. These lines are the plan's words, what the code does, and 
 | EM-209 | backoff `2^attempts * 30s` | `30·2^(attempts-1)`, cap 3600 s, ±10 % jitter | keep (same curve one step earlier, capped, jittered; tested) |
 | EM-209 | `Worker(handlers, stop_event, budget_s)`, per-job `time_budget`, cooperative cancellation | `JobWorker(store, registry)`, `run(stop)`, leases + `ctx.heartbeat()` | keep; a per-job time budget is a later card if a real job needs it |
 | EM-210 | `snapshot(reason) -> Path`, memory.db **+ index.db**, `backups/<ts>-<reason>/` dirs, EM-113 retention, once per hour per reason, AC: 100 `forget` → ≤ 1 snapshot/hour | **done:** Chunk 3.1 the layout (`snapshot(reason) -> Path` over memory.db + index.db in `backups/<reason>-<stamp>/`, `create()` kept as an alias, pre-3.1 flat backups still read); Chunk 3.2 the throttle (`snapshot_if_due(reason, *, window=3600)` → `None` inside the window, safety reasons exempt, window from the manifests' `created_at`, no schema); Chunk 5 the facade's `forget` and `consolidate` call it with `pre-forget` / `pre-consolidate`, outside the write txn | **settled (2026-09-29):** retention stays 7 routine + 5 safety; the AC is met by the throttled entry point, not by `snapshot()` itself |
+| EM-211 | `pii_locales` reaches the engine | routed to the v2 engine only: v3 redaction is `pii.redact_pii` with no locale packs, so a v3 store loses the locale-aware PII pass v2 had. Recorded in Chunk 9 |
 | EM-211 | `remember` stores `make_id(content)` as `legacy_id` so the read half's lookup keeps working; deprecation warnings once per process for methods slated for removal in 3.1; fuzzy overwrite as in v2 | **`legacy_id` stamped on profile-wide writes only** (`memories.legacy_id` is UNIQUE and content-derived, and v3 scopes rows per user); **no deprecation warnings** (v2 emits none and no list of methods is recorded anywhere); **no fuzzy overwrite** (exact duplicates only) | keep all three: the stamp is narrower for a real uniqueness reason, and the other two would be behaviour changes the provider has never seen. Chunk 5; see "The facade's write rules" above |
 

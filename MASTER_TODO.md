@@ -13,8 +13,8 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `c922970`, which is the
-commit Chunk 8 was merged at after green CI on it. A later docs-only commit moving
+**Last reconciled:** 2026-10-07, against branch `main` at `680ab1f`, with Chunk 9 on
+`em/em-211-provider-wiring` (see In flight). A later docs-only commit moving
 the tip without changing code, tests or counts is expected; see plan §11.
 
 ---
@@ -99,11 +99,10 @@ pitfalls that have already cost time — is in
 [docs/MARKETPLACE.md](docs/MARKETPLACE.md). Read it before doing anything that
 touches the entry, a tag, or `release/2.8.x`.
 
-### EM-211, the legacy facade — nearly done, merged, and unwired
+### Chunks — the global ledger
 
-The facade is the card that lets the provider run on v3 without being rewritten.
-It is split into four chunks, and they are numbered globally so a chunk number
-means one thing:
+Chunk numbers are global, so a number means one thing across the whole project.
+EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 
 | Chunk | What | State |
 |---|---|---|
@@ -112,24 +111,27 @@ means one thing:
 | 6 | Facade **mirror call** | **Done, merged** (`6bd4b47`, in `e25db32`) |
 | 7.1 | The **entity-link job** (`link:<memory_id>:<version>`) | **Done, merged** (`96c4ccb`) |
 | 7.2 | The **§3.5 owner-only rule** for sensitive reads | **Done, merged** (`563afe5`) |
+| 8 | EM-212's **package move** | **Done, merged** (`025f012`, in `c922970`) |
+| 9 | The **provider** selects its engine by `user_version` | **Done** (`b615bcf`) — committed, **not merged** |
+| 10 | **CLI parity** on v3 (the facade's ~28 missing calls) | Next; the cutover waits on it |
 
-**EM-211's acceptance criterion is not met and S2's exit criteria still fail.**
-The reason has been the same after every chunk so far: the facade is complete as
-a *library* but nothing is wired into the provider, so "full legacy test suite
-green on a v3 DB" cannot be claimed yet. Chunk 6 narrowed that gap — the provider
-no longer reads a raw connection, so it now talks to the engine only through
-methods both engines implement — but it still constructs `MemoryEngine`. Do not
-read three landed chunks as the card being done.
+**EM-211's acceptance criterion is still not met, and S2's exit criteria still
+fail — but for the first time the reason is narrow and named.** Chunk 9 wired the
+**provider** onto the facade, so an agent now runs on whichever engine the store
+needs. What remains is (a) **the CLI**, which calls ~28 methods the facade does not
+implement and therefore still runs on `MemoryEngine`, and (b) **the cutover**, which
+is the owner's deliberate act. The card's AC says "CLI commands work unchanged" on a
+v3 DB, so Chunk 10 is what closes it — and the cutover cannot happen before Chunk 10,
+because after a cutover the CLI would read a v3 store with a v2 engine.
 
 ### In flight
 
-**Nothing.** Chunk 8 is merged to `main` at `c922970` with green CI on that exact
-SHA, and the `em/em-212-package-move` branch is deleted. The remote carries `main`
-and `release/2.8.x` only, and the Marketplace entry is untouched (still 2.8.1 at
-`7e02412`) — a chunk of work leaves it alone unless the chunk *is* a release.
-
-Three consecutive merges have now gone green on the **first** CI run, all because
-the suite was checked on Python 3.10 as well as 3.12 before pushing.
+**Chunk 9, on the local branch `em/em-211-provider-wiring`** — `b615bcf`, the
+provider's engine selection, with this docs close-out beside it. **Not pushed, not
+merged, no CI run yet.** `origin/main` is `680ab1f`. Locally green on both Python
+3.10 and 3.12 — **1687 passed / 3 skipped / 3 xfailed**, `ruff==0.16.2` clean,
+eval gate with no gated metric regressed, `perf-smoke` warm p95 6.776 ms against
+the 20 ms budget. Push, green CI on the exact SHA, `git merge --ff-only`.
 
 ## What is done
 
@@ -165,45 +167,29 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-**EM-211's code is complete; what it still lacks is the wiring.** All four
-sub-chunks are done (reads, writes, mirror, linker) plus the owner-only read rule,
-but the provider still constructs v2's `MemoryEngine`. The card's AC — "full legacy
-test suite green on a v3 DB" — cannot be met until the provider runs on the facade,
-and **that is not a normal chunk.**
+**Chunk 10 — CLI parity on v3.** The facade implements the provider's 13 calls;
+the CLI calls about **28 more** (`list_facts`, `rebuild_fts`, `timeline`,
+`triple_*`, `publish`/`pull`, `rebuild_embeddings`, `promote_pending`,
+`project_to_vault`, …), so the CLI still builds `MemoryEngine` and cannot read a
+v3 store. This is what closes EM-211's AC ("CLI commands work unchanged"), and it
+is a **prerequisite for the cutover**: cut a store over before this lands and the
+CLI is left reading v3 with a v2 engine.
 
-### The finding that makes wiring owner-gated
+Then, in order:
 
-`V3Engine.__init__` calls `migrate(conn)`. Pointing the provider at an existing v2
-database therefore **migrates it in place** on first use — that is not a side
-effect, it *is* the v3 cutover, the operation the rules reserve for the owner with
-the owner present. Two consequences:
-
-1. **Wiring must not be done unilaterally.** It cannot land as a quiet refactor;
-   the moment a wired provider opens the live store, the store is v3.
-2. **The shape is decided (owner, 2026-10-07): engine selection by store
-   `user_version`** — the v2 engine for a v2 store, the facade for a v3 one — not a
-   single hard swap. The wiring can then land and be tested without touching
-   anyone's data, and the cutover stays a separate, deliberate owner action
-   (migrate a copy, verify, swap). No `migrate()` runs on a v2 store as a side
-   effect of wiring.
-
-### The order (settled)
-
-1. **Chunk 8: EM-212's package move — DONE** (see In flight). It touched the
-   plugin's module namespace, not the live data path, and the strict xfail
-   flipped to a passing test.
-2. **Chunk 9: the wiring, engine selection by `user_version`** — the approach the
-   owner settled (2026-10-07). Scoped in `NEXT_CHUNK.md` Part B. **The cutover
-   itself stays a separate, owner-scheduled act**, not part of the wiring chunk.
-3. **S3 (retrieval v3)** after that, on the critical path in plan §6.2:
-   EM-302 → EM-304 → EM-305 → EM-403 → EM-503 → EM-901 → EM-904 — ending in
-   **EM-904**, the 3.0 release that re-pins the catalog and renames the tool.
+- **The v3 cutover** — owner-gated and now unblocked by Chunk 9's half. Migrate a
+  copy, verify against the parity suite, swap with the owner present.
+- **S3 (retrieval v3)**, critical path in plan §6.2: EM-302 → EM-304 → EM-305 →
+  EM-403 → EM-503 → EM-901 → **EM-904**, the 3.0 release that re-pins the catalog
+  and renames the tool.
+- **The 14 remaining unprefixed modules** (EM-212's deliberate remainder) can sit
+  beside any of these.
 
 ## Gates that must be green before anything reaches `main`
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1671 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **1687 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
