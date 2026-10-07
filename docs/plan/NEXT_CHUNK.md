@@ -99,14 +99,14 @@
 - 16 new tests; 1687 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; seven mutation checks, the key one being that **opening a v2 store leaves it byte-for-byte unmigrated**.
 - **Merged** to `main` at `0200424`; green on the exact SHA, first CI run, `identity-guard` and `plugin-validate` included.
 
-### Chunk 10.1 — the facade's CLI read/listing calls. **DONE, COMMITTED, NOT MERGED (2026-10-07, `f439e55`)**
+### Chunk 10.1 — the facade's CLI read/listing calls. **DONE, MERGED (2026-10-07, `f439e55`, in `b807e4c`)**
 
 - The first slice of the route: eight methods (`list_facts`, `list_pending`, `list_audit`, `get_versions`, `episode_stats`, `embedding_stats`, `list_episodes`, `recall`), each returning **the shape its CLI command prints**. Nothing calls them yet — the CLI still refuses v3 (10.0) and is routed in 10.4.
 - **Two refusals by name**, not silent partials: `list_episodes(domain=...)` (v3 episodes carry `kind`) and `recall(scope='shared'|'all')` (shared store is S5).
 - `get_versions` normalises two v3-vs-v2 differences — the creation-row duplicate and the order — **both verified against v2 by probe**, not assumed.
 - **Plan correction:** `profile_id()` was dropped from the slice; its only CLI caller is `cmd_migrate --status`, which is in the refuse group.
 - 15 new tests; 1707 passed / 3 skipped / 3 xfailed on Python 3.10 and 3.12; nine mutation checks, all caught.
-- **Not merged** — push, green CI on the exact SHA, `git merge --ff-only`.
+- **Merged** to `main` at `b807e4c`; green on the exact SHA, first CI run.
 
 **EM-211 and EM-212 are both code-complete, the provider is wired, and the CLI's read calls have landed.** What remains of EM-211 is 10.2–10.4 and the cutover.
 
@@ -114,7 +114,7 @@
 
 ## Part B: Chunk 10.2 — the CLI's maintenance calls. **NEXT PIECE, NOT STARTED**
 
-**Updated:** 2026-10-07, 10.1 committed (not yet merged); **10.2 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
+**Updated:** 2026-10-07, 10.1 merged to `main` at `b807e4c`; **10.2 is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` §9, then `AGENTS.md`.
 
 **Topic.** The second slice of the CLI-parity route: the calls that change state rather than list it. Same rule as 10.1 — return what the CLI prints, refuse by name where v3 genuinely cannot, and verify against v2 rather than assume.
 
@@ -137,7 +137,7 @@
 **Size guard — stop and report if:** a method needs the v3 retriever or the graph (S3/S6), a "maintenance" call turns out to need a v3 feature that does not exist (that is 10.3's refusal, not a port), or the slice needs more than about five commits.
 
 ### 10.2.0 Pre-flight (read-only)
-1. `main` must contain 10.1's commit once merged; if 10.1 is unmerged, stack on its branch and say so.
+1. `main` must be at `b807e4c` or later: 10.0 and 10.1 are merged there. `git merge-base --is-ancestor b807e4c main` proves it.
 2. **Baseline:** `pytest -q` gives **1707 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12**.
 3. **Re-measure from the code.** For each method above, read the CLI call site for the expected keys, and v2's body for the semantics. Check `pending promote`/`discard` print shapes and the `TRANSITION_REASONS` table before choosing a reason.
 
