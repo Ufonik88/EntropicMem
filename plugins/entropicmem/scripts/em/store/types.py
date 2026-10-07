@@ -137,6 +137,10 @@ class MemoryDraft:
     status: str = "pending"
     pending_reason: str = ""
     pending_expires_at: str | None = None
+    #: Opt-in PII locale packs (EM-115) — e.g. ``("za",)``. Threaded through the
+    #: draft because redaction happens inside ``add``, and a write must redact
+    #: with the caller's packs, not the process default.
+    pii_locales: tuple[str, ...] = ()
     #: The v2-shaped, content-derived id this memory should also answer to.
     #: ``memories.legacy_id`` is UNIQUE and content-derived, so it is only
     #: meaningful for a profile-wide write (v2 had one owner per database); a

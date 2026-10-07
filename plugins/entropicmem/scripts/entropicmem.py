@@ -424,8 +424,26 @@ def _engine(db: "Path | None" = None) -> MemoryEngine:
     provider does. A bare ``MemoryEngine(path)`` fell back to ``~/.hermes`` for
     those, and the CLI and a running agent then disagreed on where the shared
     log lives. A test guards against bare constructions creeping back.
+
+    **A v3 store is refused, on purpose.** The CLI calls about 28 methods the
+    facade does not implement, so it cannot be pointed at the facade yet (CLI
+    parity is its own card). Handing a v3 store to the v2 engine would fail
+    confusingly halfway through a command, so it is refused up front instead —
+    the Hermes agent can read that store, the CLI cannot yet.
     """
-    return MemoryEngine(db if db is not None else _memory_db_path(), hermes_home=hermes_home_path())
+    path = db if db is not None else _memory_db_path()
+    from em.facade.select import StoreVersionError, store_kind
+
+    try:
+        kind = store_kind(path)
+    except StoreVersionError as exc:
+        raise SystemExit(f"Error: {exc}") from exc
+    if kind == "v3":
+        raise SystemExit(
+            f"Error: {path} is a v3 store, and the CLI cannot read one yet "
+            "(CLI parity is pending; the Hermes agent can)."
+        )
+    return MemoryEngine(path, hermes_home=hermes_home_path())
 
 
 def _memory_db_path() -> Path:

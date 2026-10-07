@@ -100,9 +100,9 @@ def open_engine(
     """Open the engine the store's schema calls for.
 
     Takes both engines' arguments and routes them, so the caller does not have to
-    know which engine it will get. ``hermes_home`` and ``pii_locales`` reach the
-    v2 engine only — the facade has no equivalent, and a v3 store's redaction is
-    a store concern.
+    know which engine it will get. ``hermes_home`` reaches the v2 engine only (the
+    facade derives its paths from the store); the PII locale packs reach both, so
+    a v3 store keeps the locale-aware redaction a v2 store had.
 
     Both imports are deferred. The v2 one especially: at 3.0
     ``memory_engine.py`` becomes a shim over this facade, so importing it at
@@ -117,6 +117,7 @@ def open_engine(
             scope_user=scope_user,
             scope_chat=scope_chat,
             is_owner=is_owner,
+            pii_locales=tuple(pii_locales or ()),
         )
 
     from memory_engine import MemoryEngine

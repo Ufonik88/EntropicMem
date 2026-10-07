@@ -171,13 +171,22 @@ class MemoryStore:
             return []
         return sorted({f.shape for f in getattr(result, "findings", ())})
 
-    def _redact(self, content: str, sensitivity: str) -> str:
+    def _redact(self, content: str, sensitivity: str, locales: Sequence[str] = ()) -> str:
+        """Redact for a sensitive/secret row, honouring the configured packs.
+
+        The tier gate is deliberate and pinned by ``test_public_content_is_not_
+        redacted``: v2's write-time pass destroyed only ``SECRET_TYPES`` on every
+        write, while v3 redacts every detected type but only where the row is
+        sensitive. What was *not* deliberate was dropping the locale packs —
+        ``redact_pii`` has always taken them, so a store configured for e.g. the
+        ``za`` pack silently lost that detection on v3.
+        """
         from pii import redact_pii
 
         if sensitivity in ("public", "internal"):
             return content
         try:
-            return redact_pii(content)
+            return redact_pii(content, locales=tuple(locales or ()))
         except Exception:  # pragma: no cover - never fail a write on redaction
             return content
 
@@ -374,7 +383,7 @@ class MemoryStore:
     def _add_as_live(
         self, draft: MemoryDraft, *, scope: Scope, actor: str, content: str, reason_code: str
     ) -> WriteResult:
-        redacted = self._redact(content, draft.sensitivity)
+        redacted = self._redact(content, draft.sensitivity, draft.pii_locales)
         flags = self._screen(redacted)
         content_hash = self._content_hash(redacted, scope)
 
@@ -429,7 +438,7 @@ class MemoryStore:
     def _add_as_pending(
         self, draft: MemoryDraft, *, scope: Scope, actor: str, content: str, reason_code: str
     ) -> WriteResult:
-        redacted = self._redact(content, draft.sensitivity)
+        redacted = self._redact(content, draft.sensitivity, draft.pii_locales)
         flags = self._screen(redacted)
         content_hash = self._content_hash(redacted, scope)
 

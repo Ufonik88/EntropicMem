@@ -238,9 +238,14 @@ class V3Engine:
         scope_user: str = "",
         scope_chat: str = "",
         is_owner: bool = False,
+        pii_locales: Sequence[str] = (),
     ) -> None:
         self.db_path = Path(db_path)
         self.store = Store(self.db_path)
+        #: Opt-in PII locale packs (EM-115), forwarded to every write's draft so
+        #: redaction uses the caller's packs. v2 took these on the engine; this
+        #: is where the facade keeps the same contract.
+        self.pii_locales = tuple(pii_locales or ())
         # Profile-wide by default (v2 had one owner per DB): the facade maps a
         # v2 profile onto Scope(profile=..., user="") — §3.5's profile-wide
         # read, which is also the owner context, so the default facade reads and
@@ -585,6 +590,7 @@ class V3Engine:
             tags=tuple(tags or ()),
             status="active",
             legacy_id=self._legacy_id(text),
+            pii_locales=self.pii_locales,
         )
         with self.store.transaction() as conn:
             result = MemoryStore(conn).add(
@@ -718,6 +724,7 @@ class V3Engine:
             # No legacy_id: an extracted candidate is not a content-addressed
             # mirror row, so it must not claim the profile-wide content id.
             legacy_id="",
+            pii_locales=self.pii_locales,
         )
         with self.store.transaction() as conn:
             store = MemoryStore(conn)

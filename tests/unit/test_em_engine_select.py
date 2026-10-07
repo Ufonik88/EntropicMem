@@ -162,20 +162,62 @@ def test_a_v3_store_is_served_without_a_further_migration(tmp_path):
     assert snapshot(path) == before
 
 
-def test_the_selector_passes_pii_locales_only_to_v2(tmp_path):
-    """v3 redaction has no locale packs; the argument must not leak into the facade."""
-    engine = open_engine(v2_store(tmp_path), profile_id="default", pii_locales=["en_ZA"])
+def test_the_selector_routes_pii_locales_to_both_engines(tmp_path):
+    """A v3 store must keep the locale-aware redaction a v2 store had.
+
+    v2 took the packs on the engine; the facade now carries them into every
+    write's draft, or a store configured for e.g. the `za` pack would silently
+    lose that detection on v3.
+    """
+    v2 = open_engine(v2_store(tmp_path), profile_id="default", pii_locales=["za"])
     try:
-        assert engine.pii_locales == ["en_ZA"]
+        assert v2.pii_locales == ["za"]
+    finally:
+        v2.close()
+
+    v3 = open_engine(v3_store(tmp_path), profile_id="default", pii_locales=["za"])
+    try:
+        assert isinstance(v3, V3Engine)
+        assert v3.pii_locales == ("za",)
+    finally:
+        v3.close()
+
+
+def test_a_sensitive_v3_write_redacts_with_the_engines_locales(tmp_path, monkeypatch):
+    """The plumbing end to end: facade -> draft -> `redact_pii(locales=...)`."""
+    import pii
+
+    seen = {}
+    real = pii.redact_pii
+
+    def spy(text, **kwargs):
+        seen["locales"] = kwargs.get("locales")
+        return real(text, **kwargs)
+
+    monkeypatch.setattr(pii, "redact_pii", spy)
+    engine = open_engine(v3_store(tmp_path), profile_id="default", pii_locales=["za"])
+    try:
+        engine.remember(content="Bob Example called from a number we redact.",
+                         sensitivity="sensitive")
     finally:
         engine.close()
-    # and the facade simply takes no such argument
-    facade = open_engine(v3_store(tmp_path), profile_id="default", pii_locales=["en_ZA"])
+    assert seen.get("locales") == ("za",), (
+        "the configured locale packs must reach redaction, not just the engine"
+    )
+
+
+def test_an_ordinary_v3_write_is_not_redacted(tmp_path, monkeypatch):
+    """The tier gate is deliberate and stays: public/internal rows are untouched."""
+    import pii
+
+    called = []
+    monkeypatch.setattr(pii, "redact_pii", lambda *a, **k: called.append(1) or "x")
+    engine = open_engine(v3_store(tmp_path), profile_id="default", pii_locales=["za"])
     try:
-        assert isinstance(facade, V3Engine)
-        assert not hasattr(facade, "pii_locales")
+        engine.remember(content="Acme deploys on Tuesdays.", sensitivity="internal")
     finally:
-        facade.close()
+        engine.close()
+    assert called == [], "internal content is not redacted — v3's documented policy"
 
 
 # --- the provider -------------------------------------------------------------
@@ -270,3 +312,43 @@ def test_the_provider_builds_engines_only_through_the_helper():
     assert "_open_engine" in provider.read_text(encoding="utf-8"), (
         "the provider must name its engine factory"
     )
+
+
+# --- the CLI's guard ----------------------------------------------------------
+
+
+def test_the_cli_refuses_a_v3_store_clearly(tmp_path):
+    """The CLI cannot read v3 yet (CLI parity pending), so it says so.
+
+    Handing a v3 store to the v2 engine would fail confusingly part-way through
+    a command; refusing up front is the honest behaviour until the facade covers
+    the CLI's calls.
+    """
+    import entropicmem
+
+    with pytest.raises(SystemExit) as exc:
+        entropicmem._engine(v3_store(tmp_path))
+    assert "v3" in str(exc.value)
+
+
+def test_the_cli_still_opens_a_v2_store(tmp_path):
+    """The guard must not break the path every user is on today."""
+    import entropicmem
+    from memory_engine import MemoryEngine
+
+    engine = entropicmem._engine(v2_store(tmp_path))
+    try:
+        assert isinstance(engine, MemoryEngine)
+    finally:
+        engine.close()
+
+
+def test_the_cli_still_opens_a_store_that_does_not_exist_yet(tmp_path):
+    import entropicmem
+    from memory_engine import MemoryEngine
+
+    engine = entropicmem._engine(tmp_path / "fresh" / "memory.db")
+    try:
+        assert isinstance(engine, MemoryEngine)
+    finally:
+        engine.close()
