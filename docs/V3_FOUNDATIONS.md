@@ -26,7 +26,10 @@ em.retrieval (S3)        query.py: AnalyzedQuery + analyze() — EM-301's text
                           entity, episodic, recent, pinned), Candidate,
                           RetrievalContext, and scope_sql (the §3.5 rule as SQL,
                           cross-checked against _in_scope over a row matrix).
-                          vector is EM-303's; the full temporal grammar is EM-310's.
+                          fusion.py: EM-304's weighted RRF, feature rerank,
+                          deterministic tie-break and explanation, with the
+                          feature loader. vector is EM-303's; the full temporal
+                          grammar is EM-310's; the gate/MMR are EM-305's.
 em.jobs   (EM-209)        worker.py: claims jobs, runs handlers OUTSIDE transactions
                           cli.py: `entropicmem worker run`, the cron entry point (refuses a live path)
         |
@@ -182,6 +185,17 @@ These are decisions the writes chunk made that are not obvious from the signatur
   view is a cheap indexed read and this is correct today; the cache wants the
   counter, which is a store change and not the analyzer's. Recorded so the next
   reader does not think the cache exists.
+- **`ranking.*` config does not exist (EM-304).** §3.6 says the rerank weights and
+  half-lives live in `ranking.*`. There is still no `em/config.py` (EM-407), so
+  `fusion.RankWeights` carries the spec's numbers as defaults and the caller may
+  override them — the same shape as EM-301's `extra_stopwords`. Do not invent a
+  config system in either place.
+- **`superseded_note` is not emitted (EM-304).** §3.6's third `why_retrieved` flag
+  needs the supersession collapse, which is EM-305's; `fusion.rank_candidates`
+  emits `temporal_filter` and `entity:<name>` and deliberately not that one.
+- **`why_retrieved_tokens` is a conversion, not a wiring (EM-304).** §3.6 keeps the
+  legacy flat token list for one minor version. `fusion.legacy_tokens()` produces it
+  from a `Ranking`; putting it on the recall path is the provider's card.
 - **§3.6's `query_rewrite` hook is not wired (EM-301).** §3.6 makes it optional and
   background-only ("never blocking `prefetch`"). There is no config module to
   enable it and no `plugins.memory.query_rewrite` to call, so nothing does. It

@@ -13,9 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `04ab0a2`, which is the
-merge commit for Chunk 13 — its code is `fd9e06f`, its docs `04ab0a2`. CI is green
-on that exact SHA on `main` (all 11 jobs) as well as on the branch.
+**Last reconciled:** 2026-10-07, against branch `main` at `14552be`, Chunk 14's code
+commit; its docs commit sits on top and moves the tip without changing code, tests
+or counts, which is expected — see plan §11. CI is verified on the commit itself
+with the check-runs API, not `run list`.
 
 ---
 
@@ -118,7 +119,8 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 10 | **CLI parity** on v3 — 10.0 guard → 10.1 reads → 10.2 maintenance → 10.3 refusals → 10.4 route | **Done, merged** (`250320a`). **EM-211's AC is met except for seven named refusals** |
 | 11 | **S3 begins** — EM-302, candidate generators (the critical path) | **Done, merged** (`0066fb5` the scope helper, `33b2b31` the generators). `vector` is EM-303's |
 | 12 | **EM-301, the `QueryAnalyzer`** | **Done, merged** (`85afea4`) |
-| 13 | **§3.5's `visibility` half** — the write stamp and the read guard | **Done, merged** (`fd9e06f`). Agent-proposed, owner-authorised; **internal only, no release** |
+| 13 | **§3.5's `visibility` half** — the write stamp and the read guard | **Done, merged** (`fd9e06f`); **owner-ratified**, internal only, no release |
+| 14 | **EM-304 — fusion, rerank, explainability** | **Done, merged** (`14552be`) |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -141,6 +143,14 @@ a release.
 
 Twelve consecutive merges have now gone green on the **first** CI run, all because
 the suite was checked on Python 3.10 as well as 3.12 before pushing.
+
+**A measurement trap worth knowing:** `ghx run list --branch main --limit 1` can
+return a **stale** run — the one just pushed may not be listed yet, and the
+newest-first ordering then hands back an older green run, which looks exactly like
+success. Verify with the check-runs API on the commit instead
+(`ghx api repos/Ufonik88/EntropicMem/commits/<sha>/check-runs`), reading `head_sha`,
+which is the check the rule actually names. This bit once on 2026-10-07 and was
+caught only because the reported SHA did not match the pushed one.
 
 **Chunk 13's change is internal only.** It was agent-proposed and owner-authorised
 for implementation, not ruled on by the owner, and it must not reach the marketplace
@@ -240,6 +250,9 @@ Both of its dependencies are merged: EM-302's generators produce the ranked
 * **The full temporal grammar is EM-310's** — EM-301 handles an ISO date, "since",
   "before", "between" and "last N days/weeks/months/years"; month names,
   weekdays, "earlier this week" and the `timezone` config are EM-310's.
+* **`ranking.*` config does not exist (EM-304)** — `fusion.RankWeights` carries
+  §3.6's numbers as defaults, and `superseded_note` (the third `why_retrieved`
+  flag) waits on EM-305's collapse. Both recorded in V3_FOUNDATIONS.
 * **`recent`'s "current session" half** — §3.6 reads "in current session / last
   48 h"; the 48 h window is implemented and the session half needs a session id
   `RetrievalContext` does not carry.
@@ -266,7 +279,7 @@ call is **not now**, for four reasons:
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1863 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **1916 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
