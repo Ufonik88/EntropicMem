@@ -205,14 +205,18 @@ which is the next thing on the critical path. Two things to carry in:
 
 ### Known gaps, recorded so they are not lost
 
-* **§3.5's `visibility` half is not implemented — a privacy gap, and the most
-  important thing on this page.** A *profile-wide* row (`scope_user=''`) is
-  owner-only when `sensitivity IN ('sensitive','secret')` **or `visibility='user'`**;
-  `_in_scope` implements only the tier half, and `MemoryDraft.visibility` defaults to
-  `'user'`, so a profile-wide write made with the default is currently readable by
-  non-owners. This needs its own card (it reclassifies existing rows, and
-  `MemoryStore.list` would need the same treatment), not a quiet edit. Full reasoning
-  in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
+* **§3.5's `visibility` half — DECIDED 2026-10-07: fix it, as Chunk 13, right after
+  EM-301.** Measured, not inferred: `MemoryDraft.visibility` defaults to `'user'` and
+  **nothing anywhere sets it**, so every `MemoryStore.add` — the facade's `remember`
+  included — stamps `'user'` whether the row is profile-wide or user-scoped. §3.5
+  pairs `'user'` with a user-scoped write and `'profile'` with a profile-wide one, so
+  the combination is self-contradictory; and §3.5's owner rule makes exactly that
+  combination owner-only. **The write path is the real fix** — implementing the read
+  clause alone would hide every profile-wide memory from non-owners, the opposite of
+  §3.5's intent — so Chunk 13 does the write path (derive visibility from the scope)
+  **and** the read clause (the defensive half). Not urgent: v3 stores are unreleased
+  and the live store is v2 with zero facts, so nothing user-reachable is exposed while
+  it waits. Full reasoning in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
 * **`vector` (EM-303)** — §3.6's sixth generator, deferred to the card that builds
   the embedding backend and its numpy cache, which its spec requires.
 * **`recent`'s "current session" half** — §3.6 reads "in current session / last
@@ -221,11 +225,21 @@ which is the next thing on the critical path. Two things to carry in:
 * **`EM-211`'s seven CLI refusals** — each names the card that lifts it. Closing
   them is S3/S5/S6 work, not a bug.
 
-### The v3 cutover
+### The v3 cutover — DECIDED 2026-10-07: **deferred**, deliberately
 
-Available and technically ready: a v2 store keeps the v2 engine and a v3 store gets
-the facade, selected by `PRAGMA user_version`, so nothing migrates by accident. The
-cutover is the owner's deliberate act and needs them present.
+Available and technically ready (a v2 store keeps the v2 engine, a v3 store gets the
+facade, selected by `PRAGMA user_version`, so nothing migrates by accident), but the
+call is **not now**, for four reasons:
+
+1. **The live store holds zero facts**, so there is nothing to cut over and nothing
+   to gain.
+2. On v3 the CLI still refuses seven commands, so the owner's daily driver would be
+   degraded on the store they actually use.
+3. **S3 is mid-flight** — cutting over now lands the owner on a v3 store *without* the
+   retrieval that justifies v3, and the parity suite does not yet cover the v3 read
+   path end to end.
+4. It is irreversible and needs the owner present, so it should happen once,
+   deliberately. **Revisit after EM-305.**
 
 ## Gates that must be green before anything reaches `main`
 

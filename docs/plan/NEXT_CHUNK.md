@@ -2,6 +2,8 @@
 
 **Updated:** 2026-10-07, Chunk 11 (EM-302, the candidate generators) merged to `main` at `33b2b31`; **Chunk 12 (EM-301, the `QueryAnalyzer`) is the next piece**. **Read first:** `MASTER_TODO.md`, then `docs/plan/REMAINING_PLAN.md` (its §3 rules apply to everything here), then `AGENTS.md` and `docs/V3_FOUNDATIONS.md`.
 
+**Decisions taken 2026-10-07 (delegated to the implementing agent, recorded in plan §9):** the §3.5 `visibility` gap is **approved for fixing as Chunk 13** (write path + read clause, right after this chunk), and the **v3 cutover is deferred** (the live store has zero facts, the CLI still refuses seven commands on v3, and S3 is mid-flight). Neither blocks this chunk.
+
 **Plan exactly one chunk.** When a chunk ends, replace this file with the plan for the next single chunk; never more than one ahead.
 
 **The master plan is at `~/Documents/EntropicMem Dev docs/EntropicMem_v3_Master_Plan.md`** (1,587 lines, the owner's document, deliberately not committed). EM-302's card and §3.6 are transcribed into `REMAINING_PLAN.md` §6.2. **Before starting a card whose text is not there, read that file** — and if it is unreachable, stop and report rather than inventing fields.
