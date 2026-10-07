@@ -13,11 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `a70028a`, which is the
-merge commit for Chunk 11 — its code is `33b2b31`, its docs `a70028a`. A later
-docs-only commit moving the tip without changing code, tests or counts is expected;
-see plan §11. CI was green on `a70028a` **on `main`**, all 11 jobs, after a green
-run of the same SHA on the branch.
+**Last reconciled:** 2026-10-07, against branch `main` at `85afea4`, which is **Chunk
+12's code commit**; its docs commit sits on top and moves the tip without changing
+code, tests or counts, which is expected — see plan §11. CI is green on the branch,
+and is confirmed on `main` after the merge.
 
 ---
 
@@ -81,8 +80,9 @@ What `em/` contains today: `em.clock` (freezable UTC, ULIDs), `em.store`
 (`db`/portable locking, numbered migrations `0001`–`0003`, `MemoryStore`,
 `episodes`, `entities`, `jobs`, `backup`, hash-chained `audit`), `em.jobs` (queue,
 worker, `entropicmem worker run`), `em.formation` (`EntityLinker`), `em.retrieval`
-(S3 has begun — `AnalyzedQuery`, `TimeRange`, and EM-302's candidate generators),
-and `em.facade` (the provider-facing contract plus `V3Engine`).
+(EM-301's analyzer and stopwords, EM-302's candidate generators), and
+`em.facade` (the provider-facing contract plus `V3Engine`) — with migrations
+`0001`–`0004`.
 
 ### Hermes Marketplace — the catalog entry
 
@@ -117,7 +117,8 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 8 | EM-212's **package move** | **Done, merged** (`025f012`, in `c922970`) |
 | 9 | The **provider** selects its engine by `user_version` | **Done, merged** (`b615bcf`) |
 | 10 | **CLI parity** on v3 — 10.0 guard → 10.1 reads → 10.2 maintenance → 10.3 refusals → 10.4 route | **Done, merged** (`250320a`). **EM-211's AC is met except for seven named refusals** |
-| 11 | **S3 begins** — EM-302, candidate generators (the critical path) | **Done, merged** (`0066fb5` the scope helper, `33b2b31` the generators, merged at `33b2b31`). `vector` is EM-303's |
+| 11 | **S3 begins** — EM-302, candidate generators (the critical path) | **Done, merged** (`0066fb5` the scope helper, `33b2b31` the generators). `vector` is EM-303's |
+| 12 | **EM-301, the `QueryAnalyzer`** | **Done, merged** (`85afea4`) |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -136,8 +137,8 @@ SHA, and both feature branches are deleted. The remote carries `main` and
 `release/2.8.x` only, and the Marketplace entry is untouched (still 2.8.1 at
 `7e02412`) — a chunk leaves it alone unless the chunk *is* a release.
 
-Ten consecutive merges have now gone green on the **first** CI run, all because the
-suite was checked on Python 3.10 as well as 3.12 before pushing.
+Eleven consecutive merges have now gone green on the **first** CI run, all because
+the suite was checked on Python 3.10 as well as 3.12 before pushing.
 
 ### Where the master plan is
 
@@ -185,23 +186,18 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-### Chunk 12 — EM-301, the `QueryAnalyzer` (§3.6). **Ready, unblocked.**
+### Chunk 13 — §3.5's `visibility` fix (approved), then EM-304.
 
-The card text is in the master plan, and EM-302 built the interface it fills in:
-`em/retrieval/query.py` holds `AnalyzedQuery` and `em/retrieval/temporal.py` holds
-`TimeRange`, both currently types only. EM-301 adds the analyzer that produces one:
-`\w+` tokenising, casefold, the ~180-word English stopword list plus config
-`extra_stopwords`, tokens of `len >= 2`, prefix `*` only for `len >= 4`, max 12
-terms selected **by IDF** from `memories_fts`'s vocabulary, the intent heuristic
-(`profile`/`temporal`/`procedural`/`lookup`), and entity-alias lookup.
+**EM-304 (`fusion`, rerank, explainability) is now unblocked** — its last dependency,
+EM-301, is merged, so `em/retrieval/` has a real `AnalyzedQuery` producer and the
+generators that consume one. EM-304 is "exactly §3.6 formulas" with `explain`, all
+weights in `ranking.*` config, and a deterministic `score desc, updated_at desc,
+id asc` tie-break; its AC is unit tests reproducing hand-computed scores to 1e-9.
 
-It is the last missing dependency of EM-304 (`fusion`, "exactly §3.6 formulas"),
-which is the next thing on the critical path. Two things to carry in:
-
-* **the vocabulary needs a migration**, and the plan's "migration 0003" is already
-  taken by `0003_audit_append_only`, so it becomes **0004** (a new migration — never
-  edit an applied one);
-* **the AC is a labelled-query table**: ≥ 30 queries, ≥ 90% intent accuracy.
+**Order:** Chunk 13 is the `visibility` fix recorded under "Known gaps" below — it is
+approved, it is small, and it touches the same `_in_scope`/`scope_sql`/`MemoryDraft`
+surface that has just been worked on, so doing it next avoids a second pass. EM-304
+follows immediately after; nothing blocks it either way.
 
 ### Known gaps, recorded so they are not lost
 
@@ -219,6 +215,13 @@ which is the next thing on the critical path. Two things to carry in:
   it waits. Full reasoning in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
 * **`vector` (EM-303)** — §3.6's sixth generator, deferred to the card that builds
   the embedding backend and its numpy cache, which its spec requires.
+* **§3.6's IDF cache and `query_rewrite` have no source (EM-301)** — nothing defines
+  the `write_generation` counter the cache would key on, so the vocabulary is read
+  per call, and there is no config module to enable `query_rewrite` or a hook to
+  call. Both are recorded in V3_FOUNDATIONS; they belong to EM-403/EM-407.
+* **The full temporal grammar is EM-310's** — EM-301 handles an ISO date, "since",
+  "before", "between" and "last N days/weeks/months/years"; month names,
+  weekdays, "earlier this week" and the `timezone` config are EM-310's.
 * **`recent`'s "current session" half** — §3.6 reads "in current session / last
   48 h"; the 48 h window is implemented and the session half needs a session id
   `RetrievalContext` does not carry.
@@ -245,7 +248,7 @@ call is **not now**, for four reasons:
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1795 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **1832 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
