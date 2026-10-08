@@ -60,6 +60,18 @@ P0b (`be6352e` — a v3 store serving prefetch from S3 behind `ENTROPICMEM_V3_RE
 - **CI's gate stays v2.** Making v3 fail a build is EM-306's decision with §6.3's gates moved to match; until then `tests/evals/test_adapter_v3.py` is v3's only regression protection, and it runs in the default suite. The intent is on the `evals-ci` job itself now.
 - **`gate.*`/`ranking.*` reach the call sites only via the provider cards** (EM-401–403). EM-306 commits tuned *defaults*; saying which parts stay unwired is part of the PR, not an implication.
 
+### Step 3 — a cheap guard for the pre-flight count itself (**deferred, recorded, small**)
+
+Chunk 18's pre-flight said **1995** while `MASTER_TODO` and reality said **1998**: the drift is not
+that a number was wrong once, it is that four pages state the suite size by hand and nothing
+compares them. A candidate no-bump hygiene commit: one test asserting that the *stated* baseline
+in `MASTER_TODO`'s gates table, `NEXT_CHUNK.md`'s pre-flight and `REMAINING_PLAN.md` §11's
+verify block name the same `passed / skipped / xfailed` triple — cross-file agreement only, not
+agreement with a live collection run, because a nested `--collect-only` would trade a silent
+drift for a flaky gate. Deliberately not added to Chunk 19: it is a different area, and the
+rules say one chunk at a time. Until it lands, the defence is the pre-flight itself — run the
+suite, compare the number, **stop and report on a mismatch**.
+
 ### Size guards — stop and report if
 
 - **a threshold needs moving to get a reading** — that is not a reading (this is Part B step 1's decision, and it is the owner's).
