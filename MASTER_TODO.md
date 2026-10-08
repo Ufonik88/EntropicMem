@@ -13,11 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-08, against branch `main` at `bb84d6d` — Chunk 17's final
-commit, named deliberately instead of the tip. The guard only requires a commit that is a
-genuine ancestor, and a *tip* is falsified by the very next docs commit. **Chunk 18's code
-is `be6352e`, with this docs commit on top of it; the pair merges `--ff-only` after
-check-runs on the branch tip.**
+**Last reconciled:** 2026-10-08, against branch `main` at `03cf7f9` — Chunk 18's final
+commit, named deliberately instead of the tip (a tip is falsified by the very next docs
+commit). **Chunk 19's code is `94dd3c7`, with this docs commit on top of it; the pair
+merges `--ff-only` after check-runs on the branch tip.**
 
 ---
 
@@ -130,6 +129,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 16 | **The v3 eval adapter** (P1) — the first end-to-end v3 number | **Done, merged** (`ff0d3c3`) |
 | 17 | **P0a — the v3 shadow read** | **Done, merged** (`f0a7c70`, id-space fix `636a685`, test fix `d1060c1`) |
 | 18 | **P0b — a v3 store serves prefetch *from* S3**, behind `ENTROPICMEM_V3_RETRIEVAL` | **Done** (code `be6352e`; two commits, merged `--ff-only` after green check-runs on the branch tip). Includes the gate's `kind='constraint'` bypass fix found by its end-to-end run |
+| 19 | **P0c's readout — score a shadow log against the frozen observable, and collect one honestly** | **Done** (code `94dd3c7`; two commits, merged `--ff-only` after green check-runs on the tip). **The data itself is still not collected**: it needs real turns, and the divergence-definition question below is the owner's before they are read |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -150,10 +150,14 @@ exactly why it no longer does. The branch is deleted, the remote carries `main` 
 `7e02412`).
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
-from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged.** What remains of P0 is
-**P0c — reading the shadow data** against the observable fixed before collection
-(≥ 200 turns, copy within 900 s, divergence ≤ 10%, `v3_only` never non-zero, off-turn
-p95 ≤ 150 ms). That is data collection on real turns, not a code chunk.
+from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, and P0c's **readout**
+landed in Chunk 19 (`94dd3c7`) — a log can now be collected (`scripts/shadow_collect.py`)
+and scored (`_shadow.py report`) against the observable frozen in `_shadow.PROMOTION`.
+**What remains of P0 is the data itself**, which needs ≥ 200 real turns on the host; the
+live store holds zero facts, so a dev-box sample can only ever read `CANNOT CONCLUDE`.
+Alongside it sits the **divergence-definition question** the synthetic sample raised
+(symmetric ceiling: misses count like additions) — the owner's to settle **before** real
+turns are read, so the threshold is never fitted to the sample.
 
 **A measurement trap worth knowing:** `ghx run list --branch main --limit 1` can
 return a **stale** run — the one just pushed may not be listed yet, and the
@@ -286,35 +290,46 @@ first real run also showed v3 injecting exactly what v2 injected, divergence emp
 
 ### START HERE TOMORROW
 
-**The repo rests after Chunk 18: code and docs committed, 2019/3/3 green on both
-Pythons, `ruff` clean, the v2 eval gate unmoved, the branch merged `--ff-only` after
-green check-runs, nothing in flight, and the live store and the Marketplace entry
-untouched. P0b is complete — on a v3 store, `ENTROPICMEM_V3_RETRIEVAL=1` serves
-prefetch from S3 — and both cutover re-decision conditions are met, so the cutover
-decision is back with the owner.**
+**The repo rests after Chunk 19: code and docs committed, 2055/3/3 green on both
+Pythons, `ruff` clean, the v2 eval gate unmoved, nothing in flight, and the live store
+and the Marketplace entry untouched. P0c's **readout** has landed — a divergence log
+can now be collected and scored against the frozen observable — but P0c's **data** has
+not, because there is none: the live store holds zero facts and the host has never run
+with `ENTROPICMEM_SHADOW_V3` set.**
 
-**One defect was found by running P0b end to end rather than by review, and is fixed
-here:** the abstention gate read only the `pinned` column, so a `kind='constraint'`
-row its own generator had surfaced was filtered instead of bypassing. It is pinned at
-two layers now and mutation-checked; read it in CHANGELOG. That is the second time a
-real-run check found what unit tests could not (P0a's id space was the first).
+**The one thing to decide before reading any real sample** (the owner's, 2026-10-08):
+the frozen `max_divergence_rate = 0.10` is **symmetric** — it counts a memory v3
+*missed* exactly like one v3 *fabricated*. On a synthetic 240-turn sample the divergence
+was 37.5%, and the report decomposes it into **150 misses and 0 additions**: the
+condition the observable calls decisive (`v3_only` never non-zero) passed on every line,
+and the ceiling failed because S3's gate is more selective than v2 — which is what
+EM-305 built it for, and what the adapter measured as noise 0.172 vs v2's 0.219. Either
+keep the symmetric ceiling (meaning "promote only when v3 shows what v2 shows") or split
+it into a fabrication ceiling and a separate miss ceiling. **Answer it before looking at
+real turns, or it is fitting the threshold to the sample.** Nothing was tuned in this
+chunk; `NEXT_CHUNK.md`'s guard says a reading that needs a threshold moved is not a
+reading.
 
 1. **Read:** this file, then `docs/plan/NEXT_CHUNK.md` **Part B**, then
    `REMAINING_PLAN.md` §9 for the decisions in force.
-2. **P0c — collect the shadow data and read it against the pre-declared observable**
-   (≥ 200 turns, copy within 900 s, divergence ≤ 10%, `v3_only` never non-zero,
-   off-turn p95 ≤ 150 ms). Do not lower a threshold to fit the sample. The staleness
-   bound travels beside every number; divergence is a **lower bound** and **not** an
-   apples-to-apples quality comparison until EM-303's vectors exist. This is data
-   collection on real turns, not a code chunk.
-3. **P2 / EM-306 — the calibration harness** is the next buildable chunk when P0c's
-   data is not at hand: `python -m evals tune`, the `dev`/`holdout` split by id hash,
+2. **P0c, the data.** On the host: set `ENTROPICMEM_SHADOW_V3=<v3 copy path>` and let
+   real turns accumulate, then read them with
+   `python ~/.hermes/plugins/entropicmem/_shadow.py report`. To prove the plumbing
+   before waiting on traffic: `python scripts/shadow_collect.py --source
+   ~/.hermes/entropicmem/memory.db --turns 200` — it opens the store `mode=ro`, copies
+   it, and **never writes the source** (asserted on bytes and mtime). **Do not lower a
+   threshold to fit the sample.** The report prints the raw distribution, the margin
+   against each limit, the miss/add decomposition and the two caveats by default, so a
+   green light always arrives with the room it left — and a short, no-signal or
+   unreadable sample prints `CANNOT CONCLUDE`, never `MET`.
+3. **Then P2 / EM-306** — `python -m evals tune`, the `dev`/`holdout` split by id hash,
    and `em/config.py` (which does not exist yet — it starts there). Part B carries the
    scoping; the owner's constraint stands — **the gate must not depend on EM-301's
-   92.9%-on-42 intent table**.
-4. **Pre-flight:** `python -m pytest -q` gives **2019 passed / 3 skipped / 3 xfailed**
-   on **both Python 3.10 and 3.12**; `git merge-base --is-ancestor be6352e main`
-   proves the base.
+   92.9%-on-42 intent table**. After it: **EM-307** (packer + renderer, which closes the
+   memories-only gap in served prefetch), then **EM-303** (vectors).
+4. **Pre-flight:** `python -m pytest -q` gives **2055 passed / 3 skipped / 3 xfailed**
+   on **both Python 3.10 and 3.12**; `git merge-base --is-ancestor 94dd3c7 main` proves
+   the base.
 5. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
    `run list`, which can hand back a stale green.
 6. **The cutover decision is (a)+(b) complete and back with the owner.** Bring the
@@ -326,10 +341,15 @@ The owner set the order explicitly; do not reorder it without asking.
 
 | # | Work | Why now | State |
 |:--|:--|:--|:--|
-| **P0** | **Wire S3's read path into the provider (prefetch)** | Nothing else produces real-turn signal until this exists, and it is the precondition for any honest cutover | **Code complete** — P0a `f0a7c70`, P0b `be6352e`; **P0c (read the shadow data) remains** |
-| **P1** | **The v3 eval adapter** | The v3 pipeline had never been scored end to end; without a number the cutover decision is evidence-free | **DONE** (`ff0d3c3`) — and it is one of the two re-decision conditions |
-| **P2** | **EM-306** (the `tune` command, `em/config.py`) | Only meaningful once P1 can measure it | Next buildable chunk |
-| **P3** | **The cutover** | Against the re-decision point above | **Both conditions met; held for the owner** |
+| **1** | **P0c — collect the shadow data and read it against the frozen observable** | It is the gating empirical step for the cutover; the readout landed in `94dd3c7`, the **data has not** | **Readout DONE, data outstanding** — needs ≥200 real turns on the host, plus the definition decision below |
+| **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py` starts there, `dev`/`holdout` split by id hash) | Only meaningful now that P1 can measure it; it is the next buildable chunk | Ready — **the gate must not depend on EM-301's 92.9%-on-42 intent table** |
+| **3** | **EM-307 — packer and renderer** | Closes the recorded gap that served prefetch is memories-only and renders nothing but the v2 bullet shape | Ready (S size) |
+| **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | Lower urgency |
+| **—** | **P3 — the cutover** | Both re-decision conditions are met in code | **Held: the owner decides; the agent brings it** |
+
+**The owner's order was re-set on 2026-10-08** (this table): P0c first as the gating
+empirical step, then EM-306, then EM-307, then EM-303. P1 is done and P3 stays with the
+owner. Do not reorder it without asking.
 
 **P0b's shape, as landed — serve prefetch from S3 on a v3 store:**
 
@@ -400,6 +420,29 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   read only the column, so a constraint with no lexical overlap was filtered instead
   of bypassing. Found by P0b's end-to-end run; pinned at the loader and at
   `apply_gate`, mutation-checked both ways, no scored dataset affected.
+* **P0c has a readout and no data.** `_shadow.evaluate/report/render` scores a
+  divergence log against the observable frozen in `_shadow.PROMOTION` (thresholds read
+  at report time, never copied), and `scripts/shadow_collect.py` produces a sample from
+  real engines over a read-only copy. What is missing is **200+ real turns on the host**
+  — and the live store holds zero facts, so the only sample a dev box can honestly get
+  reads `CANNOT CONCLUDE` (`no signal`), which the reporter is built to say rather than
+  paper over.
+* **The divergence ceiling is symmetric, and that is an open owner decision, not a
+  tuning task.** `max_divergence_rate = 0.10` counts a memory v3 *missed* like one v3
+  *fabricated*. On the 240-turn synthetic sample: 37.5% divergence, **150 misses and 0
+  additions** — `v3_only` (the decisive condition) met on every line. Splitting the
+  ceiling, or keeping it, must be decided **before** real turns are read; changing it
+  afterwards is fitting the threshold to the sample. Nothing was tuned in Chunk 19.
+* **The privacy digest list is not on the dev box**, so the local collision check skips
+  (the third skip in 2055/3/3) and only CI runs the guard for real. CI covered this
+  chunk's files on the exact SHA; the local gap is a reproducibility hole worth closing
+  once by placing the list at `~/.config/entropicmem/privacy-digests.txt` (mode 600) or
+  setting `ENTROPICMEM_PRIVACY_DIGESTS_FILE`.
+* **Flipping P0b's flag default is one line, deliberately not flipped here.**
+  `em/facade/engine.py`'s `v3_retrieval_enabled()` is the only reader in product code;
+  the flip is `== "1"` → `!= "0"`, plus the tests and docs that pin default-off (the
+  strictness test is meant to go red so the flip is a conscious act). Wiring the flag to
+  a config key instead of an env var is EM-306/EM-407 work.
 * **`gate.*` config (EM-305)** joins `ranking.*` and `extra_stopwords` as
   parameters with the spec's defaults, all waiting on `em/config.py` (EM-407).
 
@@ -420,7 +463,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2019 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2055 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
