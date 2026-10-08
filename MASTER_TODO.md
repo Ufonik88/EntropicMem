@@ -296,7 +296,7 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**The repo rests after Chunk 20: 2061/3/3 green on both Pythons, `ruff` clean, the v2
+**The repo rests after Chunk 20 and the count guard: 2066/3/3 green on both Pythons, `ruff` clean, the v2
 eval gate unmoved, nothing in flight, the live store and the Marketplace entry untouched.
 The owner's ceiling ruling of 2026-10-08 is implemented — fabrication is a hard ceiling,
 the miss side is its own ceiling, pre-registered and un-armed, and an un-armed ceiling
@@ -327,7 +327,7 @@ host where the plugin is installed and enabled — an owner-facing change, not a
    92.9%-on-42 intent table**. EM-306's holdout is also what arms the miss ceiling, so
    the two are now linked. After it: **EM-307** (packer + renderer, closing the
    memories-only gap in served prefetch), then **EM-303** (vectors).
-4. **Pre-flight:** `python -m pytest -q` gives **2061 passed / 3 skipped / 3 xfailed**
+4. **Pre-flight:** `python -m pytest -q` gives **2066 passed / 3 skipped / 3 xfailed**
    on **both Python 3.10 and 3.12**; `git merge-base --is-ancestor 3c8b301 main` proves
    the base.
 5. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
@@ -442,7 +442,7 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   the earlier 37.5% finding (150 misses, 0 additions) stays comparable: the same sample
   reads 38.46% id-level.
 * **The privacy digest list is not on the dev box**, so the local collision check skips
-  (the third skip in 2061/3/3) and only CI runs the guard for real. CI covered these
+  (the third skip in 2066/3/3) and only CI runs the guard for real. CI covered these
   files on the exact SHA; the local gap is a reproducibility hole worth closing once by
   placing the list at `~/.config/entropicmem/privacy-digests.txt` (mode 600) or setting
   `ENTROPICMEM_PRIVACY_DIGESTS_FILE` — the mechanism already exists, so this is a copy,
@@ -473,7 +473,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2061 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2066 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |

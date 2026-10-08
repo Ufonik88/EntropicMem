@@ -75,17 +75,30 @@ P0b (`be6352e` — a v3 store serving prefetch from S3 behind `ENTROPICMEM_V3_RE
 - **CI's gate stays v2.** Making v3 fail a build is EM-306's decision with §6.3's gates moved to match; until then `tests/evals/test_adapter_v3.py` is v3's only regression protection, and it runs in the default suite. The intent is on the `evals-ci` job itself now.
 - **`gate.*`/`ranking.*` reach the call sites only via the provider cards** (EM-401–403). EM-306 commits tuned *defaults*; saying which parts stay unwired is part of the PR, not an implication.
 
-### Step 3 — a cheap guard for the pre-flight count itself (**deferred, recorded, small**)
+### Step 3 — the pre-flight count guard. **DONE, MERGED (2026-10-08, hygiene chunk)**
 
 Chunk 18's pre-flight said **1995** while `MASTER_TODO` and reality said **1998**: the drift is not
-that a number was wrong once, it is that four pages state the suite size by hand and nothing
-compares them. A candidate no-bump hygiene commit: one test asserting that the *stated* baseline
-in `MASTER_TODO`'s gates table, `NEXT_CHUNK.md`'s pre-flight and `REMAINING_PLAN.md` §11's
-verify block name the same `passed / skipped / xfailed` triple — cross-file agreement only, not
-agreement with a live collection run, because a nested `--collect-only` would trade a silent
-drift for a flaky gate. Deliberately not added to Chunk 19: it is a different area, and the
-rules say one chunk at a time. Until it lands, the defence is the pre-flight itself — run the
-suite, compare the number, **stop and report on a mismatch**.
+that a number was wrong once, it is that three pages state the suite size by hand and nothing
+compared them. `tests/test_master_todo.py` now extracts the `passed / skipped / xfailed` triple from
+`MASTER_TODO`'s gates table, this file's pre-flight and `REMAINING_PLAN.md` §11's verify block — one
+anchored line each — and fails if they disagree, if an anchor stops matching exactly one line, or if a
+page drops out of the comparison.
+
+**Cross-file agreement only, deliberately.** Comparing against a live collection would need a nested
+pytest run, which trades a silent drift for a flaky gate (and `--collect-only` cannot see
+collection-time skips, so the number would not match anyway). The suite's own pre-flight run is what
+checks the pages against reality; this guard makes sure that when the run disagrees, the pages cannot
+*also* disagree among themselves.
+
+**Why the comparison is a pure function:** the docs agree today, so a guard whose only input is an
+agreeing tree cannot be mutation-proven — weakening its comparison slipped through green until
+disagreement was handed to it directly. `_baseline_disagreement` takes the triples, and the tests feed
+it drift, a drifted skip pair, and an implausible size. Nine mutation checks: **eight caught**; the one
+survivor is a knowingly redundant in-doc probe that the synthetic tests already cover, and it is
+labelled as such in the code rather than left looking load-bearing.
+
+**The discipline this does not replace:** read the expected number from this file's pre-flight, run the
+suite, and **stop and report on a mismatch** instead of assuming the older number is right.
 
 ### Size guards — stop and report if
 
@@ -97,7 +110,7 @@ suite, compare the number, **stop and report on a mismatch**.
 ### Pre-flight
 
 1. `main` must be at `3c8b301` or later: `git merge-base --is-ancestor 3c8b301 main`.
-2. **Baseline:** `pytest -q` gives **2061 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12** (3 skips on a box without the private digest list; CI runs with it — and note the list is *not* on this dev box, so the local collision check has never run here; closing it is a one-file copy, recorded in plan §11, and `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` is what makes a missing list fail closed instead of skipping).
+2. **Baseline:** `pytest -q` gives **2066 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12** (3 skips on a box without the private digest list; CI runs with it — and note the list is *not* on this dev box, so the local collision check has never run here; closing it is a one-file copy, recorded in plan §11, and `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` is what makes a missing list fail closed instead of skipping).
 3. **Re-measure from the code, not this file:** `_shadow.py` (`PROMOTION`, `MISS_CEILING_RULE`, `evaluate`, `read_log`, `render`, `main`), `scripts/shadow_collect.py`, `em/facade/engine.py` (`v3_retrieval_enabled`, `_recall_from_v3`), `em/retrieval/pipeline.py`, `em/retrieval/gate.py` (`load_rows`' pinned input), `evals/` (`runner`, `metrics`, `adapters/engine_v3.py`), `.github/workflows/test.yml`.
 4. **Verify CI with the check-runs API on the commit**, and read `head_sha`.
 
