@@ -13,12 +13,12 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-08, against branch `main` at `1e40968` — the previous
+**Last reconciled:** 2026-10-08, against branch `main` at `4eb8097` — the previous
 chunk's final commit, named deliberately instead of the tip (a tip is falsified by the
-very next docs commit). **The last feature chunk is Chunk 20, the owner-ruled ceiling
-split (`3c8b301`); `dea2e4f` added the pre-flight count guard, and the trust pass added
-the cited-SHA guard (`085ab72`) plus the miss-ceiling rule's policy wording
-(`de495f2`).**
+very next docs commit). **The last chunk is EM-306, the calibration harness
+(`4a2b25e`), which also armed the miss ceiling; before it the trust pass added the
+cited-SHA guard (`085ab72`) and the rule's policy wording (`de495f2`), and the last
+feature chunk was Chunk 20, the owner-ruled ceiling split (`3c8b301`).**
 
 ---
 
@@ -133,6 +133,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 18 | **P0b — a v3 store serves prefetch *from* S3**, behind `ENTROPICMEM_V3_RETRIEVAL` | **Done** (code `be6352e`; two commits, merged `--ff-only` after green check-runs on the branch tip). Includes the gate's `kind='constraint'` bypass fix found by its end-to-end run |
 | 19 | **P0c's readout — score a shadow log against the frozen observable, and collect one honestly** | **Done, merged** (`94dd3c7` + docs `2b1e49b`; count-guard deferral `b213dc0`). **The data itself is still not collected** — see the environment finding below |
 | 20 | **The ceiling split — the owner's ruling of 2026-10-08** | **Done** (code `3c8b301`; two commits, merged `--ff-only` after green check-runs on the tip). Fabrication stays hard (`max_v3_only = 0`); the miss side is its own ceiling, **pre-registered and un-armed**, and an un-armed ceiling blocks `met` rather than passing silently |
+| 21 | **EM-306 — the calibration harness; it arms the miss ceiling** | **Done** (code `4a2b25e`; code + docs commits, merged `--ff-only` after green check-runs on the tip). `evals tune` splits by id hash, searches a pre-declared grid, commits `em/config.py`; the same holdout armed `max_v2_miss_rate` at `0.107143` |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -154,12 +155,11 @@ exactly why it no longer does. The branch is deleted, the remote carries `main` 
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
 from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed in
-Chunk 19 (`94dd3c7`), and the **ceiling split the owner ruled on 2026-10-08 landed in
-Chunk 20 (`3c8b301`)** — fabrication is a hard ceiling (`max_v3_only = 0`), the miss side
-is its own ceiling, pre-registered in `_shadow.MISS_CEILING_RULE` and **un-armed** until
-EM-306's holdout exists, and an un-armed ceiling blocks `met` rather than passing
-silently. The divergence-definition question Chunk 19 raised is therefore **settled, not
-open**. **What remains of P0 is the data itself**, and it is blocked on the environment
+Chunk 19 (`94dd3c7`), the **ceiling split the owner ruled on 2026-10-08 landed in
+Chunk 20 (`3c8b301`)**, and **EM-306 (`4a2b25e`) armed the miss side from its holdout** —
+fabrication stays a hard ceiling (`max_v3_only = 0`), and the miss ceiling is now
+`0.107143`, so a clean sample can conclude. The divergence-definition question Chunk 19
+raised is therefore **settled, not open**. **What remains of P0 is the data itself**, and it is blocked on the environment
 rather than on a decision: this box does not run the plugin at all (no `memory.provider`
 key, `plugins.enabled` lists only `homeassistant`, no `~/.hermes/plugins/entropicmem`),
 so no turn reaches a write path and the live store stays empty. Real turns need a host
@@ -217,6 +217,11 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   so the import system registers `em_internal.*` and never the bare names, and the
   strict xfail flipped to a passing test. The other 14 modules still carry
   unprefixed names — the AC names only the six.
+- **EM-306 landed (2026-10-08) and armed the miss ceiling:** `python -m evals tune`
+  calibrates the hard suite on a dev/holdout split by id hash and commits its choice as
+  `em/config.py` scalars (unwired until EM-401–403); the same holdout executed the
+  pre-registered arming rule, so `_shadow`'s promotion observable is fully armed and
+  **P0's code is complete**.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
   identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
   test that prints its full distribution, a document-control guard that
@@ -271,8 +276,8 @@ cost. Nothing about the live store has moved.
 divergence is a **lower bound**; v3 has no cosine condition until EM-303, so it is not
 an apples-to-apples quality comparison; and the promotion observable was fixed in
 advance — **≥ 200 turns, copy within 900 s, `v3_only` never once non-zero (hard),
-the miss rate against its pre-registered ceiling (un-armed until EM-306's holdout
-exists), off-turn p95 ≤ 150 ms.** The observable was amended once, by owner ruling on
+the miss rate against its pre-registered ceiling (armed at `0.107143` from EM-306's
+holdout), off-turn p95 ≤ 150 ms.** The observable was amended once, by owner ruling on
 2026-10-08 and *before any real turn was read*: the old symmetric `divergence ≤ 10%`
 counted a miss like a fabrication, and the measured sample was 150 misses with 0
 additions. One thing the first real run settled: ids are compared through
@@ -304,15 +309,15 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**The repo rests after the trust pass: 2072/3/3 green on both Pythons, `ruff` clean, the v2
+**The repo rests after EM-306: 2090/3/3 green on both Pythons, `ruff` clean, the v2
 eval gate unmoved, nothing in flight, the live store and the Marketplace entry untouched.
-The owner's ceiling ruling of 2026-10-08 is implemented — fabrication is a hard ceiling,
-the miss side is its own ceiling, pre-registered and un-armed, an un-armed ceiling blocks
-`met` instead of passing silently — and the arming rule now states the relationship it
-always meant: the rate is v3-vs-v2, the bound is v2-vs-truth applied to it, a policy choice
-and not an identity. The cited-SHA guard now fails any doc or landing commit whose SHA
-citation does not resolve, and the at-scale latency is recorded as a repeated distribution
-(p95 2.59–2.74 ms every run; every max is the copy-refresh turn, warm max 3.83–4.52 ms).**
+The calibration harness landed (`4a2b25e`) and armed the miss ceiling at `0.107143` — the
+pre-registered rule, executed from the holdout it was written for — so **P0's code is
+complete: the observable is fully armed and a clean sample can conclude.** The rate is
+v3-vs-v2, the bound is v2-vs-truth applied to it, a policy choice and not an identity; the
+tuned `gate.*`/`ranking.*` defaults are committed in `em/config.py` (unwired until
+EM-401–403), and CI's eval gate stays v2 by the decision written on the job. Next:
+**EM-307**, then **EM-303**; the cutover stays with the owner.**
 
 **P0c's data is blocked on the environment, and the reason is now measured rather than
 assumed.** This box is not running EntropicMem at all: `~/.hermes/config.yaml` has **no
@@ -328,22 +333,16 @@ host where the plugin is installed and enabled — an owner-facing change, not a
 1. **Read:** this file, then `docs/plan/NEXT_CHUNK.md` **Part B**, then
    `REMAINING_PLAN.md` §9 (items 6 and 7 are the owner's rulings) for what is in force.
 2. **P0c, the data.** Needs (a) a host with the plugin enabled, (b) `ENTROPICMEM_SHADOW_V3`
-   set there, (c) ≥ 200 real turns, then `python <plugin>/_shadow.py report`. Until (a)
-   exists, the only honest sample is a synthetic one — and a synthetic sample is evidence
-   about the *metric*, never about turns, so it must not be used to arm a ceiling.
-   **The miss ceiling stays un-armed until EM-306's holdout exists** (`MISS_CEILING_RULE`
-   in code says exactly how to arm it).
-3. **Then P2 / EM-306** — `python -m evals tune`, the `dev`/`holdout` split by id hash,
-   and `em/config.py` (which does not exist yet — it starts there). Part B carries the
-   scoping; the owner's constraint stands — **the gate must not depend on EM-301's
-   92.9%-on-42 intent table**. EM-306's holdout is also what arms the miss ceiling, so
-   the two are now linked; its holdout does not exist yet — it is derived by id hash from
-   the committed scenario datasets (hard: 60 scenarios / 180 turns; ci: 7), so the
-   implementing agent produces it, with no owner input and no host needed. After it:
-   **EM-307** (packer + renderer, closing the
-   memories-only gap in served prefetch), then **EM-303** (vectors).
-4. **Pre-flight:** `python -m pytest -q` gives **2072 passed / 3 skipped / 3 xfailed**
-   on **both Python 3.10 and 3.12**; `git merge-base --is-ancestor 1e40968 main` proves
+   set there, (c) ≥ 200 real turns, then `python <plugin>/_shadow.py report`. The
+   observable is fully armed now, so a clean sample can conclude; until (a) exists, the
+   only honest sample is a synthetic one — and a synthetic sample is evidence about the
+   *metric*, never about turns, so it must not be used to re-arm a ceiling.
+3. **Then EM-307 — the packer and renderer (the next chunk).** Its card is on the
+   owner's machine; read it before starting, and stop if it is unreachable. It closes the
+   recorded gap that served prefetch is memories-only and renders §3.6's
+   `superseded_note`. Do not wire `em/config.py` there. After it: **EM-303** (vectors).
+4. **Pre-flight:** `python -m pytest -q` gives **2090 passed / 3 skipped / 3 xfailed**
+   on **both Python 3.10 and 3.12**; `git merge-base --is-ancestor 4eb8097 main` proves
    the base.
 5. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
    `run list`, which can hand back a stale green.
@@ -356,14 +355,15 @@ The owner set the order explicitly; do not reorder it without asking.
 
 | # | Work | Why now | State |
 |:--|:--|:--|:--|
-| **1** | **P0c — collect the shadow data and read it against the frozen observable** | It is the gating empirical step for the cutover; the readout landed in `94dd3c7`, the **data has not** | **Readout DONE, data outstanding** — needs ≥200 real turns on the host, plus the definition decision below |
-| **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py` starts there, `dev`/`holdout` split by id hash) | Only meaningful now that P1 can measure it; it is the next buildable chunk | Ready — **the gate must not depend on EM-301's 92.9%-on-42 intent table**; its holdout is derived from the committed datasets by id hash — agent-producible, no host needed |
-| **3** | **EM-307 — packer and renderer** | Closes the recorded gap that served prefetch is memories-only and renders nothing but the v2 bullet shape | Ready (S size) |
+| **1** | **P0c — collect the shadow data and read it against the frozen observable** | It is the gating empirical step for the cutover; the readout landed in `94dd3c7`, the **data has not** | **Readout DONE, observable fully armed, data outstanding** — needs ≥200 real turns on a host |
+| **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py`, and the armed miss ceiling) | It was the next buildable chunk and it unblocks P0c's reading | **DONE (`4a2b25e`)** — holdout reported, defaults committed, ceiling armed at `0.107143` |
+| **3** | **EM-307 — packer and renderer** | Closes the recorded gap that served prefetch is memories-only and renders nothing but the v2 bullet shape | **Next build** — card on the owner's machine; read it first |
 | **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | Lower urgency |
 | **—** | **P3 — the cutover** | Both re-decision conditions are met in code | **Held: the owner decides; the agent brings it** |
 
 **The owner's order was re-set on 2026-10-08** (this table): P0c first as the gating
-empirical step, then EM-306, then EM-307, then EM-303. P1 is done and P3 stays with the
+empirical step — now blocked only on a host, with the observable armed — then EM-306
+(**done**), then EM-307 (**next**), then EM-303. P1 is done and P3 stays with the
 owner. Do not reorder it without asking.
 
 **P0b's shape, as landed — serve prefetch from S3 on a v3 store:**
@@ -446,16 +446,17 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   It is not a broken write path and it will not fix itself by accumulating; installing
   and enabling the plugin on a host is the owner's act.
 * **The promotion ceiling is split (owner ruling, 2026-10-08) and the miss side is
-  deliberately un-armed.** `max_v3_only = 0` stays hard: a fabricated hit is a
-  correctness failure. `max_v2_miss_rate` (ids v3 dropped / ids v2 injected) is `None`,
-  so misses are **reported on every reading and gate nothing** — and an un-armed ceiling
-  **blocks `met`**, so the sample reads `cannot conclude` rather than passing by
-  omission. The arming rule is pre-registered in code (`_shadow.MISS_CEILING_RULE`):
+  armed (EM-306, `4a2b25e`).** `max_v3_only = 0` stays hard: a fabricated hit is a
+  correctness failure. `max_v2_miss_rate` (ids v3 dropped / ids v2 injected) is
+  `0.107143`, from the pre-registered holdout reference; the un-armed shape is still
+  supported and tested (it reports the rate, gates nothing, and blocks `met`). The arming rule is pre-registered in code (`_shadow.MISS_CEILING_RULE`):
   v2's own miss rate against a held-out reference, `1 − recall@5` of the v2 adapter on
   **EM-306's holdout split** — so EM-306 is what arms it, and a synthetic sample must
   never be used. The rule's wording was corrected before any real turn (`de495f2`): the
   rate is **v3-vs-v2**, the bound is **v2-vs-truth** applied to it — a **policy choice,
-  not an identity**; the threshold is unchanged. The retired symmetric rate is still
+  not an identity**. **EM-306 executed it (`4a2b25e`): armed at `0.107143`**
+  (`evals/results/tune-hard-4eb8097.json`), with a test pinning the chain; the un-armed
+  shape still exists and is tested. The retired symmetric rate is still
   reported as context, which is why
   the earlier 37.5% finding (150 misses, 0 additions) stays comparable: the same sample
   reads 38.46% id-level.
@@ -463,17 +464,19 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   machine** — `~/Documents/EntropicMem Dev docs/privacy-digests.txt` (10 × 64-hex digests;
   format-checked only). Since 2026-10-08 the collision check has been run **in place** by
   pointing `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it: **7 passed** in
-  `tests/evals/test_no_personal_data.py`, and the full suite then reads **2073/2/3**.
+  `tests/evals/test_no_personal_data.py`, and the full suite then reads **2091/2/3**.
   Nothing is copied into the repo. With no list configured,
   `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` **fails closed** (verified) — and the default run
-  skips instead (the third skip in 2072/3/3).
+  skips instead (the third skip in 2090/3/3).
 * **Flipping P0b's flag default is one line, deliberately not flipped here.**
   `em/facade/engine.py`'s `v3_retrieval_enabled()` is the only reader in product code;
   the flip is `== "1"` → `!= "0"`, plus the tests and docs that pin default-off (the
   strictness test is meant to go red so the flip is a conscious act). Wiring the flag to
   a config key instead of an env var is EM-306/EM-407 work.
-* **`gate.*` config (EM-305)** joins `ranking.*` and `extra_stopwords` as
-  parameters with the spec's defaults, all waiting on `em/config.py` (EM-407).
+* **`gate.*`/`ranking.*` tuned defaults now exist in `em/config.py` (EM-306)** —
+  committed but **unwired**: they reach call sites via the provider cards
+  (EM-401–403), and the typed loader/schema is EM-407's. `extra_stopwords` remains
+  EM-301's parameter.
 
 ### The v3 cutover — **both conditions met; the owner decides**
 
@@ -492,7 +495,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2072 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2090 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |

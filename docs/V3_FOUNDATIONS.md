@@ -53,6 +53,7 @@ em.store                  the storage core; every module takes a connection the 
   jobs.py      EM-209     JobQueue: durable queue over the jobs table
   backup.py    EM-210     BackupManager: verified snapshots of memory + index, rotation, guarded restore
 em.clock                  the only source of time and ids (freezable in tests)
+em.config                 EM-306's calibrated scalars (committed; not yet read by call sites)
 ```
 
 `em.*` is standard-library only. It never imports the Hermes host or the provider, and never reads `HERMES_HOME`; paths are passed in.
