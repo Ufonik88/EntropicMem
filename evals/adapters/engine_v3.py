@@ -62,11 +62,21 @@ class EngineV3Adapter(AdapterBase):
 
     name = "v3"
 
-    def __init__(self, disable_embeddings: bool = True) -> None:
+    def __init__(
+        self,
+        disable_embeddings: bool = True,
+        *,
+        gate_config: Any = None,
+        rank_weights: Any = None,
+    ) -> None:
         # Accepted for interface parity with `engine_v2`. v3 has no embedding path
         # yet (EM-303), so there is nothing to force off; when EM-303 lands, this is
         # where the backend gets disabled for the `ci` suite.
         self.disable_embeddings = disable_embeddings
+        # EM-306's calibration seam: the tune harness builds one adapter per candidate.
+        # ``None`` — what every other caller passes — is the spec defaults.
+        self._gate_config = gate_config
+        self._rank_weights = rank_weights
         self._tmpdirs: List[tempfile.TemporaryDirectory] = []
         self._stores: List[Store] = []
 
@@ -200,5 +210,7 @@ class EngineV3Adapter(AdapterBase):
             scope=handle.extra["scope"],
             query=query,
             with_gate=with_gate,
+            gate_config=self._gate_config,
+            rank_weights=self._rank_weights,
         )
         return outcome.rankings, outcome.rows

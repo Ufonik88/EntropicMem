@@ -59,6 +59,8 @@ def retrieve(
     query: str,
     now: Optional[datetime] = None,
     with_gate: bool = False,
+    gate_config: Optional[gate.GateConfig] = None,
+    rank_weights: Optional[fusion.RankWeights] = None,
 ) -> Retrieval:
     """Run §3.6's pipeline for one query.
 
@@ -67,6 +69,11 @@ def retrieve(
     the ordering-only view the ranking metrics need.
 
     ``now`` defaults to the wall clock; pass one to make a run reproducible.
+
+    ``gate_config`` and ``rank_weights`` are the **calibration seam** (EM-306): the
+    tune harness passes candidates through the real pipeline rather than a copy of it.
+    ``None`` — what the provider and the eval adapter pass — means the spec defaults,
+    so nothing about the shipped path changes until the config is wired (EM-401–403).
     """
     moment = now or datetime.now(timezone.utc)
     analyzed = analyze(query, conn=conn, scope=scope, now=moment)
@@ -78,7 +85,7 @@ def retrieve(
 
     fused = fusion.fuse(results, intent=analyzed.intent)
     features = fusion.load_features(conn, scope=scope, keys=fused.keys())
-    ranked = fusion.rank(fused, features, now=moment)
+    ranked = fusion.rank(fused, features, now=moment, weights=rank_weights)
 
     rows = gate.load_rows(conn, scope=scope, keys=[r.key for r in ranked])
     if not with_gate:
@@ -86,7 +93,7 @@ def retrieve(
 
     texts = {key: info.text for key, info in rows.items()}
     coverages = gate.coverage(list(analyzed.terms), texts)
-    gated = gate.apply_gate(ranked, rows=rows, coverages=coverages)
+    gated = gate.apply_gate(ranked, rows=rows, coverages=coverages, config=gate_config)
     if gated.empty:
         return Retrieval(analyzed=analyzed, rankings=[], rows=rows)
 

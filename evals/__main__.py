@@ -3,6 +3,8 @@
 Usage:
     python -m evals run --suite ci --adapter v2 [--compare <file>] [--k 5]
                         [--results-dir <dir>] [--out <file>]
+    python -m evals tune --suite hard [--grid <file>] [--k 5]
+                         [--results-dir <dir>] [--out <file>]
 
 Exit codes: 0 = ran clean (absolute §6.3 misses are printed as warnings),
 1 = regression vs the --compare baseline (hard gate), 2 = usage error.
@@ -18,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from evals import dataset as dataset_mod
-from evals import datasets, runner
+from evals import datasets, runner, tune
 
 # Absolute thresholds from plan §6.3 ("Gate from 2.8.0"). Reported as
 # warnings, not hard failures, on the current suite: S0's job is measuring
@@ -166,6 +168,18 @@ def build_parser() -> argparse.ArgumentParser:
                        help="where to write <suite>-<git-sha>.json (default: evals/results)")
     run_p.add_argument("--out", default=None, help="explicit output file (overrides --results-dir)")
     run_p.set_defaults(func=cmd_run)
+
+    tune_p = sub.add_parser(
+        "tune", help="calibrate gate/ranking defaults on a dev/holdout split (EM-306)"
+    )
+    tune_p.add_argument("--suite", default="hard", help="suite to split and tune (default: hard)")
+    tune_p.add_argument("--k", type=int, default=5, help="ranking depth for recall/ndcg")
+    tune_p.add_argument("--grid", default=None, metavar="FILE",
+                        help="JSON grid over the tune params (default: the pre-declared one)")
+    tune_p.add_argument("--results-dir", default=None,
+                        help="where to write tune-<suite>-<git-sha>.json (default: evals/results)")
+    tune_p.add_argument("--out", default=None, help="explicit output file (overrides --results-dir)")
+    tune_p.set_defaults(func=tune.cmd_tune)
     return ap
 
 

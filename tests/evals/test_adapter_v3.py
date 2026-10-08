@@ -143,6 +143,23 @@ def test_search_does_not_abstain_even_when_prefetch_does(adapter):
         adapter.finish(handle)
 
 
+def test_the_adapter_passes_calibration_overrides_through():
+    """EM-306's seam: an override given to the adapter must reach the pipeline.
+
+    A strict ``min_score`` above the scale drops the unpinned hit; ``search`` still
+    returns its ordering, because that is the asymmetry the adapter exists to keep.
+    """
+    from em.retrieval import gate
+
+    strict = engine_v3.EngineV3Adapter(gate_config=gate.GateConfig(min_score=1.1))
+    try:
+        handle = strict.load(_scenario())
+        assert strict.prefetch(handle, "where does the user live?") == ""
+        assert strict.search(handle, "where does the user live?", k=5)
+    finally:
+        strict.shutdown()
+
+
 def test_shutdown_is_idempotent(adapter):
     handle = adapter.load(_scenario(noise=0))
     adapter.finish(handle)

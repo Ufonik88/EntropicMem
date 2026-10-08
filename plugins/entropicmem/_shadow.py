@@ -70,47 +70,47 @@ CAVEAT = (
 #: hit" (a fabrication). A measured 240-turn sample was **150 misses and 0 additions**, so
 #: the gate failed on the metric the observable itself calls decisive, for a reason that is
 #: not a safety failure — the wrong promotion criterion, and one that would block a better
-#: engine. So: fabrication stays a hard ceiling; the miss side gets its own, **un-armed**.
+#: engine. So: fabrication stays a hard ceiling; the miss side gets its own, pre-registered
+#: ceiling, **armed 2026-10-08 from EM-306's holdout**.
 PROMOTION: Dict[str, Any] = {
     "min_turns": 200,
     "max_copy_age_s": MAX_COPY_AGE_S,
     # Hard and non-negotiable: v3 must never inject a memory v2 did not. A
     # correctness/safety property, not a tuning knob.
     "max_v3_only": 0,
-    # Ids v3 dropped / ids v2 injected. ``None`` = **NOT ARMED**: reported on every
-    # reading, gating none, and the sample reads ``cannot conclude`` rather than ``met``.
-    # Arming is a deliberate edit with a pre-registered rule — see MISS_CEILING_RULE.
-    "max_v2_miss_rate": None,
+    # Ids v3 dropped / ids v2 injected. **ARMED 2026-10-08** at the pre-registered
+    # reference — 1 - recall@5 of the v2 adapter on EM-306's holdout split; see
+    # MISS_CEILING_RULE and evals/results/tune-hard-4eb8097.json. ``None`` remains the
+    # shape of an un-armed ceiling, and the report still reads it loudly.
+    "max_v2_miss_rate": 0.107143,
     "max_p95_shadow_ms": 150.0,    # §4.2's warm prefetch budget, off-turn
 }
 
-#: How ``max_v2_miss_rate`` gets armed. **Pre-registered 2026-10-08, before any real turn
-#: was read**, so the number cannot be chosen after seeing the sample — which is the whole
-#: reason the observable is frozen in code.
+#: How ``max_v2_miss_rate`` was armed. **Pre-registered 2026-10-08, before any real turn
+#: was read**, so the number could not be chosen after seeing the sample — which is the
+#: whole reason the observable is frozen in code.
 #:
 #: The owner's ruling allowed either an absolute miss rate with a stated rationale, or
 #: "the miss rate must not exceed v2's own miss rate against a held-out reference". The
-#: relative form is the one registered here: no defensible absolute number exists before
-#: real turns, and this one is computable from artifacts that already exist — and it
+#: relative form is the one registered here: no defensible absolute number existed before
+#: real turns, and this one is computable from artifacts that already existed — and it
 #: cannot be fitted to the shadow sample, because it is measured on a different dataset.
 #:
-#: **Corrected 2026-10-08, still before any real turn was read** (the owner's standing
-#: instruction): the first draft said "measured over the same corpus the shadow sample is
-#: drawn from", which is a category error — the bound is measured on the eval holdout,
-#: the shadow's rate on real turns. The threshold is unchanged (still ``None``); the rule
-#: now names the two quantities and says the relationship is a policy choice.
+#: **Corrected and then armed, 2026-10-08, still before any real turn was read:** the
+#: first draft said "measured over the same corpus the shadow sample is drawn from",
+#: which is a category error — the bound is measured on the eval holdout, the shadow's
+#: rate on real turns. The rule names the two quantities and says the relationship is a
+#: policy choice; the value came from EM-306's holdout the day that holdout existed.
 MISS_CEILING_RULE = (
-    "max_v2_miss_rate is NOT ARMED, so the miss rate is REPORTED AND NOT GATED and the "
-    "verdict cannot be `met`. Arming rule, pre-registered 2026-10-08 before any real turn "
-    "was read: arm it at v2's own miss rate against a held-out reference — "
-    "1 - recall@5 of the v2 adapter on the evals holdout split (EM-306's split by id "
-    "hash). This is a policy choice, not an identity: the miss rate this ceiling gates "
-    "is v3-vs-v2 (ids v3 dropped that v2 injected, over ids v2 injected, on real turns), "
-    "while the bound is v2-vs-truth (what v2 itself missed against the held-out "
+    f"max_v2_miss_rate is ARMED at {PROMOTION['max_v2_miss_rate']} — 1 - recall@5 of "
+    "the v2 adapter on EM-306's holdout split (evals/results/tune-hard-4eb8097.json). "
+    "It was pre-registered 2026-10-08 before any real turn was read, and armed the same "
+    "day the holdout existed. This is a policy choice, not an identity: the miss rate it "
+    "gates is v3-vs-v2 (ids v3 dropped that v2 injected, over ids v2 injected, on real "
+    "turns), while the bound is v2-vs-truth (what v2 itself missed against the held-out "
     "reference); applying the second to the first says only 'v3 may drop no more of v2's "
-    "hits than v2 itself misses against truth'. Commit that number here with a comment "
-    "linking the result file. Do not arm it from a synthetic sample: that is evidence "
-    "about the metric, not about turns."
+    "hits than v2 itself misses against truth'. Do not re-arm it from a synthetic "
+    "sample: that is evidence about the metric, not about turns."
 )
 
 _ID_RE = re.compile(r"^- \[([^\]]+)\]", re.MULTILINE)

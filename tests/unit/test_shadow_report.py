@@ -10,10 +10,11 @@ which is the only circumstance in which changing it is not fitting it to the sam
   ``max_divergence_rate`` counted "v3 dropped a hit v2 had" exactly like "v3 invented
   one", and a measured sample was 150 misses with **0** additions — a gate that fails on
   a non-safety metric blocks a better engine;
-* **the miss ceiling is NOT ARMED yet** (``None``) and its arming rule is pre-registered
-  in ``_shadow.MISS_CEILING_RULE``: v2's own miss rate against a held-out reference. An
-  un-armed ceiling reports ``not armed`` and the sample reads ``cannot conclude`` — never
-  ``met`` — so the ungated dimension is loud rather than accidental.
+* **the miss ceiling is ARMED** (``0.107143``, 2026-10-08) at the pre-registered
+  reference in ``_shadow.MISS_CEILING_RULE``: ``1 - recall@5`` of the v2 adapter on
+  EM-306's holdout split. The un-armed shape (``None``) still exists and is still loud —
+  ``not armed``, and the sample reads ``cannot conclude`` — and a test pins that path
+  with the value monkeypatched back to ``None``.
 
 What these tests pin, beyond that ruling:
 
@@ -131,15 +132,21 @@ def test_the_observable_is_the_split_one_the_owner_ruled():
     }
     assert _shadow.PROMOTION["max_v3_only"] == 0, "fabrication stays a hard ceiling"
     assert _shadow.PROMOTION["max_copy_age_s"] == _shadow.MAX_COPY_AGE_S
-    assert _shadow.PROMOTION["max_v2_miss_rate"] is None, "un-armed until v2's holdout rate exists"
+    assert isinstance(_shadow.PROMOTION["max_v2_miss_rate"], float), (
+        "armed 2026-10-08 from EM-306's holdout"
+    )
+    assert 0.0 < _shadow.PROMOTION["max_v2_miss_rate"] < 1.0
     assert "max_divergence_rate" not in _shadow.PROMOTION, "the symmetric ceiling is retired"
 
 
-def test_the_arming_rule_is_pre_registered_and_says_it_is_not_gated():
+def test_the_arming_rule_names_the_armed_reference_and_the_policy():
     rule = _shadow.MISS_CEILING_RULE
+    assert "ARMED" in rule, "the armed ceiling must say so"
     assert "holdout" in rule, "the rule must name the held-out reference"
-    assert "NOT GATED" in rule, "an un-armed ceiling must announce itself"
     assert "recall@5" in rule, "the rule must say how the number is computed"
+    assert str(_shadow.PROMOTION["max_v2_miss_rate"]) in rule, (
+        "the rule must carry the number it was armed with"
+    )
     assert "v3-vs-v2" in rule and "v2-vs-truth" in rule, (
         "the bound is v2-vs-truth applied to a v3-vs-v2 rate; the rule must name both"
     )
@@ -169,9 +176,11 @@ def test_the_verdict_uses_the_frozen_values_rather_than_a_copy_of_them(monkeypat
 # --- an un-armed ceiling is loud, never a pass ------------------------------
 
 
-def test_an_unarmed_miss_ceiling_never_reads_as_a_pass():
+def test_an_unarmed_miss_ceiling_never_reads_as_a_pass(monkeypatch):
     """The ruling's explicit half: report the miss rate, but never let an ungated
-    dimension turn into a green light by omission."""
+    dimension turn into a green light by omission. The shipped value is armed now, so
+    the un-armed path is pinned by putting it back deliberately."""
+    monkeypatch.setitem(_shadow.PROMOTION, "max_v2_miss_rate", None)
     report = _shadow.evaluate(miss_lines(N, missing=0))
     assert report["conditions"]["v2_miss_rate"]["verdict"] == "not armed"
     assert report["conditions"]["v3_only_never"]["verdict"] == "met"
@@ -185,11 +194,20 @@ def test_arming_the_ceiling_is_what_makes_a_clean_sample_met(armed):
     assert report["verdict"] == "met"
 
 
-def test_the_arming_rule_travels_with_every_reading():
-    rendered = _shadow.render(_shadow.evaluate(miss_lines(N, missing=0)))
-    assert "not armed" in rendered
-    assert "NOT GATED" in rendered
-    assert "holdout" in rendered
+def test_the_arming_rule_travels_with_every_reading(monkeypatch):
+    """Armed, the render shows the ceiling itself; un-armed, it prints the rule. Either
+    way the rule is in the serialised report, so no reading is missing it."""
+    report = _shadow.evaluate(miss_lines(N, missing=0))
+    assert report["arming_rule"] == _shadow.MISS_CEILING_RULE
+    rendered = _shadow.render(report)
+    assert "10.71%" in rendered, "the armed ceiling must be shown"
+    assert "NOT ARMED" not in rendered, "an armed ceiling must not read as un-armed"
+
+    monkeypatch.setitem(_shadow.PROMOTION, "max_v2_miss_rate", None)
+    unarmed = _shadow.render(_shadow.evaluate(miss_lines(N, missing=0)))
+    assert "NOT ARMED" in unarmed
+    assert "pre-registered arming rule" in unarmed
+    assert "holdout" in unarmed
 
 
 # --- fabrication and misses are separable ----------------------------------
@@ -403,7 +421,8 @@ def test_every_gated_number_shows_its_margin(armed):
     assert over["conditions"]["v2_miss_rate"]["margin"] < 0
 
 
-def test_an_unarmed_condition_shows_no_margin_because_it_gates_nothing():
+def test_an_unarmed_condition_shows_no_margin_because_it_gates_nothing(monkeypatch):
+    monkeypatch.setitem(_shadow.PROMOTION, "max_v2_miss_rate", None)
     condition = _shadow.evaluate(miss_lines(N, missing=20))["conditions"]["v2_miss_rate"]
     assert condition["verdict"] == "not armed"
     assert "margin" not in condition

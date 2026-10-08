@@ -41,6 +41,10 @@ evals/results/*
 # Perf bench results are generated artifacts (EM-005); allow them despite the
 # blanket *.json privacy guard. Never contains user data — seeded corpus only.
 !evals/results/perf-*.json
+
+# EM-306's calibration record is a committed artifact, not a per-run output: the
+# config comment and the arming rule link it, so it must survive a clean checkout.
+!evals/results/tune-*.json
 .vscode/
 .idea/
 *.swp

@@ -37,13 +37,13 @@ jobs:
   # noise_rate, must_not_ok). The threshold warnings documented in §2.4 are
   # informational pre-2.8.0 and do not fail the job (they xfail the whole suite).
   #
-  # DELIBERATE: this gate runs the **v2 adapter only**, and it stays that way
-  # until EM-306 lands. `--adapter v3` exists and scores (evals/baselines/v3-ci.json
-  # and v3-hard.json are committed), but making v3 fail a build is a decision about
-  # what CI enforces, not what CI can measure — it belongs with EM-306's calibrated
-  # thresholds and §6.3's updated gates. Until then the v3 pipeline's regression
-  # protection is tests/evals/test_adapter_v3.py, which runs in the ordinary suite.
-  # Do not "fix" this to v3 in a chunk that is not EM-306.
+  # DELIBERATE: this gate runs the **v2 adapter only**. EM-306 (the calibration
+  # harness) landed and made the call: it stays v2 until the tuned `gate.*`/`ranking.*`
+  # defaults are wired into the call sites (EM-401–403) and the cutover makes v3 the
+  # shipped path — a v3 gate today would enforce the spec defaults, not the calibration.
+  # `--adapter v3` exists and scores (evals/baselines/v3-ci.json and v3-hard.json are
+  # committed); until the flip, the v3 pipeline's regression protection is
+  # tests/evals/test_adapter_v3.py, which runs in the ordinary suite.
   evals-ci:
     runs-on: ubuntu-latest
     steps:
