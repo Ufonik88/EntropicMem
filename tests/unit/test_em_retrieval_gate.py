@@ -316,6 +316,36 @@ def test_load_rows_returns_text_scope_and_pinned(store):
     assert info.pinned is True
 
 
+def test_load_rows_treats_a_constraint_kind_row_as_pinned(store):
+    """§3.6's generator table attaches "bypasses gate" to the pinned generator,
+    whose input is ``pinned=1`` **or** ``kind='constraint'``. Reading only the
+    column dropped a constraint the generator had just surfaced — found by P0b's
+    end-to-end run (the same shape of defect as P0a's raw-id comparison), so the
+    loader reads both forms, with an ordinary row as the control."""
+    constraint = remember(store, "never deploy on fridays", scope=ALICE, kind="constraint")
+    ordinary = remember(store, "an ordinary note", scope=ALICE)
+    rows = load_rows(
+        store.reader(),
+        scope=ALICE,
+        keys=[(OWNER_TYPE_MEMORY, constraint), (OWNER_TYPE_MEMORY, ordinary)],
+    )
+    assert rows[(OWNER_TYPE_MEMORY, constraint)].pinned is True
+    assert rows[(OWNER_TYPE_MEMORY, ordinary)].pinned is False
+
+
+def test_the_gate_keeps_a_constraint_kind_row_with_no_coverage(store):
+    """The same fix seen through ``apply_gate`` rather than beside it: the
+    loader's ``pinned`` value is what the bypass consults."""
+    constraint = remember(store, "never deploy on fridays", scope=ALICE, kind="constraint")
+    key = (OWNER_TYPE_MEMORY, constraint)
+    result = apply_gate(
+        [ranking(constraint, 0.01, signals=("pinned",))],
+        rows=load_rows(store.reader(), scope=ALICE, keys=[key]),
+        coverages={key: 0.0},
+    )
+    assert [r.owner_id for r in result.survivors] == [constraint]
+
+
 def test_load_rows_is_scoped(store):
     ours = remember(store, "alice's own", scope=ALICE)
     theirs = remember(store, "bob's own", scope=BOB)

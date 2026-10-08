@@ -105,6 +105,12 @@ class RowInfo:
 
     text: str
     scope_user: str
+    #: True when the row is pinned **or is a ``kind='constraint'`` row**: §3.6's
+    #: generator table attaches "bypasses gate" to the pinned generator, whose
+    #: input is ``pinned=1`` or ``kind='constraint'``. Reading only the column
+    #: here filtered a constraint-kind row the generator had just surfaced —
+    #: found by P0b's end-to-end run (the same shape of defect as P0a's raw id
+    #: comparison).
     pinned: bool
 
 
@@ -147,6 +153,13 @@ def load_rows(
     both queries re-apply §3.5 through ``scope_sql`` and memories additionally
     require ``status='active'`` — deliberately redundant, because this is the last
     point before the text would be shown.
+
+    ``pinned`` here is the §3.6 input, not merely the column: the pinned
+    generator surfaces ``pinned=1`` **and** ``kind='constraint'`` rows, and the
+    generator table's last column says its hits bypass the gate. Reading only
+    the column dropped a constraint-kind row the generator had just found — a
+    hard filter silently disagreeing with its own generator (found by P0b's
+    end-to-end run; pinned by tests both ways).
     """
     wanted = set(keys)
     memory_ids = sorted({key[1] for key in wanted if key[0] == OWNER_TYPE_MEMORY})
@@ -157,7 +170,7 @@ def load_rows(
         clause, params = scope_sql(scope, table="m")
         marks = ",".join("?" for _ in memory_ids)
         rows = conn.execute(
-            f"SELECT m.id, m.content, m.summary, m.scope_user, m.pinned"
+            f"SELECT m.id, m.content, m.summary, m.scope_user, m.pinned, m.kind"
             f" FROM memories m WHERE m.id IN ({marks}) AND m.status = 'active' AND {clause}",
             (*memory_ids, *params),
         ).fetchall()
@@ -166,7 +179,7 @@ def load_rows(
             found[(OWNER_TYPE_MEMORY, str(row["id"]))] = RowInfo(
                 text=text,
                 scope_user=str(row["scope_user"]),
-                pinned=bool(row["pinned"]),
+                pinned=bool(row["pinned"]) or str(row["kind"]) == "constraint",
             )
 
     if episode_ids:

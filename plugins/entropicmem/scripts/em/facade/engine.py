@@ -35,6 +35,18 @@ Design notes for reviewers:
   cycle — so the parity suite pins identical behaviour while S3 builds the
   real v3 retriever. Returned ``StoredFact.id`` is ``legacy_id`` when the row
   carries one (migrated or mirrored rows) else the v3 id, the card's rule.
+* **P0b: the read half has a second mode.** With ``ENTROPICMEM_V3_RETRIEVAL=1``
+  (default off, and only reachable on a v3 store, because a v2 store never gets
+  this class) ``recall_with_relevance`` serves from ``em.retrieval``: the one
+  shared ``pipeline.retrieve`` the eval adapter and the shadow call, never a
+  copy of the sequence. The off path is byte-identical to the pre-P0b behaviour
+  and that is pinned by a golden, not assumed; the on path maps the pipeline's
+  **memory** rankings back into v2 ``StoredFact``s, so the provider's renderer
+  is untouched and no renderer is added here. Two recorded differences on the
+  on path: **episodes are skipped** (a v2 fact has no episode shape, and §3.6's
+  renderer is EM-307's), and v2's ``min_relevance``/decay parameters are *not*
+  applied on top of S3's gate — the gate's support test and ``min_score`` are
+  the filter there, and mixing v2's scale with S3's would be a third rule.
 * Only ``status='active'`` memories recall, and a ``deleted`` row reads as
   absent through ``get_fact`` too: v2's ``forget`` removed the row outright.
   Pending rows surface through ``get_fact`` by id (v2 kept them in a separate
@@ -76,6 +88,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
 import sqlite3
 import sys
@@ -95,7 +108,26 @@ from ..store.types import MemoryDraft, Scope
 
 logger = logging.getLogger("em.facade.engine")
 
-__all__ = ["V3Engine"]
+__all__ = ["V3Engine", "V3_RETRIEVAL_ENV", "v3_retrieval_enabled"]
+
+#: P0b's flag: ``"1"`` serves the read half from ``em.retrieval``; anything else
+#: (unset included) keeps v2's scoring, the exact pre-P0b behaviour. Strictly
+#: ``== "1"``, the same shape as ``ENTROPICMEM_ALLOW_LIVE_MIGRATION`` — a flag
+#: that silently accepted ``true``/``yes`` would be harder to reason about in a
+#: service definition, and this one changes which ranking answers the model.
+V3_RETRIEVAL_ENV = "ENTROPICMEM_V3_RETRIEVAL"
+
+
+def v3_retrieval_enabled() -> bool:
+    """True when the v3 read path should be served by ``em.retrieval`` (P0b).
+
+    Read per call rather than cached at import: a v3 store must be comparable
+    both ways without a redeploy, which is the whole reason the flag exists.
+    Note the flag is *not* an identity input (invariant: identity is passed in,
+    never environment-read) — it selects a ranking stage, and only on a v3
+    store, so a v2 store's behaviour cannot depend on it.
+    """
+    return os.environ.get(V3_RETRIEVAL_ENV) == "1"
 
 #: fts columns on ``memories_fts`` the facade searches (v2's ``title`` lives
 #: in ``summary`` in v3).
@@ -426,9 +458,17 @@ class V3Engine:
         the parity suite pins identical behaviour while S3 replaces this with
         the v3 retriever. ``auto_reinforce`` is accepted and inert here:
         reinforcement is a write and lands with Chunk 5 (``Deviation``).
+
+        With ``ENTROPICMEM_V3_RETRIEVAL=1`` (P0b, default off) this delegates
+        to :meth:`_recall_from_v3` and none of the v2 formula below runs. The
+        signature stays the v2 contract either way, which is what keeps the
+        provider unchanged; the v2-only parameters are documented on the
+        delegated method.
         """
         if not query.strip():
             return []
+        if v3_retrieval_enabled():
+            return self._recall_from_v3(query, top_k=top_k, domain=domain)
 
         v2 = _v2()
         fts_query = v2.build_fts_query(query, fields=_FTS_FIELDS)
@@ -536,6 +576,71 @@ class V3Engine:
                 )
                 results.append(fact)
         return results
+
+    def _recall_from_v3(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        domain: Optional[str],
+    ) -> List[Any]:
+        """P0b: serve recall from §3.6's pipeline — **only with the flag on**.
+
+        Calls :func:`em.retrieval.pipeline.retrieve` with the gate, i.e. the
+        same single sequence the v3 eval adapter and the shadow read call. It
+        never re-sequences generators/fusion/gate itself: a private copy of the
+        pipeline is exactly how two "identical" pipelines stop being identical.
+
+        Mapping back to the v2 shape the provider renders:
+
+        * **memories only.** The pipeline also ranks episodes (``owner_type
+          'episode'``); a v2 ``StoredFact`` has no episode shape and §3.6's
+          renderer is EM-307's, so an episode ranking is skipped here. That is
+          a deliberate, recorded omission — not an empty result dressed up.
+        * ``id`` is ``legacy_id`` when the row carries one, through
+          :func:`_row_to_fact`, so the id the model sees is the id v2 uses and
+          the provider's dedup/touch keep resolving it.
+        * ``relevance_score`` is the pipeline's final score (already in
+          ``[0, 1]``); ``why_retrieved`` is ``fusion.legacy_tokens``' flat,
+          string-only v2 form.
+
+        v2-only parameters are deliberately **not** applied on this path:
+        ``min_relevance`` is v2's coverage scale and the gate's support test +
+        ``min_score`` is S3's filter; decay/evergreen/importance knobs shape
+        the v2 formula this path does not run (S3's rerank has its own recency
+        term, and EM-306 will make the scalars configurable). ``domain`` is a
+        post-filter rather than a SQL pre-filter, so the count can be lower
+        than ``top_k`` — the honest answer for a filter the generators do not
+        understand. Rows resolve through ``MemoryStore.get``, which re-applies
+        §3.5, so this cannot serve a row the scope excludes.
+        """
+        if top_k <= 0:
+            return []
+
+        from ..retrieval.candidates import OWNER_TYPE_MEMORY
+        from ..retrieval.fusion import legacy_tokens
+        from ..retrieval.pipeline import retrieve
+
+        outcome = retrieve(
+            self._reader(), scope=self.scope, query=query, with_gate=True
+        )
+        store = MemoryStore(self._reader())
+        facts: List[Any] = []
+        for ranking in outcome.rankings:
+            if ranking.owner_type != OWNER_TYPE_MEMORY:
+                continue
+            row = store.get(ranking.owner_id, scope=self.scope)
+            if row is None:
+                continue
+            fact = _row_to_fact(row)
+            if domain and fact.domain != domain:
+                continue
+            fact.relevance_score = min(1.0, max(0.0, float(ranking.score)))
+            fact.why_retrieved = legacy_tokens(ranking)
+            facts.append(fact)
+            if len(facts) >= top_k:
+                break
+        return facts
 
     def recall_hybrid(
         self,
