@@ -427,9 +427,21 @@ def test_injected_ids_reads_the_bullet_shape_the_runner_reads():
 
 
 def test_the_promotion_observable_is_declared_in_advance():
-    """Fixed before collecting, so the threshold cannot be fitted to the data."""
+    """Fixed before collecting, so a threshold cannot be fitted to the data.
+
+    **Amended by owner ruling, 2026-10-08, before any real turn was read** — which is the
+    only circumstance in which changing a frozen observable is not fitting it: the
+    symmetric ``max_divergence_rate`` counted "v3 dropped a hit v2 had" exactly like "v3
+    invented one", and the measured sample was 150 misses with 0 additions, so it would
+    have blocked a better engine on a non-safety metric. Fabrication stays a hard ceiling;
+    the miss side is its own ceiling, **un-armed** until v2's holdout miss rate exists
+    (``MISS_CEILING_RULE``), and an un-armed ceiling reports rather than passes.
+    """
     assert set(_shadow.PROMOTION) == {
-        "min_turns", "max_copy_age_s", "max_divergence_rate", "max_v3_only", "max_p95_shadow_ms",
+        "min_turns", "max_copy_age_s", "max_v3_only", "max_v2_miss_rate", "max_p95_shadow_ms",
     }
     assert _shadow.PROMOTION["max_v3_only"] == 0, "v3 must never inject what v2 did not"
     assert _shadow.PROMOTION["max_copy_age_s"] == _shadow.MAX_COPY_AGE_S
+    assert _shadow.PROMOTION["max_v2_miss_rate"] is None, "un-armed, and loudly so"
+    assert "max_divergence_rate" not in _shadow.PROMOTION, "the symmetric ceiling is retired"
+    assert _shadow.MISS_CEILING_RULE, "an un-armed ceiling needs its arming rule written down"

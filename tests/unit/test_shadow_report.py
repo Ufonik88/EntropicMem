@@ -1,23 +1,32 @@
 """P0c — reading the shadow log against the **pre-declared** promotion observable.
 
-The observable in ``_shadow.PROMOTION`` was frozen before any data was collected, so
-the whole point of the readout is that it cannot be fitted to the sample. What these
-tests pin is the set of properties that make a green light mean something:
+The observable in ``_shadow.PROMOTION`` was frozen before any data was collected, and on
+**2026-10-08 the owner ruled its shape changed** — before a single real turn was read,
+which is the only circumstance in which changing it is not fitting it to the sample:
 
-* every threshold comes from ``PROMOTION`` at report time — change the dict and the
-  verdict follows, so nothing is copied into the reader;
-* an under-filled sample, a sample with no injections, and a sample with unreadable
-  lines are all ``cannot conclude`` — never ``met``. An empty live store would
-  otherwise read as 0% divergence and hand the owner a fake pass;
-* a violation is a violation: ``not met`` outranks ``cannot conclude``;
-* the divergence rate is measured over the denominator the frozen comment names
-  ("turns with injection"), the alternates are shown as context only, and the
-  staleness bound travels next to the number;
-* ``v3_only`` cites its lines and never prints the query text;
-* the reader cross-checks the writer's own fields (``stale``, ``divergence``) against
-  the frozen bound and the recorded ids, and a disagreement is not trusted;
-* p95 is nearest-rank and prints p50/max beside it — the perf-smoke lesson: a low p50
-  with a huge max is one noisy sample, and the report must let a reader see that;
+* **fabrication stays a hard ceiling** (``max_v3_only == 0``): v3 inventing a memory v2
+  did not have is a correctness/safety property, not a tuning knob;
+* **the miss side is split out** (``max_v2_miss_rate``) because the old symmetric
+  ``max_divergence_rate`` counted "v3 dropped a hit v2 had" exactly like "v3 invented
+  one", and a measured sample was 150 misses with **0** additions — a gate that fails on
+  a non-safety metric blocks a better engine;
+* **the miss ceiling is NOT ARMED yet** (``None``) and its arming rule is pre-registered
+  in ``_shadow.MISS_CEILING_RULE``: v2's own miss rate against a held-out reference. An
+  un-armed ceiling reports ``not armed`` and the sample reads ``cannot conclude`` — never
+  ``met`` — so the ungated dimension is loud rather than accidental.
+
+What these tests pin, beyond that ruling:
+
+* thresholds come from ``PROMOTION`` at report time — change the dict, the verdict moves;
+* an under-filled, no-signal or unreadable sample is never ``met``;
+* a violation outranks a short sample;
+* fabrication and misses are **separable**: each can fail alone, and neither excuses the
+  other;
+* the retired symmetric rate is still *reported*, so the earlier 37.5% finding stays
+  comparable;
+* the writer's own fields are cross-checked, not trusted;
+* p95 is nearest-rank with p50/max beside it, margins are shown (rates in points), and
+  findings carry ids and line numbers — never question text, in the render *or* `--json`;
 * the report reads only, and the runner's exit code carries the verdict.
 
 Invented data only (rule 4). Nothing here opens the live store.
@@ -39,11 +48,14 @@ if str(SCRIPTS) not in sys.path:
 
 from plugins.entropicmem import _shadow  # noqa: E402
 
-#: Long enough to satisfy the frozen floor, so a test that wants "everything else
-#: clean" does not have to repeat 200 in ten places.
+#: The frozen turn floor, so a test that wants "everything else clean" need not repeat it.
 N = _shadow.PROMOTION["min_turns"]
 
 SECRET_QUERY = "does the owner's private note about Dr. Alice Example leak"
+
+CONDITIONS = {
+    "min_turns", "copy_within_bound", "v3_only_never", "v2_miss_rate", "p95_within_budget",
+}
 
 
 def line(
@@ -78,206 +90,239 @@ def sample(count: int = N, **kwargs) -> List[Dict[str, Any]]:
     return [line(index, **kwargs) for index in range(count)]
 
 
-def clean(count: int = N, *, injections: int = 100, diverging: int = 5) -> List[Dict[str, Any]]:
-    """A sample that satisfies every condition: enough turns, fresh copy, divergence
-    at or under the ceiling, no v3-only line, off-turn cost well inside the budget.
+def miss_lines(turns: int = N, *, missing: int = 0) -> List[Dict[str, Any]]:
+    """A sample with an exact, hand-computable miss rate.
 
-    Note what "diverging" means here: v3 **missed** an id v2 injected. Divergence where
-    v3 adds an id instead is a v3-only line, which `v3_only_never` forbids outright — so
-    building the diverging case the lazy way would quietly test a different rule.
+    Every turn injects one id; the first ``missing`` of them are dropped by v3. So
+    ``v2_miss_rate == missing / turns`` exactly, ``v3_only`` is zero everywhere, and the
+    symmetric rate equals the same fraction — which is what makes the boundary tests
+    arithmetic rather than guesswork.
     """
-    lines: List[Dict[str, Any]] = []
-    for index in range(count):
-        if index < injections:
-            if index < diverging:
-                lines.append(line(index, v2=["a%016x" % index, "missed%016x" % index],
-                                  v3=["a%016x" % index]))
-            else:
-                lines.append(line(index, v2=["a%016x" % index], v3=["a%016x" % index]))
-        else:
-            lines.append(line(index))
-    return lines
+    return [
+        line(index, v2=[f"a{index:04d}"], v3=[] if index < missing else [f"a{index:04d}"])
+        for index in range(turns)
+    ]
 
 
-# --- the thresholds are the frozen ones, read at report time ---------------
+@pytest.fixture()
+def armed(monkeypatch):
+    """Arm the miss ceiling, because the default is deliberately un-armed.
+
+    Arming is an act with a pre-registered rule; a test that wants a `met` verdict has to
+    perform it explicitly rather than inherit it.
+    """
+    monkeypatch.setitem(_shadow.PROMOTION, "max_v2_miss_rate", 0.10)
+
+
+@pytest.fixture(autouse=True)
+def _thresholds_restored():
+    """Belt to `armed`'s braces: the frozen dict must not survive a test."""
+    before = dict(_shadow.PROMOTION)
+    yield
+    assert _shadow.PROMOTION == before, "a test left PROMOTION modified"
+
+
+# --- the observable is the ruled one, and the reader cannot drift from it ----
+
+
+def test_the_observable_is_the_split_one_the_owner_ruled():
+    assert set(_shadow.PROMOTION) == {
+        "min_turns", "max_copy_age_s", "max_v3_only", "max_v2_miss_rate", "max_p95_shadow_ms",
+    }
+    assert _shadow.PROMOTION["max_v3_only"] == 0, "fabrication stays a hard ceiling"
+    assert _shadow.PROMOTION["max_copy_age_s"] == _shadow.MAX_COPY_AGE_S
+    assert _shadow.PROMOTION["max_v2_miss_rate"] is None, "un-armed until v2's holdout rate exists"
+    assert "max_divergence_rate" not in _shadow.PROMOTION, "the symmetric ceiling is retired"
+
+
+def test_the_arming_rule_is_pre_registered_and_says_it_is_not_gated():
+    rule = _shadow.MISS_CEILING_RULE
+    assert "holdout" in rule, "the rule must name the held-out reference"
+    assert "NOT GATED" in rule, "an un-armed ceiling must announce itself"
+    assert "recall@5" in rule, "the rule must say how the number is computed"
 
 
 def test_the_report_echoes_the_frozen_observable():
-    report = _shadow.evaluate(clean())
+    report = _shadow.evaluate(sample(3))
     assert report["thresholds"] == dict(_shadow.PROMOTION)
+    assert report["arming_rule"] == _shadow.MISS_CEILING_RULE
 
 
 def test_the_verdict_uses_the_frozen_values_rather_than_a_copy_of_them(monkeypatch):
     """If the reader carried its own literals, tightening the observable would not
     change what it says — which is exactly the drift that makes a reading fake."""
-    data = clean()
+    data = miss_lines(N, missing=20)  # 10% misses
+    monkeypatch.setitem(_shadow.PROMOTION, "max_v2_miss_rate", 0.10)
     assert _shadow.evaluate(data)["verdict"] == "met"
-    monkeypatch.setitem(_shadow.PROMOTION, "max_divergence_rate", 0.01)
+    monkeypatch.setitem(_shadow.PROMOTION, "max_v2_miss_rate", 0.05)
     assert _shadow.evaluate(data)["verdict"] == "not met"
-    monkeypatch.setitem(_shadow.PROMOTION, "max_p95_shadow_ms", 10.0)
-    report = _shadow.evaluate(data)
-    assert report["conditions"]["p95_within_budget"]["verdict"] == "not met"
+    monkeypatch.setitem(_shadow.PROMOTION, "max_p95_shadow_ms", 1.0)
+    assert _shadow.evaluate(data)["conditions"]["p95_within_budget"]["verdict"] == "not met"
 
 
-# --- a green light must mean something -------------------------------------
+# --- an un-armed ceiling is loud, never a pass ------------------------------
 
 
-def test_a_full_clean_sample_is_met():
-    report = _shadow.evaluate(clean())
-    assert report["verdict"] == "met"
-    assert all(c["verdict"] == "met" for c in report["conditions"].values())
-
-
-def test_one_turn_short_is_cannot_conclude_never_a_pass():
-    """The floor is part of the observable, so a 199-turn sample cannot report `met`
-    even when everything in it is clean."""
-    short = _shadow.evaluate(clean(N - 1))
-    assert short["verdict"] == "cannot conclude"
-    assert short["conditions"]["min_turns"]["verdict"] == "not met"
-    assert _shadow.evaluate(clean(N))["verdict"] == "met"
-
-
-def test_an_empty_store_reads_as_no_signal_not_as_zero_divergence():
-    """The trap P0c would otherwise walk into: the live store holds zero facts, so
-    v2 injects nothing and v3 injects nothing, and a naive rate is 0/0 -> 0% -> met.
-    The denominator is turns with injection, so this sample has no signal at all."""
-    report = _shadow.evaluate(sample(N))
-    assert report["conditions"]["divergence_rate"]["verdict"] == "no signal"
+def test_an_unarmed_miss_ceiling_never_reads_as_a_pass():
+    """The ruling's explicit half: report the miss rate, but never let an ungated
+    dimension turn into a green light by omission."""
+    report = _shadow.evaluate(miss_lines(N, missing=0))
+    assert report["conditions"]["v2_miss_rate"]["verdict"] == "not armed"
+    assert report["conditions"]["v3_only_never"]["verdict"] == "met"
     assert report["verdict"] == "cannot conclude"
-    assert "no signal" in " ".join(report["reasons"]).lower()
+    assert "not gated" in " ".join(report["reasons"]).lower()
 
 
-def test_a_violation_outranks_an_underfilled_sample():
-    """`cannot conclude` must not hide a real failure: 3 turns with a fabricated hit
-    is `not met`, so the reader cannot drift into 'we just need more data'."""
-    data = sample(3, v3=["mem_fabricated"])
+def test_arming_the_ceiling_is_what_makes_a_clean_sample_met(armed):
+    report = _shadow.evaluate(miss_lines(N, missing=0))
+    assert report["conditions"]["v2_miss_rate"]["verdict"] == "met"
+    assert report["verdict"] == "met"
+
+
+def test_the_arming_rule_travels_with_every_reading():
+    rendered = _shadow.render(_shadow.evaluate(miss_lines(N, missing=0)))
+    assert "not armed" in rendered
+    assert "NOT GATED" in rendered
+    assert "holdout" in rendered
+
+
+# --- fabrication and misses are separable ----------------------------------
+
+
+def test_the_miss_ceiling_is_inclusive_and_one_miss_past_it_fails(armed):
+    at = _shadow.evaluate(miss_lines(N, missing=20))  # 20/200 = 0.10
+    assert at["conditions"]["v2_miss_rate"]["value"] == pytest.approx(0.10)
+    assert at["conditions"]["v2_miss_rate"]["verdict"] == "met"
+
+    over = _shadow.evaluate(miss_lines(N, missing=21))  # 0.105
+    assert over["conditions"]["v2_miss_rate"]["value"] == pytest.approx(0.105)
+    assert over["conditions"]["v2_miss_rate"]["verdict"] == "not met"
+    assert over["verdict"] == "not met"
+
+
+def test_a_recall_regression_is_not_a_fabrication(armed):
+    """The whole point of the split: missing everything v2 had is a recall failure, and
+    it must not read as the safety failure the observable treats as decisive."""
+    report = _shadow.evaluate(miss_lines(N, missing=N))
+    assert report["conditions"]["v2_miss_rate"]["verdict"] == "not met"
+    assert report["conditions"]["v3_only_never"]["verdict"] == "met"
+    assert report["verdict"] == "not met"
+
+
+def test_fabrication_fails_even_when_the_miss_rate_is_perfect(armed):
+    data = miss_lines(N, missing=0)
+    data[5] = line(5, v2=["a0005"], v3=["a0005", "mem_fabricated"])
     report = _shadow.evaluate(data)
+    assert report["conditions"]["v2_miss_rate"]["verdict"] == "met"
     assert report["conditions"]["v3_only_never"]["verdict"] == "not met"
     assert report["verdict"] == "not met"
 
 
-# --- the frozen definition, with its margin visible ------------------------
-
-
-def test_divergence_is_measured_over_turns_with_injection():
-    report = _shadow.evaluate(clean(N, injections=100, diverging=10))
-    condition = report["conditions"]["divergence_rate"]
-    assert condition["injections"] == 100
-    assert condition["diverged"] == 10
-    assert condition["value"] == pytest.approx(0.10)
-    assert condition["verdict"] == "met", "the ceiling is inclusive"
-
-
-def test_one_more_diverging_turn_than_the_ceiling_allows_is_not_met():
-    report = _shadow.evaluate(clean(N, injections=100, diverging=11))
-    condition = report["conditions"]["divergence_rate"]
-    assert condition["value"] == pytest.approx(0.11)
-    assert condition["verdict"] == "not met"
+def test_a_violation_outranks_an_underfilled_sample():
+    """`cannot conclude` must not hide a real failure: 3 turns with a fabricated hit is
+    `not met`, so the reading cannot drift into "we just need more data"."""
+    report = _shadow.evaluate(sample(3, v3=["mem_fabricated"]))
+    assert report["conditions"]["v3_only_never"]["verdict"] == "not met"
+    assert report["conditions"]["min_turns"]["verdict"] == "not met"
     assert report["verdict"] == "not met"
 
 
-def test_the_alternate_denominators_are_context_and_not_the_verdict():
-    """A reader must see what the choice costs without the choice being re-derived:
-    the same 10 diverging turns are 5% over all lines and 10% over injected ones."""
-    report = _shadow.evaluate(clean(N, injections=100, diverging=10))
-    assert report["context"]["divergence_over_all_lines"] == pytest.approx(0.05)
-    assert report["conditions"]["divergence_rate"]["value"] == pytest.approx(0.10)
+def test_one_turn_short_is_cannot_conclude_never_a_pass(armed):
+    short = _shadow.evaluate(miss_lines(N - 1, missing=0))
+    assert short["verdict"] == "cannot conclude"
+    assert short["conditions"]["min_turns"]["verdict"] == "not met"
+    assert _shadow.evaluate(miss_lines(N, missing=0))["verdict"] == "met"
+
+
+# --- the denominator, and no fake zero -------------------------------------
+
+
+def test_an_empty_store_reads_as_no_signal_not_as_a_zero_miss_rate():
+    """The trap P0c would otherwise walk into: the live store holds zero facts, so v2
+    injects nothing, and a naive rate is 0/0 -> 0% -> met."""
+    report = _shadow.evaluate(sample(N))
+    assert report["conditions"]["v2_miss_rate"]["verdict"] == "no signal"
+    assert report["conditions"]["v2_miss_rate"]["value"] is None
+    assert report["verdict"] == "cannot conclude"
+    assert "no signal" in " ".join(report["reasons"]).lower()
+
+
+def test_the_miss_rate_is_id_level_over_the_ids_v2_injected():
+    """Declared, not inferred: ids v3 dropped / ids v2 injected.
+
+    The numbers are chosen so the three candidate definitions **disagree** — id-level
+    4/7, turn-level 2/3, symmetric 2/3. A fixture with one id per turn makes all three
+    equal, and then this test passes with the definition silently swapped: that is exactly
+    how the first version of it let two mutations through.
+    """
+    data = [
+        line(0, v2=["a", "b", "c", "d"], v3=["a"]),   # 4 injected, 3 missed
+        line(1, v2=["x", "y"], v3=["x"]),             # 2 injected, 1 missed
+        line(2, v2=["z"], v3=["z"]),                  # 1 injected, 0 missed
+        line(3),                                      # no injection at all
+    ]
+    condition = _shadow.evaluate(data)["conditions"]["v2_miss_rate"]
+    assert condition["missed_ids"] == 4
+    assert condition["injected_ids"] == 7
+    assert condition["value"] == pytest.approx(4 / 7)
+    assert condition["value"] != pytest.approx(2 / 3), (
+        "id-level and turn-level must be distinguishable in this fixture"
+    )
+    # The turn-level fraction is reported beside it, not used for the verdict.
+    assert condition["turns_with_injection"] == 3
+    assert condition["turns_with_a_miss"] == 2
+
+
+def test_the_retired_symmetric_rate_is_still_reported_for_comparability():
+    """The 37.5% finding was measured with the symmetric definition; a reader must be
+    able to line the two up instead of trusting a restatement."""
+    report = _shadow.evaluate(miss_lines(N, missing=20))
+    assert report["context"]["divergence_rate_symmetric"] == pytest.approx(0.10)
+    assert report["context"]["divergence_shape"] == {"v3_missed": 20, "v3_added": 0}
+    assert "max_divergence_rate" not in report["thresholds"]
 
 
 # --- the biases travel with the numbers ------------------------------------
 
 
-def test_a_rate_margin_is_printed_in_points_not_a_bare_fraction():
-    """`margin: -0.28` beside a percentage is a readability bug in the one tool whose
-    job is readability. The seeded 240-turn run is what showed it."""
-    report = _shadow.evaluate(clean(N, injections=200, diverging=75))  # 37.5%
-    rendered = _shadow.render(report)
-    assert "-27.50 pts" in rendered
-    assert "margin: -0.28" not in rendered
-
-
-def test_the_divergence_is_decomposed_into_misses_and_additions():
-    """The ceiling deliberately counts a miss and an addition alike; a reader must not
-    have to, because the two mean opposite things about v3."""
-    data = [
-        line(0, v2=["keep", "miss1", "miss2"], v3=["keep"]),
-        line(1, v2=["x"], v3=["x", "extra"]),
-    ]
-    report = _shadow.evaluate(data)
-    assert report["context"]["divergence_shape"] == {"v3_missed": 2, "v3_added": 1}
-    rendered = _shadow.render(report)
-    assert "v3 missed 2" in rendered and "added 1" in rendered
-
-
-def test_every_number_shows_its_margin():
-    """A pass/fail alone hides how close the run was: the owner asked for margin."""
-    report = _shadow.evaluate(clean())
-    for name, condition in report["conditions"].items():
-        assert "margin" in condition, name
-    assert report["conditions"]["divergence_rate"]["margin"] == pytest.approx(0.05)
-    assert report["conditions"]["min_turns"]["margin"] == 0
-
-    broken = clean()
-    broken[1] = line(1, v2=["x"], v3=["y", "z"])
-    assert _shadow.evaluate(broken)["conditions"]["v3_only_never"]["margin"] < 0
-
-
-def test_findings_cite_ids_and_lines_and_never_the_question():
-    data = clean(diverging=1)
-    data[7] = line(7, v2=["kept", "missed"], v3=["kept"], query=SECRET_QUERY)
-    report = _shadow.evaluate(data)
-
-    assert {"line": 8, "v2_ids": ["kept", "missed"], "v3_ids": ["kept"]} in (
-        report["findings"]["divergence"]
-    )
-    rendered = _shadow.render(report)
-    assert "line 8" in rendered and "missed" in rendered
-    # The leak surface is the whole report, not the human view alone: `--json` prints
-    # these findings, so conversation text must be absent from the data too.
-    assert SECRET_QUERY not in rendered
-    assert SECRET_QUERY not in json.dumps(report)
-    assert "Alice Example" not in json.dumps(report)
-
-
-def test_a_stale_copy_blocks_an_otherwise_clean_reading():
-    data = clean()
-    data[7] = line(7, v2=["a7"], age=1200.0, stale=True)
+def test_a_stale_copy_blocks_an_otherwise_clean_reading(armed):
+    data = miss_lines(N, missing=0)
+    data[7] = line(7, v2=["a0007"], v3=["a0007"], age=1200.0, stale=True)
     report = _shadow.evaluate(data)
     assert report["conditions"]["copy_within_bound"]["verdict"] == "not met"
     assert report["verdict"] == "not met"
 
 
-def test_a_stale_flag_that_disagrees_with_the_bound_is_not_trusted():
-    """The writer marks staleness from the same constant; if the two ever diverge,
-    the sample cannot be read as fresh. Both directions are checked, because a test
-    that only covers the age side passes with the cross-check deleted."""
-    late_but_unflagged = clean()
-    late_but_unflagged[9] = line(9, v2=["a9"], age=1200.0, stale=False)
+def test_a_stale_flag_that_disagrees_with_the_bound_is_not_trusted(armed):
+    """The writer marks staleness from the same constant; if the two diverge the sample
+    cannot be read as fresh. Both directions, because a test covering only the age side
+    passes with the cross-check deleted."""
+    late_but_unflagged = miss_lines(N, missing=0)
+    late_but_unflagged[9] = line(9, v2=["a0009"], v3=["a0009"], age=1200.0, stale=False)
     report = _shadow.evaluate(late_but_unflagged)
     assert report["conditions"]["copy_within_bound"]["verdict"] == "not met"
     assert "stale flag" in " ".join(report["reasons"]).lower()
 
-    flagged_but_fresh = clean()
-    flagged_but_fresh[11] = line(11, v2=["a11"], age=10.0, stale=True)
+    flagged_but_fresh = miss_lines(N, missing=0)
+    flagged_but_fresh[11] = line(11, v2=["a0011"], v3=["a0011"], age=10.0, stale=True)
     second = _shadow.evaluate(flagged_but_fresh)
-    assert second["conditions"]["copy_within_bound"]["verdict"] == "not met", (
-        "a line that claims to be stale cannot be read as fresh"
-    )
+    assert second["conditions"]["copy_within_bound"]["verdict"] == "not met"
     assert "stale flag" in " ".join(second["reasons"]).lower()
 
 
-def test_the_caveat_is_printed_next_to_the_divergence_number():
-    rendered = _shadow.render(_shadow.evaluate(clean()))
+def test_the_caveat_is_printed_next_to_the_miss_number(armed):
+    rendered = _shadow.render(_shadow.evaluate(miss_lines(N, missing=20)))
     assert _shadow.CAVEAT in rendered
-    divergence_line = [ln for ln in rendered.splitlines() if "divergence" in ln]
-    assert divergence_line, "the render must show the divergence condition"
+    assert [ln for ln in rendered.splitlines() if "miss rate" in ln], (
+        "the render must show the miss condition"
+    )
 
 
-# --- fabrication and line citations ---------------------------------------
+# --- fabrication citations, without the conversation ----------------------
 
 
 def test_v3_only_is_never_a_pass_and_cites_its_line_without_the_query_text():
-    data = clean()
+    data = miss_lines(N, missing=0)
     data[42] = line(42, v2=[], v3=["mem_fabricated"], query=SECRET_QUERY)
     report = _shadow.evaluate(data)
     assert report["conditions"]["v3_only_never"]["verdict"] == "not met"
@@ -293,34 +338,33 @@ def test_v3_only_is_never_a_pass_and_cites_its_line_without_the_query_text():
     assert "Alice Example" not in json.dumps(report)
 
 
-def test_a_recorded_divergence_that_disagrees_with_the_ids_is_not_trusted():
-    data = clean()
+def test_a_recorded_divergence_that_disagrees_with_the_ids_is_not_trusted(armed):
+    data = miss_lines(N, missing=0)
     data[3] = line(3, v2=["same"], v3=["same"], divergence=["same"])
     report = _shadow.evaluate(data)
-    assert report["conditions"]["divergence_rate"]["verdict"] == "not met"
+    assert report["conditions"]["v2_miss_rate"]["verdict"] == "not met"
     assert "inconsistent" in " ".join(report["reasons"]).lower()
 
 
 # --- the off-turn cost -----------------------------------------------------
 
 
-def test_p95_is_nearest_rank_and_prints_p50_and_max():
+def test_p95_is_nearest_rank_and_prints_p50_and_max(armed):
     """One stray slow sample with a low p50 must read as noise, not as a failure —
     the tell `perf-smoke` learned the hard way."""
-    data = clean()
-    data[0] = line(0, v2=["a0"], ms=900.0)
-    report = _shadow.evaluate(data)
-    budget = report["conditions"]["p95_within_budget"]
+    data = miss_lines(N, missing=0)
+    data[0] = line(0, v2=["a0000"], v3=["a0000"], ms=900.0)
+    budget = _shadow.evaluate(data)["conditions"]["p95_within_budget"]
     assert budget["max"] == pytest.approx(900.0)
     assert budget["value"] == pytest.approx(40.0)
     assert budget["verdict"] == "met"
     assert budget["p50"] <= budget["value"] <= budget["max"]
 
 
-def test_p95_above_the_ceiling_is_not_met():
-    data = clean()
-    for index in range(12):  # > 5% of the sample, so nearest-rank p95 is inside them
-        data[index] = line(index, v2=["a%d" % index], ms=400.0)
+def test_p95_above_the_ceiling_is_not_met(armed):
+    data = miss_lines(N, missing=0)
+    for index in range(12):  # > 5% of the sample, so nearest-rank p95 lands inside them
+        data[index] = line(index, v2=[f"a{index:04d}"], v3=[f"a{index:04d}"], ms=400.0)
     report = _shadow.evaluate(data)
     assert report["conditions"]["p95_within_budget"]["verdict"] == "not met"
     assert report["verdict"] == "not met"
@@ -329,28 +373,72 @@ def test_p95_above_the_ceiling_is_not_met():
 # --- unreadable lines are counted, not dropped ----------------------------
 
 
-def test_malformed_lines_are_counted_and_block_a_pass():
-    data = clean()
-    del data[5]["shadow_ms"]           # a truncated write
-    data.append("not an object")        # a half line
+def test_malformed_lines_are_counted_and_block_a_pass(armed):
+    data = miss_lines(N, missing=0)
+    del data[5]["shadow_ms"]      # a truncated write
+    data.append("not an object")  # a half line
     report = _shadow.evaluate(data)
     assert report["sample"]["malformed"] == 2
     assert report["sample"]["usable"] == N - 1
     assert report["verdict"] == "cannot conclude"
 
 
+# --- margin and findings --------------------------------------------------
+
+
+def test_every_gated_number_shows_its_margin(armed):
+    """A pass/fail alone hides how close the run was: the owner asked for margin."""
+    report = _shadow.evaluate(miss_lines(N, missing=20))
+    for name in ("min_turns", "copy_within_bound", "v2_miss_rate", "p95_within_budget"):
+        assert "margin" in report["conditions"][name], name
+    assert report["conditions"]["v2_miss_rate"]["margin"] == pytest.approx(0.0)
+
+    over = _shadow.evaluate(miss_lines(N, missing=40))
+    assert over["conditions"]["v2_miss_rate"]["margin"] < 0
+
+
+def test_an_unarmed_condition_shows_no_margin_because_it_gates_nothing():
+    condition = _shadow.evaluate(miss_lines(N, missing=20))["conditions"]["v2_miss_rate"]
+    assert condition["verdict"] == "not armed"
+    assert "margin" not in condition
+    assert condition["value"] == pytest.approx(0.10), "reported, whether or not it gates"
+
+
+def test_a_rate_margin_is_printed_in_points_not_a_bare_fraction(armed):
+    """`margin: -0.28` beside a percentage is a readability bug in the one tool whose
+    job is readability. The 240-turn run is what showed it."""
+    assert _shadow.PROMOTION["max_v2_miss_rate"] == pytest.approx(0.10)  # the `armed` fixture
+    rendered = _shadow.render(_shadow.evaluate(miss_lines(N, missing=75)))  # 37.5% vs 10%
+    assert "-27.50 pts" in rendered
+    assert "margin: -0.28" not in rendered
+
+
+def test_findings_cite_ids_and_lines_and_never_the_question(armed):
+    data = miss_lines(N, missing=1)
+    data[7] = line(7, v2=["kept", "missed"], v3=["kept"], query=SECRET_QUERY)
+    report = _shadow.evaluate(data)
+
+    assert {"line": 8, "v2_ids": ["kept", "missed"], "v3_ids": ["kept"]} in (
+        report["findings"]["misses"]
+    )
+    rendered = _shadow.render(report)
+    assert "line 8" in rendered and "missed" in rendered
+    assert SECRET_QUERY not in rendered
+    assert SECRET_QUERY not in json.dumps(report)
+
+
 # --- the reader and the writer agree, on real lines -----------------------
 
 
 def test_the_reader_understands_the_lines_the_writer_writes(tmp_path, monkeypatch, live_db):
-    """Schema coupling, pinned end to end: these lines come from `_shadow.run`, not
-    from this file's own idea of the shape, so a writer change that the reader did not
-    follow makes every line unreadable here instead of reporting zero turns."""
+    """Schema coupling, pinned end to end: these lines come from `_shadow.run`, not from
+    this file's idea of the shape, so a writer change the reader did not follow makes
+    every line unreadable here instead of reporting zero turns."""
     copy = tmp_path / "shadow" / "memory.db"
     monkeypatch.setenv(_shadow.SHADOW_ENV, str(copy))
     lines_path = tmp_path / "divergence.jsonl"
 
-    for index in range(3):
+    for _ in range(3):
         written = _shadow.run(
             # An empty copy, which is what the real store is today: the turn injected
             # nothing, so ``v2_ids`` is empty too.
@@ -365,9 +453,7 @@ def test_the_reader_understands_the_lines_the_writer_writes(tmp_path, monkeypatc
     report = _shadow.report(lines_path)
     assert report["sample"]["usable"] == 3, "every written line must be readable"
     assert report["sample"]["malformed"] == 0
-    assert set(report["conditions"]) == {
-        "min_turns", "copy_within_bound", "divergence_rate", "v3_only_never", "p95_within_budget",
-    }
+    assert set(report["conditions"]) == CONDITIONS
     assert report["verdict"] == "cannot conclude", "three turns cannot conclude anything"
 
 
@@ -385,9 +471,9 @@ def live_db(tmp_path):
 # --- reading is read-only, and the runner is honest -----------------------
 
 
-def test_the_report_writes_nothing(tmp_path):
+def test_the_report_writes_nothing(tmp_path, armed):
     log = tmp_path / "divergence.jsonl"
-    log.write_text("".join(json.dumps(item) + "\n" for item in clean()), encoding="utf-8")
+    log.write_text("".join(json.dumps(i) + "\n" for i in miss_lines()), encoding="utf-8")
     before = (log.read_bytes(), log.stat().st_mtime_ns)
 
     _shadow.report(log)
@@ -404,22 +490,28 @@ def test_a_missing_log_names_the_path_and_how_to_enable_collection(tmp_path, cap
     assert _shadow.SHADOW_ENV in printed, "the reader must say how collection is turned on"
 
 
-def test_the_exit_code_carries_the_verdict(tmp_path, capsys):
-    def run_and_code(lines_data: List[Dict[str, Any]]) -> int:
-        log = tmp_path / f"div{len(lines_data)}{lines_data[0]['shadow_ms']}.jsonl"
+def test_the_exit_code_carries_the_verdict(tmp_path, capsys, monkeypatch):
+    def run_and_code(lines_data: List[Dict[str, Any]], tag: str) -> int:
+        log = tmp_path / f"div-{tag}.jsonl"
         log.write_text("".join(json.dumps(i) + "\n" for i in lines_data), encoding="utf-8")
         return _shadow.main(["report", "--log", str(log)])
 
-    assert run_and_code(clean()) == 0
-    broken = clean()
-    broken[1] = line(1, v2=["x"], v3=["y", "z"])  # a v3_only line
-    assert run_and_code(broken) == 1
-    assert run_and_code(sample(10)) == 2
+    monkeypatch.setitem(_shadow.PROMOTION, "max_v2_miss_rate", 0.10)
+    assert run_and_code(miss_lines(N, missing=0), "met") == 0
+    assert run_and_code(miss_lines(N, missing=N), "misses") == 1
+
+    broken = miss_lines(N, missing=0)
+    broken[1] = line(1, v2=["x"], v3=["y", "z"])  # a fabricated hit
+    assert run_and_code(broken, "fabrication") == 1
+
+    monkeypatch.setitem(_shadow.PROMOTION, "max_v2_miss_rate", None)
+    assert run_and_code(miss_lines(N, missing=0), "unarmed") == 2
+    assert run_and_code(sample(10), "short") == 2
 
 
-def test_json_output_is_the_report_verbatim(tmp_path, capsys):
+def test_json_output_is_the_report_verbatim(tmp_path, capsys, armed):
     log = tmp_path / "divergence.jsonl"
-    log.write_text("".join(json.dumps(i) + "\n" for i in clean()), encoding="utf-8")
+    log.write_text("".join(json.dumps(i) + "\n" for i in miss_lines()), encoding="utf-8")
 
     assert _shadow.main(["report", "--log", str(log), "--json"]) == 0
     printed = capsys.readouterr().out

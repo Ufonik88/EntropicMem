@@ -61,20 +61,47 @@ CAVEAT = (
 )
 
 #: The promotion observable, **fixed before any data is collected** so the threshold
-#: cannot be chosen to fit the sample. An agent proposal, not an owner decision.
+#: cannot be chosen to fit the sample.
 #:
-#: The rule: shadow enough real turns to be worth reading, with a fresh copy, and
-#: promote to *default* only when v3 has not once injected a memory v2 did not
-#: (``max_v3_only``) — because the failure that matters is v3 fabricating a hit, not
-#: v3 missing one — and when its off-turn cost stays inside the prefetch budget that
-#: EM-403 will be measured against.
+#: **Amended by owner ruling on 2026-10-08 — before a single real turn was read**, which
+#: is the only circumstance in which amending a frozen observable is not fitting it to the
+#: data. The ruling, in its own terms: the old ``max_divergence_rate`` was **symmetric**,
+#: so "v3 dropped a hit v2 had" (a recall regression) counted exactly like "v3 invented a
+#: hit" (a fabrication). A measured 240-turn sample was **150 misses and 0 additions**, so
+#: the gate failed on the metric the observable itself calls decisive, for a reason that is
+#: not a safety failure — the wrong promotion criterion, and one that would block a better
+#: engine. So: fabrication stays a hard ceiling; the miss side gets its own, **un-armed**.
 PROMOTION: Dict[str, Any] = {
     "min_turns": 200,
     "max_copy_age_s": MAX_COPY_AGE_S,
-    "max_divergence_rate": 0.10,   # |v2_ids XOR v3_ids| > 0, over turns with injection
-    "max_v3_only": 0,              # v3 must never inject something v2 did not
+    # Hard and non-negotiable: v3 must never inject a memory v2 did not. A
+    # correctness/safety property, not a tuning knob.
+    "max_v3_only": 0,
+    # Ids v3 dropped / ids v2 injected. ``None`` = **NOT ARMED**: reported on every
+    # reading, gating none, and the sample reads ``cannot conclude`` rather than ``met``.
+    # Arming is a deliberate edit with a pre-registered rule — see MISS_CEILING_RULE.
+    "max_v2_miss_rate": None,
     "max_p95_shadow_ms": 150.0,    # §4.2's warm prefetch budget, off-turn
 }
+
+#: How ``max_v2_miss_rate`` gets armed. **Pre-registered 2026-10-08, before any real turn
+#: was read**, so the number cannot be chosen after seeing the sample — which is the whole
+#: reason the observable is frozen in code.
+#:
+#: The owner's ruling allowed either an absolute miss rate with a stated rationale, or
+#: "the miss rate must not exceed v2's own miss rate against a held-out reference". The
+#: relative form is the one registered here: no defensible absolute number exists before
+#: real turns, and this one is computable from artifacts that already exist — and it
+#: cannot be fitted to the shadow sample, because it is measured on a different dataset.
+MISS_CEILING_RULE = (
+    "max_v2_miss_rate is NOT ARMED, so the miss rate is REPORTED AND NOT GATED and the "
+    "verdict cannot be `met`. Arming rule, pre-registered 2026-10-08 before any real turn "
+    "was read: arm it at v2's own miss rate against a held-out reference — "
+    "1 - recall@5 of the v2 adapter on the evals holdout split (EM-306's split by id "
+    "hash), measured over the same corpus the shadow sample is drawn from — and commit "
+    "that number here with a comment linking the result file. Do not arm it from a "
+    "synthetic sample: that is evidence about the metric, not about turns."
+)
 
 _ID_RE = re.compile(r"^- \[([^\]]+)\]", re.MULTILINE)
 
@@ -248,19 +275,25 @@ def _append(line: Dict[str, Any], destination: Path) -> None:
 
 # --- P0c: reading the collected data --------------------------------------
 #
-# The observable above was frozen *before* any data was collected, so the readout
-# has one job: apply those numbers and show the distribution around them. The rules
-# that make a green light mean something live here, next to the thresholds they use,
-# so the two cannot drift apart:
+# The observable above was frozen *before* any data was collected, and amended once —
+# by owner ruling on 2026-10-08, still before a single real turn was read, which is the
+# only circumstance in which amending it is not fitting it to the sample. The readout has
+# one job: apply those numbers and show the distribution around them. The rules that make
+# a green light mean something live here, next to the thresholds they use, so the two
+# cannot drift apart:
 #
-# * **Thresholds are read from ``PROMOTION`` at report time.** Nothing is copied into
-#   a literal; tightening or loosening the observable changes what the readout says.
+# * **Thresholds are read from ``PROMOTION`` at report time.** Nothing is copied into a
+#   literal; tightening or loosening the observable changes what the readout says.
+# * **Fabrication and misses are separate ceilings** (the 2026-10-08 ruling). ``v3_only``
+#   is hard: v3 inventing a memory v2 did not have is a correctness failure. The miss rate
+#   is a recall regression, gated only once **armed** — and while it is un-armed it is
+#   *reported and announced as ungated*, so a reading can never imply it was checked.
 # * **A violation outranks a short sample.** One fabricated hit in three turns is
 #   ``not met``, not ``cannot conclude`` — a reading must never dissolve a failure
 #   into "we need more data".
 # * **A short, unreadable or no-signal sample is never ``met``.** An empty store makes
-#   v2 and v3 both inject nothing, so a naive divergence rate is 0% and the whole
-#   observable would read as passed on a sample that measured nothing.
+#   v2 and v3 both inject nothing, so a naive rate is 0% and the whole observable would
+#   read as passed on a sample that measured nothing.
 # * **The writer's own fields are cross-checked**, not trusted blindly: ``stale``
 #   against the frozen bound, ``divergence``/``v3_only`` against the ids on the line.
 #   Disagreement means the two ends of the pipeline stopped agreeing, and that is a
@@ -275,7 +308,7 @@ _REQUIRED_KEYS = (
 )
 
 #: Conditions that measure the *system*: failing one is a finding.
-_BEHAVIOURAL = ("copy_within_bound", "divergence_rate", "v3_only_never", "p95_within_budget")
+_BEHAVIOURAL = ("copy_within_bound", "v2_miss_rate", "v3_only_never", "p95_within_budget")
 
 
 def _number(value: Any) -> bool:
@@ -358,8 +391,10 @@ def evaluate(lines: Sequence[Any], *, log: str = "") -> Dict[str, Any]:
                     "not met" if (beyond or disagree) else "met"),
     }
 
-    # 3. divergence, over the denominator the frozen comment names: "turns with
-    #    injection" = the turns v2 actually injected something into.
+    # 3. the two halves the owner's ruling separated: what v3 **missed** (a recall
+    #    regression, gated only once armed) and what v3 **fabricated** (condition 4, a
+    #    safety property, always hard). The retired symmetric rate is still computed, as
+    #    context, so an earlier reading stays comparable.
     injections = [(position, item) for position, item in usable if item["v2_ids"]]
     diverged = [(position, item) for position, item in injections if item["divergence"]]
     inconsistent = sorted(
@@ -373,23 +408,44 @@ def evaluate(lines: Sequence[Any], *, log: str = "") -> Dict[str, Any]:
             f"inconsistent lines: the recorded divergence/v3_only disagree with the ids on "
             f"{len(inconsistent)} line(s): {inconsistent[:10]}"
         )
-    rate = (len(diverged) / len(injections)) if injections else None
-    conditions["divergence_rate"] = {
+
+    #: Id-level miss rate: ids v3 dropped, over ids v2 injected. Id-level rather than
+    #: turn-level because a turn where v3 kept 1 of 3 is a smaller failure than one where
+    #: it kept 0 of 3, and the turn-level fraction is reported beside it.
+    missed = [(position, item) for position, item in injections
+              if set(item["v2_ids"]) - set(item["v3_ids"])]
+    injected_ids = sum(len(set(item["v2_ids"])) for _, item in usable)
+    missed_ids = sum(len(set(item["v2_ids"]) - set(item["v3_ids"])) for _, item in usable)
+    miss_rate = (missed_ids / injected_ids) if injected_ids else None
+    miss_ceiling = thresholds["max_v2_miss_rate"]
+    armed = _number(miss_ceiling)
+    if miss_rate is None:
+        miss_verdict = "no signal"
+    elif not armed:
+        miss_verdict = "not armed"
+    elif inconsistent or miss_rate > float(miss_ceiling):
+        miss_verdict = "not met"
+    else:
+        miss_verdict = "met"
+    conditions["v2_miss_rate"] = {
         "kind": "behavioural",
-        "value": rate,
-        "ceiling": float(thresholds["max_divergence_rate"]),
-        "diverged": len(diverged),
-        "injections": len(injections),
-        "diverged_lines": [position for position, _ in diverged][:10],
-        "verdict": ("no signal" if rate is None else
-                    "not met" if (rate > float(thresholds["max_divergence_rate"]) or inconsistent)
-                    else "met"),
+        "value": miss_rate,
+        "ceiling": (float(miss_ceiling) if armed else None),
+        "armed": armed,
+        "missed_ids": missed_ids,
+        "injected_ids": injected_ids,
+        "turns_with_injection": len(injections),
+        "turns_with_a_miss": len(missed),
+        "missed_lines": [position for position, _ in missed][:10],
+        "verdict": miss_verdict,
     }
-    if rate is None:
+    if miss_rate is None:
         reasons.append(
-            "divergence: no signal — no turn in this sample had an injection, so the rate "
-            "has no denominator and nothing can be concluded from it"
+            "v2_miss_rate: no signal — v2 injected no ids at all in this sample, so the "
+            "rate has no denominator and nothing can be concluded from it"
         )
+    elif not armed:
+        reasons.append(f"v2_miss_rate is reported but NOT GATED: {MISS_CEILING_RULE}")
 
     # 4. v3 must never inject what v2 did not.
     ceiling = int(thresholds["max_v3_only"])
@@ -431,20 +487,21 @@ def evaluate(lines: Sequence[Any], *, log: str = "") -> Dict[str, Any]:
 
     # Margin, on every condition: how much room was left before it would have failed
     # (negative once it has). A pass with no margin shown is a green light the owner
-    # cannot read the meaning of.
+    # cannot read the meaning of. An **un-armed** ceiling has no margin, because it
+    # gates nothing — showing one would imply a limit that is not in force.
     for condition in conditions.values():
         value = condition.get("value")
-        if "ceiling" in condition and _number(value):
+        if _number(condition.get("ceiling")) and _number(value):
             condition["margin"] = round(float(condition["ceiling"]) - float(value), 6)
-        elif "floor" in condition and _number(value):
+        elif _number(condition.get("floor")) and _number(value):
             condition["margin"] = round(float(value) - float(condition["floor"]), 6)
 
     # Findings: the first few concrete cases behind each failure, with line numbers and
     # ids only — never the question that produced them.
     findings = {
-        "divergence": [
+        "misses": [
             {"line": position, "v2_ids": list(item["v2_ids"]), "v3_ids": list(item["v3_ids"])}
-            for position, item in diverged[:10]
+            for position, item in missed[:10]
         ],
         "v3_only": [
             {"line": position, "v3_only": list(item["v3_only"])}
@@ -466,6 +523,10 @@ def evaluate(lines: Sequence[Any], *, log: str = "") -> Dict[str, Any]:
         statuses["min_turns"] != "met"
         or malformed
         or "no signal" in statuses.values()
+        # An un-armed ceiling is a declared dimension that is not being measured. It
+        # blocks `met` on purpose: the owner's ruling was to report misses and say
+        # explicitly that they are ungated, not to let a pass imply they were checked.
+        or "not armed" in statuses.values()
         or disagree
         or inconsistent
     ):
@@ -483,20 +544,25 @@ def evaluate(lines: Sequence[Any], *, log: str = "") -> Dict[str, Any]:
             "last_ts": (usable[-1][1]["ts"] if usable else None),
         },
         "thresholds": thresholds,
+        "arming_rule": MISS_CEILING_RULE,
         "conditions": conditions,
         "context": {
-            # Shown so a reader can see what the denominator choice costs. The verdict
-            # never uses these: the frozen definition is the one above.
+            # Shown so a reader can see what each definition costs. The verdict uses only
+            # the id-level miss rate and the hard fabrication ceiling above.
+            "divergence_rate_symmetric": (
+                (len(diverged) / len(injections)) if injections else None
+            ),
             "divergence_over_all_lines": (
                 len([1 for _, item in usable if item["divergence"]]) / turns if turns else None
             ),
             "turns_with_injection": len(injections),
             "turns_abstaining": turns - len(injections),
-            # The decomposition of the frozen number, because the two shapes mean
-            # opposite things: v3 missing a hit v2 made, and v3 inventing one. The
-            # ceiling treats them alike; the reader must not.
+            # The decomposition that the 2026-10-08 ruling acted on: a miss and an
+            # addition are opposite failures, and the retired symmetric ceiling counted
+            # them alike. Kept in every report so the two readings stay comparable —
+            # the earlier 37.5% finding was 150 misses and 0 additions.
             "divergence_shape": {
-                "v3_missed": sum(len(set(item["v2_ids"]) - set(item["v3_ids"])) for _, item in injections),
+                "v3_missed": missed_ids,
                 "v3_added": sum(len(item["v3_only"] or []) for _, item in usable),
             },
         },
@@ -571,12 +637,12 @@ def render(result: Dict[str, Any]) -> str:
         return {
             "min_turns": "turns collected",
             "copy_within_bound": "copy staleness",
-            "divergence_rate": "divergence",
-            "v3_only_never": "v3-only injections",
+            "v3_only_never": "fabrication (v3-only)",
+            "v2_miss_rate": "v3 miss rate",
             "p95_within_budget": "off-turn p95",
         }[name]
 
-    for name in ("min_turns", "copy_within_bound", "divergence_rate", "v3_only_never",
+    for name in ("min_turns", "copy_within_bound", "v3_only_never", "v2_miss_rate",
                  "p95_within_budget"):
         condition = conditions[name]
         if name == "min_turns":
@@ -586,11 +652,13 @@ def render(result: Dict[str, Any]) -> str:
                 f"max age {_format_number(condition['value'], ' s')} / bound "
                 f"{condition['ceiling']:.0f} s, stale lines {condition['stale_lines']}"
             )
-        elif name == "divergence_rate":
+        elif name == "v2_miss_rate":
             detail = (
                 f"{_format_rate(condition['value'])} "
-                f"({condition['diverged']} of {condition['injections']} turns with injection)"
-                f" / ceiling {_format_rate(condition['ceiling'])}"
+                f"({condition['missed_ids']} of {condition['injected_ids']} ids v2 injected; "
+                f"{condition['turns_with_a_miss']} of {condition['turns_with_injection']} turns)"
+                f" / ceiling "
+                + (_format_rate(condition["ceiling"]) if condition["armed"] else "NOT ARMED")
             )
         elif name == "v3_only_never":
             detail = (
@@ -609,18 +677,24 @@ def render(result: Dict[str, Any]) -> str:
         if "margin" in condition:
             room = (
                 f"{condition['margin'] * 100.0:+.2f} pts"
-                if name == "divergence_rate"
+                if name == "v2_miss_rate"
                 else _format_number(condition["margin"])
             )
             out.append(f"    margin: {room} before the limit")
-        if name == "divergence_rate":
+        if name == "v2_miss_rate":
             out.append(f"    lower bound and not apples-to-apples: {result['caveat']}")
+            if not condition["armed"]:
+                # The ungated dimension announces itself on every reading, so a report
+                # can never be skimmed as "all five conditions passed".
+                out.append(f"    pre-registered arming rule: {result['arming_rule']}")
+        if name == "v3_only_never":
+            out.append("    hard ceiling: a fabricated hit is a correctness failure, not a tuning one")
 
     findings = result.get("findings", {})
     lines_out: List[str] = []
-    for kind in ("v3_only", "divergence", "stale", "unreadable"):
+    for kind in ("v3_only", "misses", "stale", "unreadable"):
         for entry in findings.get(kind, [])[:5]:
-            if kind == "divergence":
+            if kind == "misses":
                 lines_out.append(
                     f"    line {entry['line']}: v2 {entry['v2_ids']} vs v3 {entry['v3_ids']}"
                 )
@@ -637,14 +711,14 @@ def render(result: Dict[str, Any]) -> str:
     shape = context.get("divergence_shape", {})
     out += [
         "",
-        f"context: divergence over all lines "
-        f"{_format_rate(context['divergence_over_all_lines'])} "
-        f"(not the definition used), {context['turns_with_injection']} turns injected, "
+        f"context: retired symmetric divergence {_format_rate(context['divergence_rate_symmetric'])}"
+        f" over injected turns ({_format_rate(context['divergence_over_all_lines'])} over all"
+        f" lines), {context['turns_with_injection']} turns injected, "
         f"{context['turns_abstaining']} abstained",
         (
             f"shape: v3 missed {shape.get('v3_missed', 0)} id(s) v2 injected, added "
-            f"{shape.get('v3_added', 0)} it did not — the ceiling counts both, so read "
-            "the two together"
+            f"{shape.get('v3_added', 0)} it did not — misses gate only when armed, "
+            "additions never do"
         ),
         f"verdict: {result['verdict'].upper()}",
     ]
