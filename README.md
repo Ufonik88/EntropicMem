@@ -110,7 +110,7 @@ EntropicMem/
 ├── evals/                       # Eval framework: ci + hard suites, baselines, perf bench
 ├── benchmarks/                  # Frozen recall benchmark (corpus, probes, runner)
 ├── docs/                        # User-facing docs (see index below)
-├── tests/                       # 1,900+ tests
+├── tests/                       # 2,000+ tests
 └── .github/workflows/test.yml   # CI: pytest (3.10 to 3.13) + ruff + plugin validate
 ```
 

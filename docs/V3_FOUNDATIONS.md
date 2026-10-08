@@ -11,7 +11,11 @@ Hermes provider (plugins/entropicmem/__init__.py)   <- unchanged in S2; talks to
         |
         v
 em.facade  (EM-211)       contract.py: the exact API + behaviours the provider relies on
-        |                 engine.py: V3Engine, the whole LegacyEngine API over em.store
+        |                 engine.py: V3Engine, the whole LegacyEngine API over em.store.
+        |                   Its read half has a second, flag-gated mode (P0b): with
+        |                   ENTROPICMEM_V3_RETRIEVAL=1 it serves em.retrieval's pipeline
+        |                   instead of the v2 scoring it otherwise borrows; unset is
+        |                   byte-identical to pre-P0b (golden-pinned).
         |                 select.py: which engine a store needs, by user_version
         |                   (the PROVIDER and the CLI both select it — Chunks 9, 10.
         |                    A chunk leaves it alone unless it is a release; the
@@ -29,8 +33,11 @@ em.retrieval (S3)        query.py: AnalyzedQuery + analyze() — EM-301's text
                           fusion.py: EM-304's weighted RRF, feature rerank,
                           deterministic tie-break and explanation, with the
                           feature loader; gate.py and diversity.py: EM-305's
-                          abstention gate, the collapse and MMR. vector is
-                          EM-303's; the full temporal grammar is EM-310's.
+                          abstention gate, the collapse and MMR; pipeline.py:
+                          retrieve() — the one shared sequence, called by the v3
+                          eval adapter, the shadow read (P0a) and the facade's
+                          flag-gated read half (P0b). vector is EM-303's; the full
+                          temporal grammar is EM-310's.
 em.jobs   (EM-209)        worker.py: claims jobs, runs handlers OUTSIDE transactions
                           cli.py: `entropicmem worker run`, the cron entry point (refuses a live path)
         |
@@ -154,11 +161,11 @@ Scheduled backups: `enqueue_daily_backup(JobQueue(conn))`, handled by `make_back
 
 ## What's next, and what each card builds on
 
-- **EM-211 (legacy facade).** Split into four chunks: **reads → writes → mirror → linker** (plan §6.1, `docs/plan/REMAINING_PLAN.md`). **Reads landed 2026-10-02 (`0349b7b4b`); writes and the mirror call merged at `e25db32` (`36355f3`, `6bd4b47`); the link job (7.1) merged at `64a2685` (`96c4ccb`).** So `V3Engine` implements the whole provider-facing `LegacyEngine` contract over `em.store`, and `PROVIDER_ATTRIBUTES` is **empty** — the provider no longer reads a raw connection anywhere, which was the last thing only v2 could serve. It is registered in `_implementations()` in `tests/unit/test_em_facade_contract.py` and in both `ENGINES` and `WRITE_ENGINES` in `tests/parity/test_engine_parity.py`. **Nothing is wired into the provider yet**: the provider still constructs `MemoryEngine`, so the card's AC and S2's exit criteria are still unmet. What remains:
-  - **Chunk 7.1 — the link job: DONE (`96c4ccb`, committed, not merged).** `MemoryStore` enqueues `link:<memory_id>:<version>` beside the `embed` enqueue; `make_link_handler` in `em/formation/entity_linker.py` runs the linker outside any write transaction (invariant 2) and is idempotent across a retry; `entropicmem worker run` registers the type.
-  - **Chunk 7.2 — the §3.5 owner-only rule: DONE (`563afe5`, committed, not merged).** A `sensitive`/`secret` row is readable only by its owner, enforced in `_in_scope` and applied on all four facade read paths. `Scope.is_owner` defaults to **False** (fail-closed); a profile-wide caller (`user == ""`) is the owner context, so the default facade and the CLI are unaffected. `V3Engine` takes `is_owner` as a constructor argument.
-  - **Chunk 9 — the provider's engine selection: DONE (`em/em-211-provider-wiring`, committed, not merged).** `em/facade/select.py` picks by `PRAGMA user_version`, read **read-only before any engine is constructed**, so opening a v2 store cannot migrate it; all nine `MemoryEngine(` sites in the provider route through one `_open_engine()`. The gateway identity is threaded in (`is_owner = not _is_guest()`).
-  - **Chunk 10 — CLI parity: DONE (`em/em-211-cli-routing`, committed, not merged).** The reads (10.1), the maintenance calls (10.2) and the by-name refusals (10.3) landed; 10.4 routes `_engine()` through `select.py`, so the CLI serves either engine. **The AC is met except for seven v2-only features, each refused by name with the card that lifts it.**
+- **EM-211 (legacy facade).** Split into four chunks: **reads → writes → mirror → linker** (plan §6.1, `docs/plan/REMAINING_PLAN.md`). **Reads landed 2026-10-02 (`0349b7b4b`); writes and the mirror call merged at `e25db32` (`36355f3`, `6bd4b47`); the link job (7.1) merged at `64a2685` (`96c4ccb`).** So `V3Engine` implements the whole provider-facing `LegacyEngine` contract over `em.store`, and `PROVIDER_ATTRIBUTES` is **empty** — the provider no longer reads a raw connection anywhere, which was the last thing only v2 could serve. It is registered in `_implementations()` in `tests/unit/test_em_facade_contract.py` and in both `ENGINES` and `WRITE_ENGINES` in `tests/parity/test_engine_parity.py`. **The provider and the CLI both select their engine by `user_version` (Chunks 9–10), and P0b (Chunk 18) makes a v3 store serve its read half from `em.retrieval` behind `ENTROPICMEM_V3_RETRIEVAL`** — so the card's AC is met except for the seven v2-only refusals, and what remains is the cutover (the owner's act). **Chunks 7.1–10, all merged:**
+  - **Chunk 7.1 — the link job: DONE, MERGED (`96c4ccb` in `64a2685`).** `MemoryStore` enqueues `link:<memory_id>:<version>` beside the `embed` enqueue; `make_link_handler` in `em/formation/entity_linker.py` runs the linker outside any write transaction (invariant 2) and is idempotent across a retry; `entropicmem worker run` registers the type.
+  - **Chunk 7.2 — the §3.5 owner-only rule: DONE, MERGED (`563afe5` in `783aae9`).** A `sensitive`/`secret` row is readable only by its owner, enforced in `_in_scope` and applied on all four facade read paths. `Scope.is_owner` defaults to **False** (fail-closed); a profile-wide caller (`user == ""`) is the owner context, so the default facade and the CLI are unaffected. `V3Engine` takes `is_owner` as a constructor argument.
+  - **Chunk 9 — the provider's engine selection: DONE, MERGED (`b615bcf` in `0200424`).** `em/facade/select.py` picks by `PRAGMA user_version`, read **read-only before any engine is constructed**, so opening a v2 store cannot migrate it; all nine `MemoryEngine(` sites in the provider route through one `_open_engine()`. The gateway identity is threaded in (`is_owner = not _is_guest()`).
+  - **Chunk 10 — CLI parity: DONE, MERGED (`250320a` in `c50d7b6`).** The reads (10.1), the maintenance calls (10.2) and the by-name refusals (10.3) landed; 10.4 routes `_engine()` through `select.py`, so the CLI serves either engine. **The AC is met except for seven v2-only features, each refused by name with the card that lifts it.**
 
 ### The facade's write rules worth knowing before you build on it
 
@@ -197,6 +204,25 @@ These are decisions the writes chunk made that are not obvious from the signatur
   `gate.GateConfig` carries §3.6's numbers as overridable defaults, and EM-407 owns
   the config module. The gate's cosine condition and MMR's embedding path are
   present but **off** — both need EM-303 — and a caller can supply a cosine.
+- **P0b: the facade's read half has a flag-gated S3 mode (Chunk 18).**
+  `V3Engine.recall_with_relevance` serves v2's borrowed scoring with
+  `ENTROPICMEM_V3_RETRIEVAL` unset (**the default**; byte-identical to pre-P0b,
+  golden-pinned) and `em.retrieval.pipeline.retrieve` — **with the gate** — when it
+  is strictly `"1"`. The mapping back to v2 `StoredFact`s is deliberately narrow:
+  **memories only** (an episode ranking has no v2 fact shape, and §3.6's render is
+  EM-307's; episodes are a recorded omission from served prefetch), `legacy_id` as
+  the id so dedup/`touch` keep resolving, `fusion.legacy_tokens` as the flat
+  `why_retrieved`, and v2's `min_relevance`/decay/evergreen knobs are **not**
+  applied over the gate's support test/`min_score` (`domain` is a post-filter). No
+  renderer is added: the provider's `_format_block` prints the mapped facts
+  unchanged. On a v2 store the flag cannot exist — selection is by `user_version`.
+  The flag's default (or a config key) is a later, owner-facing decision.
+- **P0b found and fixed the gate's `kind='constraint'` bypass (Chunk 18).** The
+  pinned generator surfaces `pinned=1` **or** `kind='constraint'` rows, and §3.6's
+  generator table says its hits bypass the gate; `gate.load_rows` read only the
+  column, so a constraint with no lexical overlap was filtered. `RowInfo.pinned`
+  is now the §3.6 input (column or kind), pinned at the loader and at
+  `apply_gate`.
 - **§3.6's "exact-hash duplicates across scopes" groups on text, not on the hash
   (EM-305).** `MemoryStore._content_hash` mixes the scope into the digest, so the
   hash cannot see the pair. The collapse groups on the loaded text, which is what
@@ -206,12 +232,14 @@ These are decisions the writes chunk made that are not obvious from the signatur
   `fusion.RankWeights` carries the spec's numbers as defaults and the caller may
   override them — the same shape as EM-301's `extra_stopwords`. Do not invent a
   config system in either place.
-- **`superseded_note` is not emitted (EM-304).** §3.6's third `why_retrieved` flag
-  needs the supersession collapse, which is EM-305's; `fusion.rank_candidates`
-  emits `temporal_filter` and `entity:<name>` and deliberately not that one.
-- **`why_retrieved_tokens` is a conversion, not a wiring (EM-304).** §3.6 keeps the
-  legacy flat token list for one minor version. `fusion.legacy_tokens()` produces it
-  from a `Ranking`; putting it on the recall path is the provider's card.
+- **`superseded_note` is emitted but not rendered (EM-304 → EM-305 → EM-307).**
+  §3.6's third `why_retrieved` flag is emitted by EM-305's collapse when a
+  predecessor changed inside 30 days; §3.6's render of it is EM-307's, so no
+  renderer shows it yet — P0b's served block deliberately does not.
+- **`why_retrieved_tokens` reaches a read path only in P0b's on mode (EM-304).**
+  §3.6 keeps the legacy flat token list for one minor version.
+  `fusion.legacy_tokens()` converts a `Ranking`, and the facade's flag-gated path
+  uses it; giving the v2 scoring path the same flat form is the provider's card.
 - **§3.6's `query_rewrite` hook is not wired (EM-301).** §3.6 makes it optional and
   background-only ("never blocking `prefetch`"). There is no config module to
   enable it and no `plugins.memory.query_rewrite` to call, so nothing does. It

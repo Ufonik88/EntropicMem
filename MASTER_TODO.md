@@ -13,10 +13,11 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-07, against branch `main` at `7bfcf64` — Chunk 16's merge commit, named deliberately instead of the tip. The guard only requires a commit
-that is a genuine ancestor, and a *tip* is falsified by the very next docs commit — which
-is why every chunk used to need a third, reconcile-only commit. **Chunk 17's code is
-`f0a7c70`, merged on top of that.**
+**Last reconciled:** 2026-10-08, against branch `main` at `bb84d6d` — Chunk 17's final
+commit, named deliberately instead of the tip. The guard only requires a commit that is a
+genuine ancestor, and a *tip* is falsified by the very next docs commit. **Chunk 18's code
+is `be6352e`, with this docs commit on top of it; the pair merges `--ff-only` after
+check-runs on the branch tip.**
 
 ---
 
@@ -66,10 +67,13 @@ program with an extra dependency. `git rev-list --count origin/release/2.8.x..ma
 is ~80 commits; the 12 in the other direction are 2.8.1's own cherry-picked
 safety fixes, all already released.
 
-**All of S2 (the v3 storage core, `em/`) is merged and unwired.** The provider
-still constructs the v2 `MemoryEngine`; nothing in `em/` is on the provider's
-live path. That is deliberate — the core landed first so the facade could be
-proven against it.
+**All of S2 (the v3 storage core, `em/`) is merged, and S3's retrieval is now
+wired.** On a v2 store the provider still constructs the v2 `MemoryEngine` and
+nothing changes. On a v3 store the facade serves the read half — and with
+`ENTROPICMEM_V3_RETRIEVAL=1` (P0b, default off) prefetch is served by
+`em.retrieval` in ranking and gate terms, rather than by the v2 scoring the
+facade otherwise borrows. That flag is what completes the cutover re-decision
+condition (a). The live store remains v2 and untouched.
 
 **The only route to a new user-facing update is the 3.0 release (EM-904)**, and
 it cannot happen until the v3 core is wired in and the live store is migrated.
@@ -77,11 +81,12 @@ That work is listed under [What is next](#what-is-next); the cutover itself is
 owner-gated.
 
 What `em/` contains today: `em.clock` (freezable UTC, ULIDs), `em.store`
-(`db`/portable locking, numbered migrations `0001`–`0003`, `MemoryStore`,
+(`db`/portable locking, numbered migrations `0001`–`0004`, `MemoryStore`,
 `episodes`, `entities`, `jobs`, `backup`, hash-chained `audit`), `em.jobs` (queue,
 worker, `entropicmem worker run`), `em.formation` (`EntityLinker`), `em.retrieval`
-(EM-301's analyzer and stopwords, EM-302's candidate generators), and
-`em.facade` (the provider-facing contract plus `V3Engine`) — with migrations
+(the full §3.6 pipeline: EM-301's analyzer, EM-302's generators, EM-304's fusion,
+EM-305's gate/collapse/MMR, and `pipeline.retrieve` — the one shared sequence),
+and `em.facade` (the provider-facing contract plus `V3Engine`) — with migrations
 `0001`–`0004`.
 
 ### Hermes Marketplace — the catalog entry
@@ -123,7 +128,8 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 14 | **EM-304 — fusion, rerank, explainability** | **Done, merged** (`14552be`) |
 | 15 | **EM-305 — gate, supersession collapse, MMR** | **Done, merged** (`50601b3`); two review-driven pins added at `9f4b39b` |
 | 16 | **The v3 eval adapter** (P1) — the first end-to-end v3 number | **Done, merged** (`ff0d3c3`) |
-| 17 | **P0a — the v3 shadow read** | **Done, merged** (`f0a7c70`, id-space fix `636a685`, test fix `d1060c1`). P0b (v3 serves prefetch *from* S3) is not |
+| 17 | **P0a — the v3 shadow read** | **Done, merged** (`f0a7c70`, id-space fix `636a685`, test fix `d1060c1`) |
+| 18 | **P0b — a v3 store serves prefetch *from* S3**, behind `ENTROPICMEM_V3_RETRIEVAL` | **Done** (code `be6352e`; two commits, merged `--ff-only` after green check-runs on the branch tip). Includes the gate's `kind='constraint'` bypass fix found by its end-to-end run |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -143,10 +149,11 @@ exactly why it no longer does. The branch is deleted, the remote carries `main` 
 `release/2.8.x` only, and the Marketplace entry is untouched (still 2.8.1 at
 `7e02412`).
 
-**P0 is next: wire S3's read path into the provider.** The proposed shape (a shadow
-read behind `ENTROPICMEM_SHADOW_V3`, serving v2 and logging v3 divergence over a v3
-copy) is in "What is next". That is the second cutover re-decision condition, after
-which the decision goes back to the owner.
+**P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
+from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged.** What remains of P0 is
+**P0c — reading the shadow data** against the observable fixed before collection
+(≥ 200 turns, copy within 900 s, divergence ≤ 10%, `v3_only` never non-zero, off-turn
+p95 ≤ 150 ms). That is data collection on real turns, not a code chunk.
 
 **A measurement trap worth knowing:** `ghx run list --branch main --limit 1` can
 return a **stale** run — the one just pushed may not be listed yet, and the
@@ -160,10 +167,10 @@ caught only because the reported SHA did not match the pushed one.
 ruling on the behaviour change, and still in no release. It must not reach the
 marketplace until the owner explicitly approves a release. See plan §9 item 3.
 
-**The cutover decision is due now** and is the owner's to make: EM-305 was the
-milestone the owner set. The evidence table and the agent's recommendation (defer
-past EM-306 and wire S3 into the provider first) are in "What is next" above and in
-`NEXT_CHUNK.md`. **Do not switch the live store without the owner's explicit go.**
+**The cutover re-decision point is now met in full:** (a) the provider reads
+through S3 — P0b, in code and measured, behind a flag that defaults off — and (b) the
+v3 adapter produced its first end-to-end number. **The decision goes back to the
+owner; the agent does not switch the live store without an explicit go.**
 
 ### Where the master plan is
 
@@ -211,12 +218,12 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-### The v3 cutover — **DECIDED 2026-10-07: deferred, with an explicit re-decision point**
+### The v3 cutover — **deferred 2026-10-07; both re-decision conditions are now met**
 
 The owner ruled: **defer the cutover; wire S3's read path into the provider first.**
-The reasoning is recorded: the retrieval layer is complete but *unwired*, so a cutover
-lands the owner on a v3 store whose new capability nothing calls. The owner also
-rejected "defer indefinitely" and set the condition explicitly:
+The reasoning recorded at the time: the retrieval layer was complete but *unwired*, so a
+cutover would land the owner on a v3 store whose new capability nothing called. The owner
+also rejected "defer indefinitely" and set the condition explicitly:
 
 > **Reconsidered when (a) the provider reads through S3, and (b) the v3 adapter has
 > produced one end-to-end eval number. Not before.**
@@ -233,11 +240,18 @@ Parity on recall with **lower noise** — the gate working — and `ageing` at 0
 both, which is §6.2's predicted lexical-only figure because the four paraphrase misses
 share no words with the stored fact and vectors are EM-303's.
 
-**(a) is half-built.** **P0a — the shadow read — is merged:** served by v2 as today,
-S3 post-turn over a v3 copy, divergence logged with the copy's age and the caveat. **P0b
-is not:** on a v3 store, prefetch still uses the v2 scoring the facade borrows rather
-than S3. So the provider now *reads* through S3 (off the turn path, on a copy) but does
-not yet *serve* from it, which is what condition (a) means. See `NEXT_CHUNK.md` Part B.
+**(a) is now met in code.** **P0a — the shadow read — is merged** (`f0a7c70`): served
+by v2 as today, S3 post-turn over a v3 copy, divergence logged with the copy's age and
+the caveat. **P0b is merged too** (`be6352e`): on a v3 store, `ENTROPICMEM_V3_RETRIEVAL=1`
+serves prefetch from `em.retrieval` — ranking and gate — while the off path stays
+byte-identical to v2's scoring, pinned by a golden. So the provider both *reads* through
+S3 (off the turn path, on a copy) and can *serve* from it (on a v3 store, behind the
+flag), which is what condition (a) means. What remains is **P0c**: reading the shadow
+data against the observable fixed in advance.
+
+**Both conditions are met, so the cutover decision is back with the owner.** The
+evidence, all recorded above: (b) the adapter's numbers, and (a) P0b's measured turn-path
+cost. Nothing about the live store has moved.
 
 **The shadow's own honesty, so its numbers cannot be over-read:** the copy lags, so
 divergence is a **lower bound**; v3 has no cosine condition until EM-303, so it is not
@@ -248,7 +262,7 @@ compared through **`COALESCE(legacy_id, id)`**, because v2's content id and v3's
 ULID name the same row — without that mapping every line reads as a divergence. The
 first real run also showed v3 injecting exactly what v2 injected, divergence empty.
 
-**Two owner questions, answered from the code:**
+**Owner questions, answered from the code:**
 
 * **Chunk 13 is forward-only, and no data needs repairing.** Confirmed rather than
   assumed: the v2→v3 migration stamps **`visibility='profile'`** for every migrated fact
@@ -264,40 +278,47 @@ first real run also showed v3 injecting exactly what v2 injected, divergence emp
   before the cutover: the code is already on `main`, the fix adds no migration, and
   shipping code is an independent act from migrating the live store. Recorded in
   plan §9 item 3.
-* **Provider wiring behind a flag?** Yes — but not as a flag *on the v3 read path*,
-  because engine selection is by `PRAGMA user_version`, so such a flag only exists
-  once the store **is** v3. The shadow form is the one that satisfies "exercise v3 on
-  real turns without committing the store", at the cost of a lagging copy.
+* **Provider wiring behind a flag?** Both forms landed, and they answer different
+  questions. `ENTROPICMEM_V3_RETRIEVAL` (P0b) switches the ranking *on a v3 store*;
+  it can only matter once the store **is** v3, because engine selection is by
+  `PRAGMA user_version`. The **shadow** (P0a) is the form that exercises v3 on real
+  turns *without* committing the store, at the cost of a lagging copy.
 
 ### START HERE TOMORROW
 
-**The repo is at a clean resting point: everything merged, `main`'s checks all green
-(22/0 on `d1060c1`), nothing in flight, the live store and the Marketplace entry
-untouched. P0a is done and verified end to end; P0b has not been started.**
+**The repo rests after Chunk 18: code and docs committed, 2019/3/3 green on both
+Pythons, `ruff` clean, the v2 eval gate unmoved, the branch merged `--ff-only` after
+green check-runs, nothing in flight, and the live store and the Marketplace entry
+untouched. P0b is complete — on a v3 store, `ENTROPICMEM_V3_RETRIEVAL=1` serves
+prefetch from S3 — and both cutover re-decision conditions are met, so the cutover
+decision is back with the owner.**
 
-**Two defects were found *after* the first wrap-up, both by testing rather than by
-review, and both are fixed and merged:** the shadow compared v2's content ids against
-v3's `mem_…` ULIDs (so every line would have read as a divergence), and EM-302's deadline
-AC test asserted a wall-clock bound that flaked on Windows. Read both in the CHANGELOG —
-they are the argument for running the thing once against real data and for never
-asserting on a stopwatch.
+**One defect was found by running P0b end to end rather than by review, and is fixed
+here:** the abstention gate read only the `pinned` column, so a `kind='constraint'`
+row its own generator had surfaced was filtered instead of bypassing. It is pinned at
+two layers now and mutation-checked; read it in CHANGELOG. That is the second time a
+real-run check found what unit tests could not (P0a's id space was the first).
 
-1. **Read:** this file, then `docs/plan/NEXT_CHUNK.md` **Part B** (that is the chunk), then
+1. **Read:** this file, then `docs/plan/NEXT_CHUNK.md` **Part B**, then
    `REMAINING_PLAN.md` §9 for the decisions in force.
-2. **Build P0b — on a v3 store, serve prefetch _from_ S3** rather than from the v2 scoring
-   `V3Engine` borrows. Behind `ENTROPICMEM_V3_RETRIEVAL`, **default off**. The seam is
-   `em/facade/engine.py`'s read half (its lazy `memory_engine` import); reuse
-   `em.retrieval.pipeline.retrieve` — **never a fourth pipeline**.
-3. **Guards, all in Part B:** the flag must not change behaviour when off (byte-identical,
-   the way P0a's full-response test does it); prefetch latency is now **on** the turn path,
-   so measure before/after against the shadow's pre-declared **p95 ≤ 150 ms**; the renderer
-   stays minimal and **must not become EM-307**.
-4. **Pre-flight:** `pytest -q` gives **1998 passed / 3 skipped / 3 xfailed** on **both Python
-   3.10 and 3.12**; `git merge-base --is-ancestor 519e627 main` proves the base.
-5. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not `run list`.
-6. **After P0b:** P0c (collect the shadow data against the pre-declared observable), then
-   **P2/EM-306**. When (a) and (b) are both met, **bring the cutover decision back to the
-   owner** — the owner decides, the agent does not.
+2. **P0c — collect the shadow data and read it against the pre-declared observable**
+   (≥ 200 turns, copy within 900 s, divergence ≤ 10%, `v3_only` never non-zero,
+   off-turn p95 ≤ 150 ms). Do not lower a threshold to fit the sample. The staleness
+   bound travels beside every number; divergence is a **lower bound** and **not** an
+   apples-to-apples quality comparison until EM-303's vectors exist. This is data
+   collection on real turns, not a code chunk.
+3. **P2 / EM-306 — the calibration harness** is the next buildable chunk when P0c's
+   data is not at hand: `python -m evals tune`, the `dev`/`holdout` split by id hash,
+   and `em/config.py` (which does not exist yet — it starts there). Part B carries the
+   scoping; the owner's constraint stands — **the gate must not depend on EM-301's
+   92.9%-on-42 intent table**.
+4. **Pre-flight:** `python -m pytest -q` gives **2019 passed / 3 skipped / 3 xfailed**
+   on **both Python 3.10 and 3.12**; `git merge-base --is-ancestor be6352e main`
+   proves the base.
+5. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
+   `run list`, which can hand back a stale green.
+6. **The cutover decision is (a)+(b) complete and back with the owner.** Bring the
+   evidence and the recommendation; do not switch the live store.
 
 ### What is next — the owner's priority order
 
@@ -305,25 +326,27 @@ The owner set the order explicitly; do not reorder it without asking.
 
 | # | Work | Why now | State |
 |:--|:--|:--|:--|
-| **P0** | **Wire S3's read path into the provider (prefetch)** | Nothing else produces real-turn signal until this exists, and it is the precondition for any honest cutover | **Next** |
+| **P0** | **Wire S3's read path into the provider (prefetch)** | Nothing else produces real-turn signal until this exists, and it is the precondition for any honest cutover | **Code complete** — P0a `f0a7c70`, P0b `be6352e`; **P0c (read the shadow data) remains** |
 | **P1** | **The v3 eval adapter** | The v3 pipeline had never been scored end to end; without a number the cutover decision is evidence-free | **DONE** (`ff0d3c3`) — and it is one of the two re-decision conditions |
-| **P2** | **EM-306** (the `tune` command, `em/config.py`) | Only meaningful once P1 can measure it | Ready |
-| **P3** | **The cutover** | Against the re-decision point above | Held |
+| **P2** | **EM-306** (the `tune` command, `em/config.py`) | Only meaningful once P1 can measure it | Next buildable chunk |
+| **P3** | **The cutover** | Against the re-decision point above | **Both conditions met; held for the owner** |
 
-**P0's proposed form — a shadow read behind a flag** (the owner floated this and left
-the implementation to the agent; it is a proposal, not a decision):
+**P0b's shape, as landed — serve prefetch from S3 on a v3 store:**
 
-* `ENTROPICMEM_SHADOW_V3=<path>` on the provider. The turn is served by **v2** exactly
-  as today, so nothing about the live store changes.
-* Post-turn and off the turn path, S3 runs over the v3 **copy** at `<path>` and the
-  provider logs `{query, v2_ids, v3_ids}` to a divergence log. Latency on the turn is
-  untouched.
-* The copy is the honest limitation: without S5's sync wiring there is no way to keep a
-  second store in step, so the shadow signal **lags** — real, but not a live mirror.
-  Refresh it on demand (or from a cron) and say so in the log.
-* It also needs a **v3 copy of a v2 store**, which is the migration path itself — so
-  P0 exercises the migration repeatedly on copies long before the real cutover. That is
-  a feature, not a side effect.
+* `ENTROPICMEM_V3_RETRIEVAL=1` (strictly `"1"`, default off, read per call so a store
+  is comparable both ways without a redeploy) switches `V3Engine.recall_with_relevance`
+  from v2's borrowed scoring to `em.retrieval.pipeline.retrieve` — the shared pipeline
+  the eval adapter and the shadow call — **with** the gate.
+* The pipeline's memory rankings map back to v2 `StoredFact`s (`legacy_id` as the id),
+  so the provider's renderer, config and dedup are untouched and no renderer was added.
+* The **off** path is byte-identical to pre-P0b, pinned by a golden captured before the
+  flag existed and re-checked against a detached worktree of the base commit.
+* Two recorded differences: **episodes are skipped** from the served list (no v2 fact
+  shape; §3.6's render is EM-307's), and v2's `min_relevance`/decay knobs are not
+  applied over S3's gate. Measured on the turn path at 1000 memories: prefetch p95
+  **4.18 ms → 9.32 ms**, against the pre-declared 150 ms ceiling.
+* P0a's half is unchanged: `ENTROPICMEM_SHADOW_V3=<path>` serves v2 and logs S3's
+  divergence over a lagging v3 copy, off the turn path.
 
 **EM-306's detail is in `docs/plan/NEXT_CHUNK.md` Part B** — including its two
 prerequisites, one of which (the v3 adapter) P1 has now cleared, and the owner's
@@ -358,31 +381,46 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   "before", "between" and "last N days/weeks/months/years"; month names,
   weekdays, "earlier this week" and the `timezone` config are EM-310's.
 * **`ranking.*` config does not exist (EM-304)** — `fusion.RankWeights` carries
-  §3.6's numbers as defaults, and `superseded_note` (the third `why_retrieved`
-  flag) waits on EM-305's collapse. Both recorded in V3_FOUNDATIONS.
+  §3.6's numbers as defaults; `superseded_note` is emitted by EM-305's collapse and
+  awaits §3.6's render (EM-307). Both recorded in V3_FOUNDATIONS.
 * **`recent`'s "current session" half** — §3.6 reads "in current session / last
   48 h"; the 48 h window is implemented and the session half needs a session id
   `RetrievalContext` does not carry.
 * **`EM-211`'s seven CLI refusals** — each names the card that lifts it. Closing
   them is S3/S5/S6 work, not a bug.
-* **S3's read path is not wired into the provider.** The retrieval layer is complete
-  and unwired, exactly as the facade was before Chunk 9. Prefetch still uses v2's
-  scoring on a v2 store; on a v3 store the facade's read half serves it.
+* **P0b's served path is memories-only, and the flag defaults off.** The pipeline also
+  ranks episodes; they are skipped from the served prefetch because a v2 `StoredFact`
+  has no episode shape and §3.6's render is EM-307's. On that path v2's
+  `min_relevance`/decay/evergreen parameters are not applied — the gate's support test
+  and `min_score` are S3's filter — so the provider's `min_relevance_score` config
+  governs the off path only until EM-306 owns the scalars. Flipping the flag's default
+  (or plumbing it to config) is the remaining owner-facing step, not an agent's.
+* **The gate's `kind='constraint'` bypass was missing and is fixed (Chunk 18).** The
+  pinned generator surfaces `pinned=1` **or** `kind='constraint'`; `gate.load_rows`
+  read only the column, so a constraint with no lexical overlap was filtered instead
+  of bypassing. Found by P0b's end-to-end run; pinned at the loader and at
+  `apply_gate`, mutation-checked both ways, no scored dataset affected.
 * **`gate.*` config (EM-305)** joins `ranking.*` and `extra_stopwords` as
   parameters with the spec's defaults, all waiting on `em/config.py` (EM-407).
 
-### The v3 cutover — **the decision is due now; see above**
+### The v3 cutover — **both conditions met; the owner decides**
 
-Previously deferred (2026-10-07) on four grounds, three of which still hold: the live
-store holds zero facts, the CLI still refuses seven commands on v3, and the act is
-irreversible and owner-present. The fourth — "S3 is mid-flight" — has changed: S3's
-retrieval is complete. **The owner decides; the agent does not.**
+The owner deferred on 2026-10-07 with an explicit re-decision point: **reconsider when
+(a) the provider reads through S3 and (b) the v3 adapter has produced one end-to-end
+number — not before.** **(b)** was met by `ff0d3c3`; **(a)** is now met in code: P0a
+(`f0a7c70`) reads S3 off the turn path over a copy, and P0b (`be6352e`) serves prefetch
+from S3 on a v3 store behind `ENTROPICMEM_V3_RETRIEVAL`, measured at p95 9.32 ms
+against the pre-declared 150 ms. **So the decision goes back to the owner, with P0c's
+collected data as the evidence once it exists.** The objections still in force and to
+be weighed: the live store holds zero facts, the CLI still refuses seven commands on
+v3, and the act is irreversible and owner-present. **The owner decides; the agent does
+not.**
 
 ## Gates that must be green before anything reaches `main`
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **1998 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2019 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
