@@ -93,14 +93,24 @@ PROMOTION: Dict[str, Any] = {
 #: relative form is the one registered here: no defensible absolute number exists before
 #: real turns, and this one is computable from artifacts that already exist — and it
 #: cannot be fitted to the shadow sample, because it is measured on a different dataset.
+#:
+#: **Corrected 2026-10-08, still before any real turn was read** (the owner's standing
+#: instruction): the first draft said "measured over the same corpus the shadow sample is
+#: drawn from", which is a category error — the bound is measured on the eval holdout,
+#: the shadow's rate on real turns. The threshold is unchanged (still ``None``); the rule
+#: now names the two quantities and says the relationship is a policy choice.
 MISS_CEILING_RULE = (
     "max_v2_miss_rate is NOT ARMED, so the miss rate is REPORTED AND NOT GATED and the "
     "verdict cannot be `met`. Arming rule, pre-registered 2026-10-08 before any real turn "
     "was read: arm it at v2's own miss rate against a held-out reference — "
     "1 - recall@5 of the v2 adapter on the evals holdout split (EM-306's split by id "
-    "hash), measured over the same corpus the shadow sample is drawn from — and commit "
-    "that number here with a comment linking the result file. Do not arm it from a "
-    "synthetic sample: that is evidence about the metric, not about turns."
+    "hash). This is a policy choice, not an identity: the miss rate this ceiling gates "
+    "is v3-vs-v2 (ids v3 dropped that v2 injected, over ids v2 injected, on real turns), "
+    "while the bound is v2-vs-truth (what v2 itself missed against the held-out "
+    "reference); applying the second to the first says only 'v3 may drop no more of v2's "
+    "hits than v2 itself misses against truth'. Commit that number here with a comment "
+    "linking the result file. Do not arm it from a synthetic sample: that is evidence "
+    "about the metric, not about turns."
 )
 
 _ID_RE = re.compile(r"^- \[([^\]]+)\]", re.MULTILINE)

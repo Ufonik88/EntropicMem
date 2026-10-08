@@ -140,6 +140,12 @@ def test_the_arming_rule_is_pre_registered_and_says_it_is_not_gated():
     assert "holdout" in rule, "the rule must name the held-out reference"
     assert "NOT GATED" in rule, "an un-armed ceiling must announce itself"
     assert "recall@5" in rule, "the rule must say how the number is computed"
+    assert "v3-vs-v2" in rule and "v2-vs-truth" in rule, (
+        "the bound is v2-vs-truth applied to a v3-vs-v2 rate; the rule must name both"
+    )
+    assert "policy choice, not an identity" in rule, (
+        "the two quantities are different measurements; the rule must say so"
+    )
 
 
 def test_the_report_echoes_the_frozen_observable():
