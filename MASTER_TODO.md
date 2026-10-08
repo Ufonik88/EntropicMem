@@ -13,11 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-08, against branch `main` at `b213dc0` — the last commit
-before this chunk, named deliberately instead of the tip (a tip is falsified by the very
-next docs commit). **Chunk 20's code is `3c8b301` (the owner-ruled ceiling split), with
-this docs commit on top of it; the pair merges `--ff-only` after check-runs on the branch
-tip.**
+**Last reconciled:** 2026-10-08, against branch `main` at `25342da` — the count-guard
+hygiene chunk's final commit, named deliberately instead of the tip (a tip is falsified by
+the very next docs commit). **The last feature chunk is Chunk 20, the owner-ruled ceiling
+split (`3c8b301`); `dea2e4f` added the pre-flight count guard on top of it.**
 
 ---
 
@@ -152,14 +151,17 @@ exactly why it no longer does. The branch is deleted, the remote carries `main` 
 `7e02412`).
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
-from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, and P0c's **readout**
-landed in Chunk 19 (`94dd3c7`) — a log can now be collected (`scripts/shadow_collect.py`)
-and scored (`_shadow.py report`) against the observable frozen in `_shadow.PROMOTION`.
-**What remains of P0 is the data itself**, which needs ≥ 200 real turns on the host; the
-live store holds zero facts, so a dev-box sample can only ever read `CANNOT CONCLUDE`.
-Alongside it sits the **divergence-definition question** the synthetic sample raised
-(symmetric ceiling: misses count like additions) — the owner's to settle **before** real
-turns are read, so the threshold is never fitted to the sample.
+from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed in
+Chunk 19 (`94dd3c7`), and the **ceiling split the owner ruled on 2026-10-08 landed in
+Chunk 20 (`3c8b301`)** — fabrication is a hard ceiling (`max_v3_only = 0`), the miss side
+is its own ceiling, pre-registered in `_shadow.MISS_CEILING_RULE` and **un-armed** until
+EM-306's holdout exists, and an un-armed ceiling blocks `met` rather than passing
+silently. The divergence-definition question Chunk 19 raised is therefore **settled, not
+open**. **What remains of P0 is the data itself**, and it is blocked on the environment
+rather than on a decision: this box does not run the plugin at all (no `memory.provider`
+key, `plugins.enabled` lists only `homeassistant`, no `~/.hermes/plugins/entropicmem`),
+so no turn reaches a write path and the live store stays empty. Real turns need a host
+where the plugin is installed and enabled — the owner's act.
 
 **A measurement trap worth knowing:** `ghx run list --branch main --limit 1` can
 return a **stale** run — the one just pushed may not be listed yet, and the
@@ -215,8 +217,10 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   unprefixed names — the AC names only the six.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
   identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
-  test that prints its full distribution, and a document-control guard that
-  fails when this page and the plan disagree about the truth.
+  test that prints its full distribution, a document-control guard that
+  fails when this page and the plan disagree about the truth, and a pre-flight
+  **count** guard that fails when the three pages stating the expected suite
+  size disagree with each other.
 - **The document-control rule itself** is now written into `AGENTS.md` and
   enforced, so the next agent picks it up on any harness without being told.
 
