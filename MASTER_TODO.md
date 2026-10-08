@@ -328,12 +328,18 @@ only `homeassistant`, there is **no `~/.hermes/plugins/entropicmem`** and no
 `audit_log`, `triples`, `sync_outbox` — at `user_version=0`. **So the zero-fact state is
 expected: no write path is being exercised, because no turn ever reaches the plugin.** It
 is not a broken write path, and it will not fix itself by accumulating. Real turns need a
-host where the plugin is installed and enabled — an owner-facing change, not an agent's.
+host running the **dev-line** plugin — the released 2.8.1 carries no shadow code
+(verified with `git ls-tree origin/release/2.8.x`), so the owner's active 2.8.1
+deployment cannot collect as-is — with `ENTROPICMEM_SHADOW_V3` set. **Owner-reported
+2026-10-08: the owner's machine (§2) is an active deployment whose live store holds
+real data, so the host exists; the owner-facing step is enabling the shadow-capable
+line there.**
 
 1. **Read:** this file, then `docs/plan/NEXT_CHUNK.md` **Part B**, then
    `REMAINING_PLAN.md` §9 (items 6 and 7 are the owner's rulings) for what is in force.
-2. **P0c, the data.** Needs (a) a host with the plugin enabled, (b) `ENTROPICMEM_SHADOW_V3`
-   set there, (c) ≥ 200 real turns, then `python <plugin>/_shadow.py report`. The
+2. **P0c, the data.** Needs (a) a host with the **dev-line (shadow-capable) plugin** enabled — the
+   released 2.8.1 has no shadow, and the owner's active machine (§2) is the candidate —
+   (b) `ENTROPICMEM_SHADOW_V3` set there, (c) ≥ 200 real turns, then `python <plugin>/_shadow.py report`. The
    observable is fully armed now, so a clean sample can conclude; until (a) exists, the
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
@@ -355,7 +361,7 @@ The owner set the order explicitly; do not reorder it without asking.
 
 | # | Work | Why now | State |
 |:--|:--|:--|:--|
-| **1** | **P0c — collect the shadow data and read it against the frozen observable** | It is the gating empirical step for the cutover; the readout landed in `94dd3c7`, the **data has not** | **Readout DONE, observable fully armed, data outstanding** — needs ≥200 real turns on a host |
+| **1** | **P0c — collect the shadow data and read it against the frozen observable** | It is the gating empirical step for the cutover; the readout landed in `94dd3c7`, the **data has not** | **Readout DONE, observable fully armed, data outstanding** — needs ≥200 real turns on a host running the **dev-line shadow** (the owner's active machine is the candidate) |
 | **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py`, and the armed miss ceiling) | It was the next buildable chunk and it unblocks P0c's reading | **DONE (`4a2b25e`)** — holdout reported, defaults committed, ceiling armed at `0.107143` |
 | **3** | **EM-307 — packer and renderer** | Closes the recorded gap that served prefetch is memories-only and renders nothing but the v2 bullet shape | **Next build** — card on the owner's machine; read it first |
 | **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | Lower urgency |
@@ -487,8 +493,11 @@ number — not before.** **(b)** was met by `ff0d3c3`; **(a)** is now met in cod
 from S3 on a v3 store behind `ENTROPICMEM_V3_RETRIEVAL`, measured at p95 9.32 ms
 against the pre-declared 150 ms. **So the decision goes back to the owner, with P0c's
 collected data as the evidence once it exists.** The objections still in force and to
-be weighed: the live store holds zero facts, the CLI still refuses seven commands on
-v3, and the act is irreversible and owner-present. **The owner decides; the agent does
+be weighed: the CLI still refuses seven commands on v3, and the act is irreversible and
+owner-present. **(The first objection as recorded — the live store holds zero facts, so
+there is nothing to cut over — was corrected 2026-10-08: that measurement was the dev
+box's store; the owner's live store on the Hermes host holds real data (≈1,700 facts,
+owner-reported), so there is something to cut over.)** **The owner decides; the agent does
 not.**
 
 ## Gates that must be green before anything reaches `main`

@@ -287,7 +287,7 @@ what a non-owner sees. An existing profile-wide row carrying the old `'user'` de
 **owner-only** — §3.5's literal rule, failing closed. Re-deriving those rows is a bulk
 change to who may read what, so it would be a one-off owner-approved migration rather
 than a silent rewrite; in practice there are none, because v3 was never released and the
-live store is v2 with zero facts.
+live store is v2 (zero facts on the dev box's copy; the owner's holds real data).
 
 
 The code is the fact. These lines are the plan's words, what the code does, and why the difference stays.
