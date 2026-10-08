@@ -13,10 +13,12 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-08, against branch `main` at `25342da` — the count-guard
-hygiene chunk's final commit, named deliberately instead of the tip (a tip is falsified by
-the very next docs commit). **The last feature chunk is Chunk 20, the owner-ruled ceiling
-split (`3c8b301`); `dea2e4f` added the pre-flight count guard on top of it.**
+**Last reconciled:** 2026-10-08, against branch `main` at `1e40968` — the previous
+chunk's final commit, named deliberately instead of the tip (a tip is falsified by the
+very next docs commit). **The last feature chunk is Chunk 20, the owner-ruled ceiling
+split (`3c8b301`); `dea2e4f` added the pre-flight count guard, and the trust pass added
+the cited-SHA guard (`085ab72`) plus the miss-ceiling rule's policy wording
+(`de495f2`).**
 
 ---
 
@@ -218,9 +220,11 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
   identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
   test that prints its full distribution, a document-control guard that
-  fails when this page and the plan disagree about the truth, and a pre-flight
+  fails when this page and the plan disagree about the truth, a pre-flight
   **count** guard that fails when the three pages stating the expected suite
-  size disagree with each other.
+  size disagree with each other, and a **cited-SHA guard** that fails when a
+  tracked doc or a landing commit cites a SHA that does not resolve (closed,
+  reasoned allowlist for the dead and upstream tokens).
 - **The document-control rule itself** is now written into `AGENTS.md` and
   enforced, so the next agent picks it up on any harness without being told.
 
@@ -300,11 +304,15 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**The repo rests after Chunk 20 and the count guard: 2066/3/3 green on both Pythons, `ruff` clean, the v2
+**The repo rests after the trust pass: 2072/3/3 green on both Pythons, `ruff` clean, the v2
 eval gate unmoved, nothing in flight, the live store and the Marketplace entry untouched.
 The owner's ceiling ruling of 2026-10-08 is implemented — fabrication is a hard ceiling,
-the miss side is its own ceiling, pre-registered and un-armed, and an un-armed ceiling
-blocks `met` instead of passing silently.**
+the miss side is its own ceiling, pre-registered and un-armed, an un-armed ceiling blocks
+`met` instead of passing silently — and the arming rule now states the relationship it
+always meant: the rate is v3-vs-v2, the bound is v2-vs-truth applied to it, a policy choice
+and not an identity. The cited-SHA guard now fails any doc or landing commit whose SHA
+citation does not resolve, and the at-scale latency is recorded as a repeated distribution
+(p95 2.59–2.74 ms every run; every max is the copy-refresh turn, warm max 3.83–4.52 ms).**
 
 **P0c's data is blocked on the environment, and the reason is now measured rather than
 assumed.** This box is not running EntropicMem at all: `~/.hermes/config.yaml` has **no
@@ -329,10 +337,13 @@ host where the plugin is installed and enabled — an owner-facing change, not a
    and `em/config.py` (which does not exist yet — it starts there). Part B carries the
    scoping; the owner's constraint stands — **the gate must not depend on EM-301's
    92.9%-on-42 intent table**. EM-306's holdout is also what arms the miss ceiling, so
-   the two are now linked. After it: **EM-307** (packer + renderer, closing the
+   the two are now linked; its holdout does not exist yet — it is derived by id hash from
+   the committed scenario datasets (hard: 60 scenarios / 180 turns; ci: 7), so the
+   implementing agent produces it, with no owner input and no host needed. After it:
+   **EM-307** (packer + renderer, closing the
    memories-only gap in served prefetch), then **EM-303** (vectors).
-4. **Pre-flight:** `python -m pytest -q` gives **2066 passed / 3 skipped / 3 xfailed**
-   on **both Python 3.10 and 3.12**; `git merge-base --is-ancestor 3c8b301 main` proves
+4. **Pre-flight:** `python -m pytest -q` gives **2072 passed / 3 skipped / 3 xfailed**
+   on **both Python 3.10 and 3.12**; `git merge-base --is-ancestor 1e40968 main` proves
    the base.
 5. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
    `run list`, which can hand back a stale green.
@@ -346,7 +357,7 @@ The owner set the order explicitly; do not reorder it without asking.
 | # | Work | Why now | State |
 |:--|:--|:--|:--|
 | **1** | **P0c — collect the shadow data and read it against the frozen observable** | It is the gating empirical step for the cutover; the readout landed in `94dd3c7`, the **data has not** | **Readout DONE, data outstanding** — needs ≥200 real turns on the host, plus the definition decision below |
-| **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py` starts there, `dev`/`holdout` split by id hash) | Only meaningful now that P1 can measure it; it is the next buildable chunk | Ready — **the gate must not depend on EM-301's 92.9%-on-42 intent table** |
+| **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py` starts there, `dev`/`holdout` split by id hash) | Only meaningful now that P1 can measure it; it is the next buildable chunk | Ready — **the gate must not depend on EM-301's 92.9%-on-42 intent table**; its holdout is derived from the committed datasets by id hash — agent-producible, no host needed |
 | **3** | **EM-307 — packer and renderer** | Closes the recorded gap that served prefetch is memories-only and renders nothing but the v2 bullet shape | Ready (S size) |
 | **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | Lower urgency |
 | **—** | **P3 — the cutover** | Both re-decision conditions are met in code | **Held: the owner decides; the agent brings it** |
@@ -442,16 +453,20 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   omission. The arming rule is pre-registered in code (`_shadow.MISS_CEILING_RULE`):
   v2's own miss rate against a held-out reference, `1 − recall@5` of the v2 adapter on
   **EM-306's holdout split** — so EM-306 is what arms it, and a synthetic sample must
-  never be used. The retired symmetric rate is still reported as context, which is why
+  never be used. The rule's wording was corrected before any real turn (`de495f2`): the
+  rate is **v3-vs-v2**, the bound is **v2-vs-truth** applied to it — a **policy choice,
+  not an identity**; the threshold is unchanged. The retired symmetric rate is still
+  reported as context, which is why
   the earlier 37.5% finding (150 misses, 0 additions) stays comparable: the same sample
   reads 38.46% id-level.
-* **The privacy digest list is not on the dev box**, so the local collision check skips
-  (the third skip in 2066/3/3) and only CI runs the guard for real. CI covered these
-  files on the exact SHA; the local gap is a reproducibility hole worth closing once by
-  placing the list at `~/.config/entropicmem/privacy-digests.txt` (mode 600) or setting
-  `ENTROPICMEM_PRIVACY_DIGESTS_FILE` — the mechanism already exists, so this is a copy,
-  not a build. `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` is what makes a missing list fail
-  closed instead of skipping.
+* **The privacy digest list is not at the default path on the dev box, but it is on this
+  machine** — `~/Documents/EntropicMem Dev docs/privacy-digests.txt` (10 × 64-hex digests;
+  format-checked only). Since 2026-10-08 the collision check has been run **in place** by
+  pointing `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it: **7 passed** in
+  `tests/evals/test_no_personal_data.py`, and the full suite then reads **2073/2/3**.
+  Nothing is copied into the repo. With no list configured,
+  `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` **fails closed** (verified) — and the default run
+  skips instead (the third skip in 2072/3/3).
 * **Flipping P0b's flag default is one line, deliberately not flipped here.**
   `em/facade/engine.py`'s `v3_retrieval_enabled()` is the only reader in product code;
   the flip is `== "1"` → `!= "0"`, plus the tests and docs that pin default-off (the
@@ -477,7 +492,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2066 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2072 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
