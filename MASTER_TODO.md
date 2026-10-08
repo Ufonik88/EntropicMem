@@ -13,10 +13,11 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-08, against branch `main` at `03cf7f9` — Chunk 18's final
-commit, named deliberately instead of the tip (a tip is falsified by the very next docs
-commit). **Chunk 19's code is `94dd3c7`, with this docs commit on top of it; the pair
-merges `--ff-only` after check-runs on the branch tip.**
+**Last reconciled:** 2026-10-08, against branch `main` at `b213dc0` — the last commit
+before this chunk, named deliberately instead of the tip (a tip is falsified by the very
+next docs commit). **Chunk 20's code is `3c8b301` (the owner-ruled ceiling split), with
+this docs commit on top of it; the pair merges `--ff-only` after check-runs on the branch
+tip.**
 
 ---
 
@@ -129,7 +130,8 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 16 | **The v3 eval adapter** (P1) — the first end-to-end v3 number | **Done, merged** (`ff0d3c3`) |
 | 17 | **P0a — the v3 shadow read** | **Done, merged** (`f0a7c70`, id-space fix `636a685`, test fix `d1060c1`) |
 | 18 | **P0b — a v3 store serves prefetch *from* S3**, behind `ENTROPICMEM_V3_RETRIEVAL` | **Done** (code `be6352e`; two commits, merged `--ff-only` after green check-runs on the branch tip). Includes the gate's `kind='constraint'` bypass fix found by its end-to-end run |
-| 19 | **P0c's readout — score a shadow log against the frozen observable, and collect one honestly** | **Done** (code `94dd3c7`; two commits, merged `--ff-only` after green check-runs on the tip). **The data itself is still not collected**: it needs real turns, and the divergence-definition question below is the owner's before they are read |
+| 19 | **P0c's readout — score a shadow log against the frozen observable, and collect one honestly** | **Done, merged** (`94dd3c7` + docs `2b1e49b`; count-guard deferral `b213dc0`). **The data itself is still not collected** — see the environment finding below |
+| 20 | **The ceiling split — the owner's ruling of 2026-10-08** | **Done** (code `3c8b301`; two commits, merged `--ff-only` after green check-runs on the tip). Fabrication stays hard (`max_v3_only = 0`); the miss side is its own ceiling, **pre-registered and un-armed**, and an un-armed ceiling blocks `met` rather than passing silently |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -260,11 +262,15 @@ cost. Nothing about the live store has moved.
 **The shadow's own honesty, so its numbers cannot be over-read:** the copy lags, so
 divergence is a **lower bound**; v3 has no cosine condition until EM-303, so it is not
 an apples-to-apples quality comparison; and the promotion observable was fixed in
-advance — **≥ 200 turns, copy within 900 s, divergence ≤ 10%, `v3_only` never once
-non-zero, off-turn p95 ≤ 150 ms.** One thing the first real run settled: ids are
-compared through **`COALESCE(legacy_id, id)`**, because v2's content id and v3's `mem_…`
-ULID name the same row — without that mapping every line reads as a divergence. The
-first real run also showed v3 injecting exactly what v2 injected, divergence empty.
+advance — **≥ 200 turns, copy within 900 s, `v3_only` never once non-zero (hard),
+the miss rate against its pre-registered ceiling (un-armed until EM-306's holdout
+exists), off-turn p95 ≤ 150 ms.** The observable was amended once, by owner ruling on
+2026-10-08 and *before any real turn was read*: the old symmetric `divergence ≤ 10%`
+counted a miss like a fabrication, and the measured sample was 150 misses with 0
+additions. One thing the first real run settled: ids are compared through
+**`COALESCE(legacy_id, id)`**, because v2's content id and v3's `mem_…` ULID name the
+same row — without that mapping every line reads as a divergence. The first real run
+also showed v3 injecting exactly what v2 injected, divergence empty.
 
 **Owner questions, answered from the code:**
 
@@ -290,45 +296,39 @@ first real run also showed v3 injecting exactly what v2 injected, divergence emp
 
 ### START HERE TOMORROW
 
-**The repo rests after Chunk 19: code and docs committed, 2055/3/3 green on both
-Pythons, `ruff` clean, the v2 eval gate unmoved, nothing in flight, and the live store
-and the Marketplace entry untouched. P0c's **readout** has landed — a divergence log
-can now be collected and scored against the frozen observable — but P0c's **data** has
-not, because there is none: the live store holds zero facts and the host has never run
-with `ENTROPICMEM_SHADOW_V3` set.**
+**The repo rests after Chunk 20: 2061/3/3 green on both Pythons, `ruff` clean, the v2
+eval gate unmoved, nothing in flight, the live store and the Marketplace entry untouched.
+The owner's ceiling ruling of 2026-10-08 is implemented — fabrication is a hard ceiling,
+the miss side is its own ceiling, pre-registered and un-armed, and an un-armed ceiling
+blocks `met` instead of passing silently.**
 
-**The one thing to decide before reading any real sample** (the owner's, 2026-10-08):
-the frozen `max_divergence_rate = 0.10` is **symmetric** — it counts a memory v3
-*missed* exactly like one v3 *fabricated*. On a synthetic 240-turn sample the divergence
-was 37.5%, and the report decomposes it into **150 misses and 0 additions**: the
-condition the observable calls decisive (`v3_only` never non-zero) passed on every line,
-and the ceiling failed because S3's gate is more selective than v2 — which is what
-EM-305 built it for, and what the adapter measured as noise 0.172 vs v2's 0.219. Either
-keep the symmetric ceiling (meaning "promote only when v3 shows what v2 shows") or split
-it into a fabrication ceiling and a separate miss ceiling. **Answer it before looking at
-real turns, or it is fitting the threshold to the sample.** Nothing was tuned in this
-chunk; `NEXT_CHUNK.md`'s guard says a reading that needs a threshold moved is not a
-reading.
+**P0c's data is blocked on the environment, and the reason is now measured rather than
+assumed.** This box is not running EntropicMem at all: `~/.hermes/config.yaml` has **no
+`memory.provider` key** (so the host uses its built-in memory), `plugins.enabled` lists
+only `homeassistant`, there is **no `~/.hermes/plugins/entropicmem`** and no
+`entropicmem-live-2.8.1` clone, no vault, and `index.db` holds 0 notes. Every table in
+`~/.hermes/entropicmem/memory.db` is empty — `facts`, `pending_facts`, `episodes`,
+`audit_log`, `triples`, `sync_outbox` — at `user_version=0`. **So the zero-fact state is
+expected: no write path is being exercised, because no turn ever reaches the plugin.** It
+is not a broken write path, and it will not fix itself by accumulating. Real turns need a
+host where the plugin is installed and enabled — an owner-facing change, not an agent's.
 
 1. **Read:** this file, then `docs/plan/NEXT_CHUNK.md` **Part B**, then
-   `REMAINING_PLAN.md` §9 for the decisions in force.
-2. **P0c, the data.** On the host: set `ENTROPICMEM_SHADOW_V3=<v3 copy path>` and let
-   real turns accumulate, then read them with
-   `python ~/.hermes/plugins/entropicmem/_shadow.py report`. To prove the plumbing
-   before waiting on traffic: `python scripts/shadow_collect.py --source
-   ~/.hermes/entropicmem/memory.db --turns 200` — it opens the store `mode=ro`, copies
-   it, and **never writes the source** (asserted on bytes and mtime). **Do not lower a
-   threshold to fit the sample.** The report prints the raw distribution, the margin
-   against each limit, the miss/add decomposition and the two caveats by default, so a
-   green light always arrives with the room it left — and a short, no-signal or
-   unreadable sample prints `CANNOT CONCLUDE`, never `MET`.
+   `REMAINING_PLAN.md` §9 (items 6 and 7 are the owner's rulings) for what is in force.
+2. **P0c, the data.** Needs (a) a host with the plugin enabled, (b) `ENTROPICMEM_SHADOW_V3`
+   set there, (c) ≥ 200 real turns, then `python <plugin>/_shadow.py report`. Until (a)
+   exists, the only honest sample is a synthetic one — and a synthetic sample is evidence
+   about the *metric*, never about turns, so it must not be used to arm a ceiling.
+   **The miss ceiling stays un-armed until EM-306's holdout exists** (`MISS_CEILING_RULE`
+   in code says exactly how to arm it).
 3. **Then P2 / EM-306** — `python -m evals tune`, the `dev`/`holdout` split by id hash,
    and `em/config.py` (which does not exist yet — it starts there). Part B carries the
    scoping; the owner's constraint stands — **the gate must not depend on EM-301's
-   92.9%-on-42 intent table**. After it: **EM-307** (packer + renderer, which closes the
+   92.9%-on-42 intent table**. EM-306's holdout is also what arms the miss ceiling, so
+   the two are now linked. After it: **EM-307** (packer + renderer, closing the
    memories-only gap in served prefetch), then **EM-303** (vectors).
-4. **Pre-flight:** `python -m pytest -q` gives **2055 passed / 3 skipped / 3 xfailed**
-   on **both Python 3.10 and 3.12**; `git merge-base --is-ancestor 94dd3c7 main` proves
+4. **Pre-flight:** `python -m pytest -q` gives **2061 passed / 3 skipped / 3 xfailed**
+   on **both Python 3.10 and 3.12**; `git merge-base --is-ancestor 3c8b301 main` proves
    the base.
 5. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
    `run list`, which can hand back a stale green.
@@ -420,24 +420,34 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   read only the column, so a constraint with no lexical overlap was filtered instead
   of bypassing. Found by P0b's end-to-end run; pinned at the loader and at
   `apply_gate`, mutation-checked both ways, no scored dataset affected.
-* **P0c has a readout and no data.** `_shadow.evaluate/report/render` scores a
-  divergence log against the observable frozen in `_shadow.PROMOTION` (thresholds read
-  at report time, never copied), and `scripts/shadow_collect.py` produces a sample from
-  real engines over a read-only copy. What is missing is **200+ real turns on the host**
-  — and the live store holds zero facts, so the only sample a dev box can honestly get
-  reads `CANNOT CONCLUDE` (`no signal`), which the reporter is built to say rather than
-  paper over.
-* **The divergence ceiling is symmetric, and that is an open owner decision, not a
-  tuning task.** `max_divergence_rate = 0.10` counts a memory v3 *missed* like one v3
-  *fabricated*. On the 240-turn synthetic sample: 37.5% divergence, **150 misses and 0
-  additions** — `v3_only` (the decisive condition) met on every line. Splitting the
-  ceiling, or keeping it, must be decided **before** real turns are read; changing it
-  afterwards is fitting the threshold to the sample. Nothing was tuned in Chunk 19.
+* **P0c has a readout and no data — and the blocker is now measured, not assumed.**
+  `_shadow.py report` scores a log against the observable; `scripts/shadow_collect.py`
+  produces a sample from real engines over a read-only copy. What is missing is **200+
+  real turns**, and this box cannot produce them: `~/.hermes/config.yaml` has **no
+  `memory.provider` key** (the host uses its built-in memory), `plugins.enabled` lists
+  only `homeassistant`, there is **no `~/.hermes/plugins/entropicmem`** and no live
+  clone, and every table in the live store is empty at `user_version=0`. So the
+  zero-fact state is **expected** — no turn reaches the plugin, so no write path runs.
+  It is not a broken write path and it will not fix itself by accumulating; installing
+  and enabling the plugin on a host is the owner's act.
+* **The promotion ceiling is split (owner ruling, 2026-10-08) and the miss side is
+  deliberately un-armed.** `max_v3_only = 0` stays hard: a fabricated hit is a
+  correctness failure. `max_v2_miss_rate` (ids v3 dropped / ids v2 injected) is `None`,
+  so misses are **reported on every reading and gate nothing** — and an un-armed ceiling
+  **blocks `met`**, so the sample reads `cannot conclude` rather than passing by
+  omission. The arming rule is pre-registered in code (`_shadow.MISS_CEILING_RULE`):
+  v2's own miss rate against a held-out reference, `1 − recall@5` of the v2 adapter on
+  **EM-306's holdout split** — so EM-306 is what arms it, and a synthetic sample must
+  never be used. The retired symmetric rate is still reported as context, which is why
+  the earlier 37.5% finding (150 misses, 0 additions) stays comparable: the same sample
+  reads 38.46% id-level.
 * **The privacy digest list is not on the dev box**, so the local collision check skips
-  (the third skip in 2055/3/3) and only CI runs the guard for real. CI covered this
-  chunk's files on the exact SHA; the local gap is a reproducibility hole worth closing
-  once by placing the list at `~/.config/entropicmem/privacy-digests.txt` (mode 600) or
-  setting `ENTROPICMEM_PRIVACY_DIGESTS_FILE`.
+  (the third skip in 2061/3/3) and only CI runs the guard for real. CI covered these
+  files on the exact SHA; the local gap is a reproducibility hole worth closing once by
+  placing the list at `~/.config/entropicmem/privacy-digests.txt` (mode 600) or setting
+  `ENTROPICMEM_PRIVACY_DIGESTS_FILE` — the mechanism already exists, so this is a copy,
+  not a build. `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` is what makes a missing list fail
+  closed instead of skipping.
 * **Flipping P0b's flag default is one line, deliberately not flipped here.**
   `em/facade/engine.py`'s `v3_retrieval_enabled()` is the only reader in product code;
   the flip is `== "1"` → `!= "0"`, plus the tests and docs that pin default-off (the
@@ -463,7 +473,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2055 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2061 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
