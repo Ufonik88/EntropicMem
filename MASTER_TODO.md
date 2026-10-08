@@ -13,7 +13,7 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-08, against branch `main` at `4eb8097` — the previous
+**Last reconciled:** 2026-10-08, against branch `main` at `8fc06a6` — the previous
 chunk's final commit, named deliberately instead of the tip (a tip is falsified by the
 very next docs commit). **The last chunk is EM-306, the calibration harness
 (`4a2b25e`), which also armed the miss ceiling; before it the trust pass added the
