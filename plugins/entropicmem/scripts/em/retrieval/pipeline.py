@@ -26,7 +26,8 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from ..store.embeddings import cosine, load_memory_vectors
+from ..embeddings.cache import cached_memory_vectors
+from ..store.embeddings import cosine
 from ..store.types import Scope
 from . import candidates, diversity, fusion, gate
 from .query import AnalyzedQuery, analyze
@@ -171,12 +172,14 @@ def retrieve(
     mmr_similarities = None
     if vector is not None and embedding_model:
         clause, params = candidates.scope_sql(scope, table="m")
-        vectors_by_key = {
-            (candidates.OWNER_TYPE_MEMORY, owner_id): tuple(stored)
-            for owner_id, stored in load_memory_vectors(
-                conn, model=embedding_model, scope_clause=clause, scope_params=params
-            )
-        }
+        entry = cached_memory_vectors(
+            conn, model=embedding_model, scope_clause=clause, scope_params=params
+        )
+        vectors_by_key = {}
+        for owner_id in entry.ids:
+            stored = entry.vector_of(owner_id)
+            if stored is not None:
+                vectors_by_key[(candidates.OWNER_TYPE_MEMORY, owner_id)] = stored
         mmr_similarities = _pairwise_similarity(vectors_by_key, texts)
     kept = diversity.mmr(collapsed.kept, texts=texts, similarities=mmr_similarities)
     kept_keys = {ranking.key for ranking in kept}

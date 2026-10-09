@@ -290,9 +290,15 @@ def test_an_explicitly_shared_write_is_queued(store):
 
 
 def test_the_change_adds_no_migration(store):
-    """Reversible: no schema change, no data rewrite, so a revert is code-only."""
-    assert LATEST == 4
-    assert [m.version for m in discover()] == [1, 2, 3, 4]
+    """Reversible: no schema change, no data rewrite, so a revert is code-only.
+
+    The visibility change itself added no migration (it needs none). Migration
+    0005 is EM-303's embeddings index, so this pin now checks the property that
+    still matters here: the registry is contiguous and nothing was inserted by
+    editing an applied migration.
+    """
+    assert LATEST >= 4
+    assert [m.version for m in discover()] == list(range(1, LATEST + 1))
 
 
 def test_reads_do_not_rewrite_the_stamp(store):

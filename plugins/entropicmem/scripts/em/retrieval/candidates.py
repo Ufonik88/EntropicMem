@@ -45,11 +45,10 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple
 
 from ..clock import to_iso
+from ..embeddings.cache import cached_memory_vectors, search_memory_vectors
 from ..store.embeddings import (
     VECTOR_MIN_COVERAGE,
     count_active_memories,
-    load_memory_vectors,
-    rank_by_cosine,
 )
 from ..store.types import OWNER_ONLY_TIERS, Scope, may_read_owner_only
 from .query import MAX_TERMS, AnalyzedQuery
@@ -326,15 +325,22 @@ def vector(ctx: RetrievalContext) -> List[Candidate]:
     if not query or not model:
         return []
     clause, params = scope_sql(ctx.scope, table="m")
-    loaded = load_memory_vectors(
+    entry = cached_memory_vectors(
         ctx.conn, model=model, scope_clause=clause, scope_params=params
     )
     active = count_active_memories(ctx.conn, scope_clause=clause, scope_params=params)
-    if active <= 0 or (len(loaded) / active) < VECTOR_MIN_COVERAGE:
+    if active <= 0 or (entry.count / active) < VECTOR_MIN_COVERAGE:
         return []
     if ctx.out_of_time():
         return []
-    ranked = rank_by_cosine(query, loaded, k=ctx.k("vector"))
+    ranked = search_memory_vectors(
+        ctx.conn,
+        model=model,
+        scope_clause=clause,
+        scope_params=params,
+        query=query,
+        k=ctx.k("vector"),
+    )
     return [
         Candidate(OWNER_TYPE_MEMORY, owner_id, score) for owner_id, score in ranked
     ]

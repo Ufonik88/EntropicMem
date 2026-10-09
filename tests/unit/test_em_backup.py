@@ -338,7 +338,12 @@ def test_restore_refuses_while_the_provider_holds_the_lock(db):
 def test_restore_refuses_a_tampered_backup(db):
     mgr = BackupManager(db)
     good = mgr.create()
-    good.primary_path.write_bytes(good.primary_path.read_bytes()[:-1] + b"\x00")
+    # Flip a byte rather than overwrite the last one: writing b"\x00" over an
+    # already-zero final byte is not a tamper, and that is exactly what
+    # happened once migration 0005 made the file end in zero.
+    raw = bytearray(good.primary_path.read_bytes())
+    raw[-1] ^= 0xFF
+    good.primary_path.write_bytes(bytes(raw))
     with pytest.raises(RestoreRefused, match="verification"):
         mgr.restore(good)
     assert _memories(db) == 3

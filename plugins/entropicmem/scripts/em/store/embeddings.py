@@ -26,18 +26,36 @@ import struct
 from typing import Optional, Sequence
 
 __all__ = [
+    "EMBEDDING_MODEL_KEY",
     "VECTOR_MIN_COVERAGE",
     "count_active_memories",
     "cosine",
     "load_memory_vectors",
+    "missing_memory_count",
     "pack_vector",
+    "pending_memory_texts",
     "put_embedding",
     "rank_by_cosine",
+    "set_stored_model",
+    "stored_model",
     "unpack_vector",
+    "write_generation",
 ]
+
+#: The ``meta`` key naming the model the store is currently embedding with.
+EMBEDDING_MODEL_KEY = "embedding_model"
 
 #: §3.6: the vector generator runs only when coverage is at least this.
 VECTOR_MIN_COVERAGE = 0.5
+
+#: Bumped by every ``put_embedding``. The cache's fingerprint includes it, so an
+#: in-place REPLACE that leaves count and max rowid unchanged is still seen.
+_WRITE_GENERATION = 0
+
+
+def write_generation() -> int:
+    """How many times ``put_embedding`` has written in this process."""
+    return _WRITE_GENERATION
 
 
 def cosine(left: Sequence[float], right: Sequence[float]) -> float:
@@ -106,6 +124,7 @@ def put_embedding(
     created_at: str,
 ) -> None:
     """Insert or replace one vector. Tests and a future embed job share this."""
+    global _WRITE_GENERATION
     conn.execute(
         "INSERT OR REPLACE INTO embeddings (owner_type, owner_id, model, dim,"
         " vector, content_hash, created_at) VALUES (?,?,?,?,?,?,?)",
@@ -119,6 +138,7 @@ def put_embedding(
             created_at,
         ),
     )
+    _WRITE_GENERATION += 1
 
 
 def load_memory_vectors(
@@ -159,6 +179,65 @@ def count_active_memories(
     row = conn.execute(
         "SELECT COUNT(*) AS n FROM memories m WHERE m.status = 'active' AND " + scope_clause,
         tuple(scope_params),
+    ).fetchone()
+    if row is None:
+        return 0
+    return int(row["n"])
+
+
+# --- model identity and the backfill worklist ------------------------------
+
+
+def stored_model(conn: sqlite3.Connection) -> str:
+    """The model recorded in ``meta.embedding_model``, or ``""``."""
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (EMBEDDING_MODEL_KEY,)).fetchone()
+    return str(row["value"]) if row is not None and row["value"] else ""
+
+
+def set_stored_model(conn: sqlite3.Connection, model: str) -> None:
+    """Record the model a completed backfill has just filled the store for."""
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (EMBEDDING_MODEL_KEY, str(model)),
+    )
+
+
+def pending_memory_texts(
+    conn: sqlite3.Connection, *, model: str, limit: int = 64
+) -> list[tuple[str, str, str]]:
+    """Active memories with **no** embedding for ``model``: ``(id, summary, content)``.
+
+    Rows with neither a summary nor content are impossible (``add`` refuses
+    empty content), but the filter is kept so a backfill can never spend a
+    batch on an empty string. A row that carries a vector for a *different*
+    model is still pending for this one — that is the model-switch case.
+    """
+    if not model:
+        return []
+    rows = conn.execute(
+        "SELECT m.id AS id, m.summary AS summary, m.content AS content"
+        " FROM memories m"
+        " LEFT JOIN embeddings e ON e.owner_type = 'memory'"
+        "   AND e.owner_id = m.id AND e.model = ?"
+        " WHERE m.status = 'active' AND e.owner_id IS NULL"
+        "   AND (TRIM(COALESCE(m.summary, '')) <> '' OR TRIM(COALESCE(m.content, '')) <> '')"
+        " ORDER BY m.id LIMIT ?",
+        (model, int(limit)),
+    ).fetchall()
+    return [(str(row["id"]), str(row["summary"] or ""), str(row["content"] or "")) for row in rows]
+
+
+def missing_memory_count(conn: sqlite3.Connection, *, model: str) -> int:
+    """How many active memories still need a vector for ``model``."""
+    if not model:
+        return 0
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM memories m"
+        " LEFT JOIN embeddings e ON e.owner_type = 'memory'"
+        "   AND e.owner_id = m.id AND e.model = ?"
+        " WHERE m.status = 'active' AND e.owner_id IS NULL",
+        (model,),
     ).fetchone()
     if row is None:
         return 0

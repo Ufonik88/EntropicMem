@@ -28,7 +28,13 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+# EM-303's preferred backend: ONNX, no torch. The v2 semantic re-ranker's
+# stack (sentence-transformers + numpy + scikit-learn) moved to `semantic-st`
+# when the card named the extras; existing v2 users should switch to it.
 semantic = [
+    "fastembed>=0.3",
+]
+semantic-st = [
     "sentence-transformers>=2.2.0",
     "numpy>=1.24.0",
     "scikit-learn>=1.3,<2",
@@ -51,7 +57,7 @@ Changelog = "https://github.com/Ufonik88/EntropicMem/blob/main/CHANGELOG.md"
 # points, extras layout) is EM-806.
 [tool.setuptools]
 package-dir = {"" = "plugins/entropicmem/scripts"}
-packages = ["em", "em.facade", "em.formation", "em.jobs", "em.provider", "em.retrieval", "em.store", "em.store.migrations", "em_internal"]
+packages = ["em", "em.embeddings", "em.facade", "em.formation", "em.jobs", "em.provider", "em.retrieval", "em.store", "em.store.migrations", "em_internal"]
 
 [tool.setuptools.dynamic]
 version = {attr = "em.__version__"}
