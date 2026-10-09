@@ -186,8 +186,8 @@ These are decisions the writes chunk made that are not obvious from the signatur
 - **Recorded deviations from v2, each pinned by a test:** no fuzzy overwrite (v2's EM-109 near-duplicate rule could rewrite a stored fact in place; v3 collapses only *exact* duplicates), and no deprecation warnings (the card asks for once-per-process warnings on methods "suled for removal in 3.1", but v2 emits none, no list of which methods is recorded, and the provider calls all of them every session).
 - **EM-212 — DONE (Chunk 8, 2026-10-07).** The six shared-name engine modules (`vault`, `index`, `security`, `policy`, `embeddings`, `retrieval`) now live under the `em_internal` package, so the import system registers `em_internal.*` and never the bare names; `_backend._own_module` (the 2026-09-27 first step) is gone in favour of a qualified import, because a qualified name cannot collide. The strict xfail `test_em212_plan_ac_no_unprefixed_engine_modules_in_process` **flipped to a passing test**. The other 14 modules keep unprefixed names deliberately — the AC names only the six. The packaging guard now derives every package under `scripts/` from disk, so a new one cannot ship missing from the wheel.
 - **EM-213** is done, re-scoped on 2026-09-26: the Hermes catalog verifies the plugin against `provides_tools`/`provides_hooks`, so they stay and only the duplicate `hooks:` list went. `test_f011_plugin_manifest_declares_tools_and_hooks_once` pins it. Do not remove the provides lists.
-- **EM-303 (embeddings, S3) — search + MMR slices. Merged `9d5a72b` (`7d6a22e`);
-  MMR path on `em/em-303-mmr` (`156370e`, not merged).** What exists:
+- **EM-303 (embeddings, S3) — search + MMR slices, merged (`156370e` as `000a268`;
+  first slice `9d5a72b` as `7d6a22e`).** What exists:
   `em/store/embeddings.py` decodes the native float32 blobs v2 already writes and
   a stdlib cosine; `candidates.vector` joins `embeddings` to active, in-scope
   memories in **one** query and runs only when `retrieve` was given a query vector
@@ -231,8 +231,8 @@ These are decisions the writes chunk made that are not obvious from the signatur
   the config module. The gate's cosine condition can now be switched on
   (EM-303 first slice): `retrieve` does it for the call, **only when it was given
   both a query vector and a model and no explicit `gate_config`**; an explicit
-  config always wins. MMR's embedding path is the same seam (EM-303, on
-  `em/em-303-mmr`, not merged): when a query vector and a model were given,
+  config always wins. MMR's embedding path is the same seam (EM-303, merged):
+  when a query vector and a model were given,
   `mmr` gets a cosine-then-Jaccard pairwise similarity (negative cosine clamped
   to 0); without them it is the token-Jaccard fallback as before.
 - **P0b: the facade's read half has a flag-gated S3 mode (Chunk 18).**
