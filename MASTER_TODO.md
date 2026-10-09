@@ -13,11 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-09, against branch `main` at `42e16c7` — the fast-forward
-merge of Chunk 26 (EM-303's follow-ups), named deliberately instead of the tip. **All
-check-runs were green on that exact SHA, `identity-guard` included** (11 on the branch
-push, 22 across both events on the `main` push). The branch is deleted; the remote
-carries `main` and `release/2.8.x` only.
+**Last reconciled:** 2026-10-09, against branch `em/em-303-precision` at `e0b97da` —
+the precision pass (version-checked vector reads, the episode read path, mode
+labels), named deliberately instead of the tip. **Not merged.** `main` is
+`42e16c7`. CI has not run on this branch.
 
 ---
 
@@ -74,6 +73,15 @@ nothing changes. On a v3 store the facade serves the read half — and with
 `em.retrieval` in ranking and gate terms, rather than by the v2 scoring the
 facade otherwise borrows. That flag is what completes the cutover re-decision
 condition (a). The live store remains v2 and untouched.
+
+> **Live retrieval is lexical. Semantic retrieval is not shipped.** The EM-303
+> stack (backends, jobs, cache, cosine gate, MMR) is merged and measured, but
+> the provider does not produce a query embedding yet: that wiring is
+> **EM-401–403**, and until it lands a live turn is served by lexical,
+> entity and episodic scoring only. Do not describe semantic retrieval as
+> shipped, and do not quote vector eval numbers without their
+> `retrieval_mode` label (vector runs are comparable only to vector
+> baselines; the frozen suites' baselines are lexical).
 
 **The only route to a new user-facing update is the 3.0 release (EM-904)**, and
 it cannot happen until the v3 core is wired in and the live store is migrated.
@@ -138,6 +146,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 24 | **EM-303 — MMR's embedding path** | **Done, merged** (`000a268`, ff from `156370e`). `diversity.mmr` takes an optional pairwise similarity; the pipeline supplies cosine when a query vector and model were given (clamped at 0), Jaccard otherwise. **Default path unchanged** |
 | 25 | **EM-303 closed — backends, `embed`/`embed_backfill`, model identity, vector cache** | **Done, merged** (`3439b77`, ff from `e8997d8`). Four backends + auto/none selection; jobs with a write-time version recheck and `meta.embedding_model`; a numpy/pure-Python snapshot cache behind migration 0005 (50k p95 **3.86 ms**) |
 | 26 | **The EM-303 follow-ups: episode embeddings, query embeddings in evals, numpy in CI** | **Done, merged** (`42e16c7`, ff from `51cdcb3`). `EpisodeStore` enqueues `embed` jobs; the backfill and handler cover episodes; the v3 eval adapter embeds documents and the query when `disable_embeddings=False`; CI installs numpy so the cache tests and the 50k AC run there. **The capture-on-idle/compaction feature is planned as EM-411** (plan §6.3) |
+| 27 | **EM-303 precision — version-checked vector reads, episode read path, retrieval-mode labels** | **Committed, not merged** (branch `em/em-303-precision`). Memory `content_hash` and episode `updated_at` are verified on every read; reads filter to the query width; `candidates.episodic` reads episode vectors into EM-307's renderer; backfill idempotence/resume is pinned; every eval report labels lexical vs vector, cross-mode compare is context only, baselines labelled. CI not run |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -151,7 +160,7 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunk 26 is merged (`42e16c7`) with all checks green on that exact SHA, `identity-guard` included. The branch is deleted; the remote carries `main` and `release/2.8.x` only. The owner-requested capture feature is **planned, not built**: card EM-411 in plan §6.3, sequenced after EM-406 and before/with S5's extraction handlers. The Marketplace entry is untouched (2.8.1 at `7e02412`).
+**Chunk 27 (the EM-303 precision pass), on branch `em/em-303-precision`, not merged.** `main` is `42e16c7` (Chunk 26 merged with green CI). This branch has not been pushed, so there is no CI on it. The Marketplace entry is untouched (2.8.1 at `7e02412`). The capture feature is **planned, not built**: EM-411 in plan §6.3, with its design points (shared window key, post-commit enqueue, idle floor, volume estimate) written in.
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
 from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed
@@ -337,19 +346,17 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**EM-303's follow-ups are merged (`42e16c7`).**
-Local suite **2166/5/3** bare and **2168/3/3** with numpy on Python 3.10 and 3.12,
-`ruff==0.16.2` clean; CI green on the merge SHA (4 Pythons, lint, evals, perf,
-Windows import, plugin validate, identity — with numpy installed, so the cache
-tests ran). The follow-ups: episodes are embedding owners
-(enqueue + handler + backfill; `updated_at` as the stale guard); the v3 eval adapter
-embeds documents and the query when a suite allows it (`ci`/`hard` stay lexical), so
-vector quality is measurable with `evals run --adapter v3` on a box with a backend;
-CI installs numpy so the cache tests and the 50k AC run there. **The owner-requested
-capture feature is planned as EM-411** (plan §6.3): compaction capture is the
-master plan's EM-406 line made real, idle capture is behavioural (no host idle hook
-exists), both gated by `formation.mode`. Next chunk is otherwise the owner's choice.
-The cutover stays with the owner. P0's observable stays armed at `0.107143`.
+**The EM-303 precision pass is in flight on a branch (see In flight).**
+Local suite **2178/5/3** bare and **2180/3/3** with numpy on Python 3.10 and 3.12,
+`ruff==0.16.2` clean. Vector rows are now model/dim/version-checked (memory
+`content_hash`, episode `updated_at` stamp, query-width filter); episode vectors
+are read through `candidates.episodic` into EM-307's renderer; `embed_backfill`
+idempotence/resume is pinned; and every eval result carries a `retrieval_mode`
+label, with cross-mode comparisons context-only and all six baselines labelled
+`lexical`. **Live retrieval is lexical until EM-401–403** — the chosen next
+chunk. **EM-411** (capture on idle & compaction) is queued after EM-406 with
+its design points written into plan §6.3. The cutover stays with the owner.
+P0's observable stays armed at `0.107143`.
 
 **P0c's data is blocked on the environment, and the reason is now measured rather than
 assumed.** This box is not running EntropicMem at all: `~/.hermes/config.yaml` has **no
@@ -381,7 +388,7 @@ line there.**
    at short citations and do not wire `em/config.py` as a drive-by. Measure before
    any adapter switch: the 450-token budget can drop an id the current bullet
    emits.
-4. **Pre-flight:** `python -m pytest -q` gives **2166 passed / 5 skipped / 3 xfailed**
+4. **Pre-flight:** `python -m pytest -q` gives **2178 passed / 5 skipped / 3 xfailed**
    on **both Python 3.10 and 3.12** (CI's extra set: fastapi, httpx, cryptography, pyyaml).
    `git merge-base --is-ancestor 4eb8097 HEAD` proves the base. A fresh venv without
    those extras skips and fails tests that are green in CI — that is the environment,
@@ -401,7 +408,7 @@ The owner set the order explicitly; do not reorder it without asking.
 | **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py`, and the armed miss ceiling) | It was the next buildable chunk and it unblocks P0c's reading | **DONE (`4a2b25e`)** — holdout reported, defaults committed, ceiling armed at `0.107143` |
 | **3** | **EM-307 — packer and renderer** | §3.6's block, fed by a real retrieval | **DONE, merged (`7d6a22e`).** A gated retrieval renders. The adapter and the provider do not call it. Next build is EM-303's remainder |
 | **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | **DONE, merged (`3439b77`):** backends, jobs, model identity, cache (50k p95 3.86 ms). Next chunk is a choice — S3's remaining cards, the adapter switch, or EM-401 |
-| **5** | **Next chunk — the owner to choose** | EM-303's follow-ups are merged (`42e16c7`). The candidates: **EM-411** (capture on idle & compaction — plan §6.3, after EM-406), S3's remaining cards (EM-310 temporal v2, EM-309 shared, EM-308 vault notes), the measured eval-adapter renderer switch, or **EM-401** (provider skeleton) | Not started |
+| **5** | **Next chunk — EM-401–403 (live embedding wiring)**, then EM-411 | Closes the largest user-visible gap: today live retrieval is lexical, and the provider cards are where `ensure_embedding_model`, a query embedding and the capture hooks are wired | **Chosen (owner's recommendation, agreed):** EM-401 first; **EM-411 after EM-406**, spec ready below |
 | **—** | **P3 — the cutover** | Both re-decision conditions are met in code | **Held: the owner decides; the agent brings it** |
 
 **The owner's order was re-set on 2026-10-08** (this table): P0c first as the gating
@@ -554,7 +561,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2166 passed / 5 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2178 passed / 5 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |

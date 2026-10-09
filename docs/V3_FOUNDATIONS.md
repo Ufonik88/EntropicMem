@@ -203,15 +203,30 @@ These are decisions the writes chunk made that are not obvious from the signatur
   keyed by `(db, model, scope, mode)`, fingerprint `(count, max rowid, write
   generation)`, numpy or pure Python, behind migration 0005's index.
   **No embedding call ever runs on the agent/prefetch thread**, and a query with
-  no caller-supplied vector does no vector work at all. **The follow-up slice
-  (merged `42e16c7`)** makes `EpisodeStore` an embedding producer
-  (`add_episode`/`upsert_episode` enqueue; the handler and backfill cover
-  episodes with `updated_at` as the stale guard) and has the v3 eval adapter
-  embed documents and the query when a suite allows embeddings. **What is still
+  no caller-supplied vector does no vector work at all. **Precision guarantees on
+  every vector row (2026-10-09 pass):** the model id is part of the primary key
+  (`embeddings(owner_type, owner_id, model)`), so a model switch never mixes
+  rows — reads filter by the configured model and the backfill adds the new
+  model's rows beside the old; the row records `dim`, and reads filter to the
+  query's width, so a same-name artifact of another width is neither padded nor
+  a crash; and the **text version is verified on every read** — a memory vector
+  only serves when its stored `content_hash` matches the memory's current one,
+  an episode vector when its stored stamp matches `updated_at` (an empty stored
+  hash means "unverified" and is kept for pre-EM-303 rows and fixtures). A
+  stale vector is excluded, coverage drops, and the queued re-embed restores
+  it; nothing is ever silently mixed.
+  **The follow-up slice (merged `42e16c7`)** makes `EpisodeStore` an embedding
+  producer (`add_episode`/`upsert_episode` enqueue; the handler and backfill
+  cover episodes with `updated_at` as the stale guard) and has the v3 eval
+  adapter embed documents and the query when a suite allows embeddings. **The
+  episode read path:** `candidates.episodic` appends vector-ranked episodes
+  under the same 50% coverage gate and the pipeline hands their cosines to the
+  gate, so EM-307's renderer prints a vector-only episode under "Recent
+  episodes" — episode vectors are no longer write-only. **What is still
   absent by design:** the **provider** does not embed a query yet — EM-401–403
   call `ensure_embedding_model` at initialize and embed the query; and capture
-  on idle/compaction is **planned as EM-411** (plan §6.3) — there is **no host
-  idle hook** in the pinned contract, so idle is defined behaviourally.
+  on idle/compaction is **planned as EM-411** (plan §6.3; **no host idle hook
+  exists** in the pinned contract, so idle is defined behaviourally).
   **Recorded deviation:** the cache keys by scope and loads through
   `scope_sql` instead of the card's "pre-computed id→scope arrays (mask)" —
   a numpy copy of the §3.5 owner rule is a second definition of a privacy
