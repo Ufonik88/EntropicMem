@@ -186,8 +186,8 @@ These are decisions the writes chunk made that are not obvious from the signatur
 - **Recorded deviations from v2, each pinned by a test:** no fuzzy overwrite (v2's EM-109 near-duplicate rule could rewrite a stored fact in place; v3 collapses only *exact* duplicates), and no deprecation warnings (the card asks for once-per-process warnings on methods "suled for removal in 3.1", but v2 emits none, no list of which methods is recorded, and the provider calls all of them every session).
 - **EM-212 — DONE (Chunk 8, 2026-10-07).** The six shared-name engine modules (`vault`, `index`, `security`, `policy`, `embeddings`, `retrieval`) now live under the `em_internal` package, so the import system registers `em_internal.*` and never the bare names; `_backend._own_module` (the 2026-09-27 first step) is gone in favour of a qualified import, because a qualified name cannot collide. The strict xfail `test_em212_plan_ac_no_unprefixed_engine_modules_in_process` **flipped to a passing test**. The other 14 modules keep unprefixed names deliberately — the AC names only the six. The packaging guard now derives every package under `scripts/` from disk, so a new one cannot ship missing from the wheel.
 - **EM-213** is done, re-scoped on 2026-09-26: the Hermes catalog verifies the plugin against `provides_tools`/`provides_hooks`, so they stay and only the duplicate `hooks:` list went. `test_f011_plugin_manifest_declares_tools_and_hooks_once` pins it. Do not remove the provides lists.
-- **EM-303 (embeddings, S3) — CLOSED, committed on `em/em-303-backends` (`e8997d8`,
-  not merged); search and MMR are already merged.**
+- **EM-303 (embeddings, S3) — CLOSED and merged (`e8997d8` as `3439b77`);
+  search and MMR were merged earlier.**
   `em/store/embeddings.py` decodes the native float32 blobs v2 already writes and
   a stdlib cosine; `candidates.vector` searches active, in-scope memories only
   when `retrieve` was given a query vector and a model **and** ≥ 50% of active
