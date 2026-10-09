@@ -13,11 +13,9 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-09, against branch `main` at `000a268` — the fast-forward
-merge of Chunk 24 (EM-303's MMR embedding path), named deliberately instead of the
-tip. **All check-runs were green on that exact SHA, `identity-guard` included** (11
-on the branch push, 22 across both events on the `main` push). The branch
-`em/em-303-mmr` is deleted; the remote carries `main` and `release/2.8.x` only.
+**Last reconciled:** 2026-10-09, against branch `em/em-303-backends` at `e8997d8` — the
+commit that closes EM-303 (backends, jobs, cache), named deliberately instead of the
+tip. **Not merged.** `main` is `ccf3bc6`. CI has not run on this branch.
 
 ---
 
@@ -136,6 +134,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 22 | **EM-307 — packer, renderer, and retrieval wiring** | **Done, merged** (`7d6a22e`, ff from `a674383`; library `6cd0943`). A gated retrieval renders. **The eval adapter and the provider still do not call it** — deliberately, and pinned |
 | 23 | **EM-303, first slice — search stored embeddings** | **Done, merged** (`7d6a22e`, ff from `9d5a72b`). Cosine + the `vector` generator behind `retrieve()`'s query-vector seam and the 50% coverage gate. **No embedder, no numpy cache; the default call is unchanged** |
 | 24 | **EM-303 — MMR's embedding path** | **Done, merged** (`000a268`, ff from `156370e`). `diversity.mmr` takes an optional pairwise similarity; the pipeline supplies cosine when a query vector and model were given (clamped at 0), Jaccard otherwise. **Default path unchanged** |
+| 25 | **EM-303 closed — backends, `embed`/`embed_backfill`, model identity, vector cache** | **Committed, not merged** (branch `em/em-303-backends`; the commit `Last reconciled` names). Four backends + auto/none selection; jobs with a write-time version recheck and `meta.embedding_model`; a numpy/pure-Python snapshot cache behind migration 0005 (50k p95 **3.86 ms**). CI not run |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -149,7 +148,7 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunk 24 is merged (`000a268`) with all checks green on that exact SHA, `identity-guard` included. The branch is deleted; the remote carries `main` and `release/2.8.x` only. The Marketplace entry is untouched (still 2.8.1 at `7e02412`). The next chunk is EM-303's remainder minus MMR; `main` rests at the merge tip this section does not repeat.
+**Chunk 25 (EM-303's closing slice), on branch `em/em-303-backends`, not merged.** `main` is `ccf3bc6` (Chunks 22–24 merged with green CI). This branch has not been pushed, so there is no CI on it. The Marketplace entry is untouched (2.8.1 at `7e02412`). With it merged, EM-303 is closed.
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
 from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed
@@ -234,6 +233,14 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   `diversity.mmr` accepts a pairwise similarity; the pipeline supplies cosine when a
   vector and a model were given, clamped at 0, with a per-pair Jaccard fallback.
   `similarities=None` is exactly the old behaviour.
+- **EM-303 closed (2026-10-09, `e8997d8`, committed on `em/em-303-backends`, not
+  merged):** the four backends with `auto` selection and a silent `none` fallback;
+  the `embed`/`embed_backfill` handlers (write-time version recheck; model identity
+  in `meta.embedding_model`, written only when the backfill completes); the
+  snapshot vector cache (numpy matrix or pure Python; fingerprint = count + max
+  rowid + write generation) behind migration 0005's index. **50k × 128 warm search
+  p95 3.86 ms** against the 25 ms AC. Nothing embeds on the query path yet — the
+  provider cards will call `ensure_embedding_model` and embed a query vector.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
   identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
   test that prints its full distribution, a document-control guard that
@@ -321,15 +328,16 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**EM-303's MMR embedding path is merged (`000a268`).** Local suite **2125/3/3** on
-Python 3.10 and 3.12, `ruff==0.16.2` clean; CI green on the merge SHA (4 Pythons,
-lint, evals, perf, Windows import, plugin validate, identity). `mmr` takes an
-optional pairwise similarity; the pipeline supplies cosine when a query vector and
-a model were given, Jaccard per pair otherwise; the clamp keeps a negative cosine
-from becoming a bonus. The default call passes no vector, so nothing about today's
-scores changes. What remains of EM-303: the embedding backends, the `embed` job,
-the model-switch backfill, and the numpy matrix cache. The cutover stays with the
-owner. P0's observable stays armed at `0.107143`.
+**EM-303 is closed on `em/em-303-backends`, not merged.** Local suite **2157/5/3**
+on Python 3.10 and 3.12 (the 5 skips: 3 without the private digest list, plus the two
+numpy-gated cache tests), `ruff==0.16.2` clean. CI has not run. The card's pieces:
+backends + selection, `embed`/`embed_backfill` with the model identity protocol, and
+the snapshot cache (50k × 128 warm p95 **3.86 ms** vs the 25 ms AC, measured with
+numpy; CI has none). **Nothing calls a backend to embed yet** — the provider cards
+(EM-401–403) will, and `ensure_embedding_model` exists for their initialize. Next
+chunk is a choice: S3's remaining cards (EM-308 vault notes, EM-309 shared, EM-310
+temporal v2), the eval-adapter switch (a measured change), or EM-401. The cutover
+stays with the owner. P0's observable stays armed at `0.107143`.
 
 **P0c's data is blocked on the environment, and the reason is now measured rather than
 assumed.** This box is not running EntropicMem at all: `~/.hermes/config.yaml` has **no
@@ -355,13 +363,13 @@ line there.**
    observable is fully armed now, so a clean sample can conclude; until (a) exists, the
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
-3. **EM-303's remainder.** The first slice (search over stored vectors + the
-   cosine condition) and the MMR embedding path are merged. What is left: the
-   embedding backends, the `embed` job, the model-switch backfill, and the numpy
-   matrix cache. Do not point the eval adapter at short citations and do not wire
-   `em/config.py` as part of it. Measure before any adapter switch: the 450-token
-   budget can drop an id the current bullet emits.
-4. **Pre-flight:** `python -m pytest -q` gives **2125 passed / 3 skipped / 3 xfailed**
+3. **EM-303 is closed** (backends, jobs, model identity, cache) on
+   `em/em-303-backends`, not merged. Nothing embeds on the query path yet by
+   design; the provider cards wire `ensure_embedding_model` and a query
+   embedding. Do not point the eval adapter at short citations and do not wire
+   `em/config.py` as a drive-by. Measure before any adapter switch: the
+   450-token budget can drop an id the current bullet emits.
+4. **Pre-flight:** `python -m pytest -q` gives **2157 passed / 5 skipped / 3 xfailed**
    on **both Python 3.10 and 3.12** (CI's extra set: fastapi, httpx, cryptography, pyyaml).
    `git merge-base --is-ancestor 4eb8097 HEAD` proves the base. A fresh venv without
    those extras skips and fails tests that are green in CI — that is the environment,
@@ -380,14 +388,16 @@ The owner set the order explicitly; do not reorder it without asking.
 | **1** | **P0c — collect the shadow data and read it against the frozen observable** | It is the gating empirical step for the cutover; the readout landed in `94dd3c7`, the **data has not** | **Readout DONE, observable fully armed, data outstanding** — needs ≥200 real turns on a host running the **dev-line shadow** (the owner's active machine is the candidate) |
 | **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py`, and the armed miss ceiling) | It was the next buildable chunk and it unblocks P0c's reading | **DONE (`4a2b25e`)** — holdout reported, defaults committed, ceiling armed at `0.107143` |
 | **3** | **EM-307 — packer and renderer** | §3.6's block, fed by a real retrieval | **DONE, merged (`7d6a22e`).** A gated retrieval renders. The adapter and the provider do not call it. Next build is EM-303's remainder |
-| **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | **First slice + MMR path DONE, merged (`000a268`).** Remaining: backends, `embed` job, backfill, numpy cache |
+| **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | **DONE (closing slice committed on `em/em-303-backends`, not merged):** backends, jobs, model identity, cache (50k p95 3.86 ms). Next chunk is a choice — S3's remaining cards, the adapter switch, or EM-401 |
+| **5** | **Next chunk — the owner to choose** | EM-303 is closed; the candidates: **S3's remaining cards** (EM-310 temporal v2, EM-309 shared memories, EM-308 vault notes in the pipeline), **the eval-adapter switch** onto `render_retrieval` (a measured change, not a drive-by), or **EM-401** (provider skeleton, which wires the embedding service at initialize) | Not started |
 | **—** | **P3 — the cutover** | Both re-decision conditions are met in code | **Held: the owner decides; the agent brings it** |
 
 **The owner's order was re-set on 2026-10-08** (this table): P0c first as the gating
 empirical step — now blocked only on a host, with the observable armed — then EM-306
-(**done**), then EM-307 (**done, merged**), then EM-303 (**started**: the first slice
-is merged and the MMR path is merged too; the backends
-and cache remain next). P1 is done and P3 stays with the owner. Do not reorder it
+(**done**), then EM-307 (**done, merged**), then EM-303 (**closed**: search and MMR
+are merged; backends, jobs and the cache are committed on `em/em-303-backends`,
+pending merge). **The next chunk's order is the owner's to set**; the candidates
+are listed in the table. P1 is done and P3 stays with the owner. Do not reorder
 without asking.
 
 **P0b's shape, as landed — serve prefetch from S3 on a v3 store:**
@@ -430,15 +440,15 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   owner-approved migration if ever wanted, never a silent rewrite. Reversible: no
   migration, no rewrite of existing rows. Full reasoning, including the outbox
   consumer analysis, in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
-* **`vector` searches stored embeddings and MMR uses them when present (EM-303,
-  first slice merged `7d6a22e`; MMR slice merged `000a268`).**
-  `candidates.vector`, `em/store/embeddings.py` and the `retrieve()` query-vector
-  seam are on `main`; `diversity.mmr` takes a pairwise similarity and the pipeline
-  supplies cosine-then-Jaccard. **Not yet built:** the embedding backends
-  (`fastembed` / `sentence_transformers` / `openai_compat` / `none`), the `embed`
-  job, the model-switch backfill, and the numpy matrix cache. Nothing embeds on
-  the query path, deliberately: a query with no caller-supplied vector does no
-  vector SQL at all.
+* **`vector` is complete (EM-303): search, MMR, backends, jobs, cache.** The four
+  backends and selection, `embed`/`embed_backfill`, and the snapshot cache are
+  committed on `em/em-303-backends`, not merged. **What is still deliberately
+  absent:** nothing produces a query embedding yet — the provider cards
+  (EM-401–403) call `ensure_embedding_model` at initialize and embed the query;
+  and episodes are not enqueued for embedding anywhere (their text shape exists;
+  the producer is EM-504's summariser path). The cache's one recorded caveat: a
+  raw-SQL same-length rewrite is not re-read until reset (all `put_embedding`
+  writes are seen).
 * **§3.6's IDF cache and `query_rewrite` have no source (EM-301)** — nothing defines
   the `write_generation` counter the cache would key on, so the vocabulary is read
   per call, and there is no config module to enable `query_rewrite` or a hook to
@@ -532,7 +542,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2125 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2157 passed / 5 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |

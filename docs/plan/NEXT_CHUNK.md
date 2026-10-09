@@ -1,12 +1,12 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-09. **EM-303's MMR embedding path is merged (`000a268`), all checks green on that exact SHA.** `diversity.mmr` takes an optional pairwise similarity; `pipeline.retrieve` supplies cosine (clamped at 0) when the caller gave a query vector and a model, token Jaccard per pair otherwise. **The default path is unchanged** (`similarities=None` is the old behaviour), and nothing embeds. EM-307 and EM-303's first slice are merged too (`7d6a22e`). Local suite **2125/3/3** on Python 3.10 and 3.12. **Next: EM-303's remainder minus MMR** — backends, `embed` job, backfill, numpy cache. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
+**Updated:** 2026-10-09. **EM-303 is closed on `em/em-303-backends` (`e8997d8`), not merged.** The closing slice: four embedding backends with `auto`/`none` selection (optional stacks imported lazily), `embed`/`embed_backfill` handlers (write-time version recheck; `meta.embedding_model` written only on completion; a backend-less box no-ops instead of queueing dead jobs), and the snapshot vector cache (numpy matrix or pure Python; fingerprint = count + max rowid + write generation) behind migration 0005's index. **50k × 128 warm search p95 3.86 ms** vs the 25 ms AC (numpy; the two numpy-gated tests skip in CI as the fastapi ones do without fastapi). Nothing embeds on the query path yet — the provider cards wire that. Local suite **2157/5/3** on Python 3.10 and 3.12. **CI has not run on this branch. `main` is `ccf3bc6`.** **Next chunk: the owner's call** — S3's remaining cards, the eval-adapter switch (measured), or EM-401. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
 
 **Owner decisions in force — the order was re-set on 2026-10-08** (`REMAINING_PLAN.md` §9 item 6):
 1. **P0c — collect the shadow data.** The gating empirical step for the cutover. **Freeze before you look: do not fit a threshold to the sample, and report the raw distribution and the margin, not just a green light.** The observable is now fully armed, so a clean sample can conclude — it still needs the dev-line shadow on a host (the owner's machine is active).
 2. **P2 / EM-306 — `evals tune`.** **DONE (2026-10-08, `4a2b25e`):** split by id hash, pre-declared grid, holdout reported, `em/config.py` committed, and the miss ceiling armed from the same holdout. **Hard constraint held: the gate does not depend on EM-301's 92.9%-on-42 intent table** (nothing intent-related is tuned).
 3. **EM-307 — packer and renderer.** **Done, merged (`7d6a22e`).** A gated retrieval renders; the adapter does not call it.
-4. **EM-303 — vectors.** **First slice merged (`7d6a22e`); MMR's embedding path merged (`000a268`).** **Next build: the remainder minus MMR** — backends, `embed` job, backfill, numpy cache. Lower urgency; the remaining quality lever behind the gate.
+4. **EM-303 — vectors.** **Closed** (search + MMR merged; backends, jobs, model identity and the cache committed on `em/em-303-backends`, not merged). **Next chunk: the owner's call** — S3's remaining cards, the adapter switch (measured), or EM-401.
 
 **The ceiling ruling (§9 item 7), in force from `3c8b301` and executed by EM-306:** `max_v3_only = 0` is hard and non-negotiable — a fabricated hit is a correctness/safety failure. The miss side is its own ceiling, `max_v2_miss_rate`, **armed 2026-10-08 at `0.107143`** — `1 − recall@5` of the v2 adapter on EM-306's holdout split (`evals/results/tune-hard-4eb8097.json`), which is exactly what `_shadow.MISS_CEILING_RULE` pre-registered. **The rule states the relationship plainly: the shadow's rate is v3-vs-v2, the bound is v2-vs-truth applied to it — a policy choice, not an identity.** **Do not re-arm it from a synthetic sample** — that is evidence about the metric, not about turns. The un-armed shape (`None` → `not armed`, blocking `met`) still exists and is tested; a clean sample can now read `met`.
 
@@ -99,9 +99,25 @@ P0b (`be6352e` — a v3 store serving prefetch from S3 behind `ENTROPICMEM_V3_RE
 - **Default path byte-identical:** no query vector means `similarities=None`, and every existing MMR test is unchanged.
 - 4 new tests. **2125 passed / 3 skipped / 3 xfailed on 3.10 and 3.12.** `ruff==0.16.2` clean. Three mutations went red: the pipeline's similarity suppressed, the clamp removed, and `mmr` ignoring a supplied callable. **Merged `000a268`; all checks green on that SHA.**
 
-## Part B: next — EM-303's remainder; P0c stays blocked on a host
+## Part A (continued): EM-303 closed out — backends, jobs, model identity, cache. **COMMITTED, NOT MERGED (2026-10-09, `e8997d8`)**
 
-**Do not switch the eval adapter onto `render_retrieval` as a drive-by.** Short ids break id matching. `cite="full"` fixes the brackets and still lets the 450-token budget drop an id the current bullet emits — measure that on the hard suite before doing it, and do not do it inside EM-303. Do not wire `em/config.py`. Do not flip `ENTROPICMEM_V3_RETRIEVAL`. P0c's data collection is unchanged and still blocked on the owner's host. **The next build is EM-303's remainder minus MMR: the embedding backends, the `embed` job, the backfill, and the numpy cache.**
+- **Backends + selection.** Four backends, lazily importing their optional stacks; `auto` order fastembed → sentence_transformers → openai_compat; explicit-but-unavailable falls back to `none`. `openai_compat` posts via stdlib urllib with env config; `none.embed` raises rather than returning a misleading empty list.
+- **Service.** Batches of ≤ 64; `summary or content` ≤ 2,000 (memories), `title + summary` (episodes); `warm()` idempotent; `embed_texts` refuses without a backend.
+- **Jobs.** `embed` re-checks the row version **inside the write transaction** (a lease-expired duplicate that read v1 and embedded while v2 landed cannot clobber). `embed_backfill` pages 64, heartbeats, and records `meta.embedding_model` only on completion; `ensure_embedding_model` dedupes one job per model. Backend-less runs are clean no-ops, never dead jobs. The worker CLI registers both types.
+- **Cache + 0005.** Snapshot per `(db, model, scope, mode)`; fingerprint `(count, max rowid, write generation)`, generation bumped by `put_embedding`. Numpy fast path or pure-Python fallback (identical ordering). Scope stays in `scope_sql` — the doc records why not masks. Migration 0005 adds `ix_embeddings_owner_model`.
+- **Measured.** 50k × 128 warm search **p95 3.86 ms** (p50 3.68, max 3.88) against 25 ms; cold build 297 ms. The AC test and the numpy-agreement test skip without numpy (CI), like the fastapi tests without fastapi.
+- **Recorded caveat.** A raw-SQL rewrite leaving count/max/generation untouched is not re-read until reset; pinned by a test.
+- 34 new tests. **2157 passed / 5 skipped / 3 xfailed on 3.10 and 3.12.** `ruff==0.16.2` clean, repo-wide. Mutations red: selection order, batch cap, model record, write-time recheck, tie-break sort, fingerprint invalidation. Two first drafts survived and each was a real gap — the stale-job test lacked a race and the tie sort lacked an observable order — both fixed and re-run red. **CI has not run. Not pushed.**
+
+## Part B: next — the owner's call; P0c stays blocked on a host
+
+**EM-303 is closed; the next card is not set by the owner yet.** The candidates to bring to that decision:
+
+- **S3's remaining cards**: EM-310 (temporal parsing v2 — "last N", month names, `timezone`), EM-309 (shared/cross-profile memories), EM-308 (vault notes in the pipeline).
+- **The eval-adapter switch** onto `render_retrieval`: a **measured** change, not a drive-by. Short ids would break `parse_injected_ids`; `cite="full"` fixes the brackets but the 450-token budget can drop an id the current bullet emits — measure the hard suite before, and after, on the branch.
+- **EM-401** (provider skeleton), which is where `ensure_embedding_model` and a query embedding get wired at initialize.
+
+Guards that stay in force: **do not wire `em/config.py`** (EM-401–403); **the `ENTROPICMEM_V3_RETRIEVAL` flag stays off**; **CI's eval gate stays v2**; a query with no caller-supplied vector must keep doing no vector work; and nothing embeds on the agent/prefetch thread.
 
 ### Step 1 — collect the real turns (**blocked on the environment, which is now measured**)
 
@@ -114,17 +130,9 @@ P0b (`be6352e` — a v3 store serving prefetch from S3 behind `ENTROPICMEM_V3_RE
 - **The lesson for arming, and it is a real one:** the shadow's miss rate is a **v3-vs-v2** quantity, so it is only interpretable where v2's own injections are mostly *correct* — i.e. on a real store, not on filler. Note also the **unit mismatch** to state explicitly in whichever commit arms the ceiling: the bound is derived from a **v2-vs-truth** rate (`1 − recall@5` on the holdout) but applied to a **v3-vs-v2** ratio. That is a defensible policy ("v3 may drop no more of v2's hits than v2 itself misses against truth") but it is not an identity, and it must not be written as one.
 - **The miss ceiling is armed now, so a clean sample can read `met`** — the `cannot conclude` shape was the un-armed era's expected reading; the report still names every dimension and its margin, and a violation still outranks a short sample.
 
-### Step 2 — EM-303's remainder (**the next buildable chunk**)
+### Step 2 — the next card is the owner's choice (**not yet set**)
 
-The first slice (search over stored vectors + the gate's cosine condition) is `9d5a72b`, described above. The card's spec — read from `~/Documents/EntropicMem Dev docs/EntropicMem_v3_Master_Plan.md` on 2026-10-09 — still names these, and none of them exists yet:
-
-- **The backends.** `EmbeddingBackend` protocol (`name`, `dim`, `available()`, `embed(texts)`, `warm()`) and the four implementations (`fastembed` default, `sentence_transformers`, `openai_compat`, `none`); selection `embeddings.backend: auto|…` (auto = first available in that order); model identity in `meta.embedding_model`. `em` stays stdlib-only: the backends import lazily and a missing dependency degrades to `none`, never to an error.
-- **The `embed` job** (batches ≤ 64; text = `summary or content` ≤ 2,000 chars for memories, `title + summary` for episodes) and **`embed_backfill`** when the configured model changes; vectors of another model are ignored until backfill completes, and the vector generator stays off below 50% coverage (already enforced).
-- **The numpy matrix cache** per `(db path, model, write_generation_embeddings)` with scope masks — do not re-read blobs per query. The current slice reads one query per search (not per candidate) and then decodes every vector in Python; the cache is what makes the card's **50k p95 < 25 ms** AC reachable, and that AC belongs to this step. Optional `sqlite-vec` probe if the extension loads.
-- **Warm-up in the JobWorker thread**, and the prefetch path checks `backend.is_warm` and skips vectors otherwise. **No embedding call ever runs on the agent/prefetch thread** (the card's AC; a test asserts it via thread name in debug mode).
-- **Per-model cosine thresholds for the tuned path.** EM-306's grid was empty for these (no backends); calibrating them belongs with whichever step first runs real vectors.
-
-Guards that stay in force while this is built: **do not switch the eval adapter** onto `render_retrieval` as a drive-by (measure the hard suite first); **do not wire `em/config.py`** (EM-401–403); **the `ENTROPICMEM_V3_RETRIEVAL` flag stays off**; **CI's eval gate stays v2**; and a query with no caller-supplied vector must keep doing no vector work at all.
+The candidates are listed under Part B: S3's remaining cards (EM-310 / EM-309 / EM-308), the measured eval-adapter switch, or EM-401. No work starts on one of them until that call is made — the previous chunk closed the last card the owner's order named.
 
 ### Step 3 — the pre-flight count guard. **DONE, MERGED (2026-10-08, hygiene chunk)**
 
@@ -161,8 +169,8 @@ suite, and **stop and report on a mismatch** instead of assuming the older numbe
 ### Pre-flight
 
 1. `main` must be at `4eb8097` or later: `git merge-base --is-ancestor 4eb8097 main`.
-2. **Baseline:** `pytest -q` gives **2125 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12** (3 skips on a box without the private digest list; CI runs with it, and a venv also needs fastapi, httpx, cryptography, and pyyaml or the yaml/graph tests fail or skip). The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo). The full suite with the list was not re-run for this slice; it would read **2126 passed / 2 skipped / 3 xfailed** by the same one-skip shift. `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list still fails closed, deliberately.
-3. **Re-measure from the code, not this file:** `_shadow.py` (`PROMOTION`, `MISS_CEILING_RULE`, `evaluate`, `read_log`, `render`, `main`), `scripts/shadow_collect.py`, `em/facade/engine.py` (`v3_retrieval_enabled`, `_recall_from_v3`), `em/retrieval/pipeline.py`, `em/retrieval/candidates.py` (`vector`), `em/store/embeddings.py`, `em/config.py`, `evals/tune.py`, `em/retrieval/gate.py` (`load_rows`' pinned input), `evals/` (`runner`, `metrics`, `adapters/engine_v3.py`), `.github/workflows/test.yml`.
+2. **Baseline:** `pytest -q` gives **2157 passed, 5 skipped, 3 xfailed** on **both Python 3.10 and 3.12** (5 skips on a box without the private digest list and without numpy — 3 environment/private and 2 numpy-gated cache tests; CI runs with the digest list but has no numpy, so it also reads 5). The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo) — that run reads **2158 passed / 4 skipped / 3 xfailed**. `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list still fails closed, deliberately.
+3. **Re-measure from the code, not this file:** `_shadow.py` (`PROMOTION`, `MISS_CEILING_RULE`, `evaluate`, `read_log`, `render`, `main`), `scripts/shadow_collect.py`, `em/facade/engine.py` (`v3_retrieval_enabled`, `_recall_from_v3`), `em/retrieval/pipeline.py`, `em/retrieval/candidates.py` (`vector`), `em/embeddings/` (`backends`, `service`, `jobs`, `cache`), `em/store/embeddings.py`, `em/config.py`, `evals/tune.py`, `em/retrieval/gate.py` (`load_rows`' pinned input), `evals/` (`runner`, `metrics`, `adapters/engine_v3.py`), `.github/workflows/test.yml`.
 4. **Verify CI with the check-runs API on the commit**, and read `head_sha`.
 
 ### Document control
