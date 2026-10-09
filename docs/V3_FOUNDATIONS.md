@@ -229,15 +229,18 @@ These are decisions the writes chunk made that are not obvious from the signatur
   (EM-305).** `MemoryStore._content_hash` mixes the scope into the digest, so the
   hash cannot see the pair. The collapse groups on the loaded text, which is what
   the hash was derived from.
-- **`ranking.*` config does not exist (EM-304).** §3.6 says the rerank weights and
-  half-lives live in `ranking.*`. There is still no `em/config.py` (EM-407), so
-  `fusion.RankWeights` carries the spec's numbers as defaults and the caller may
-  override them — the same shape as EM-301's `extra_stopwords`. Do not invent a
-  config system in either place.
-- **`superseded_note` is emitted but not rendered (EM-304 → EM-305 → EM-307).**
+- **`ranking.*` call sites still use the spec defaults (EM-304 / EM-306).** §3.6
+  says the rerank weights live in `ranking.*`. EM-306 committed tuned scalars in
+  `em/config.py` and nothing in retrieval reads them — EM-401–403 wire them, and
+  EM-407 owns the loader. `fusion.RankWeights` still carries the spec's numbers
+  as the default a caller may override. Do not invent a second config system.
+- **`superseded_note` has a renderer and no caller (EM-304 → EM-305 → EM-307).**
   §3.6's third `why_retrieved` flag is emitted by EM-305's collapse when a
-  predecessor changed inside 30 days; §3.6's render of it is EM-307's, so no
-  renderer shows it yet — P0b's served block deliberately does not.
+  predecessor changed inside 30 days. `em.provider.render` prints
+  `(kind · updated <date>; was: <old>)` when `PackItem.was` is set. Nothing on
+  the served path or in `pipeline.retrieve` calls it — P0b's block is still the
+  provider's `_format_block`, and the library is committed on `em/em-307-packer`,
+  not merged.
 - **`why_retrieved_tokens` reaches a read path only in P0b's on mode (EM-304).**
   §3.6 keeps the legacy flat token list for one minor version.
   `fusion.legacy_tokens()` converts a `Ranking`, and the facade's flag-gated path

@@ -493,9 +493,9 @@ approval. The plan does not have to be finished for EntropicMem to be useful.
 | **Development line** | `main` at `3c8b301` or later, version `3.0.0.dev0`. All of S2 (the `em/` storage core) is merged; on a v3 store the facade serves the read half, and with `ENTROPICMEM_V3_RETRIEVAL=1` (default off) so does `em.retrieval`. `main` must stay green and releasable. |
 | **Last landed chunk** | **EM-306 — the calibration harness, and the armed miss ceiling** (`4a2b25e`). Before it: the trust pass (the cited-SHA guard `085ab72` + the rule's policy wording `de495f2`), then **Chunk 20 — the promotion ceiling split, by owner ruling** (`3c8b301`). (Chunk 19, P0c's readout and collector, was `94dd3c7`; Chunk 18, P0b serving prefetch from S3, `be6352e`; Chunk 17, P0a the shadow read, `f0a7c70`.) |
 | **Same-day hygiene batch** | Five no-bump commits: the CI action majors, `perf-smoke` diagnostics, the concurrency-test flake fix, the `ARCHITECTURE.md` v3 section, and two new doc guards. |
-| **Next piece of development** | **EM-307 — the packer and renderer** (its card is on the owner's machine; read it before starting, and stop if unreachable). It closes the recorded memories-only gap and renders §3.6's `superseded_note`. Then **EM-303** (vectors). **P0c's data remains blocked on the environment (§9 item 8): this box does not run the plugin at all** — the observable is now fully armed, and **the host is the owner's active machine; the dev-line shadow there is the missing piece.** The owner's order, re-set 2026-10-08 (§9 item 6). |
-| **In flight** | **Nothing.** Chunk 20 is merged with green CI on the exact SHA; the feature branch is deleted; the remote carries `main` and `release/2.8.x` only, and the Marketplace entry is untouched (2.8.1 at `7e02412`). **The cutover re-decision point is met in full** — (a) by P0a + P0b, (b) by the adapter — **and the decision is still the owner's: "conditions met" is not "proceed".** Chunk 13's change is **internal only**, and it **cannot be a 2.8.x patch** (`release/2.8.x` carries no `em/`) — its only vehicle is 3.0. |
-| **Stage** | **P0's code, readout and observable are complete and fully armed; P0c's *data* is the outstanding empirical step and needs the dev-line shadow on a host — the owner's machine is active (§9 item 8).** EM-301/302/304/305 and EM-306 merged, the v3 adapter has end-to-end numbers, a v3 store can serve prefetch from S3 behind the flag, and a divergence log can be scored against an armed ceiling (`0.107143`, from EM-306's holdout). **The next build is EM-307 (packer + renderer); the cutover waits with the owner** (§9 items 4, 6, 7). |
+| **Next piece of development** | **Wire EM-307.** The packer and renderer are committed on `em/em-307-packer` (`6cd0943`), **not merged, not pushed, CI not run.** Nothing calls them, so the memories-only gap is still open. Wiring must keep full ids on the eval path. Then **EM-303**. **P0c's data remains blocked on the owner's host** (§9 item 8). |
+| **In flight** | **EM-307's library, branch `em/em-307-packer`, not merged and not pushed.** `main` is `9910616`. No CI on this commit. The Marketplace entry is untouched (2.8.1 at `7e02412`). **The cutover is still the owner's.** Chunk 13 stays internal only. |
+| **Stage** | **P0's code and observable are complete and armed (`0.107143`); P0c's data still needs the dev-line shadow on the owner's host (§9 item 8).** EM-307's packer and renderer are committed on a branch and unwired. **The cutover waits with the owner** (§9 items 4, 6, 7). |
 
 ### Verify before you touch anything
 
@@ -504,7 +504,7 @@ cd ~/Documents/trae_projects/EntropicMem
 git fetch --all --prune && git status -sb && git log --oneline -12
 git ls-remote --heads origin        # expect exactly main + release/2.8.x
 
-# The repo's own pre-flight. Expect 2090 passed, 3 skipped, 3 xfailed (about 1 minute on a warm box).
+# The repo's own pre-flight. Expect 2103 passed, 3 skipped, 3 xfailed (about 1 minute on a warm box).
 # 3 skips here because the private digest list is not at the default path on this machine; CI has
 # it. With no list, REQUIRE=1 fails closed by design, so do not set it for this run.
 env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_INDEX_DB -u ENTROPICMEM_VAULT_PATH \
