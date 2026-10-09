@@ -30,6 +30,7 @@ __all__ = [
     "VECTOR_MIN_COVERAGE",
     "count_active_memories",
     "count_episodes",
+    "count_stale_vectors",
     "cosine",
     "load_memory_vectors",
     "load_vectors",
@@ -216,6 +217,43 @@ def load_memory_vectors(
         scope_params=scope_params,
         width=width,
     )
+
+
+def count_stale_vectors(
+    conn: sqlite3.Connection,
+    *,
+    owner_type: str = "memory",
+    model: str,
+    scope_clause: str,
+    scope_params: Sequence[object],
+) -> int:
+    """Rows that exist for ``model`` but are **excluded as stale** on read.
+
+    A stale row is one whose stored hash/stamp is non-empty and does not match
+    the row's current one — the text changed after embedding and the queued
+    re-embed has not landed. Empty stored hashes are "unverified" (pre-EM-303
+    rows and fixtures) and are not counted. This is the observable for the
+    stale-exclusion warning: a coverage drop shows up as a number here.
+    """
+    if not model:
+        return 0
+    if owner_type == "episode":
+        sql = (
+            "SELECT COUNT(*) AS n FROM embeddings emb JOIN episodes e ON e.id = emb.owner_id"
+            " WHERE emb.owner_type = 'episode' AND emb.model = ?"
+            "   AND emb.content_hash <> '' AND emb.content_hash <> e.updated_at"
+            "   AND " + scope_clause
+        )
+    else:
+        sql = (
+            "SELECT COUNT(*) AS n FROM embeddings emb JOIN memories m ON m.id = emb.owner_id"
+            " WHERE emb.owner_type = 'memory' AND emb.model = ?"
+            "   AND m.status = 'active'"
+            "   AND emb.content_hash <> '' AND emb.content_hash <> m.content_hash"
+            "   AND " + scope_clause
+        )
+    row = conn.execute(sql, (model, *scope_params)).fetchone()
+    return int(row["n"]) if row is not None else 0
 
 
 def count_episodes(

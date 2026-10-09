@@ -15,6 +15,7 @@ Invented data only: Acme.
 
 from __future__ import annotations
 
+import logging
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,6 +28,9 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from em.clock import freeze, to_iso  # noqa: E402
+from em.embeddings.jobs import make_embed_handler  # noqa: E402
+from em.embeddings.service import EmbeddingService  # noqa: E402
+from em.jobs import HandlerRegistry, JobWorker  # noqa: E402
 from em.provider.render import render_retrieval  # noqa: E402
 from em.retrieval.pipeline import retrieve  # noqa: E402
 from em.store.db import Store  # noqa: E402
@@ -135,3 +139,65 @@ def test_lexical_and_vector_hits_do_not_duplicate(store):
         _embed_episode(store, episode, (1.0, 0.0))
     found = _retrieve(store, query="Acme migration decision")
     assert found.ids.count(episode) == 1
+
+
+def test_a_partial_new_model_backfill_never_uses_old_model_vectors(store):
+    """Same rule as memories: a half-switched model never mixes episode rows."""
+    old_model = "bge-small-en-v1.5"
+    with freeze(NOW):
+        switched = _add_episode(store, "Acme fleet cutover to example signaling")
+        old_only = _add_episode(store, "invoices are filed on Fridays")
+        for episode_id in (switched, old_only):
+            with store.transaction() as conn:
+                put_embedding(
+                    conn, owner_type="episode", owner_id=episode_id, model=old_model,
+                    vector=(1.0, 0.0), created_at=to_iso(NOW),
+                )
+        _embed_episode(store, switched, (1.0, 0.0))  # new model, 1 of 2 = 50%
+    found = _retrieve(store)
+    assert switched in found.ids
+    assert old_only not in found.ids
+
+
+def test_a_stale_episode_is_excluded_logged_and_restored_by_the_re_embed_queue(store, caplog):
+    with freeze(NOW):
+        with store.transaction() as conn:
+            episode = EpisodeStore(conn).add_episode(
+                scope=OWNER, kind="session", session_id="sess-1",
+                title="Acme fleet cutover to example signaling",
+                summary="object numbers are hub ids",
+            )
+        _embed_episode(store, episode, (1.0, 0.0))
+    with freeze(NOW + timedelta(milliseconds=5)):
+        with store.transaction() as conn:
+            EpisodeStore(conn).upsert_episode(
+                scope=OWNER, kind="session", session_id="sess-1", window_seq=0,
+                title="Acme fleet cutover to example signaling",
+                summary="object numbers are hub ids, revised",
+            )
+
+    caplog.set_level(logging.INFO, logger="em.retrieval.vectors")
+    assert episode not in _retrieve(store).ids
+    assert "stale vector(s) excluded" in caplog.text
+
+    class Fake:
+        name = "fake"
+        default_model = MODEL
+        dim = 2
+
+        def available(self):
+            return True
+
+        def warm(self):
+            pass
+
+        def embed(self, texts):
+            return [[1.0, 0.0] for _ in texts]
+
+    registry = HandlerRegistry()
+    registry.register(
+        "embed", make_embed_handler(EmbeddingService(":memory:", backend=Fake(), model=MODEL))
+    )
+    outcomes = JobWorker(store, registry, worker_id="w").run_until_idle()
+    assert any(outcome.status == "done" for outcome in outcomes)
+    assert episode in _retrieve(store).ids

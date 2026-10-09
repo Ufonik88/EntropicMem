@@ -107,9 +107,16 @@ def cmd_run(args: argparse.Namespace) -> int:
         scenarios.extend(dataset_mod.load_scenarios(p))
 
     try:
-        # ci and hard must never touch the ML stack (plan line 704); the
-        # vector backend belongs to suite full (plan line 1269).
-        adapter = make_adapter(args.adapter, disable_embeddings=(args.suite in ("ci", "hard")))
+        # ci and hard must never touch the ML stack (plan line 704) *by default*;
+        # the vector backend belongs to suite full (plan line 1269). An explicit
+        # --embeddings/--no-embeddings overrides the suite rule so a vector-mode
+        # run can be produced deliberately (its result is mode-labelled, and a
+        # cross-mode compare is context only).
+        if args.embeddings is None:
+            disable_embeddings = args.suite in ("ci", "hard")
+        else:
+            disable_embeddings = not args.embeddings
+        adapter = make_adapter(args.adapter, disable_embeddings=disable_embeddings)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
@@ -172,6 +179,15 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--suite", default="ci", help="ci | full | hard | external")
     run_p.add_argument("--adapter", default="v2", help="engine adapter (v2 | v3)")
     run_p.add_argument("--k", type=int, default=5, help="ranking depth for recall/ndcg")
+    embeddings_group = run_p.add_mutually_exclusive_group()
+    embeddings_group.add_argument(
+        "--embeddings", dest="embeddings", action="store_true", default=None,
+        help="force the vector path on (overrides the suite default of off for ci/hard)",
+    )
+    embeddings_group.add_argument(
+        "--no-embeddings", dest="embeddings", action="store_false", default=None,
+        help="force the vector path off even for suites that would allow it",
+    )
     run_p.add_argument("--compare", default=None, metavar="FILE",
                        help="baseline results JSON; prints deltas and gates regression")
     run_p.add_argument("--results-dir", default=None,

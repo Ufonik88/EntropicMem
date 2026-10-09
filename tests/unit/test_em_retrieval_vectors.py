@@ -9,6 +9,7 @@ Invented data only: Acme, Alice, Bob.
 
 from __future__ import annotations
 
+import logging
 import math
 import sys
 from datetime import datetime, timezone
@@ -22,12 +23,15 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from em.clock import freeze, to_iso  # noqa: E402
+from em.embeddings.jobs import make_embed_handler  # noqa: E402
+from em.embeddings.service import EmbeddingService  # noqa: E402
+from em.jobs import HandlerRegistry, JobWorker  # noqa: E402
 from em.retrieval.pipeline import retrieve  # noqa: E402
 from em.store.db import Store  # noqa: E402
 from em.store.embeddings import cosine, pack_vector, put_embedding, unpack_vector  # noqa: E402
 from em.store.memories import MemoryStore  # noqa: E402
 from em.store.migrations import migrate  # noqa: E402
-from em.store.types import MemoryDraft, Scope  # noqa: E402
+from em.store.types import MemoryDraft, MemoryPatch, Scope  # noqa: E402
 
 ALICE = Scope(profile="default", user="alice")
 BOB = Scope(profile="default", user="bob")
@@ -347,3 +351,107 @@ def test_a_vector_of_another_width_is_filtered_not_mixed(store):
     )
     assert two in found.ids
     assert three not in found.ids
+
+
+def _one_direction_service():
+    """A fake backend whose vectors are all aligned with the (1, 0) probe."""
+
+    class Fake:
+        name = "fake"
+        default_model = MODEL
+        dim = 2
+
+        def available(self):
+            return True
+
+        def warm(self):
+            pass
+
+        def embed(self, texts):
+            return [[1.0, 0.0] for _ in texts]
+
+    return EmbeddingService(":memory:", backend=Fake(), model=MODEL)
+
+
+def test_a_stale_memory_is_excluded_logged_and_restored_by_the_re_embed_queue(store, caplog):
+    """The mitigation for the silent-recall-drop risk: the drop is logged, and
+    the normal queue puts the memory back."""
+    with freeze(NOW):
+        memory = _add(store, "llamas enjoy twilight at Acme")
+        _embed_with_hash(store, memory, (1.0, 0.0), _content_hash(store, memory))
+        # Edit the text: version+1 enqueues a fresh embed job; the vector is stale.
+        with store.transaction() as conn:
+            result = MemoryStore(conn).update(
+                memory, MemoryPatch(content="invoices are filed on Fridays"),
+                actor="tester", reason="edit",
+            )
+        assert result.ok, result
+
+    caplog.set_level(logging.INFO, logger="em.retrieval.vectors")
+    found = retrieve(
+        store.reader(),
+        scope=ALICE,
+        query="orbital decay of a satellite",
+        with_gate=True,
+        now=NOW,
+        query_vector=(1.0, 0.0),
+        embedding_model=MODEL,
+    )
+    assert memory not in found.ids
+    assert "stale vector(s) excluded" in caplog.text
+    assert "coverage=0.000" in caplog.text
+
+    # The queue re-embeds; the memory comes back without any manual repair.
+    registry = HandlerRegistry()
+    registry.register("embed", make_embed_handler(_one_direction_service()))
+    outcomes = JobWorker(store, registry, worker_id="w").run_until_idle()
+    assert any(outcome.status == "done" for outcome in outcomes)
+
+    restored = retrieve(
+        store.reader(),
+        scope=ALICE,
+        query="orbital decay of a satellite",
+        with_gate=True,
+        now=NOW,
+        query_vector=(1.0, 0.0),
+        embedding_model=MODEL,
+    )
+    assert memory in restored.ids
+
+
+def test_a_partial_new_model_backfill_never_uses_old_model_vectors(store):
+    """A half-finished switch returns lexical results plus new-model vectors only.
+
+    Old-model rows sit beside the new ones until pruned (a recorded policy),
+    and `load_vectors` filters by the configured model: a memory whose only
+    vector belongs to the old model stays out of vector results even though a
+    matching vector exists for it in the table.
+    """
+    old_model = "bge-small-en-v1.5"
+    with freeze(NOW):
+        first = _add(store, "llamas enjoy twilight at Acme")
+        second = _add(store, "invoices are filed on Fridays")
+        old_only = _add(store, "the kettle is blue")
+        for memory_id in (first, second, old_only):
+            _embed(store, memory_id, (1.0, 0.0), model=old_model)
+        # Partial switch: two of three memories have new-model vectors (66%).
+        _embed(store, first, (1.0, 0.0), model=MODEL)
+        _embed(store, second, (1.0, 0.0), model=MODEL)
+    # The old-only row's vector is really there; it is the model filter that hides it.
+    rows = store.reader().execute(
+        "SELECT COUNT(*) AS n FROM embeddings WHERE model=?", (old_model,)
+    ).fetchone()
+    assert rows["n"] == 3
+
+    found = retrieve(
+        store.reader(),
+        scope=ALICE,
+        query="orbital decay of a satellite",
+        with_gate=True,
+        now=NOW,
+        query_vector=(1.0, 0.0),
+        embedding_model=MODEL,
+    )
+    assert first in found.ids
+    assert second in found.ids
+    assert old_only not in found.ids

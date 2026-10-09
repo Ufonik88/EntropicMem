@@ -37,6 +37,7 @@ Stdlib only (plan §3.2).
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 import time
@@ -50,9 +51,12 @@ from ..store.embeddings import (
     VECTOR_MIN_COVERAGE,
     count_active_memories,
     count_episodes,
+    count_stale_vectors,
 )
 from ..store.types import OWNER_ONLY_TIERS, Scope, may_read_owner_only
 from .query import MAX_TERMS, AnalyzedQuery
+
+log = logging.getLogger("em.retrieval.vectors")
 
 __all__ = [
     "BM25_WEIGHTS",
@@ -108,6 +112,40 @@ RECENT_WINDOW = timedelta(hours=48)
 _HOP_FACTOR = 0.5
 
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
+
+
+def _log_vector_coverage(
+    owner_type: str,
+    model: str,
+    *,
+    coverage: float,
+    usable: int,
+    active: int,
+    stale: int,
+) -> None:
+    """Per-query observability, so a silent recall drop is visible in logs.
+
+    One INFO line per query in vector mode with the coverage and the stale
+    count; a WARNING whenever vectors were excluded as stale, because that is
+    the coverage drop the re-embed queue has to catch up with.
+    """
+    if stale:
+        log.warning(
+            "vector[%s] model=%s: %d stale vector(s) excluded as stale "
+            "(content changed after embedding; re-embed queued)",
+            owner_type,
+            model,
+            stale,
+        )
+    log.info(
+        "vector[%s] model=%s: coverage=%.3f usable=%d active=%d stale_excluded=%d",
+        owner_type,
+        model,
+        coverage,
+        usable,
+        active,
+        stale,
+    )
 
 
 def _monotonic() -> float:
@@ -335,7 +373,14 @@ def vector(ctx: RetrievalContext) -> List[Candidate]:
         width=len(query),
     )
     active = count_active_memories(ctx.conn, scope_clause=clause, scope_params=params)
-    if active <= 0 or (entry.count / active) < VECTOR_MIN_COVERAGE:
+    coverage = (entry.count / active) if active > 0 else 0.0
+    stale = count_stale_vectors(
+        ctx.conn, owner_type="memory", model=model, scope_clause=clause, scope_params=params
+    )
+    _log_vector_coverage(
+        "memory", model, coverage=coverage, usable=entry.count, active=active, stale=stale
+    )
+    if active <= 0 or coverage < VECTOR_MIN_COVERAGE:
         return []
     if ctx.out_of_time():
         return []
@@ -445,7 +490,14 @@ def _episode_vector_candidates(ctx: RetrievalContext) -> List[Candidate]:
         width=len(query),
     )
     active = count_episodes(ctx.conn, scope_clause=clause, scope_params=params)
-    if active <= 0 or (entry.count / active) < VECTOR_MIN_COVERAGE:
+    coverage = (entry.count / active) if active > 0 else 0.0
+    stale = count_stale_vectors(
+        ctx.conn, owner_type="episode", model=model, scope_clause=clause, scope_params=params
+    )
+    _log_vector_coverage(
+        "episode", model, coverage=coverage, usable=entry.count, active=active, stale=stale
+    )
+    if active <= 0 or coverage < VECTOR_MIN_COVERAGE:
         return []
     ranked = search_vectors(
         ctx.conn,

@@ -387,6 +387,35 @@ def _rows_snapshot(store, model):
     )
 
 
+def _embeddings_digest(store, model=None):
+    """Row count plus a checksum over every column of the embeddings table.
+
+    The replay oracle is the whole table, not one column: a rewrite that
+    changes any stored value (or the row set) moves the digest, so the test
+    does not silently depend on `created_at` being the contract.
+    """
+    import hashlib
+
+    sql = (
+        "SELECT owner_type, owner_id, model, dim, vector, content_hash, created_at"
+        " FROM embeddings"
+    )
+    params: tuple = ()
+    if model is not None:
+        sql += " WHERE model = ?"
+        params = (model,)
+    sql += " ORDER BY owner_type, owner_id, model"
+    rows = store.reader().execute(sql, params).fetchall()
+    digest = hashlib.sha256()
+    for row in rows:
+        for key in ("owner_type", "owner_id", "model", "dim", "content_hash", "created_at"):
+            digest.update(str(row[key]).encode("utf-8"))
+            digest.update(b"\x1f")
+        digest.update(bytes(row["vector"]))
+        digest.update(b"\x1f")
+    return (len(rows), digest.hexdigest())
+
+
 def test_backfill_is_idempotent_when_replayed(store):
     for i in range(70):
         _add(store, f"the Acme staging note number {i}")
@@ -396,18 +425,18 @@ def test_backfill_is_idempotent_when_replayed(store):
         )
         ensure_embedding_model(conn, MODEL)
     _run(store, {"embed_backfill": make_embed_backfill_handler(_service())})
-    before = _rows_snapshot(store, MODEL)
-    assert len(before) == 71
-    assert all(content_hash for *_rest, content_hash, _created, _vector in before)
+    before = _embeddings_digest(store, MODEL)
+    assert before[0] == 71
+    assert all(content_hash for *_rest, content_hash, _created, _vector in _rows_snapshot(store, MODEL))
 
-    # Replay the same model: no new rows, no rewrites (created_at is the tell).
+    # Replay the same model: no new rows and no rewrite of any stored value.
     with store.transaction() as conn:
         JobQueue(conn).enqueue(
             "embed_backfill", {"model": MODEL}, dedupe_key="replay-backfill"
         )
     outcomes = _run(store, {"embed_backfill": make_embed_backfill_handler(_service())})
     assert [o.status for o in outcomes] == ["done"]
-    assert _rows_snapshot(store, MODEL) == before
+    assert _embeddings_digest(store, MODEL) == before
     with store.transaction() as conn:
         assert ensure_embedding_model(conn, MODEL) is None
         assert stored_model(conn) == MODEL
