@@ -204,7 +204,7 @@ These are decisions the writes chunk made that are not obvious from the signatur
   generation)`, numpy or pure Python, behind migration 0005's index.
   **No embedding call ever runs on the agent/prefetch thread**, and a query with
   no caller-supplied vector does no vector work at all. **The follow-up slice
-  (on `em/em-303-gaps`, not merged)** makes `EpisodeStore` an embedding producer
+  (merged `42e16c7`)** makes `EpisodeStore` an embedding producer
   (`add_episode`/`upsert_episode` enqueue; the handler and backfill cover
   episodes with `updated_at` as the stale guard) and has the v3 eval adapter
   embed documents and the query when a suite allows embeddings. **What is still
