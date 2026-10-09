@@ -45,6 +45,12 @@ evals/results/*
 # EM-306's calibration record is a committed artifact, not a per-run output: the
 # config comment and the arming rule link it, so it must survive a clean checkout.
 !evals/results/tune-*.json
+
+# EM-401's host-contract pin: a dated copy of the MemoryProvider surface from the
+# pinned hermes-agent. It must survive a clean checkout because CI has no host to
+# re-derive it from — without it the contract test would have nothing to assert.
+# Carries method names and signatures only, never user data.
+!tests/harness/pinned_memory_provider.json
 .vscode/
 .idea/
 *.swp

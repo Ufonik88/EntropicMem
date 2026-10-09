@@ -413,11 +413,14 @@ class TestSmartCache:
             "cache_ttl_seconds": 300,
         })
         provider._prefetch_cache = "cached result"
+        provider._prefetch_cache_count = 2
         provider._cache_timestamp = provider._get_timestamp()
         provider._cache_query_key = provider._cache_key("test query")
 
         result = provider._check_cache("test query")
-        assert result == "cached result"
+        # The block rides along with the count of facts it injected (§4.1
+        # recall_status must survive a cache hit without re-running the pipeline).
+        assert result == ("cached result", 2)
 
     def test_cache_miss_different_query(self):
         """Test cache miss on different enhanced query."""

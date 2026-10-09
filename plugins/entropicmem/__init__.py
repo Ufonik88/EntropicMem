@@ -30,12 +30,21 @@ from agent.memory_provider import MemoryProvider
 
 from . import _shadow
 from ._backend import (
+    bootstrap_scripts_path,
     ensure_scripts_on_path,
     hermes_home_from_kwargs,
     load_plugin_config,
     resolve_paths,
     resolve_scripts_dir,
 )
+
+# The em.* skeleton (EM-401's hook surface) is needed at class-definition time,
+# which is before the host has resolved any paths — so the scripts dir goes on
+# sys.path here, from the plugin's own layout, before the import below.
+bootstrap_scripts_path()
+
+from em.provider.hooks import fail_soft  # noqa: E402
+from em.provider.state import ProviderState  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +223,19 @@ def _tool_error(msg: str) -> str:
         return json.dumps({"error": msg})
 
 
+def _tool_call_failed(*args: Any, **kwargs: Any) -> str:
+    """``fail_soft`` fallback for ``handle_tool_call``.
+
+    §4.4: the hook returns a JSON string **always**. Every tool handler already
+    fails soft; this is the belt-and-braces for a raise that got past one, and
+    it names the tool but never its arguments (those are the user's text).
+    ``fail_soft`` calls the fallback with the hook's own arguments, so ``self``
+    arrives first.
+    """
+    tool_name = args[1] if len(args) > 1 else "entropicmem tool"
+    return _tool_error(f"{tool_name}: internal error (see provider logs)")
+
+
 # Unmissable marker prefixed to stored memory that the local injection screen flags.
 INJECTION_WARNING = (
     "⚠️⚠️ INJECTION-SUSPECT CONTENT — flagged by the local injection screen; "
@@ -262,12 +284,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
         self._vault_path: Optional[Path] = None
         self._index_db: Optional[Path] = None
         self._memory_db: Optional[Path] = None
-        self._session_id = ""
-        # MemoryProvider contract: 'primary' | 'subagent' | 'cron' | 'flush'.
-        # Recorded from initialize(); missing (legacy hosts) means 'primary'.
-        self._agent_context: str = "primary"
+        # EM-401: the session-scoped fields the §4.1 hooks read and write live
+        # in one holder (see em/provider/state.py). ``_session_id``,
+        # ``_agent_context`` and ``_core_baseline`` below are properties over
+        # it, so no call site changed and no second copy can drift.
+        self._state = ProviderState()
         self._prefetch_lock = threading.Lock()
         self._prefetch_cache: Optional[str] = None
+        self._prefetch_cache_count: int = 0
         self._cache_query_key: str = ""
         self._last_query: str = ""
         self._conversation_history: List[Dict[str, Any]] = []
@@ -283,6 +307,32 @@ class EntropicMemMemoryProvider(MemoryProvider):
         self._session_turns: List[Dict[str, Any]] = []
         self._last_cadence_flush: float = 0.0
 
+    # -- session-scoped state (EM-401: em/provider/state.py) -----------------
+
+    @property
+    def _session_id(self) -> str:
+        return self._state.session_id
+
+    @_session_id.setter
+    def _session_id(self, value: str) -> None:
+        self._state.session_id = value or ""
+
+    @property
+    def _agent_context(self) -> str:
+        return self._state.agent_context
+
+    @_agent_context.setter
+    def _agent_context(self, value: str) -> None:
+        self._state.agent_context = str(value or "primary")
+
+    @property
+    def _core_baseline(self) -> str:
+        return self._state.core_baseline
+
+    @_core_baseline.setter
+    def _core_baseline(self, value: str) -> None:
+        self._state.core_baseline = value or ""
+
     @property
     def name(self) -> str:
         return "entropicmem"
@@ -293,8 +343,9 @@ class EntropicMemMemoryProvider(MemoryProvider):
         MemoryProvider contract (``initialize()`` kwargs): 'subagent' | 'cron' |
         'flush' turns must skip writes so they cannot pollute durable memory.
         """
-        return self._agent_context == "primary"
+        return self._state.writes_allowed()
 
+    @fail_soft(fallback=lambda *a, **k: False)
     def is_available(self) -> bool:
         try:
             # Stored profile home (initialize) first, then HERMES_HOME env,
@@ -305,6 +356,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         except Exception:
             return False
 
+    @fail_soft(fallback=lambda *a, **k: [])
     def get_config_schema(self) -> List[Dict[str, Any]]:
         return [
             {
@@ -504,6 +556,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             },
         ]
 
+    @fail_soft  # fail-closed: §4.1 — save_config raises on failure, visible to the setup UI
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
         """Merge-only update of plugins.entropicmem — never clobber other plugins."""
         config_path = Path(hermes_home) / "config.yaml"
@@ -531,6 +584,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         except Exception as e:
             logger.debug("entropicmem save_config failed: %s", e)
 
+    @fail_soft
     def initialize(self, session_id: str, **kwargs) -> None:
         self._session_id = session_id
         # MemoryProvider contract: agent_context is 'primary' | 'subagent' |
@@ -575,6 +629,20 @@ class EntropicMemMemoryProvider(MemoryProvider):
         )
         self._memory_db.parent.mkdir(parents=True, exist_ok=True)
 
+    @fail_soft
+    def unavailable_reason(self) -> str:
+        """Host-facing hint shown when ``is_available()`` is False.
+
+        The host's activation gate calls ``is_available()`` on an
+        uninitialized instance, so this can only report why the *skill* is not
+        resolvable — never anything about the store.
+        """
+        return (
+            "EntropicMem skill scripts not found — run "
+            "`/learn https://github.com/Ufonik88/EntropicMem` then `entropicmem init`."
+        )
+
+    @fail_soft(fallback=lambda *a, **k: "")
     def system_prompt_block(self) -> str:
         if not self._scripts_dir:
             return (
@@ -599,10 +667,12 @@ class EntropicMemMemoryProvider(MemoryProvider):
         self._core_baseline = hashlib.sha256(core.encode("utf-8")).hexdigest()
         return base + "\n\n" + core[:2800]
 
+    @fail_soft
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         if query:
             self._last_query = query[:2000]
 
+    @fail_soft(fallback=lambda *a, **k: "")
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         """Smart prefetch with relevance filtering, core memory, temporal decay, and deduplication.
 
@@ -613,6 +683,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         """
         q = (query or self._last_query or "").strip()
         if not q or not self._scripts_dir or not self._memory_db:
+            self._state.note_recall(0)
             return ""
 
         self._turn_counter += 1
@@ -631,11 +702,17 @@ class EntropicMemMemoryProvider(MemoryProvider):
             fact_block: Optional[str] = None
             use_cache = self._config.get("cache_conversation_context", True)
             if use_cache:
-                fact_block = self._check_cache(enhanced_query)
+                hit = self._check_cache(enhanced_query)
+                if hit is not None:
+                    fact_block, injected = hit
+                    self._state.note_recall(injected)
             if fact_block is None:
+                self._state.note_recall(0)
                 fact_block = self._build_fact_block(enhanced_query)
                 if use_cache:
-                    self._store_cache(enhanced_query, fact_block)
+                    self._store_cache(
+                        enhanced_query, fact_block, self._state.last_recall_count
+                    )
 
             blocks = [b for b in (core_block, fact_block) if b]
             response = "\n\n".join(blocks)
@@ -757,10 +834,14 @@ class EntropicMemMemoryProvider(MemoryProvider):
             engine.close()
 
         if not budgeted:
+            self._state.note_recall(0)
             return ""
         block = self._format_block(budgeted)
         # Track injected facts for deduplication
         self._track_injected(budgeted)
+        # §4.1: recall_status() must reflect the LAST prefetch — the count the
+        # budget left, not the candidates that were considered.
+        self._state.note_recall(len(budgeted))
         if self._config.get("touch_on_inject", True):
             injected_ids = [f.id for f in budgeted]
             self._spawn(lambda: self._touch_injected(injected_ids), "entropicmem-touch")
@@ -775,6 +856,27 @@ class EntropicMemMemoryProvider(MemoryProvider):
         except Exception as e:
             logger.debug("EntropicMem touch_on_inject failed: %s", e)
 
+    @fail_soft
+    def recall_status(self) -> Optional[Any]:
+        """What the LAST prefetch injected, for the host's recall indicator.
+
+        §4.1: ``RecallStatus("EntropicMem", last_recall_count)`` when > 0, else
+        ``None`` — "Must reflect only the LAST prefetch, never a stale prior
+        count", so the number is read from the per-session state
+        ``prefetch``/``_build_fact_block`` writes, never from the dedup map
+        (which is a window, not a count).
+        """
+        count = self._state.last_recall_count
+        if count <= 0:
+            return None
+        # Deferred: the host type is only needed on this path, and the eval
+        # adapters load this module against a stub that carries the base class
+        # only (they never call this hook).
+        from agent.memory_provider import RecallStatus
+
+        return RecallStatus("EntropicMem", count)
+
+    @fail_soft
     def sync_turn(
         self,
         user_content: str,
@@ -885,11 +987,12 @@ class EntropicMemMemoryProvider(MemoryProvider):
         import hashlib
         return hashlib.sha256(query.encode("utf-8")).hexdigest()[:16]
 
-    def _check_cache(self, query: str) -> Optional[str]:
-        """Return the cached fact block for *query* (the enhanced query), else None.
+    def _check_cache(self, query: str) -> Optional[Tuple[str, int]]:
+        """Return ``(fact_block, injected_count)`` for *query*, else None.
 
-        Keyed by the enhanced-query hash with TTL expiry. Side-effect-free with
-        respect to conversation state (see _conversation_changed).
+        The count rides along with the block so a cache hit can still report
+        what the last prefetch injected (§4.1's ``recall_status``) without
+        re-running the pipeline.
         """
         with self._prefetch_lock:
             if self._prefetch_cache is None:
@@ -899,18 +1002,20 @@ class EntropicMemMemoryProvider(MemoryProvider):
             ttl = self._config.get("cache_ttl_seconds", 300)
             if self._get_timestamp() - self._cache_timestamp > ttl:
                 self._prefetch_cache = None
+                self._prefetch_cache_count = 0
                 self._cache_query_key = ""
                 return None
 
             # Check if the enhanced query matches the cached key
             if self._cache_query_key == self._cache_key(query):
-                return self._prefetch_cache
+                return self._prefetch_cache, self._prefetch_cache_count
             return None
 
-    def _store_cache(self, query: str, fact_block: str) -> None:
-        """Cache the fact block under the enhanced-query hash (plus a conversation snapshot)."""
+    def _store_cache(self, query: str, fact_block: str, injected_count: int) -> None:
+        """Cache the fact block (and its injected count) under the enhanced-query hash."""
         with self._prefetch_lock:
             self._prefetch_cache = fact_block
+            self._prefetch_cache_count = int(injected_count)
             self._cache_query_key = self._cache_key(query)
             self._cache_timestamp = self._get_timestamp()
             self._last_conversation_hash = self._conversation_fingerprint()
@@ -1126,9 +1231,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
         """Get current timestamp."""
         return time.time()
 
+    @fail_soft(fallback=lambda *a, **k: [])
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         return [REMEMBER_SCHEMA, RECALL_SCHEMA, QUERY_SCHEMA, PATCH_CORE_SCHEMA, STATS_SCHEMA, GET_SCHEMA, CONSOLIDATE_SCHEMA]
 
+    @fail_soft(fallback=_tool_call_failed)
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         if tool_name == "entropicmem_remember":
             return self._remember(args)
@@ -1146,6 +1253,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
             return self._consolidate(args)
         return _tool_error(f"Unknown tool: {tool_name}")
 
+    @fail_soft
     def on_memory_write(
         self,
         action: str,
@@ -1218,6 +1326,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         needle = str(metadata.get("old_text") or "") or previous
         return engine.find_mirrored(needle)
 
+    @fail_soft
     def on_session_switch(
         self,
         new_session_id: str,
@@ -1231,6 +1340,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         if reset:
             with self._prefetch_lock:
                 self._prefetch_cache = None
+                self._prefetch_cache_count = 0
                 self._cache_query_key = ""
                 self._last_query = ""
                 self._session_turns = []
@@ -1238,6 +1348,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     # ── P1 Slice 2: lifecycle hooks (A1/A2/A5/C1) ─────────────────────────────
 
+    @fail_soft
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
         """A1: flush an extractive session digest episode when the session ends.
 
@@ -1269,13 +1380,29 @@ class EntropicMemMemoryProvider(MemoryProvider):
         except Exception as e:
             logger.debug("EntropicMem pending prune failed: %s", e)
 
-    def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
+    @fail_soft
+    def on_turn_start(
+        self,
+        turn_number: int,
+        message: str,
+        *,
+        author_id: Optional[str] = None,
+        author_name: Optional[str] = None,
+        author_is_bot: bool = False,
+        **kwargs: Any,
+    ) -> None:
         """A5: periodic partial digest flush for always-on sessions.
 
         The gateway never dies, so ``on_session_end`` is rare there; flush a
         partial digest every ``turn_cadence_flush_turns`` turns (default 40),
         no more often than ``turn_cadence_min_interval_sec`` (default 1800).
         0 turns disables. Fail-soft.
+
+        The author trio is §4.1's signature: a shared session carries several
+        participants, so a provider keying durable state on identity must read
+        it per turn. EM-402 (ScopeContext) is where the values are used; naming
+        them here is what makes the host's signature filtering pass them, and
+        the harness pins that they arrive.
         """
         try:
             cadence = int(self._config.get("turn_cadence_flush_turns") or 0)
@@ -1294,6 +1421,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         except Exception as e:
             logger.debug("EntropicMem on_turn_start failed: %s", e)
 
+    @fail_soft  # fail-closed: §4.6 — a non-empty return implies the evidence committed
     def on_pre_compress(
         self, messages: List[Dict[str, Any]], require_checkpoint: bool = False, **kwargs
     ) -> str:
@@ -1397,6 +1525,7 @@ class EntropicMemMemoryProvider(MemoryProvider):
         except Exception as e:
             logger.debug("EntropicMem session digest flush failed: %s", e)
 
+    @fail_soft
     def backup_paths(self) -> List[str]:
         paths = []
         for p in (self._vault_path, self._index_db, self._memory_db):
@@ -1404,9 +1533,11 @@ class EntropicMemMemoryProvider(MemoryProvider):
                 paths.append(str(p))
         return paths
 
+    @fail_soft
     def shutdown(self) -> None:
         with self._prefetch_lock:
             self._prefetch_cache = None
+            self._prefetch_cache_count = 0
             self._cache_query_key = ""
 
     def _remember(self, args: dict) -> str:

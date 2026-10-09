@@ -1,0 +1,408 @@
+{
+  "abstract_methods": [
+    "get_tool_schemas",
+    "initialize",
+    "is_available",
+    "name"
+  ],
+  "class_constant": {
+    "pre_compress_checkpoint_api_version": 1
+  },
+  "methods": {
+    "backup_paths": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        }
+      ],
+      "property": false
+    },
+    "get_config_schema": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        }
+      ],
+      "property": false
+    },
+    "get_tool_schemas": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        }
+      ],
+      "property": false
+    },
+    "handle_tool_call": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "tool_name"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "args"
+        },
+        {
+          "has_default": false,
+          "kind": "var_keyword",
+          "name": "kwargs"
+        }
+      ],
+      "property": false
+    },
+    "identity_signature": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        }
+      ],
+      "property": false
+    },
+    "initialize": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "session_id"
+        },
+        {
+          "has_default": false,
+          "kind": "var_keyword",
+          "name": "kwargs"
+        }
+      ],
+      "property": false
+    },
+    "is_available": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        }
+      ],
+      "property": false
+    },
+    "name": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        }
+      ],
+      "property": true
+    },
+    "on_delegation": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "task"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "result"
+        },
+        {
+          "has_default": true,
+          "kind": "keyword_only",
+          "name": "child_session_id"
+        },
+        {
+          "has_default": false,
+          "kind": "var_keyword",
+          "name": "kwargs"
+        }
+      ],
+      "property": false
+    },
+    "on_memory_write": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "action"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "target"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "content"
+        },
+        {
+          "has_default": true,
+          "kind": "positional_or_keyword",
+          "name": "metadata"
+        }
+      ],
+      "property": false
+    },
+    "on_pre_compress": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "messages"
+        }
+      ],
+      "property": false
+    },
+    "on_session_end": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "messages"
+        }
+      ],
+      "property": false
+    },
+    "on_session_switch": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "new_session_id"
+        },
+        {
+          "has_default": true,
+          "kind": "keyword_only",
+          "name": "parent_session_id"
+        },
+        {
+          "has_default": true,
+          "kind": "keyword_only",
+          "name": "reset"
+        },
+        {
+          "has_default": true,
+          "kind": "keyword_only",
+          "name": "rewound"
+        },
+        {
+          "has_default": false,
+          "kind": "var_keyword",
+          "name": "kwargs"
+        }
+      ],
+      "property": false
+    },
+    "on_turn_start": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "turn_number"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "message"
+        },
+        {
+          "has_default": false,
+          "kind": "var_keyword",
+          "name": "kwargs"
+        }
+      ],
+      "property": false
+    },
+    "prefetch": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "query"
+        },
+        {
+          "has_default": true,
+          "kind": "keyword_only",
+          "name": "session_id"
+        }
+      ],
+      "property": false
+    },
+    "queue_prefetch": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "query"
+        },
+        {
+          "has_default": true,
+          "kind": "keyword_only",
+          "name": "session_id"
+        }
+      ],
+      "property": false
+    },
+    "recall_status": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        }
+      ],
+      "property": false
+    },
+    "save_config": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "values"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "hermes_home"
+        }
+      ],
+      "property": false
+    },
+    "shutdown": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        }
+      ],
+      "property": false
+    },
+    "sync_turn": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "user_content"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "assistant_content"
+        },
+        {
+          "has_default": true,
+          "kind": "keyword_only",
+          "name": "session_id"
+        },
+        {
+          "has_default": true,
+          "kind": "keyword_only",
+          "name": "messages"
+        },
+        {
+          "has_default": true,
+          "kind": "keyword_only",
+          "name": "turn_author"
+        }
+      ],
+      "property": false
+    },
+    "system_prompt_block": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        }
+      ],
+      "property": false
+    },
+    "unavailable_reason": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        }
+      ],
+      "property": false
+    }
+  },
+  "module_constant": {
+    "PRE_COMPRESS_CHECKPOINT_API_VERSION": 2
+  },
+  "pinned_from": "hermes-agent checkout at ~/.hermes/hermes-agent (the host this plugin is developed against), enumerated 2026-10-09",
+  "source": "agent/memory_provider.py"
+}

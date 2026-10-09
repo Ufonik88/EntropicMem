@@ -18,17 +18,48 @@ def hermes_home_from_kwargs(kwargs: dict) -> Path:
     return Path.home() / ".hermes"
 
 
-def resolve_scripts_dir(hermes_home: Path) -> Optional[Path]:
+def _scripts_candidates(hermes_home: Optional[Path]) -> list[Path]:
+    """Where the engine scripts may live, in resolution order.
+
+    Split out of ``resolve_scripts_dir`` so ``bootstrap_scripts_path`` can try
+    the same list *without* a home: the plugin package must be importable
+    before the host has resolved one.
+    """
+    here = Path(__file__).resolve().parent
     candidates = [
         # Plugin-local engine (self-contained plugin: catalog install or repo checkout).
-        Path(__file__).resolve().parent / "scripts",
-        # Legacy layouts: skill copy under HERMES_HOME, or repo-root checkout.
-        hermes_home / "skills" / "entropicmem" / "scripts",
-        Path(__file__).resolve().parent.parent.parent / "skills" / "entropicmem" / "scripts",
+        here / "scripts",
     ]
-    for c in candidates:
+    if hermes_home is not None:
+        # Legacy layout: skill copy under HERMES_HOME.
+        candidates.append(hermes_home / "skills" / "entropicmem" / "scripts")
+    # Legacy layout: repo-root checkout (plugins/entropicmem -> <repo>/skills).
+    candidates.append(here.parent.parent / "skills" / "entropicmem" / "scripts")
+    return candidates
+
+
+def resolve_scripts_dir(hermes_home: Path) -> Optional[Path]:
+    for c in _scripts_candidates(hermes_home):
         if (c / "memory_engine.py").is_file():
             return c.resolve()
+    return None
+
+
+def bootstrap_scripts_path() -> Optional[Path]:
+    """Put the engine scripts on ``sys.path`` for ``import em.*`` at load time.
+
+    The provider package imports ``em.provider.*`` at module level (EM-401's
+    hook skeleton), which happens before ``initialize()`` has resolved a home —
+    so the candidates that do not depend on one are tried here, in the same
+    order ``resolve_scripts_dir`` uses. Returns the directory it added, or
+    ``None`` when no layout matches (the em imports then fail loudly at load
+    time, which is the correct signal that the plugin is mis-installed).
+    """
+    for candidate in _scripts_candidates(None):
+        if (candidate / "memory_engine.py").is_file():
+            resolved = candidate.resolve()
+            ensure_scripts_on_path(resolved)
+            return resolved
     return None
 
 
