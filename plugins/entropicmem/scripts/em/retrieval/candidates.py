@@ -45,10 +45,11 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple
 
 from ..clock import to_iso
-from ..embeddings.cache import cached_memory_vectors, search_memory_vectors
+from ..embeddings.cache import cached_vectors, search_vectors
 from ..store.embeddings import (
     VECTOR_MIN_COVERAGE,
     count_active_memories,
+    count_episodes,
 )
 from ..store.types import OWNER_ONLY_TIERS, Scope, may_read_owner_only
 from .query import MAX_TERMS, AnalyzedQuery
@@ -325,16 +326,22 @@ def vector(ctx: RetrievalContext) -> List[Candidate]:
     if not query or not model:
         return []
     clause, params = scope_sql(ctx.scope, table="m")
-    entry = cached_memory_vectors(
-        ctx.conn, model=model, scope_clause=clause, scope_params=params
+    entry = cached_vectors(
+        ctx.conn,
+        owner_type="memory",
+        model=model,
+        scope_clause=clause,
+        scope_params=params,
+        width=len(query),
     )
     active = count_active_memories(ctx.conn, scope_clause=clause, scope_params=params)
     if active <= 0 or (entry.count / active) < VECTOR_MIN_COVERAGE:
         return []
     if ctx.out_of_time():
         return []
-    ranked = search_memory_vectors(
+    ranked = search_vectors(
         ctx.conn,
+        owner_type="memory",
         model=model,
         scope_clause=clause,
         scope_params=params,
@@ -378,38 +385,78 @@ def recent(ctx: RetrievalContext) -> List[Candidate]:
 
 
 def episodic(ctx: RetrievalContext) -> List[Candidate]:
-    """Episodes by FTS, optionally narrowed by an analyzed time window.
+    """Episodes by FTS, plus vector recall when a query vector is available.
 
     Returns ``owner_type='episode'`` (§3.6). ``episodes`` has no ``status`` and
     no ``sensitivity`` column, so neither applies: the scope clause is the
     profile/user half only, and every episode row is live.
+
+    The FTS hits keep their order (the card's generator). When the caller
+    supplied a query vector and the scope's episode coverage clears the same
+    50% gate the memory generator uses, vector-only episodes are **appended**:
+    the pipeline feeds their cosines to the gate's support test, and EM-307's
+    renderer prints whatever survives under "Recent episodes".
     """
     expr = match_expression(ctx.aq.terms)
-    if not expr:
-        return []
     clause, scope_params = scope_sql(ctx.scope, table="e", owner_only=False)
-    where = ["episodes_fts MATCH ?", clause]
-    params: List[Any] = [expr, *scope_params]
+    lexical: List[Candidate] = []
+    if expr:
+        where = ["episodes_fts MATCH ?", clause]
+        params: List[Any] = [expr, *scope_params]
 
-    window = ctx.aq.temporal
-    if window is not None:
-        # §3.6/§3.10: an episode's world time is `start_at`, falling back to
-        # when it was written.
-        column = "COALESCE(e.start_at, e.created_at)"
-        if window.start is not None:
-            where.append(f"{column} >= ?")
-            params.append(to_iso(window.start))
-        if window.end is not None:
-            where.append(f"{column} <= ?")
-            params.append(to_iso(window.end))
+        window = ctx.aq.temporal
+        if window is not None:
+            # §3.6/§3.10: an episode's world time is `start_at`, falling back to
+            # when it was written.
+            column = "COALESCE(e.start_at, e.created_at)"
+            if window.start is not None:
+                where.append(f"{column} >= ?")
+                params.append(to_iso(window.start))
+            if window.end is not None:
+                where.append(f"{column} <= ?")
+                params.append(to_iso(window.end))
 
-    sql = (
-        "SELECT e.id AS id, bm25(episodes_fts) AS score "
-        "FROM episodes_fts JOIN episodes e ON e.rid = episodes_fts.rowid "
-        "WHERE " + " AND ".join(where) + " ORDER BY score"
+        sql = (
+            "SELECT e.id AS id, bm25(episodes_fts) AS score "
+            "FROM episodes_fts JOIN episodes e ON e.rid = episodes_fts.rowid "
+            "WHERE " + " AND ".join(where) + " ORDER BY score"
+        )
+        rows = _fetch(ctx, sql, params, ctx.k("episodic"))
+        lexical = [Candidate(OWNER_TYPE_EPISODE, r["id"], -float(r["score"] or 0.0)) for r in rows]
+
+    seen = {candidate.owner_id for candidate in lexical}
+    extras = [c for c in _episode_vector_candidates(ctx) if c.owner_id not in seen]
+    return lexical + extras
+
+
+def _episode_vector_candidates(ctx: RetrievalContext) -> List[Candidate]:
+    """Vector-ranked episodes for the query, under the same coverage gate."""
+    query = ctx.query_vector
+    model = ctx.embedding_model
+    if not query or not model or ctx.out_of_time():
+        return []
+    clause, params = scope_sql(ctx.scope, table="e", owner_only=False)
+    entry = cached_vectors(
+        ctx.conn,
+        owner_type="episode",
+        model=model,
+        scope_clause=clause,
+        scope_params=params,
+        width=len(query),
     )
-    rows = _fetch(ctx, sql, params, ctx.k("episodic"))
-    return [Candidate(OWNER_TYPE_EPISODE, r["id"], -float(r["score"] or 0.0)) for r in rows]
+    active = count_episodes(ctx.conn, scope_clause=clause, scope_params=params)
+    if active <= 0 or (entry.count / active) < VECTOR_MIN_COVERAGE:
+        return []
+    ranked = search_vectors(
+        ctx.conn,
+        owner_type="episode",
+        model=model,
+        scope_clause=clause,
+        scope_params=params,
+        query=query,
+        k=ctx.k("episodic"),
+    )
+    return [Candidate(OWNER_TYPE_EPISODE, owner_id, score) for owner_id, score in ranked]
 
 
 def entity(ctx: RetrievalContext) -> List[Candidate]:

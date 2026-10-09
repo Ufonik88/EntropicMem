@@ -260,6 +260,9 @@ def cmd_tune(args: Any) -> int:
 
     result: Dict[str, Any] = {
         "suite": args.suite,
+        # Tune builds its adapters with the default `disable_embeddings=True`
+        # (see `_v3_adapter`), so its numbers are lexical by construction.
+        "retrieval_mode": "lexical",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "git_sha": sha,
         "k": args.k,

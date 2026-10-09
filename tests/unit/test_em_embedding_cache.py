@@ -191,7 +191,7 @@ def test_ties_are_deterministic_even_when_the_loader_returns_unsorted_rows(store
     import em.embeddings.cache as cache
 
     monkeypatch.setattr(
-        cache, "load_memory_vectors",
+        cache, "load_vectors",
         lambda *a, **k: [("mem_b", (1.0, 0.0)), ("mem_a", (1.0, 0.0))],
     )
     reset_cache()

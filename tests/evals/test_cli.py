@@ -28,6 +28,7 @@ def test_cli_run_ci_v2_writes_results(tmp_path):
     assert len(files) == 1
     data = json.loads(files[0].read_text(encoding="utf-8"))
     assert data["suite"] == "ci" and data["adapter"] == "v2"
+    assert data["retrieval_mode"] == "lexical"  # ci forces embeddings off
     assert "metrics" in data and "by_category" in data
     assert data["metrics"]["n_turns"] >= 7  # ci.jsonl turn count
 
@@ -48,6 +49,50 @@ def test_cli_compare_prints_deltas(tmp_path):
     )
     assert out.returncode in (0, 1), out.stderr  # 1 = gate failure allowed
     assert "| metric | baseline | current | delta | regressed |" in out.stdout
+    assert "retrieval mode: lexical | baseline: unknown" in out.stdout
+    # The unlabelled baseline is a pre-EM-303 file: not comparable, so context only.
+    assert "cross-mode comparison" in out.stdout
+    assert out.returncode == 0
+
+
+def test_cli_cross_mode_comparison_does_not_gate(tmp_path):
+    """A vector-labelled baseline must not gate a lexical run (or the reverse)."""
+    results = tmp_path / "ci-base.json"
+    data = {
+        "suite": "ci", "adapter": "v2", "git_sha": "0" * 8, "k": 5,
+        "retrieval_mode": "vector",
+        "metrics": {"noise_rate": 0.0, "recall@5": 1.0},
+        "by_category": {}, "turns": [],
+    }
+    results.write_text(json.dumps(data), encoding="utf-8")
+    out = subprocess.run(
+        [sys.executable, "-m", "evals", "run", "--suite", "ci", "--adapter", "v2",
+         "--results-dir", str(tmp_path / "res"), "--compare", str(results)],
+        cwd=REPO, capture_output=True, text=True, timeout=180,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path / "home")},
+    )
+    assert "retrieval mode: lexical | baseline: vector" in out.stdout
+    assert "cross-mode comparison" in out.stdout
+    assert out.returncode == 0, out.stderr  # noise_rate regressed on paper; not gated
+
+
+def test_cli_same_mode_regression_still_gates(tmp_path):
+    results = tmp_path / "ci-base.json"
+    data = {
+        "suite": "ci", "adapter": "v2", "git_sha": "0" * 8, "k": 5,
+        "retrieval_mode": "lexical",
+        "metrics": {"noise_rate": 0.0},
+        "by_category": {}, "turns": [],
+    }
+    results.write_text(json.dumps(data), encoding="utf-8")
+    out = subprocess.run(
+        [sys.executable, "-m", "evals", "run", "--suite", "ci", "--adapter", "v2",
+         "--results-dir", str(tmp_path / "res"), "--compare", str(results)],
+        cwd=REPO, capture_output=True, text=True, timeout=180,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path / "home")},
+    )
+    assert out.returncode == 1, f"same-mode regression must gate:\n{out.stdout}\n{out.stderr}"
+    assert "REGRESSION vs baseline" in out.stderr
 
 
 def test_cli_unknown_suite_fails(tmp_path):
@@ -62,7 +107,9 @@ def test_cli_unknown_suite_fails(tmp_path):
 
 def _compare_rc(tmp_path, metrics):
     base = tmp_path / "base.json"
+    # Labelled lexical: the same mode as the run, so gated regressions still gate.
     base.write_text(json.dumps({"suite": "ci", "adapter": "v2", "git_sha": "0" * 8, "k": 5,
+                                "retrieval_mode": "lexical",
                                 "metrics": metrics, "by_category": {}, "turns": []}),
                     encoding="utf-8")
     out = subprocess.run(

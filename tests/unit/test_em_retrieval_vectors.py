@@ -67,6 +67,24 @@ def _embed(store, owner_id, vector, *, model=MODEL):
         )
 
 
+def _content_hash(store, memory_id):
+    return store.reader().execute(
+        "SELECT content_hash FROM memories WHERE id=?", (memory_id,)
+    ).fetchone()["content_hash"]
+
+
+def _embed_with_hash(store, owner_id, vector, content_hash, *, model=MODEL):
+    with store.transaction() as conn:
+        put_embedding(
+            conn,
+            owner_id=owner_id,
+            model=model,
+            vector=vector,
+            content_hash=content_hash,
+            created_at=to_iso(NOW),
+        )
+
+
 def test_cosine_is_the_normalised_dot_product():
     assert cosine((1.0, 0.0), (1.0, 0.0)) == pytest.approx(1.0)
     assert cosine((1.0, 0.0), (0.0, 1.0)) == pytest.approx(0.0)
@@ -276,3 +294,56 @@ def test_no_query_vector_issues_no_vector_sql(store):
     )
     assert vector(ctx) == []
     assert ctx.conn.queries == []
+
+
+def test_a_stale_content_hash_excludes_the_vector(store):
+    """A vector only serves the text it was embedded from.
+
+    The row's stored ``content_hash`` is compared with the memory's current
+    one on every read; a mismatch means the text changed after the embedding
+    and the vector is excluded until the queued re-embed lands. Nothing is
+    ever silently mixed.
+    """
+    with freeze(NOW):
+        fresh = _add(store, "llamas enjoy twilight at Acme")
+        stale = _add(store, "invoices are filed on Fridays")
+        _embed_with_hash(store, fresh, (1.0, 0.0), _content_hash(store, fresh))
+        _embed_with_hash(store, stale, (1.0, 0.0), "deadbeef")
+    found = retrieve(
+        store.reader(),
+        scope=ALICE,
+        query="orbital decay of a satellite",
+        with_gate=True,
+        now=NOW,
+        query_vector=(1.0, 0.0),
+        embedding_model=MODEL,
+    )
+    assert fresh in found.ids
+    assert stale not in found.ids
+
+
+def test_a_vector_of_another_width_is_filtered_not_mixed(store):
+    """A same-name model whose artifact changed width cannot pad or crash."""
+    with freeze(NOW):
+        two = _add(store, "llamas enjoy twilight at Acme")
+        three = _add(store, "invoices are filed on Fridays")
+        _embed(store, two, (1.0, 0.0))
+        _embed(store, three, (1.0, 0.0, 0.0))
+    from em.embeddings.cache import cached_vectors
+
+    snapshot = cached_vectors(
+        store.reader(), model=MODEL, scope_clause="m.scope_profile = ? AND m.scope_user = ?",
+        scope_params=[ALICE.profile, ALICE.user], width=2,
+    )
+    assert snapshot.count == 1  # the width-3 row is not in the query's snapshot
+    found = retrieve(
+        store.reader(),
+        scope=ALICE,
+        query="orbital decay of a satellite",
+        with_gate=True,
+        now=NOW,
+        query_vector=(1.0, 0.0),
+        embedding_model=MODEL,
+    )
+    assert two in found.ids
+    assert three not in found.ids

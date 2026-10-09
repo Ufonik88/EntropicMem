@@ -65,6 +65,7 @@
     "recall@5": 1.0,
     "substring_hit": 1.0
   },
+  "retrieval_mode": "lexical",
   "suite": "ci",
   "turns": [
     {

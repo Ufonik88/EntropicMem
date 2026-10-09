@@ -142,6 +142,7 @@ def _embed_episode(job, ctx, service: EmbeddingService) -> None:
             owner_id=episode_id,
             model=service.model,
             vector=vector,
+            content_hash=str(stamp or row.get("updated_at") or ""),
             created_at=to_iso(utc_now()),
         )
 
@@ -165,17 +166,20 @@ def make_embed_backfill_handler(service: EmbeddingService) -> Callable:
                 break
             texts = [
                 memory_text(a, b) if owner_type == "memory" else episode_text(a, b)
-                for (owner_type, _id, a, b) in pending
+                for (owner_type, _id, a, b, _hash) in pending
             ]
             vectors = service.embed_texts(texts)  # raises -> the job retries
             with ctx.store.transaction() as conn:
-                for (owner_type, owner_id, _a, _b), vector in zip(pending, vectors):
+                for (owner_type, owner_id, _a, _b, content_hash), vector in zip(
+                    pending, vectors
+                ):
                     put_embedding(
                         conn,
                         owner_type=owner_type,
                         owner_id=owner_id,
                         model=model,
                         vector=vector,
+                        content_hash=content_hash,
                         created_at=to_iso(utc_now()),
                     )
 

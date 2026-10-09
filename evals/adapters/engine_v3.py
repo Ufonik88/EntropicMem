@@ -101,6 +101,13 @@ class EngineV3Adapter(AdapterBase):
         service = self._service()
         return service if service.available else None
 
+    @property
+    def retrieval_mode(self) -> str:
+        """``"vector"`` only when this run will actually embed queries."""
+        if self.disable_embeddings:
+            return "lexical"
+        return "vector" if self._service().available else "lexical"
+
     # ── adapter interface ──────────────────────────────────────────────
 
     def load(self, scenario: Scenario) -> EvalHandle:

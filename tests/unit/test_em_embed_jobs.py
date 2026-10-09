@@ -374,6 +374,79 @@ def test_backfill_pages_at_sixty_four(store):
     assert service.backend.embed_calls == [64, 6]
 
 
+def _rows_snapshot(store, model):
+    return sorted(
+        (
+            row["owner_type"],
+            row["owner_id"],
+            row["content_hash"],
+            row["created_at"],
+            bytes(row["vector"]),
+        )
+        for row in _embed_rows(store, model)
+    )
+
+
+def test_backfill_is_idempotent_when_replayed(store):
+    for i in range(70):
+        _add(store, f"the Acme staging note number {i}")
+    with store.transaction() as conn:
+        EpisodeStore(conn).add_episode(
+            scope=OWNER, kind="manual", title="Acme cutover", summary="moved the fleet"
+        )
+        ensure_embedding_model(conn, MODEL)
+    _run(store, {"embed_backfill": make_embed_backfill_handler(_service())})
+    before = _rows_snapshot(store, MODEL)
+    assert len(before) == 71
+    assert all(content_hash for *_rest, content_hash, _created, _vector in before)
+
+    # Replay the same model: no new rows, no rewrites (created_at is the tell).
+    with store.transaction() as conn:
+        JobQueue(conn).enqueue(
+            "embed_backfill", {"model": MODEL}, dedupe_key="replay-backfill"
+        )
+    outcomes = _run(store, {"embed_backfill": make_embed_backfill_handler(_service())})
+    assert [o.status for o in outcomes] == ["done"]
+    assert _rows_snapshot(store, MODEL) == before
+    with store.transaction() as conn:
+        assert ensure_embedding_model(conn, MODEL) is None
+        assert stored_model(conn) == MODEL
+
+
+def test_backfill_resumes_across_pages_after_a_failure(store):
+    for i in range(70):
+        _add(store, f"the Acme staging note number {i}")
+    with store.transaction() as conn:
+        ensure_embedding_model(conn, MODEL)
+
+    flaky = _service()
+    inner = flaky.backend.embed
+    calls = {"n": 0}
+
+    def failing(texts):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("acme backend down")
+        return inner(texts)
+
+    flaky.backend.embed = failing
+    outcomes = _run(store, {"embed_backfill": make_embed_backfill_handler(flaky)})
+    assert [o.status for o in outcomes] == ["failed"]  # retried, not dead
+    assert len(_embed_rows(store, MODEL)) == 64  # the first page landed
+
+    # Resume: only the remaining page is embedded; nothing duplicates.
+    with store.transaction() as conn:
+        JobQueue(conn).enqueue(
+            "embed_backfill", {"model": MODEL}, dedupe_key="resume-backfill"
+        )
+    outcomes = _run(store, {"embed_backfill": make_embed_backfill_handler(_service())})
+    assert [o.status for o in outcomes] == ["done"]
+    rows = _embed_rows(store, MODEL)
+    assert len(rows) == 70
+    assert len({row["owner_id"] for row in rows}) == 70
+    assert stored_model(store.reader()) == MODEL
+
+
 def test_a_model_switch_backfills_the_new_model_and_leaves_the_old_rows(store):
     _add(store, "the Acme staging port is 9090")
     with store.transaction() as conn:

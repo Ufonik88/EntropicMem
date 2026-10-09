@@ -34,9 +34,16 @@ class EvalHandle:
 
 
 class AdapterBase:
-    """Duck-typed interface documentation; adapters need not subclass."""
+    """Duck-typed interface documentation; adapters need not subclass.
+
+    ``retrieval_mode`` labels what the adapter actually runs: ``"lexical"``
+    when the optional vector stack is disabled/absent, ``"vector"`` when a run
+    will use query embeddings. The label lands in every result file and gates
+    cross-mode comparisons in the CLI.
+    """
 
     name = "base"
+    retrieval_mode = "lexical"
 
     def load(self, scenario: Scenario) -> EvalHandle:  # pragma: no cover - interface
         raise NotImplementedError

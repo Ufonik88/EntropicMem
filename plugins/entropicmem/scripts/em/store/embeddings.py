@@ -29,8 +29,10 @@ __all__ = [
     "EMBEDDING_MODEL_KEY",
     "VECTOR_MIN_COVERAGE",
     "count_active_memories",
+    "count_episodes",
     "cosine",
     "load_memory_vectors",
+    "load_vectors",
     "missing_memory_count",
     "pack_vector",
     "pending_embed_texts",
@@ -141,32 +143,95 @@ def put_embedding(
     _WRITE_GENERATION += 1
 
 
+def load_vectors(
+    conn: sqlite3.Connection,
+    *,
+    owner_type: str = "memory",
+    model: str,
+    scope_clause: str,
+    scope_params: Sequence[object],
+    width: Optional[int] = None,
+) -> list[tuple[str, tuple[float, ...]]]:
+    """In-scope, live vectors for ``model``, of ``width`` when given.
+
+    **Every read verifies the vector belongs to the text it says it does**:
+    a memory row is only returned when its stored ``content_hash`` equals the
+    memory's current one (an empty stored hash means "unverified" — the
+    pre-EM-303 rows and test fixtures — and is kept for back-compat); an
+    episode row is only returned when its stored stamp equals the episode's
+    current ``updated_at``. An out-of-date vector is *excluded*, never mixed:
+    coverage drops, the generator/read stops trusting it, and the queued
+    re-embed job is what brings it back.
+
+    ``width`` filters to vectors of the query's dimension, so a same-name
+    model whose artifact changed dimension cannot crash the matrix path or
+    silently pad/truncate. Rows of another width stay in the store untouched.
+
+    One statement. A corrupt blob is omitted. The scope clause is the one
+    ``scope_sql`` already built; this function does not invent a second rule.
+    """
+    if owner_type == "episode":
+        sql = (
+            "SELECT emb.owner_id AS owner_id, emb.vector AS vector"
+            " FROM embeddings emb JOIN episodes e ON e.id = emb.owner_id"
+            " WHERE emb.owner_type = 'episode' AND emb.model = ?"
+            "   AND (emb.content_hash = '' OR emb.content_hash = e.updated_at)"
+            "   AND " + scope_clause
+        )
+    else:
+        sql = (
+            "SELECT emb.owner_id AS owner_id, emb.vector AS vector"
+            " FROM embeddings emb JOIN memories m ON m.id = emb.owner_id"
+            " WHERE emb.owner_type = 'memory' AND emb.model = ?"
+            "   AND m.status = 'active'"
+            "   AND (emb.content_hash = '' OR emb.content_hash = m.content_hash)"
+            "   AND " + scope_clause
+        )
+    rows = conn.execute(sql, (model, *scope_params)).fetchall()
+    loaded: list[tuple[str, tuple[float, ...]]] = []
+    for row in rows:
+        vector = unpack_vector(row["vector"])
+        if vector is None:
+            continue
+        if width is not None and len(vector) != width:
+            continue
+        loaded.append((str(row["owner_id"]), vector))
+    return loaded
+
+
 def load_memory_vectors(
     conn: sqlite3.Connection,
     *,
     model: str,
     scope_clause: str,
     scope_params: Sequence[object],
+    width: Optional[int] = None,
 ) -> list[tuple[str, tuple[float, ...]]]:
-    """In-scope active memories that have a usable vector for ``model``.
+    """The memory half of :func:`load_vectors` (kept as the long-standing name)."""
+    return load_vectors(
+        conn,
+        owner_type="memory",
+        model=model,
+        scope_clause=scope_clause,
+        scope_params=scope_params,
+        width=width,
+    )
 
-    One statement. A corrupt blob is omitted. The scope clause is the one
-    ``scope_sql`` already built; this function does not invent a second rule.
-    """
-    rows = conn.execute(
-        "SELECT e.owner_id AS owner_id, e.vector AS vector FROM embeddings e "
-        "JOIN memories m ON m.id = e.owner_id "
-        "WHERE e.owner_type = 'memory' AND e.model = ? "
-        "AND m.status = 'active' AND " + scope_clause,
-        (model, *scope_params),
-    ).fetchall()
-    loaded: list[tuple[str, tuple[float, ...]]] = []
-    for row in rows:
-        vector = unpack_vector(row["vector"])
-        if vector is None:
-            continue
-        loaded.append((str(row["owner_id"]), vector))
-    return loaded
+
+def count_episodes(
+    conn: sqlite3.Connection,
+    *,
+    scope_clause: str,
+    scope_params: Sequence[object],
+) -> int:
+    """Episodes in the same scope the vector load uses. The episode denominator."""
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM episodes e WHERE " + scope_clause,
+        tuple(scope_params),
+    ).fetchone()
+    if row is None:
+        return 0
+    return int(row["n"])
 
 
 def count_active_memories(
@@ -205,26 +270,31 @@ def set_stored_model(conn: sqlite3.Connection, model: str) -> None:
 
 def pending_embed_texts(
     conn: sqlite3.Connection, *, model: str, limit: int = 64
-) -> list[tuple[str, str, str, str]]:
-    """Rows with **no** embedding for ``model``: ``(owner_type, id, a, b)``.
+) -> list[tuple[str, str, str, str, str]]:
+    """Rows with **no** embedding for ``model``: ``(owner_type, id, a, b, hash)``.
 
-    Memories yield ``(summary, content)``; episodes ``(title, summary)`` — the
-    caller shapes the text per type. Rows with no text at all are skipped
+    Memories yield ``(summary, content, content_hash)``; episodes
+    ``(title, summary, updated_at)`` — the caller shapes the text per type and
+    stores the hash/stamp on the vector. Rows with no text at all are skipped
     rather than spending a batch on an empty string. A row that carries a
     vector for a *different* model is still pending for this one — that is the
-    model-switch case.
+    model-switch case; a row whose vector is stale (hash/stamp mismatch) is
+    **not** pending here, because it has a row; the fix for that is a re-embed
+    on the write path (the update enqueues one).
     """
     if not model:
         return []
     rows = conn.execute(
-        "SELECT 'memory' AS owner_type, m.id AS id, m.summary AS a, m.content AS b"
+        "SELECT 'memory' AS owner_type, m.id AS id, m.summary AS a, m.content AS b,"
+        "       m.content_hash AS hash"
         " FROM memories m"
         " LEFT JOIN embeddings e ON e.owner_type = 'memory'"
         "   AND e.owner_id = m.id AND e.model = ?"
         " WHERE m.status = 'active' AND e.owner_id IS NULL"
         "   AND (TRIM(COALESCE(m.summary, '')) <> '' OR TRIM(COALESCE(m.content, '')) <> '')"
         " UNION ALL"
-        " SELECT 'episode' AS owner_type, ep.id AS id, ep.title AS a, ep.summary AS b"
+        " SELECT 'episode' AS owner_type, ep.id AS id, ep.title AS a, ep.summary AS b,"
+        "       ep.updated_at AS hash"
         " FROM episodes ep"
         " LEFT JOIN embeddings e ON e.owner_type = 'episode'"
         "   AND e.owner_id = ep.id AND e.model = ?"
@@ -234,7 +304,13 @@ def pending_embed_texts(
         (model, model, int(limit)),
     ).fetchall()
     return [
-        (str(row["owner_type"]), str(row["id"]), str(row["a"] or ""), str(row["b"] or ""))
+        (
+            str(row["owner_type"]),
+            str(row["id"]),
+            str(row["a"] or ""),
+            str(row["b"] or ""),
+            str(row["hash"] or ""),
+        )
         for row in rows
     ]
 

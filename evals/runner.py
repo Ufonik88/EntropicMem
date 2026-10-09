@@ -123,6 +123,7 @@ def run_suite(
     return {
         "suite": suite,
         "adapter": getattr(adapter, "name", adapter.__class__.__name__),
+        "retrieval_mode": getattr(adapter, "retrieval_mode", "unknown"),
         "git_sha": git_sha,
         "k": k,
         "metrics": aggregate(rows),
@@ -135,6 +136,18 @@ def load_result(path: Path) -> Dict[str, Any]:
     import json
 
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def comparison_is_cross_mode(current_mode: str, baseline_mode: str) -> bool:
+    """True when two result files may not be compared as like-for-like.
+
+    A missing label (pre-EM-303 result files) is ``"unknown"``; comparing a
+    labelled run against an unlabelled baseline is cross-mode, because the
+    baseline's mode cannot be vouched for.
+    """
+    current = (current_mode or "unknown").strip().lower()
+    baseline = (baseline_mode or "unknown").strip().lower()
+    return current != baseline
 
 
 def compare_deltas(

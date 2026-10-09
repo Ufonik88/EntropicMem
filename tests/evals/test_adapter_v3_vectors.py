@@ -25,6 +25,17 @@ from evals.adapters import engine_v3  # noqa: E402
 from evals.dataset import Memory, NoiseSpec, Scenario, Turn  # noqa: E402
 from evals.runner import parse_injected_ids  # noqa: E402
 
+
+def test_cross_mode_detection_is_exact_and_treats_unlabelled_as_unknown():
+    from evals.runner import comparison_is_cross_mode
+
+    assert comparison_is_cross_mode("lexical", "lexical") is False
+    assert comparison_is_cross_mode("vector", "vector") is False
+    assert comparison_is_cross_mode("vector", "lexical") is True
+    assert comparison_is_cross_mode("VECTOR", "lexical") is True
+    assert comparison_is_cross_mode("", None) is False  # both unknown: pre-label era
+    assert comparison_is_cross_mode("lexical", None) is True  # a label vs no label
+
 from em.embeddings.backends import NoneBackend  # noqa: E402
 from em.embeddings.service import EmbeddingService  # noqa: E402
 
@@ -141,3 +152,20 @@ def test_noise_with_orthogonal_vectors_does_not_leak_into_the_block(adapter):
         assert parse_injected_ids(block) == [memory_id]
     finally:
         adapter.finish(handle)
+
+
+def test_the_adapter_label_says_what_will_actually_run():
+    assert engine_v3.EngineV3Adapter(disable_embeddings=True).retrieval_mode == "lexical"
+    assert (
+        engine_v3.EngineV3Adapter(
+            disable_embeddings=False, embedding_service=_service()
+        ).retrieval_mode
+        == "vector"
+    )
+    assert (
+        engine_v3.EngineV3Adapter(
+            disable_embeddings=False,
+            embedding_service=EmbeddingService(":memory:", backend=NoneBackend()),
+        ).retrieval_mode
+        == "lexical"
+    )

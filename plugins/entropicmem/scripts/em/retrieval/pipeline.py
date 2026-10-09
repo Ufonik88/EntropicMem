@@ -26,7 +26,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from ..embeddings.cache import cached_memory_vectors
+from ..embeddings.cache import cached_vectors
 from ..store.embeddings import cosine
 from ..store.types import Scope
 from . import candidates, diversity, fusion, gate
@@ -145,6 +145,24 @@ def retrieve(
             (candidate.owner_type, candidate.owner_id): float(candidate.raw_score)
             for candidate in results.get("vector", [])
         }
+        # Episodes the episodic generator found by vector carry no cosine in a
+        # `vector` result; hand the gate theirs so a vector-only episode can
+        # pass the §3.6 cosine support condition too.
+        ep_clause, ep_params = candidates.scope_sql(scope, table="e", owner_only=False)
+        ep_entry = cached_vectors(
+            conn,
+            owner_type="episode",
+            model=embedding_model,
+            scope_clause=ep_clause,
+            scope_params=ep_params,
+            width=len(vector),
+        )
+        for candidate in results.get("episodic", []):
+            stored = ep_entry.vector_of(candidate.owner_id)
+            if stored is not None:
+                cosines[(candidate.owner_type, candidate.owner_id)] = max(
+                    0.0, cosine(vector, stored)
+                )
         model_name = embedding_model
         if gate_config is None:
             settings = replace(gate.DEFAULT_GATE, cosine_enabled=True)
@@ -172,8 +190,12 @@ def retrieve(
     mmr_similarities = None
     if vector is not None and embedding_model:
         clause, params = candidates.scope_sql(scope, table="m")
-        entry = cached_memory_vectors(
-            conn, model=embedding_model, scope_clause=clause, scope_params=params
+        entry = cached_vectors(
+            conn,
+            owner_type="memory",
+            model=embedding_model,
+            scope_clause=clause,
+            scope_params=params,
         )
         vectors_by_key = {}
         for owner_id in entry.ids:

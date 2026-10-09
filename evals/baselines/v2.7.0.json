@@ -161,6 +161,7 @@
     "recall@5": 0.9606060606060606,
     "substring_hit": 0.9611111111111111
   },
+  "retrieval_mode": "lexical",
   "suite": "hard",
   "turns": [
     {

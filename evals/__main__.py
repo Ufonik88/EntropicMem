@@ -127,6 +127,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
 
+    print(f"retrieval mode: {result.get('retrieval_mode', 'unknown')}")
     print(runner.render_markdown(args.suite, result["adapter"], result["metrics"]))
     for cat, m in sorted(result["by_category"].items()):
         print(runner.render_markdown(f"{args.suite}/{cat}", result["adapter"], m))
@@ -145,10 +146,19 @@ def cmd_run(args: argparse.Namespace) -> int:
         except Exception as e:
             print(f"error: cannot read baseline {args.compare}: {e}", file=sys.stderr)
             return 2
+        mode = result.get("retrieval_mode", "unknown")
+        baseline_mode = baseline.get("retrieval_mode", "unknown")
+        cross_mode = runner.comparison_is_cross_mode(mode, baseline_mode)
         rows = runner.compare_deltas(baseline.get("metrics", {}), result["metrics"])
-        print("\n### delta vs baseline")
+        print(f"\n### delta vs baseline (retrieval mode: {mode} | baseline: {baseline_mode})")
+        if cross_mode:
+            print(
+                "cross-mode comparison \u2014 metrics are context only; "
+                "no regression gate applied (a vector run must not be gated "
+                "against a lexical baseline, or the reverse)"
+            )
         print(runner.render_compare_markdown(rows))
-        if any(r["regressed"] for r in rows):
+        if any(r["regressed"] for r in rows) and not cross_mode:
             print("\nREGRESSION vs baseline", file=sys.stderr)
             rc = 1
 

@@ -169,6 +169,21 @@ def force_no_embeddings() -> bool:
     return changed
 
 
+def _embeddings_usable() -> bool:
+    """True when the v2 hybrid path's optional stack is importable.
+
+    The v2 engine degrades to FTS-only when sentence-transformers is missing,
+    so a run that *allowed* embeddings can still be lexical in fact; the mode
+    label says what will actually run.
+    """
+    import importlib.util
+
+    return (
+        importlib.util.find_spec("sentence_transformers") is not None
+        and importlib.util.find_spec("numpy") is not None
+    )
+
+
 def restore_embeddings() -> bool:
     """Undo force_no_embeddings(): remove the meta_path blocker and put back
     every module flag / function it patched. Modules first imported while the
@@ -220,6 +235,13 @@ class EngineV2Adapter(AdapterBase):
         self._module = _load_provider_module()
         self._tmpdirs: List[tempfile.TemporaryDirectory] = []
         self._handles: List[Dict[str, Any]] = []
+
+    @property
+    def retrieval_mode(self) -> str:
+        """``"vector"`` only when the v2 engine's hybrid path can actually run."""
+        if self.disable_embeddings:
+            return "lexical"
+        return "vector" if _embeddings_usable() else "lexical"
 
     # ── adapter interface ──────────────────────────────────────────────
 
