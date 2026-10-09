@@ -13,11 +13,9 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-09, against branch `main` at `6d9bf3b` — the fast-forward
-merge of Chunk 27 (the EM-303 precision pass), named deliberately instead of the tip.
-**All check-runs were green on that exact SHA, `identity-guard` included** (11 on the
-branch push, 22 across both events on the `main` push). The branch is deleted; the
-remote carries `main` and `release/2.8.x` only.
+**Last reconciled:** 2026-10-09, against branch `em/em-303-observability` at `514a6a5` —
+the observability/promotion-evidence pass, named deliberately instead of the tip.
+**Not merged.** `main` is `cc6672e`. CI has not run on this branch.
 
 ---
 
@@ -83,6 +81,17 @@ condition (a). The live store remains v2 and untouched.
 > shipped, and do not quote vector eval numbers without their
 > `retrieval_mode` label (vector runs are comparable only to vector
 > baselines; the frozen suites' baselines are lexical).
+>
+> **Vector-mode results exist as context only (2026-10-09).** With fastembed
+> (`BAAI/bge-small-en-v1.5`) and the explicit `--embeddings` override, the hard
+> suite reads **recall@5 0.988** (lexical 0.933), **ageing 1.000** (lexical
+> 0.733), paraphrase 1.000, noise 0.172 unchanged, parsed as
+> `v3-hard-vector.json` / `v3-ci-vector.json`; both comparisons printed
+> cross-mode and never gated. **The recommended live-promotion gate (owner
+> confirms): coverage ≥ 95% with zero stale exclusions on the sample, hard
+> recall@5 ≥ 0.95, ageing ≥ 0.85, abstain ≥ 0.95, noise ≤ 0.172, must_not = 1,
+> turn-path p95 ≤ 150 ms, and the shadow's `v3_only == 0` still holding.**
+> Nothing about the live store moves without that and the owner's go.
 
 **The only route to a new user-facing update is the 3.0 release (EM-904)**, and
 it cannot happen until the v3 core is wired in and the live store is migrated.
@@ -148,6 +157,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 25 | **EM-303 closed — backends, `embed`/`embed_backfill`, model identity, vector cache** | **Done, merged** (`3439b77`, ff from `e8997d8`). Four backends + auto/none selection; jobs with a write-time version recheck and `meta.embedding_model`; a numpy/pure-Python snapshot cache behind migration 0005 (50k p95 **3.86 ms**) |
 | 26 | **The EM-303 follow-ups: episode embeddings, query embeddings in evals, numpy in CI** | **Done, merged** (`42e16c7`, ff from `51cdcb3`). `EpisodeStore` enqueues `embed` jobs; the backfill and handler cover episodes; the v3 eval adapter embeds documents and the query when `disable_embeddings=False`; CI installs numpy so the cache tests and the 50k AC run there. **The capture-on-idle/compaction feature is planned as EM-411** (plan §6.3) |
 | 27 | **EM-303 precision — version-checked vector reads, episode read path, retrieval-mode labels** | **Done, merged** (`6d9bf3b`). Memory `content_hash` and episode `updated_at` are verified on every read; reads filter to the query width; `candidates.episodic` reads episode vectors into EM-307's renderer; backfill idempotence/resume is pinned; every eval report labels lexical vs vector, cross-mode compare is context only, baselines labelled |
+| 28 | **EM-303 observability, promotion evidence, model-switch hygiene** | **Committed, not merged** (branch `em/em-303-observability`). Per-query coverage/stale logging + stale→re-embed round trips; the CI numpy guard; explicit `--embeddings` and committed **vector-mode baselines** (hard 0.988, ageing 1.000 vs lexical 0.933/0.733) with the recommended promotion gate; old-model storage measured (21 MB/10k/set) and prune policy decided; checksum replay oracle; EM-411 test-first briefs. CI not run |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -161,7 +171,7 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunk 27 (the precision pass) is merged (`6d9bf3b`) with all checks green on that exact SHA. The branch is deleted; the remote carries `main` and `release/2.8.x` only. **The next chunk is chosen: EM-401–403 (live embedding wiring).** The capture feature remains **planned as EM-411**, design points written in, not built. The Marketplace entry is untouched (2.8.1 at `7e02412`).
+**Chunk 28 (observability, promotion evidence, model hygiene), on branch `em/em-303-observability`, not merged.** `main` is `cc6672e`. This branch has not been pushed, so there is no CI on it. The Marketplace entry is untouched (2.8.1 at `7e02412`). EM-411 remains planned and unbuilt; the promotion gate is recommended, awaiting the owner's confirmation.
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
 from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed
@@ -347,18 +357,18 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**The EM-303 precision pass is merged (`6d9bf3b`).**
-Local suite **2178/5/3** bare and **2180/3/3** with numpy on Python 3.10 and 3.12,
-`ruff==0.16.2` clean; CI green on the merge SHA. Vector rows are now
-model/dim/version-checked (memory
-`content_hash`, episode `updated_at` stamp, query-width filter); episode vectors
-are read through `candidates.episodic` into EM-307's renderer; `embed_backfill`
-idempotence/resume is pinned; and every eval result carries a `retrieval_mode`
-label, with cross-mode comparisons context-only and all six baselines labelled
-`lexical`. **Live retrieval is lexical until EM-401–403** — the chosen next
-chunk. **EM-411** (capture on idle & compaction) is queued after EM-406 with
-its design points written into plan §6.3. The cutover stays with the owner.
-P0's observable stays armed at `0.107143`.
+**The EM-303 observability pass is committed on `em/em-303-observability` (`514a6a5`), not merged.**
+Local suite **2184/5/3** bare and **2186/3/3** with numpy on Python 3.10 and 3.12,
+`ruff==0.16.2` clean; CI has not run on it. The pass: per-query coverage/stale
+logging with stale→re-embed round trips pinned for memories and episodes; the
+CI numpy guard; explicit `--embeddings` with committed vector-mode baselines
+(hard 0.988 / ageing 1.000 vs lexical 0.933 / 0.733) and the **recommended
+promotion gate** (coverage ≥ 95%, hard ≥ 0.95, ageing ≥ 0.85, abstain ≥ 0.95,
+noise ≤ 0.172, p95 ≤ 150 ms, `v3_only == 0`); old-model storage measured
+(≈21 MB/10k/set) with a completed-backfill + 7-day-grace prune policy; the
+replay oracle moved to a whole-table checksum. **Next chunk: EM-401–403**;
+EM-411 stays test-first, unbuilt, default off. The cutover stays with the
+owner. P0's observable stays armed at `0.107143`.
 
 **P0c's data is blocked on the environment, and the reason is now measured rather than
 assumed.** This box is not running EntropicMem at all: `~/.hermes/config.yaml` has **no
@@ -390,7 +400,7 @@ line there.**
    at short citations and do not wire `em/config.py` as a drive-by. Measure before
    any adapter switch: the 450-token budget can drop an id the current bullet
    emits.
-4. **Pre-flight:** `python -m pytest -q` gives **2178 passed / 5 skipped / 3 xfailed**
+4. **Pre-flight:** `python -m pytest -q` gives **2184 passed / 5 skipped / 3 xfailed**
    on **both Python 3.10 and 3.12** (CI's extra set: fastapi, httpx, cryptography, pyyaml).
    `git merge-base --is-ancestor 4eb8097 HEAD` proves the base. A fresh venv without
    those extras skips and fails tests that are green in CI — that is the environment,
@@ -563,7 +573,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2178 passed / 5 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2184 passed / 5 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |

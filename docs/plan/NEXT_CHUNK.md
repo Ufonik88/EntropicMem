@@ -128,11 +128,57 @@ P0b (`be6352e` — a v3 store serving prefetch from S3 behind `ENTROPICMEM_V3_RE
 
 ## Part B: next — **EM-401–403 (live embedding wiring)**, then EM-411
 
-**The next chunk is decided: EM-401–403.** The owner recommended it and the recommendation is right — it closes the largest user-visible gap (live retrieval is lexical until a query embedding is wired at initialize), it is where `ensure_embedding_model` belongs, and EM-411 depends on EM-406 anyway. Then **EM-411** (capture on idle & compaction, plan §6.3) after EM-406. S3's remaining cards (EM-310 / EM-309 / EM-308) and the eval-adapter renderer switch stay in the backlog.
+### EM-401–403 — acceptance criteria (pasted before starting, per the owner)
 
-**Baselines (answered):** the frozen suites' lexical baselines exist and are labelled — `evals/baselines/v3-ci.json`, `v3-hard.json`, `v2.8.0-ci.json`, `v2.8.0.json`, `v2.7.0*.json` all now carry `"retrieval_mode": "lexical"` (their suites force embeddings off, so this is by construction). **No vector numbers have been reported**, and a vector run is only ever compared as context: `evals run --compare` prints both modes and applies the regression gate only within one mode.
+**EM-401 — provider package & hook skeleton.** Files: `plugins/entropicmem/__init__.py` (≤ 150 LOC) + `scripts/em/provider/{provider.py,hooks.py,state.py}`. Spec: implements every hook in §4.1 with the listed signatures (`sync_turn(..., messages=None, turn_author=None)`, `on_turn_start(turn_number, message, *, author_id=None, author_name=None, author_is_bot=None, **kw)`, `on_delegation`, `recall_status`, `identity_signature`; deliberately **no** `post_setup`); each hook wrapped by `@fail_soft(budget_ms=…, metric="hook.<name>")`; `pre_compress_checkpoint_api_version = 2`.
+**AC:** harness drives every hook; contract test enumerates `MemoryProvider` methods from the pinned hermes-agent and asserts each optional one is implemented or explicitly listed as intentionally unimplemented.
 
-Guards that stay in force: **do not wire `em/config.py`** outside its owning cards; **the `ENTROPICMEM_V3_RETRIEVAL` flag stays off**; **CI's eval gate stays v2** and lexical; a query with no caller-supplied vector keeps doing no vector work; and nothing embeds on the agent/prefetch thread.
+**EM-402 — ScopeContext & identity.** Files: `em/provider/identity.py`, `em/policy/scopes.py`. Spec: §3.5; `ScopeContext.from_init_kwargs(kw, config)`; `with_author(author_id, is_bot)` per turn; `scope_key`; all reads/writes go through the scope; `identity_signature()` reads only the config file, cached by mtime.
+**AC:** `multi_user` eval category = 1.0; group-chat harness test (3 authors in one chat) attributes memories correctly and never leaks user-private memories to other authors.
+
+**EM-403 — PrefetchService.** Spec: §4.2 exactly; metrics `prefetch.latency_ms`, `prefetch.cache_hit`, `prefetch.partial`, `prefetch.injected_count`, `prefetch.tokens`.
+**AC:** harness: warm p95 ≤ 150 ms @ 50k, cache-hit path ≤ 10 ms; forced-slow generator → returns within 1.5 s with partial result; never exceeds 9,000 chars; cumulative replayed memory tokens over 50 turns ≤ 50 × budget × 0.6 (dedup working).
+
+**Additional required here (owner's precision list, 2026-10-09):**
+- **Per-query observability is already at the layer and must be kept wired:** `candidates.vector`/`episodic` log coverage and `stale_excluded` per query on `em.retrieval.vectors` (WARNING when any vector was excluded as stale). The page/service must not swallow those logs, and a runtime coverage fallback (< 50% or < the promotion gate) serves lexical for that query rather than degrading silently.
+- **The stale→re-embed round-trip is already pinned at the layer** (`test_a_stale_memory_is_excluded_logged_and_restored_by_the_re_embed_queue`, same for episodes); the provider work keeps the queue running.
+
+### Vector-mode results exist — **context only, not a live claim**
+
+Produced 2026-10-09 on `main` `cc6672e` (+ observability-only working tree) with `fastembed`/`BAAI/bge-small-en-v1.5`, via the new explicit override `evals run --suite hard --adapter v3 --embeddings --compare <lexical baseline>`:
+
+| run | recall@5 | mrr | ndcg@5 | abstain | noise | must_not_ok |
+|---|---|---|---|---|---|---|
+| hard **vector** (committed baseline `evals/baselines/v3-hard-vector.json`) | **0.988** | 0.946 | 0.957 | 1.000 | 0.172 | 1.000 |
+| hard lexical (`v3-hard.json`, same suite) | 0.933 | 0.897 | 0.903 | 1.000 | 0.172 | 1.000 |
+| hard/ageing **vector** | **1.000** | — | — | — | 0.167 | — |
+| hard/ageing lexical | 0.733 | — | — | — | — | — |
+| ci vector (`v3-ci-vector.json`) | 1.000 | 1.000 | 1.000 | 1.000 | 0.143 | 1.000 |
+
+Both runs printed `retrieval mode: vector | baseline: lexical` and **“cross-mode comparison — metrics are context only”**: the regression gate never fired across modes. The per-run result files live in the gitignored `evals/results/`; the committed artifacts are the two vector baselines. **None of this is a semantic-retrieval shipment claim** — live retrieval is lexical until EM-401–403 merges and the owner flips the switch.
+
+### The promotion gate (recommended; owner confirms before the live flip)
+
+Before live retrieval moves off lexical-only, a vector-mode frozen-suite run **and its evidence** must meet all of:
+
+1. **Coverage ≥ 95%** of active in-scope memories carry a fresh vector for the configured model at serve time, and **`stale_excluded == 0`** across the qualification sample (read from the per-query log line). Below 95%, EM-403 serves lexical for that query.
+2. **hard overall recall@5 ≥ 0.95** (measured: 0.988; lexical baseline 0.933) — no regression against the lexical baseline allowed.
+3. **hard/ageing ≥ 0.85** (measured: 1.000; lexical 0.733) — the paraphrase lever the vectors exist for; the plan's own S3 exit is ≥ 0.70 with vectors.
+4. **abstain_correct ≥ 0.95; noise_rate ≤ 0.172** (no worse than lexical on the same suite); **must_not_ok = 1.0**.
+5. **Turn-path p95 ≤ 150 ms at 50k warm** (the standal 150 ms budget is unchanged), with the EM-403 cache-hit path ≤ 10 ms.
+6. The shadow observable stays as-is (`v3_only == 0`), and the numbers come from committed, mode-labelled result files compared cross-mode as context.
+
+The measured hard-vector run already clears 1–5 on this box; what it cannot show is production traffic — hence the shadow data remains part of the decision, and the switch stays owner-gated.
+
+### EM-411 before implementation (owner's instruction)
+
+The build is held until EM-502's caps exist, default `formation.mode=off`. The **first implementation commit must be the two test groups** (spec in plan §6.3):
+- **Shared window key:** cadence, idle and compaction seals of the same `[seq_start, seq_end]` range in one session enqueue **one** `extract:window:{session}:{start}-{end}` job — three near-simultaneous seals are simulated and the queue count is asserted at one.
+- **Idle floor:** a gap ≥ `idle_after_sec` enqueues nothing when the sealed window has `< min_window_turns` turns and `< min_window_chars` chars, and exactly one job when either floor is met.
+
+Also in the plan: **old-model rows are pruned by embedding maintenance** — decided policy: after a *completed* backfill for the new model (`meta.embedding_model == new`, zero pending) plus a **7-day grace** (so a rollback does not pay a full re-backfill), keep at most the current and previous model and delete the rest; measured storage is **≈2.1 KB/row all-in (1.5 KB blob), ≈21 MB per 10k memories per model set** — 10k→21 MB, 50k→106 MB per stale set. The prune runs as a job under EM-410's maintenance pass.
+
+Guards that stay in force: **do not wire `em/config.py`** outside its owning cards; **the `ENTROPICMEM_V3_RETRIEVAL` flag stays off**; **CI's eval gate stays v2** and lexical; a query with no caller-supplied vector keeps doing no vector work; nothing embeds on the agent/prefetch thread.
 
 ### Step 1 — collect the real turns (**blocked on the environment, which is now measured**)
 
@@ -184,7 +230,7 @@ suite, and **stop and report on a mismatch** instead of assuming the older numbe
 ### Pre-flight
 
 1. `main` must be at `4eb8097` or later: `git merge-base --is-ancestor 4eb8097 main`.
-2. **Baseline:** `pytest -q` gives **2178 passed, 5 skipped, 3 xfailed** on **both Python 3.10 and 3.12** on a bare box (3 environment/private skips + 2 numpy-gated tests). With numpy installed it reads **2180 / 3 / 3**; with the private digest list in place one more skip becomes a pass. **CI installs numpy and runs with the digest list, so CI reads 2180 passed / 2 skipped / 3 xfailed.** The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo). `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list still fails closed, deliberately.
+2. **Baseline:** `pytest -q` gives **2184 passed, 5 skipped, 3 xfailed** on **both Python 3.10 and 3.12** on a bare box. The 5 skips are exactly: `test_numpy_and_python_paths_agree` and `test_50k_vectors_search_p95_under_25ms_with_numpy` (numpy not installed), `test_v2_1_8.py` and `test_v2_2_0.py` (internal-ops scripts not in the public repo), and `test_no_personal_data` (private digest list not configured). With numpy installed it reads **2186 / 3 / 3** (the two numpy tests pass); with the private digest list in place one more skip becomes a pass. **CI installs numpy and runs with the digest list, so CI reads 2186 passed / 2 skipped / 3 xfailed**, and `tests/test_vector_ci_guard.py` fails if that install or either gated test disappears. The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo). `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list still fails closed, deliberately.
 3. **Re-measure from the code, not this file:** `_shadow.py` (`PROMOTION`, `MISS_CEILING_RULE`, `evaluate`, `read_log`, `render`, `main`), `scripts/shadow_collect.py`, `em/facade/engine.py` (`v3_retrieval_enabled`, `_recall_from_v3`), `em/retrieval/pipeline.py`, `em/retrieval/candidates.py` (`vector`), `em/embeddings/` (`backends`, `service`, `jobs`, `cache`), `em/store/embeddings.py`, `em/config.py`, `evals/tune.py`, `em/retrieval/gate.py` (`load_rows`' pinned input), `evals/` (`runner`, `metrics`, `adapters/engine_v3.py`), `.github/workflows/test.yml`.
 4. **Verify CI with the check-runs API on the commit**, and read `head_sha`.
 

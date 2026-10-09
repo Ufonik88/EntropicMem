@@ -214,7 +214,11 @@ These are decisions the writes chunk made that are not obvious from the signatur
   an episode vector when its stored stamp matches `updated_at` (an empty stored
   hash means "unverified" and is kept for pre-EM-303 rows and fixtures). A
   stale vector is excluded, coverage drops, and the queued re-embed restores
-  it; nothing is ever silently mixed.
+  it; nothing is ever silently mixed. **Observability:** every vector-mode
+  generator call logs `coverage` and `stale_excluded` per query
+  (`em.retrieval.vectors`, WARNING when any stale vector was excluded), and a
+  stale→re-embed round-trip is pinned for memories and episodes — a coverage
+  drop shows up in logs, not only as a quiet change in results.
   **The follow-up slice (merged `42e16c7`)** makes `EpisodeStore` an embedding
   producer (`add_episode`/`upsert_episode` enqueue; the handler and backfill
   cover episodes with `updated_at` as the stale guard) and has the v3 eval
