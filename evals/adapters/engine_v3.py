@@ -45,8 +45,10 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from em.clock import to_iso  # noqa: E402
+from em.embeddings.service import EmbeddingService, memory_text  # noqa: E402
 from em.retrieval import pipeline  # noqa: E402
 from em.store.db import Store  # noqa: E402
+from em.store.embeddings import put_embedding  # noqa: E402
 from em.store.memories import MemoryStore  # noqa: E402
 from em.store.migrations import migrate  # noqa: E402
 from em.store.types import MemoryDraft, Scope  # noqa: E402
@@ -70,17 +72,34 @@ class EngineV3Adapter(AdapterBase):
         *,
         gate_config: Any = None,
         rank_weights: Any = None,
+        embedding_service: Any = None,
     ) -> None:
-        # Accepted for interface parity with `engine_v2`. v3 has no embedding path
-        # yet (EM-303), so there is nothing to force off; when EM-303 lands, this is
-        # where the backend gets disabled for the `ci` suite.
+        # Same contract as `engine_v2`: the ci/hard suites pass True and stay
+        # lexical; any other suite passes False and uses vectors when a backend
+        # is available. ``embedding_service=None`` builds one from the
+        # environment on first use (``none`` backend unless fastembed /
+        # sentence-transformers / an OpenAI-compatible endpoint is configured);
+        # tests inject a deterministic one.
         self.disable_embeddings = disable_embeddings
         # EM-306's calibration seam: the tune harness builds one adapter per candidate.
         # ``None`` — what every other caller passes — is the spec defaults.
         self._gate_config = gate_config
         self._rank_weights = rank_weights
+        self._embedding_service = embedding_service
         self._tmpdirs: List[tempfile.TemporaryDirectory] = []
         self._stores: List[Store] = []
+
+    def _service(self) -> Any:
+        if self._embedding_service is None:
+            self._embedding_service = EmbeddingService(":memory:")
+        return self._embedding_service
+
+    def _active_service(self) -> Any:
+        """The service to use, or ``None`` when embeddings are off/unavailable."""
+        if self.disable_embeddings:
+            return None
+        service = self._service()
+        return service if service.available else None
 
     # ── adapter interface ──────────────────────────────────────────────
 
@@ -140,12 +159,41 @@ class EngineV3Adapter(AdapterBase):
                 if result.ok:
                     noise_ids.add(result.id)
 
+        service = self._active_service()
+        if service is not None:
+            self._embed_documents(store, service)
+
         return EvalHandle(
             scenario=scenario,
             ref_ids=ref_ids,
             noise_ids=noise_ids,
             extra={"store": store, "conn": store.reader(), "scope": scope},
         )
+
+    def _embed_documents(self, store: Store, service: Any) -> None:
+        """Embed every memory in the scenario store (EM-303's document side).
+
+        Without this a query vector would have nothing to match. The service is
+        already warm after this call, and the ``ci``/``hard`` suites never reach
+        here because they pass ``disable_embeddings=True``.
+        """
+        rows = store.reader().execute(
+            "SELECT id, content, summary FROM memories"
+        ).fetchall()
+        if not rows:
+            return
+        texts = [memory_text(row["summary"] or "", row["content"] or "") for row in rows]
+        vectors = service.embed_texts(texts)
+        stamp = to_iso(datetime.now(timezone.utc))
+        with store.transaction() as conn:
+            for row, vector in zip(rows, vectors):
+                put_embedding(
+                    conn,
+                    owner_id=row["id"],
+                    model=service.model,
+                    vector=vector,
+                    created_at=stamp,
+                )
 
     def search(self, handle: EvalHandle, query: str, k: int = 5) -> List[Hit]:
         ranked, rows = self._run(handle, query, with_gate=False)
@@ -206,7 +254,14 @@ class EngineV3Adapter(AdapterBase):
         shadow read (P0) needs exactly the same one — two copies of an "identical"
         pipeline is how they stop being identical. ``rows`` comes back either way so
         the caller can render text for keys the gate dropped as well as those it kept.
+
+        EM-303: when vectors are enabled and a backend is available, the query is
+        embedded here (offline; never the prefetch thread) and both the generator
+        and the gate's cosine condition see it. The frozen suites disable this.
         """
+        service = self._active_service()
+        query_vector = service.embed_query(query) if service is not None else None
+        embedding_model = service.model if (service is not None and query_vector) else None
         outcome = pipeline.retrieve(
             handle.extra["conn"],
             scope=handle.extra["scope"],
@@ -214,5 +269,7 @@ class EngineV3Adapter(AdapterBase):
             with_gate=with_gate,
             gate_config=self._gate_config,
             rank_weights=self._rank_weights,
+            query_vector=query_vector,
+            embedding_model=embedding_model,
         )
         return outcome.rankings, outcome.rows

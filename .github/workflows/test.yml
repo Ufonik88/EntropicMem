@@ -23,7 +23,7 @@ jobs:
       # instead of importorskip-ing (they were silently untested in CI before).
       # pyyaml: the Hermes host always ships it, and without it _backend cannot
       # read config.yaml, so the EM-102 config-precedence tests fail.
-      - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50" "pyyaml>=6,<7"
+      - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50" "pyyaml>=6,<7" "numpy>=1.24,<3"
       - run: pytest -q tests/
         env:
           # Private identifier denylist (SHA-256 digests). Never committed, not

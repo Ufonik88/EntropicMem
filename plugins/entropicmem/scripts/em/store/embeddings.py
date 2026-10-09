@@ -33,7 +33,7 @@ __all__ = [
     "load_memory_vectors",
     "missing_memory_count",
     "pack_vector",
-    "pending_memory_texts",
+    "pending_embed_texts",
     "put_embedding",
     "rank_by_cosine",
     "set_stored_model",
@@ -203,33 +203,44 @@ def set_stored_model(conn: sqlite3.Connection, model: str) -> None:
     )
 
 
-def pending_memory_texts(
+def pending_embed_texts(
     conn: sqlite3.Connection, *, model: str, limit: int = 64
-) -> list[tuple[str, str, str]]:
-    """Active memories with **no** embedding for ``model``: ``(id, summary, content)``.
+) -> list[tuple[str, str, str, str]]:
+    """Rows with **no** embedding for ``model``: ``(owner_type, id, a, b)``.
 
-    Rows with neither a summary nor content are impossible (``add`` refuses
-    empty content), but the filter is kept so a backfill can never spend a
-    batch on an empty string. A row that carries a vector for a *different*
-    model is still pending for this one — that is the model-switch case.
+    Memories yield ``(summary, content)``; episodes ``(title, summary)`` — the
+    caller shapes the text per type. Rows with no text at all are skipped
+    rather than spending a batch on an empty string. A row that carries a
+    vector for a *different* model is still pending for this one — that is the
+    model-switch case.
     """
     if not model:
         return []
     rows = conn.execute(
-        "SELECT m.id AS id, m.summary AS summary, m.content AS content"
+        "SELECT 'memory' AS owner_type, m.id AS id, m.summary AS a, m.content AS b"
         " FROM memories m"
         " LEFT JOIN embeddings e ON e.owner_type = 'memory'"
         "   AND e.owner_id = m.id AND e.model = ?"
         " WHERE m.status = 'active' AND e.owner_id IS NULL"
         "   AND (TRIM(COALESCE(m.summary, '')) <> '' OR TRIM(COALESCE(m.content, '')) <> '')"
-        " ORDER BY m.id LIMIT ?",
-        (model, int(limit)),
+        " UNION ALL"
+        " SELECT 'episode' AS owner_type, ep.id AS id, ep.title AS a, ep.summary AS b"
+        " FROM episodes ep"
+        " LEFT JOIN embeddings e ON e.owner_type = 'episode'"
+        "   AND e.owner_id = ep.id AND e.model = ?"
+        " WHERE e.owner_id IS NULL"
+        "   AND (TRIM(COALESCE(ep.title, '')) <> '' OR TRIM(COALESCE(ep.summary, '')) <> '')"
+        " ORDER BY owner_type, id LIMIT ?",
+        (model, model, int(limit)),
     ).fetchall()
-    return [(str(row["id"]), str(row["summary"] or ""), str(row["content"] or "")) for row in rows]
+    return [
+        (str(row["owner_type"]), str(row["id"]), str(row["a"] or ""), str(row["b"] or ""))
+        for row in rows
+    ]
 
 
 def missing_memory_count(conn: sqlite3.Connection, *, model: str) -> int:
-    """How many active memories still need a vector for ``model``."""
+    """How many active memories still need a vector for ``model`` (episodes not counted)."""
     if not model:
         return 0
     row = conn.execute(

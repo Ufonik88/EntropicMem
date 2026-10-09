@@ -2,15 +2,18 @@
 
 Both handlers follow EM-209's contract: they run **outside** the write
 transaction, open their own short transactions through ``ctx.store``, are
-idempotent (upsert on ``(owner, model)``), and heartbeat in long loops.
+idempotent (upsert on ``(owner_type, owner_id, model)``), and heartbeat in
+long loops.
 
-* ``embed`` — one memory, queued by ``MemoryStore.add``/``update`` with
-  ``{memory_id, version}``. A stale version (the row moved on) is a no-op, so
-  a late job can never overwrite a newer vector. A missing memory (purged) is
-  permanent; a memory that is not ``active`` yet is simply done.
+* ``embed`` — one owner, queued by ``MemoryStore.add``/``update`` with
+  ``{memory_id, version}`` or by ``EpisodeStore`` with
+  ``{owner_type: "episode", owner_id, stamp}``. A stale version/stamp (the row
+  moved on) is a no-op, re-checked **inside the write transaction**, so a late
+  job can never overwrite a newer vector. A missing owner (purged) is
+  permanent; an owner that is not ``active`` yet is simply done.
 * ``embed_backfill`` — the model-switch path. ``ensure_embedding_model``
-  queues one per new model (dedupe key), and the handler pages the memories
-  that lack a vector for it, 64 at a time, then records
+  queues one per new model (dedupe key), and the handler pages memories and
+  episodes that lack a vector for it, 64 at a time, then records
   ``meta.embedding_model``. Without a backend it returns without writing the
   meta key, so a later run — after the optional package is installed — still
   sees the switch and backfills.
@@ -27,14 +30,15 @@ from typing import Callable, Optional
 from ..clock import to_iso, utc_now
 from ..jobs.worker import PermanentJobError
 from ..store.embeddings import (
-    pending_memory_texts,
+    pending_embed_texts,
     put_embedding,
     set_stored_model,
     stored_model,
 )
+from ..store.episodes import EpisodeStore
 from ..store.jobs import JobQueue
 from ..store.memories import MemoryStore
-from .service import BATCH_SIZE, EmbeddingService, memory_text
+from .service import BATCH_SIZE, EmbeddingService, episode_text, memory_text
 
 __all__ = [
     "ensure_embedding_model",
@@ -62,46 +66,84 @@ def ensure_embedding_model(conn: sqlite3.Connection, model: str) -> Optional[str
 
 
 def make_embed_handler(service: EmbeddingService) -> Callable:
-    """Handler for ``embed`` jobs: one memory, one vector."""
+    """Handler for ``embed`` jobs: one memory or one episode, one vector."""
 
     def handle(job, ctx) -> None:
-        memory_id = str(job.payload.get("memory_id") or "")
-        if not memory_id:
-            raise PermanentJobError("embed job has no memory_id")
-        version = job.payload.get("version")
-
-        # Read with a short reader connection; the embedding call happens
-        # outside every transaction (invariant 2).
-        row = MemoryStore(ctx.store.reader()).get(memory_id)
-        if row is None:
-            raise PermanentJobError(f"memory {memory_id} no longer exists")
-        if row.get("status") != "active":
+        owner_type = str(job.payload.get("owner_type") or "memory")
+        if owner_type == "episode":
+            _embed_episode(job, ctx, service)
             return
-        if version is not None and int(version) != int(row.get("version") or 0):
-            return  # a newer version has its own job; this one is stale
-        text = memory_text(row.get("summary") or "", row.get("content") or "")
-        if not text or not service.available:
-            return
-        vector = service.embed_texts([text])[0]
-        # Re-check the version inside the write transaction: the read above
-        # happened before a (possibly slow) embedding call, and a newer version
-        # may have landed since. Without this, a lease-expired duplicate could
-        # overwrite the newer vector.
-        with ctx.store.transaction() as conn:
-            if version is not None:
-                latest = MemoryStore(conn).get(memory_id)
-                if latest is None or int(latest.get("version") or 0) != int(version):
-                    return
-            put_embedding(
-                conn,
-                owner_id=memory_id,
-                model=service.model,
-                vector=vector,
-                content_hash=str(row.get("content_hash") or ""),
-                created_at=to_iso(utc_now()),
-            )
+        _embed_memory(job, ctx, service)
 
     return handle
+
+
+def _embed_memory(job, ctx, service: EmbeddingService) -> None:
+    memory_id = str(job.payload.get("memory_id") or job.payload.get("owner_id") or "")
+    if not memory_id:
+        raise PermanentJobError("embed job has no memory_id")
+    version = job.payload.get("version")
+
+    # Read with a short reader connection; the embedding call happens outside
+    # every transaction (invariant 2).
+    row = MemoryStore(ctx.store.reader()).get(memory_id)
+    if row is None:
+        raise PermanentJobError(f"memory {memory_id} no longer exists")
+    if row.get("status") != "active":
+        return
+    if version is not None and int(version) != int(row.get("version") or 0):
+        return  # a newer version has its own job; this one is stale
+    text = memory_text(row.get("summary") or "", row.get("content") or "")
+    if not text or not service.available:
+        return
+    vector = service.embed_texts([text])[0]
+    # Re-check the version inside the write transaction: the read above
+    # happened before a (possibly slow) embedding call, and a newer version
+    # may have landed since. Without this, a lease-expired duplicate could
+    # overwrite the newer vector.
+    with ctx.store.transaction() as conn:
+        if version is not None:
+            latest = MemoryStore(conn).get(memory_id)
+            if latest is None or int(latest.get("version") or 0) != int(version):
+                return
+        put_embedding(
+            conn,
+            owner_id=memory_id,
+            model=service.model,
+            vector=vector,
+            content_hash=str(row.get("content_hash") or ""),
+            created_at=to_iso(utc_now()),
+        )
+
+
+def _embed_episode(job, ctx, service: EmbeddingService) -> None:
+    episode_id = str(job.payload.get("owner_id") or job.payload.get("memory_id") or "")
+    if not episode_id:
+        raise PermanentJobError("embed job has no owner_id")
+    stamp = job.payload.get("stamp")
+
+    row = EpisodeStore(ctx.store.reader()).get_episode(episode_id)
+    if row is None:
+        raise PermanentJobError(f"episode {episode_id} no longer exists")
+    if stamp is not None and str(row.get("updated_at") or "") != str(stamp):
+        return  # a newer upsert has its own job
+    text = episode_text(row.get("title") or "", row.get("summary") or "")
+    if not text or not service.available:
+        return
+    vector = service.embed_texts([text])[0]
+    with ctx.store.transaction() as conn:
+        if stamp is not None:
+            latest = EpisodeStore(conn).get_episode(episode_id)
+            if latest is None or str(latest.get("updated_at") or "") != str(stamp):
+                return
+        put_embedding(
+            conn,
+            owner_type="episode",
+            owner_id=episode_id,
+            model=service.model,
+            vector=vector,
+            created_at=to_iso(utc_now()),
+        )
 
 
 def make_embed_backfill_handler(service: EmbeddingService) -> Callable:
@@ -118,16 +160,20 @@ def make_embed_backfill_handler(service: EmbeddingService) -> Callable:
         while True:
             if not ctx.heartbeat():
                 return
-            pending = pending_memory_texts(reader, model=model, limit=BATCH_SIZE)
+            pending = pending_embed_texts(reader, model=model, limit=BATCH_SIZE)
             if not pending:
                 break
-            texts = [memory_text(summary, content) for (_id, summary, content) in pending]
+            texts = [
+                memory_text(a, b) if owner_type == "memory" else episode_text(a, b)
+                for (owner_type, _id, a, b) in pending
+            ]
             vectors = service.embed_texts(texts)  # raises -> the job retries
             with ctx.store.transaction() as conn:
-                for (memory_id, _summary, _content), vector in zip(pending, vectors):
+                for (owner_type, owner_id, _a, _b), vector in zip(pending, vectors):
                     put_embedding(
                         conn,
-                        owner_id=memory_id,
+                        owner_type=owner_type,
+                        owner_id=owner_id,
                         model=model,
                         vector=vector,
                         created_at=to_iso(utc_now()),

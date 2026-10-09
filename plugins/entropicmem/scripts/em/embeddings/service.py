@@ -112,3 +112,16 @@ class EmbeddingService:
                 f"for {len(texts)} texts"
             )
         return vectors
+
+    def embed_query(self, text: str) -> Optional[List[float]]:
+        """One query's vector, or ``None`` when no backend is selected.
+
+        This is the query half the search path needs; until the provider cards
+        wire it, the eval adapter is the caller (offline, not the prefetch
+        thread). Empty text and a ``none`` backend both return ``None``.
+        """
+        query = (text or "").strip()
+        if not query or not self.available:
+            return None
+        vectors = self.embed_texts([query])
+        return vectors[0] if vectors else None

@@ -185,3 +185,12 @@ def test_memory_text_prefers_the_summary_and_caps_at_two_thousand():
 def test_episode_text_is_title_plus_summary():
     assert episode_text("Acme cutover", "the summary") == "Acme cutover\nthe summary"
     assert episode_text("Acme cutover", "") == "Acme cutover"
+
+
+def test_embed_query_returns_none_without_a_backend_and_embeds_with_one():
+    assert EmbeddingService(":memory:", backend=NoneBackend()).embed_query("anything") is None
+    backend = FakeBackend()
+    service = EmbeddingService(":memory:", backend=backend, model="fake-1")
+    assert service.embed_query("Acme staging") == [float(len("Acme staging") % 7), 1.0, 0.0, 0.0]
+    assert service.embed_query("   ") is None
+    assert backend.embed_calls == [1]  # one text, one call; the blank made none

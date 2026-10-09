@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,7 @@ SCRIPTS = REPO / "plugins" / "entropicmem" / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from em.clock import to_iso, utc_now  # noqa: E402
+from em.clock import freeze, to_iso, utc_now  # noqa: E402
 from em.embeddings.backends import NoneBackend  # noqa: E402
 from em.embeddings.jobs import (  # noqa: E402
     ensure_embedding_model,
@@ -40,6 +41,7 @@ from em.embeddings.service import EmbeddingService  # noqa: E402
 from em.jobs import HandlerRegistry, JobWorker  # noqa: E402
 from em.store.db import Store  # noqa: E402
 from em.store.embeddings import put_embedding, stored_model, unpack_vector  # noqa: E402
+from em.store.episodes import EpisodeStore  # noqa: E402
 from em.store.jobs import JobQueue  # noqa: E402
 from em.store.memories import MemoryStore  # noqa: E402
 from em.store.migrations import migrate  # noqa: E402
@@ -48,6 +50,7 @@ from em.store.types import MemoryDraft, MemoryPatch, Scope  # noqa: E402
 OWNER = Scope(profile="default")
 MODEL = "fake-embed-1"
 MODEL2 = "fake-embed-2"
+NOW = datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc)
 
 
 def fake_vector(text: str) -> tuple:
@@ -120,6 +123,22 @@ def test_add_enqueues_one_embed_job_for_the_new_version(store):
     assert len(jobs) == 1  # `add` also queues the link job; that one is EM-211's
     assert jobs[0]["dedupe_key"] == f"embed:{memory_id}:1"
     assert json.loads(jobs[0]["payload"]) == {"memory_id": memory_id, "version": 1}
+
+
+def test_add_episode_enqueues_an_embed_job(store):
+    with store.transaction() as conn:
+        episode_id = EpisodeStore(conn).add_episode(
+            scope=OWNER, kind="manual", title="Acme cutover", summary="moved the fleet"
+        )
+    rows = store.reader().execute(
+        "SELECT type, payload, dedupe_key FROM jobs WHERE type='embed'"
+    ).fetchall()
+    assert len(rows) == 1
+    payload = json.loads(rows[0]["payload"])
+    assert payload["owner_type"] == "episode"
+    assert payload["owner_id"] == episode_id
+    assert payload["stamp"]
+    assert rows[0]["dedupe_key"] == f"embed:episode:{episode_id}:{payload['stamp']}"
 
 
 # --- the embed handler -----------------------------------------------------
@@ -219,6 +238,88 @@ def test_no_backend_is_a_noop_not_a_failure(store):
     assert _embed_rows(store) == []
 
 
+# --- episodes --------------------------------------------------------------
+
+
+def test_the_handler_embeds_an_episode_title_and_summary(store):
+    with store.transaction() as conn:
+        episode_id = EpisodeStore(conn).add_episode(
+            scope=OWNER, kind="manual", title="Acme cutover", summary="moved the fleet"
+        )
+    outcomes = _run(store, {"embed": make_embed_handler(_service())})
+    assert [o.status for o in outcomes] == ["done"]
+    (row,) = _embed_rows(store, MODEL)
+    assert row["owner_type"] == "episode"
+    assert row["owner_id"] == episode_id
+    assert unpack_vector(row["vector"]) == pytest.approx(
+        fake_vector("Acme cutover\nmoved the fleet")
+    )
+
+
+def test_a_stale_episode_job_does_not_overwrite_the_refined_summary(store):
+    """The race: the episode is refined *during* the embedding call.
+
+    The handler read the old text, the backend takes time, an upsert lands a
+    refined summary (with its own vector), and the stale job then tries to
+    write. Only the stamp checks — re-checked inside the write transaction —
+    stop it. A plain replay cannot show this, because the handler re-reads the
+    current text anyway.
+    """
+    with freeze(NOW):
+        with store.transaction() as conn:
+            episode_id = EpisodeStore(conn).add_episode(
+                scope=OWNER, kind="session", session_id="sess-1",
+                title="Acme cutover", summary="first draft",
+            )
+    (first_payload,) = [
+        json.loads(row["payload"])
+        for row in store.reader().execute("SELECT payload FROM jobs WHERE type='embed'").fetchall()
+    ]
+    # One deterministic job only: the original queue goes away.
+    with store.transaction() as conn:
+        conn.execute("DELETE FROM jobs")
+
+    service = _service()
+    inner = service.backend.embed
+    raced = {"done": False}
+
+    def racing_embed(texts):
+        if not raced["done"]:
+            raced["done"] = True
+            with freeze(NOW + timedelta(milliseconds=5)):
+                with store.transaction() as conn:
+                    EpisodeStore(conn).upsert_episode(
+                        scope=OWNER, kind="session", session_id="sess-1", window_seq=0,
+                        title="Acme cutover", summary="refined summary",
+                    )
+                    put_embedding(
+                        conn, owner_type="episode", owner_id=episode_id, model=MODEL,
+                        vector=fake_vector("Acme cutover\nrefined summary"),
+                        created_at=to_iso(utc_now()),
+                    )
+        return inner(texts)
+
+    service.backend.embed = racing_embed
+    with store.transaction() as conn:
+        JobQueue(conn).enqueue(
+            "embed",
+            {
+                "owner_type": "episode",
+                "owner_id": episode_id,
+                "stamp": first_payload["stamp"],
+            },
+            dedupe_key="stale-episode",
+        )
+    registry = HandlerRegistry()
+    registry.register("embed", make_embed_handler(service))
+    outcome = JobWorker(store, registry, worker_id="w").run_once()
+    assert outcome is not None and outcome.status == "done"
+    (row,) = _embed_rows(store, MODEL)
+    assert unpack_vector(row["vector"]) == pytest.approx(
+        fake_vector("Acme cutover\nrefined summary")
+    )
+
+
 # --- backfill and model identity -------------------------------------------
 
 
@@ -243,6 +344,22 @@ def test_backfill_embeds_every_missing_memory_and_records_the_model(store):
     outcomes = _run(store, {"embed_backfill": make_embed_backfill_handler(_service())})
     assert [o.status for o in outcomes] == ["done"]
     assert len(_embed_rows(store, MODEL)) == 3
+    assert stored_model(store.reader()) == MODEL
+
+
+def test_backfill_covers_memories_and_episodes(store):
+    _add(store, "the Acme staging port is 9090")
+    _add(store, "Bob Example waters the fern on Fridays")
+    with store.transaction() as conn:
+        EpisodeStore(conn).add_episode(
+            scope=OWNER, kind="manual", title="Acme cutover", summary="moved the fleet"
+        )
+        ensure_embedding_model(conn, MODEL)
+    outcomes = _run(store, {"embed_backfill": make_embed_backfill_handler(_service())})
+    assert [o.status for o in outcomes] == ["done"]
+    rows = _embed_rows(store, MODEL)
+    assert len(rows) == 3
+    assert sorted(row["owner_type"] for row in rows) == ["episode", "memory", "memory"]
     assert stored_model(store.reader()) == MODEL
 
 

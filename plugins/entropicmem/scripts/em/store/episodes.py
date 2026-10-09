@@ -24,6 +24,7 @@ import sqlite3
 from typing import Any, Iterable, Mapping, Sequence
 
 from ..clock import new_id, to_iso, utc_now
+from .jobs import JobQueue
 from .types import Scope
 
 DEFAULT_RETENTION_DAYS = 30
@@ -190,6 +191,7 @@ class EpisodeStore:
                 legacy_id,
             ),
         )
+        self._enqueue_embed(episode_id, now)
         return episode_id
 
     def upsert_episode(
@@ -243,6 +245,7 @@ class EpisodeStore:
                     existing["id"],
                 ),
             )
+            self._enqueue_embed(str(existing["id"]), now)
             return existing["id"]
 
         episode_id = new_id("ep")
@@ -273,7 +276,23 @@ class EpisodeStore:
                 legacy_id,
             ),
         )
+        self._enqueue_embed(episode_id, now)
         return episode_id
+
+    def _enqueue_embed(self, episode_id: str, stamp: str) -> None:
+        """Queue an embedding for the episode's ``title + summary``.
+
+        Same rule as ``MemoryStore._enqueue_embed``: never inline, one job per
+        version of the text. Episodes have no ``version`` column, so the
+        ``updated_at`` stamp is the version — an upsert writes a new stamp and
+        therefore its own job, and the handler ignores a job whose stamp no
+        longer matches.
+        """
+        JobQueue(self._conn).enqueue(
+            "embed",
+            {"owner_type": "episode", "owner_id": episode_id, "stamp": stamp},
+            dedupe_key=f"embed:episode:{episode_id}:{stamp}",
+        )
 
     def get_episode(self, episode_id: str) -> dict[str, Any] | None:
         row = self._conn.execute("SELECT * FROM episodes WHERE id=?", (episode_id,)).fetchone()
