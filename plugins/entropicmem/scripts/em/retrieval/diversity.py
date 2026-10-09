@@ -35,7 +35,7 @@ import re
 import sqlite3
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..clock import parse_iso
 from ..store.types import Scope
@@ -114,6 +114,7 @@ def mmr(
     texts: Mapping[Key, str],
     lambda_: float = MMR_LAMBDA,
     top: int = MMR_TOP,
+    similarities: Optional[Callable[[Key, Key], float]] = None,
 ) -> List[Ranking]:
     """Maximal Marginal Relevance over the top ``top`` hits (§3.6).
 
@@ -121,6 +122,14 @@ def mmr(
     ``λ * score − (1 − λ) * max similarity to anything already chosen``, ties going
     to the better-ranked one. Only the head is diversified — §3.6 scopes MMR to
     "the top 20" — and the remainder keeps its order behind it.
+
+    ``similarities``, when given, is called as ``similarities(candidate, chosen)``
+    for every pair and must return a redundancy in ``[0, 1]``: §3.6's
+    "embedding cosine (fallback: token Jaccard)" path passes one. ``None`` — the
+    default — is the token-Jaccard fallback, and is what every caller got before
+    the embedding path existed. ``texts`` is required either way: the fallback
+    is per-pair, so a caller with vectors for only some candidates still needs
+    the text.
     """
     _require_texts(rankings, texts, "mmr")
     if len(rankings) <= 1:
@@ -130,16 +139,20 @@ def mmr(
     tail = list(rankings[top:])
     sets = {ranking.key: tokens(texts.get(ranking.key, "")) for ranking in rankings}
 
+    def redundancy(candidate: Ranking, picked: Ranking) -> float:
+        if similarities is not None:
+            return float(similarities(candidate.key, picked.key))
+        return jaccard(sets[candidate.key], sets[picked.key])
+
     chosen = [head.pop(0)]
     while head:
         best_index = 0
         best_value: Optional[float] = None
         for index, candidate in enumerate(head):
-            redundancy = max(
-                (jaccard(sets[candidate.key], sets[picked.key]) for picked in chosen),
+            value = lambda_ * candidate.score - (1.0 - lambda_) * max(
+                (redundancy(candidate, picked) for picked in chosen),
                 default=0.0,
             )
-            value = lambda_ * candidate.score - (1.0 - lambda_) * redundancy
             if best_value is None or value > best_value:
                 best_index, best_value = index, value
         chosen.append(head.pop(best_index))

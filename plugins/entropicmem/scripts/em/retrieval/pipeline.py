@@ -26,11 +26,34 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from ..store.embeddings import cosine, load_memory_vectors
 from ..store.types import Scope
 from . import candidates, diversity, fusion, gate
 from .query import AnalyzedQuery, analyze
 
 __all__ = ["Retrieval", "retrieve"]
+
+
+def _pairwise_similarity(vectors: Dict[Tuple[str, str], Tuple[float, ...]], texts: Dict[Tuple[str, str], str]):
+    """MMR's redundancy function (§3.6): cosine when both have a vector, else Jaccard.
+
+    A negative cosine is clamped to 0.0: MMR's redundancy is a penalty in
+    ``[0, 1]``, and an opposed pair must not earn a bonus. A pair where either
+    side has no vector falls back to token Jaccard, which is why ``texts`` is
+    passed here as well.
+    """
+
+    def similarity(left: Tuple[str, str], right: Tuple[str, str]) -> float:
+        left_vector = vectors.get(left)
+        right_vector = vectors.get(right)
+        if left_vector is not None and right_vector is not None:
+            return max(0.0, cosine(left_vector, right_vector))
+        return diversity.jaccard(
+            diversity.tokens(texts.get(left, "")),
+            diversity.tokens(texts.get(right, "")),
+        )
+
+    return similarity
 
 
 @dataclass(frozen=True)
@@ -145,7 +168,17 @@ def retrieve(
         ),
         now=moment,
     )
-    kept = diversity.mmr(collapsed.kept, texts=texts)
+    mmr_similarities = None
+    if vector is not None and embedding_model:
+        clause, params = candidates.scope_sql(scope, table="m")
+        vectors_by_key = {
+            (candidates.OWNER_TYPE_MEMORY, owner_id): tuple(stored)
+            for owner_id, stored in load_memory_vectors(
+                conn, model=embedding_model, scope_clause=clause, scope_params=params
+            )
+        }
+        mmr_similarities = _pairwise_similarity(vectors_by_key, texts)
+    kept = diversity.mmr(collapsed.kept, texts=texts, similarities=mmr_similarities)
     kept_keys = {ranking.key for ranking in kept}
     noted = {
         key: predecessors
