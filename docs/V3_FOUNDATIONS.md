@@ -38,7 +38,8 @@ em.retrieval (S3)        query.py: AnalyzedQuery + analyze() — EM-301's text
                           eval adapter, the shadow read (P0a) and the facade's
                           flag-gated read half (P0b); candidates.vector + the
                           embeddings store decode search vectors ALREADY stored
-                          (EM-303 first slice) — the backends are unbuilt; the
+                          and MMR uses them when present (EM-303) — the
+                          backends are unbuilt; the
                           full temporal grammar is EM-310's.
 em.jobs   (EM-209)        worker.py: claims jobs, runs handlers OUTSIDE transactions
                           cli.py: `entropicmem worker run`, the cron entry point (refuses a live path)
@@ -185,27 +186,30 @@ These are decisions the writes chunk made that are not obvious from the signatur
 - **Recorded deviations from v2, each pinned by a test:** no fuzzy overwrite (v2's EM-109 near-duplicate rule could rewrite a stored fact in place; v3 collapses only *exact* duplicates), and no deprecation warnings (the card asks for once-per-process warnings on methods "suled for removal in 3.1", but v2 emits none, no list of which methods is recorded, and the provider calls all of them every session).
 - **EM-212 — DONE (Chunk 8, 2026-10-07).** The six shared-name engine modules (`vault`, `index`, `security`, `policy`, `embeddings`, `retrieval`) now live under the `em_internal` package, so the import system registers `em_internal.*` and never the bare names; `_backend._own_module` (the 2026-09-27 first step) is gone in favour of a qualified import, because a qualified name cannot collide. The strict xfail `test_em212_plan_ac_no_unprefixed_engine_modules_in_process` **flipped to a passing test**. The other 14 modules keep unprefixed names deliberately — the AC names only the six. The packaging guard now derives every package under `scripts/` from disk, so a new one cannot ship missing from the wheel.
 - **EM-213** is done, re-scoped on 2026-09-26: the Hermes catalog verifies the plugin against `provides_tools`/`provides_hooks`, so they stay and only the duplicate `hooks:` list went. `test_f011_plugin_manifest_declares_tools_and_hooks_once` pins it. Do not remove the provides lists.
-- **EM-303 (embeddings, S3) — first slice, merged to `main` (`9d5a72b`, ff-merged as
-  `7d6a22e`).** What exists: `em/store/embeddings.py` decodes the native float32
-  blobs v2 already writes and a stdlib cosine; `candidates.vector` joins
-  `embeddings` to active, in-scope memories in **one** query and runs only when
-  `retrieve` was given a query vector and a model **and** ≥ 50% of active memories
-  in scope carry a vector for that model. **What does not exist yet:** the
-  `EmbeddingBackend` protocol and the four backends (`fastembed` /
-  `sentence_transformers` / `openai_compat` / `none`), the `embed` job handler and
-  the `embed_backfill` on a model switch (jobs are already queued by
-  `MemoryStore.add`; upsert on `(owner_type, owner_id, model)` so re-runs are
-  harmless), the numpy matrix cache that the card's 50k p95 < 25 ms AC needs, and
-  warm-up in the worker thread. **No embedding call may ever run on the
-  agent/prefetch thread** — a query with no caller-supplied vector does no vector
-  work at all, and a test pins that.
+- **EM-303 (embeddings, S3) — search + MMR slices. Merged `9d5a72b` (`7d6a22e`);
+  MMR path on `em/em-303-mmr` (`156370e`, not merged).** What exists:
+  `em/store/embeddings.py` decodes the native float32 blobs v2 already writes and
+  a stdlib cosine; `candidates.vector` joins `embeddings` to active, in-scope
+  memories in **one** query and runs only when `retrieve` was given a query vector
+  and a model **and** ≥ 50% of active memories in scope carry a vector for that
+  model; `diversity.mmr` takes a pairwise `similarities` callable and the pipeline
+  supplies cosine (clamped at 0) when a query vector and model were given, token
+  Jaccard per pair otherwise. **What does not exist yet:** the `EmbeddingBackend`
+  protocol and the four backends (`fastembed` / `sentence_transformers` /
+  `openai_compat` / `none`), the `embed` job handler and the `embed_backfill` on a
+  model switch (jobs are already queued by `MemoryStore.add`; upsert on
+  `(owner_type, owner_id, model)` so re-runs are harmless), the numpy matrix cache
+  that the card's 50k p95 < 25 ms AC needs, and warm-up in the worker thread.
+  **No embedding call may ever run on the agent/prefetch thread** — a query with
+  no caller-supplied vector does no vector work at all, and a test pins that.
 - **Wiring `EntityLinker`.** Run it from a job (`link:<memory_id>:<version>`), not inside `MemoryStore.add`, to keep entity work out of the write transaction.
 - **§3.5's `visibility` half is implemented (Chunk 13) — write stamp *and* read guard, agent-proposed and internal only.** Two row conditions, one definition: `em.store.types.row_is_owner_only` returns True for a `sensitive`/`secret` tier **or** for a *profile-wide* row (`scope_user=''`) stamped `visibility='user'`; `_in_scope` and `candidates.scope_sql` both call it, and the chat dimension goes through `chat_in_scope` the same way. The write side derives `MemoryDraft.visibility` from the scope (`'profile'` profile-wide, `'user'` otherwise, explicit preserved) — **and the direction matters**: the read clause alone would have hidden every profile-wide memory from non-owners. **Reversible: no migration, no rewrite of existing rows**, so a code revert is the whole story; rows written while it is live keep their stamp, which is why a revert restores future behaviour rather than history. It is in no release and needs the owner's explicit approval before one. **`MemoryStore.list` deliberately keeps `scope_user=?` exact** — a scoped caller can only receive rows already scoped to them, so the profile-wide rules govern rows it cannot return; that is why the Chunk 7.2 note is not a leak. See the `## Recorded deviations` note on publication below.
 - **§3.5's chat half now lives in one place (Chunk 11, EM-302).** `scope_chat IN (<chat>, '')` was already emitted by `MemoryStore.list` but not by the row predicate `_in_scope`. `em.store.types.chat_in_scope` is now the single decision, called by `_in_scope` and rendered into SQL by `scope_sql`; a no-op while `scope.chat` is empty (every caller today). The scope cross-check matrix includes chat rows, so the two forms cannot drift again.
 - **EM-302's `vector` generator landed, in part (EM-303).** `candidates.vector`
   searches embeddings already stored; it does not embed, and it is inert unless
   the caller supplies a query vector and a model (`retrieve(query_vector=,
-  embedding_model=)`). The backends, the `embed` job and the numpy cache are still
+  embedding_model=)`). MMR uses a cosine-then-Jaccard pairwise similarity in the
+  same mode. The backends, the `embed` job and the numpy cache are still
   unbuilt, so on the default path nothing changes. `em/retrieval/__init__.py`
   records it.
 - **§3.6's IDF cache has no key, and its cache key is the reason (EM-301).** §3.6
@@ -227,8 +231,10 @@ These are decisions the writes chunk made that are not obvious from the signatur
   the config module. The gate's cosine condition can now be switched on
   (EM-303 first slice): `retrieve` does it for the call, **only when it was given
   both a query vector and a model and no explicit `gate_config`**; an explicit
-  config always wins. MMR's embedding path is still the token-Jaccard fallback —
-  that part of EM-303 is unbuilt.
+  config always wins. MMR's embedding path is the same seam (EM-303, on
+  `em/em-303-mmr`, not merged): when a query vector and a model were given,
+  `mmr` gets a cosine-then-Jaccard pairwise similarity (negative cosine clamped
+  to 0); without them it is the token-Jaccard fallback as before.
 - **P0b: the facade's read half has a flag-gated S3 mode (Chunk 18).**
   `V3Engine.recall_with_relevance` serves v2's borrowed scoring with
   `ENTROPICMEM_V3_RETRIEVAL` unset (**the default**; byte-identical to pre-P0b,

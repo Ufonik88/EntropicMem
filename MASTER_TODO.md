@@ -13,13 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-09, against branch `main` at `7d6a22e` — the fast-forward
-merge of Chunks 22 and 23, named deliberately instead of the tip. **All 12 check-runs
-were green on that exact SHA, `identity-guard` included**, for the branch push and
-again for the `main` push. The feature branch is deleted; the remote carries `main`
-and `release/2.8.x` only. The code commits: `6cd0943` (EM-307 library), `a674383`
-(EM-307 wiring), `9d5a72b` (EM-303 first slice). The last merged chunk before these
-was EM-306 (`4a2b25e`).
+**Last reconciled:** 2026-10-09, against branch `em/em-303-mmr` at `156370e` — the
+MMR-slice commit, named deliberately instead of the tip. **Not merged.** `main` is
+still `9212d38` (the EM-307/EM-303 reconciliation, all checks green). CI has not run
+on this branch. The previous merged tip is `7d6a22e`.
 
 ---
 
@@ -136,7 +133,8 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 20 | **The ceiling split — the owner's ruling of 2026-10-08** | **Done** (code `3c8b301`; two commits, merged `--ff-only` after green check-runs on the tip). Fabrication stays hard (`max_v3_only = 0`); the miss side is its own ceiling, **pre-registered and un-armed**, and an un-armed ceiling blocks `met` rather than passing silently |
 | 21 | **EM-306 — the calibration harness; it arms the miss ceiling** | **Done** (code `4a2b25e`; code + docs commits, merged `--ff-only` after green check-runs on the tip). `evals tune` splits by id hash, searches a pre-declared grid, commits `em/config.py`; the same holdout armed `max_v2_miss_rate` at `0.107143` |
 | 22 | **EM-307 — packer, renderer, and retrieval wiring** | **Done, merged** (`7d6a22e`, ff from `a674383`; library `6cd0943`). A gated retrieval renders. **The eval adapter and the provider still do not call it** — deliberately, and pinned |
-| 23 | **EM-303, first slice — search stored embeddings** | **Done, merged** (`7d6a22e`, ff from `9d5a72b`). Cosine + the `vector` generator behind `retrieve()`'s query-vector seam and the 50% coverage gate. **No embedder, no numpy cache, no MMR path; the default call is unchanged** |
+| 23 | **EM-303, first slice — search stored embeddings** | **Done, merged** (`7d6a22e`, ff from `9d5a72b`). Cosine + the `vector` generator behind `retrieve()`'s query-vector seam and the 50% coverage gate. **No embedder, no numpy cache; the default call is unchanged** |
+| 24 | **EM-303 — MMR's embedding path** | **Committed, not merged** (branch `em/em-303-mmr`; the commit `Last reconciled` names). `diversity.mmr` takes an optional pairwise similarity; the pipeline supplies cosine when a query vector and model were given (clamped at 0), Jaccard otherwise. **Default path unchanged.** CI not run |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -150,7 +148,11 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunks 22 and 23 are merged (`7d6a22e`) with all 12 check-runs green on that exact SHA, `identity-guard` included, on both the branch push and the `main` push. The feature branch is deleted; the remote carries `main` and `release/2.8.x` only. The Marketplace entry is untouched (still 2.8.1 at `7e02412`). The next chunk is EM-303's remainder; `main` rests at the merge tip this section does not repeat.
+**Nothing merged beyond `9212d38`.** Chunk 24 (EM-303's MMR embedding path) is on
+branch `em/em-303-mmr`, **committed, not merged, not pushed** — no CI yet. `main`
+is `9212d38`, where EM-307 and EM-303's first slice were merged with all checks
+green. The Marketplace entry is untouched (still 2.8.1 at `7e02412`). The next
+chunk after this one is EM-303's remainder minus MMR.
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
 from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed
@@ -231,6 +233,10 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   the gate's cosine condition behind `retrieve(query_vector=, embedding_model=)`. The
   default path, the adapter and the provider pass no query vector, so scores today are
   unchanged. Backends, `embed` job, numpy cache and MMR's cosine path remain.
+- **EM-303's MMR embedding path landed (2026-10-09, `156370e`, not merged):**
+  `diversity.mmr` accepts a pairwise similarity; the pipeline supplies cosine when a
+  vector and a model were given, clamped at 0, with a per-pair Jaccard fallback.
+  `similarities=None` is exactly the old behaviour.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
   identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
   test that prints its full distribution, a document-control guard that
@@ -318,14 +324,14 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**EM-303 has begun and is merged: stored embeddings can be searched.** Local suite
-**2121/3/3** on Python 3.10 and 3.12, `ruff==0.16.2` clean; CI green on `7d6a22e`
-(4 Pythons, lint, evals, perf, Windows, identity). The vector generator runs only
-when a caller supplies a query vector and a model — the default path, the eval
-adapter, and the provider pass neither, so scores are unchanged everywhere today.
-What remains of EM-303: the embedding backends, the `embed` job, the model-switch
-backfill, the numpy matrix cache, and MMR's embedding path. The cutover stays with
-the owner. P0's observable stays armed at `0.107143`.
+**EM-303's MMR embedding path is committed on `em/em-303-mmr`, not merged.** Local
+suite **2125/3/3** on Python 3.10 and 3.12, `ruff==0.16.2` clean. CI has not run.
+`mmr` takes an optional pairwise similarity; the pipeline supplies cosine when a
+query vector and a model were given, Jaccard per pair otherwise; the clamp keeps a
+negative cosine from becoming a bonus. The default call passes no vector, so
+nothing about today's scores changes. What remains of EM-303: the embedding
+backends, the `embed` job, the model-switch backfill, and the numpy matrix cache.
+The cutover stays with the owner. P0's observable stays armed at `0.107143`.
 
 **P0c's data is blocked on the environment, and the reason is now measured rather than
 assumed.** This box is not running EntropicMem at all: `~/.hermes/config.yaml` has **no
@@ -352,12 +358,13 @@ line there.**
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
 3. **EM-303's remainder.** The first slice (search over stored vectors + the
-   cosine condition) is merged. What is left: the embedding backends, the `embed`
-   job, the model-switch backfill, the numpy matrix cache, and MMR's embedding
-   path. Do not point the eval adapter at short citations and do not wire
-   `em/config.py` as part of it. Measure before any adapter switch: the 450-token
-   budget can drop an id the current bullet emits.
-4. **Pre-flight:** `python -m pytest -q` gives **2121 passed / 3 skipped / 3 xfailed**
+   cosine condition) is merged; the MMR embedding path is committed on
+   `em/em-303-mmr`, not merged. What is left: the embedding backends, the `embed`
+   job, the model-switch backfill, and the numpy matrix cache. Do not point the
+   eval adapter at short citations and do not wire `em/config.py` as part of it.
+   Measure before any adapter switch: the 450-token budget can drop an id the
+   current bullet emits.
+4. **Pre-flight:** `python -m pytest -q` gives **2125 passed / 3 skipped / 3 xfailed**
    on **both Python 3.10 and 3.12** (CI's extra set: fastapi, httpx, cryptography, pyyaml).
    `git merge-base --is-ancestor 4eb8097 HEAD` proves the base. A fresh venv without
    those extras skips and fails tests that are green in CI — that is the environment,
@@ -376,13 +383,14 @@ The owner set the order explicitly; do not reorder it without asking.
 | **1** | **P0c — collect the shadow data and read it against the frozen observable** | It is the gating empirical step for the cutover; the readout landed in `94dd3c7`, the **data has not** | **Readout DONE, observable fully armed, data outstanding** — needs ≥200 real turns on a host running the **dev-line shadow** (the owner's active machine is the candidate) |
 | **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py`, and the armed miss ceiling) | It was the next buildable chunk and it unblocks P0c's reading | **DONE (`4a2b25e`)** — holdout reported, defaults committed, ceiling armed at `0.107143` |
 | **3** | **EM-307 — packer and renderer** | §3.6's block, fed by a real retrieval | **DONE, merged (`7d6a22e`).** A gated retrieval renders. The adapter and the provider do not call it. Next build is EM-303's remainder |
-| **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | **First slice DONE, merged (`7d6a22e`)** (search over stored vectors + the cosine condition). Remaining: backends, `embed` job, backfill, numpy cache, MMR path |
+| **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | **First slice + MMR path done** (MMR committed, not merged). Remaining: backends, `embed` job, backfill, numpy cache |
 | **—** | **P3 — the cutover** | Both re-decision conditions are met in code | **Held: the owner decides; the agent brings it** |
 
 **The owner's order was re-set on 2026-10-08** (this table): P0c first as the gating
 empirical step — now blocked only on a host, with the observable armed — then EM-306
-(**done**), then EM-307 (**done, merged**), then EM-303 (**started and merged in
-part**: the first slice is on `main`; its remainder is next). P1 is done and P3 stays with the owner. Do not reorder it
+(**done**), then EM-307 (**done, merged**), then EM-303 (**started**: the first slice
+is merged and the MMR path is committed on `em/em-303-mmr`, not merged; the backends
+and cache remain next). P1 is done and P3 stays with the owner. Do not reorder it
 without asking.
 
 **P0b's shape, as landed — serve prefetch from S3 on a v3 store:**
@@ -425,14 +433,15 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   owner-approved migration if ever wanted, never a silent rewrite. Reversible: no
   migration, no rewrite of existing rows. Full reasoning, including the outbox
   consumer analysis, in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
-* **`vector` searches stored embeddings; its backends are not built (EM-303,
-  first slice, merged `7d6a22e`).** `candidates.vector`, `em/store/embeddings.py`
-  and the `retrieve()` query-vector seam are on `main`.
-  **Not yet built:** the embedding backends (`fastembed` /
-  `sentence_transformers` / `openai_compat` / `none`), the `embed` job, the
-  model-switch backfill, the numpy matrix cache, and MMR's embedding path (still
-  token Jaccard). Nothing embeds on the query path, deliberately: a query with
-  no caller-supplied vector does no vector SQL at all.
+* **`vector` searches stored embeddings and MMR uses them when present (EM-303,
+  first slice merged `7d6a22e`; MMR slice on `em/em-303-mmr`, not merged).**
+  `candidates.vector`, `em/store/embeddings.py` and the `retrieve()` query-vector
+  seam are on `main`; `diversity.mmr` takes a pairwise similarity and the pipeline
+  supplies cosine-then-Jaccard. **Not yet built:** the embedding backends
+  (`fastembed` / `sentence_transformers` / `openai_compat` / `none`), the `embed`
+  job, the model-switch backfill, and the numpy matrix cache. Nothing embeds on
+  the query path, deliberately: a query with no caller-supplied vector does no
+  vector SQL at all.
 * **§3.6's IDF cache and `query_rewrite` have no source (EM-301)** — nothing defines
   the `write_generation` counter the cache would key on, so the vocabulary is read
   per call, and there is no config module to enable `query_rewrite` or a hook to
@@ -526,7 +535,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2121 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2125 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
