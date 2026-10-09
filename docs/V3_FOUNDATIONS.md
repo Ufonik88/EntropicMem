@@ -203,10 +203,15 @@ These are decisions the writes chunk made that are not obvious from the signatur
   keyed by `(db, model, scope, mode)`, fingerprint `(count, max rowid, write
   generation)`, numpy or pure Python, behind migration 0005's index.
   **No embedding call ever runs on the agent/prefetch thread**, and a query with
-  no caller-supplied vector does no vector work at all. **What is still
-  absent by design:** nothing supplies a query embedding yet (the provider
-  cards call `ensure_embedding_model` and embed the query), and no producer
-  enqueues episode embeddings (EM-504's summariser path).
+  no caller-supplied vector does no vector work at all. **The follow-up slice
+  (on `em/em-303-gaps`, not merged)** makes `EpisodeStore` an embedding producer
+  (`add_episode`/`upsert_episode` enqueue; the handler and backfill cover
+  episodes with `updated_at` as the stale guard) and has the v3 eval adapter
+  embed documents and the query when a suite allows embeddings. **What is still
+  absent by design:** the **provider** does not embed a query yet — EM-401–403
+  call `ensure_embedding_model` at initialize and embed the query; and capture
+  on idle/compaction is **planned as EM-411** (plan §6.3) — there is **no host
+  idle hook** in the pinned contract, so idle is defined behaviourally.
   **Recorded deviation:** the cache keys by scope and loads through
   `scope_sql` instead of the card's "pre-computed id→scope arrays (mask)" —
   a numpy copy of the §3.5 owner rule is a second definition of a privacy
@@ -214,15 +219,25 @@ These are decisions the writes chunk made that are not obvious from the signatur
   vector that leaves count, max rowid and the generation unchanged is not
   re-read until the cache resets; every `put_embedding` write is seen.
 - **Wiring `EntityLinker`.** Run it from a job (`link:<memory_id>:<version>`), not inside `MemoryStore.add`, to keep entity work out of the write transaction.
+- **Session capture: what exists and what EM-411 adds.** The v2 provider already
+  captures on `on_session_end` (`session_end_capture`) and on a turn cadence
+  (`turn_cadence_flush_turns`/`turn_cadence_min_interval_sec`); `on_pre_compress`
+  checkpoints standing constraints only. There is **no host `idle` event** — the
+  hook contract has `on_turn_start`, `on_session_end` and `on_pre_compress`.
+  EM-411 makes compaction capture real (enqueue `extract_window` over EM-406's
+  persisted precompress chunks, dedupe per session+window) and defines idle
+  behaviourally (a turn gap ≥ `formation.idle_after_sec` seals the window).
+  Do not invent an idle event; if a future host adds one, wire it to the same
+  enqueue.
 - **§3.5's `visibility` half is implemented (Chunk 13) — write stamp *and* read guard, agent-proposed and internal only.** Two row conditions, one definition: `em.store.types.row_is_owner_only` returns True for a `sensitive`/`secret` tier **or** for a *profile-wide* row (`scope_user=''`) stamped `visibility='user'`; `_in_scope` and `candidates.scope_sql` both call it, and the chat dimension goes through `chat_in_scope` the same way. The write side derives `MemoryDraft.visibility` from the scope (`'profile'` profile-wide, `'user'` otherwise, explicit preserved) — **and the direction matters**: the read clause alone would have hidden every profile-wide memory from non-owners. **Reversible: no migration, no rewrite of existing rows**, so a code revert is the whole story; rows written while it is live keep their stamp, which is why a revert restores future behaviour rather than history. It is in no release and needs the owner's explicit approval before one. **`MemoryStore.list` deliberately keeps `scope_user=?` exact** — a scoped caller can only receive rows already scoped to them, so the profile-wide rules govern rows it cannot return; that is why the Chunk 7.2 note is not a leak. See the `## Recorded deviations` note on publication below.
 - **§3.5's chat half now lives in one place (Chunk 11, EM-302).** `scope_chat IN (<chat>, '')` was already emitted by `MemoryStore.list` but not by the row predicate `_in_scope`. `em.store.types.chat_in_scope` is now the single decision, called by `_in_scope` and rendered into SQL by `scope_sql`; a no-op while `scope.chat` is empty (every caller today). The scope cross-check matrix includes chat rows, so the two forms cannot drift again.
-- **EM-302's `vector` generator landed, in part (EM-303).** `candidates.vector`
+- **EM-302's `vector` generator landed, in full (EM-303).** `candidates.vector`
   searches embeddings already stored; it does not embed, and it is inert unless
   the caller supplies a query vector and a model (`retrieve(query_vector=,
   embedding_model=)`). MMR uses a cosine-then-Jaccard pairwise similarity in the
-  same mode. The backends, the `embed` job and the numpy cache are still
-  unbuilt, so on the default path nothing changes. `em/retrieval/__init__.py`
-  records it.
+  same mode. The backends, the `embed` jobs and the numpy cache are merged;
+  the query embedding is the provider cards' (EM-401–403) and the eval
+  adapter's (when a suite allows it). `em/retrieval/__init__.py` records it.
 - **§3.6's IDF cache has no key, and its cache key is the reason (EM-301).** §3.6
   says the IDF table is "cached per `write_generation`". **Nothing in the store
   defines or maintains a `write_generation`** — there is no counter and no `meta`
