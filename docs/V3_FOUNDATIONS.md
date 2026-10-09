@@ -204,7 +204,7 @@ These are decisions the writes chunk made that are not obvious from the signatur
   generation)`, numpy or pure Python, behind migration 0005's index.
   **No embedding call ever runs on the agent/prefetch thread**, and a query with
   no caller-supplied vector does no vector work at all. **Precision guarantees on
-  every vector row (2026-10-09 pass):** the model id is part of the primary key
+  every vector row (merged `6d9bf3b`):** the model id is part of the primary key
   (`embeddings(owner_type, owner_id, model)`), so a model switch never mixes
   rows — reads filter by the configured model and the backfill adds the new
   model's rows beside the old; the row records `dim`, and reads filter to the

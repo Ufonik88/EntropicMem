@@ -13,10 +13,11 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-09, against branch `em/em-303-precision` at `e0b97da` —
-the precision pass (version-checked vector reads, the episode read path, mode
-labels), named deliberately instead of the tip. **Not merged.** `main` is
-`42e16c7`. CI has not run on this branch.
+**Last reconciled:** 2026-10-09, against branch `main` at `6d9bf3b` — the fast-forward
+merge of Chunk 27 (the EM-303 precision pass), named deliberately instead of the tip.
+**All check-runs were green on that exact SHA, `identity-guard` included** (11 on the
+branch push, 22 across both events on the `main` push). The branch is deleted; the
+remote carries `main` and `release/2.8.x` only.
 
 ---
 
@@ -146,7 +147,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 24 | **EM-303 — MMR's embedding path** | **Done, merged** (`000a268`, ff from `156370e`). `diversity.mmr` takes an optional pairwise similarity; the pipeline supplies cosine when a query vector and model were given (clamped at 0), Jaccard otherwise. **Default path unchanged** |
 | 25 | **EM-303 closed — backends, `embed`/`embed_backfill`, model identity, vector cache** | **Done, merged** (`3439b77`, ff from `e8997d8`). Four backends + auto/none selection; jobs with a write-time version recheck and `meta.embedding_model`; a numpy/pure-Python snapshot cache behind migration 0005 (50k p95 **3.86 ms**) |
 | 26 | **The EM-303 follow-ups: episode embeddings, query embeddings in evals, numpy in CI** | **Done, merged** (`42e16c7`, ff from `51cdcb3`). `EpisodeStore` enqueues `embed` jobs; the backfill and handler cover episodes; the v3 eval adapter embeds documents and the query when `disable_embeddings=False`; CI installs numpy so the cache tests and the 50k AC run there. **The capture-on-idle/compaction feature is planned as EM-411** (plan §6.3) |
-| 27 | **EM-303 precision — version-checked vector reads, episode read path, retrieval-mode labels** | **Committed, not merged** (branch `em/em-303-precision`). Memory `content_hash` and episode `updated_at` are verified on every read; reads filter to the query width; `candidates.episodic` reads episode vectors into EM-307's renderer; backfill idempotence/resume is pinned; every eval report labels lexical vs vector, cross-mode compare is context only, baselines labelled. CI not run |
+| 27 | **EM-303 precision — version-checked vector reads, episode read path, retrieval-mode labels** | **Done, merged** (`6d9bf3b`). Memory `content_hash` and episode `updated_at` are verified on every read; reads filter to the query width; `candidates.episodic` reads episode vectors into EM-307's renderer; backfill idempotence/resume is pinned; every eval report labels lexical vs vector, cross-mode compare is context only, baselines labelled |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -160,7 +161,7 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Chunk 27 (the EM-303 precision pass), on branch `em/em-303-precision`, not merged.** `main` is `42e16c7` (Chunk 26 merged with green CI). This branch has not been pushed, so there is no CI on it. The Marketplace entry is untouched (2.8.1 at `7e02412`). The capture feature is **planned, not built**: EM-411 in plan §6.3, with its design points (shared window key, post-commit enqueue, idle floor, volume estimate) written in.
+**Nothing.** Chunk 27 (the precision pass) is merged (`6d9bf3b`) with all checks green on that exact SHA. The branch is deleted; the remote carries `main` and `release/2.8.x` only. **The next chunk is chosen: EM-401–403 (live embedding wiring).** The capture feature remains **planned as EM-411**, design points written in, not built. The Marketplace entry is untouched (2.8.1 at `7e02412`).
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
 from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed
@@ -346,9 +347,10 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**The EM-303 precision pass is in flight on a branch (see In flight).**
+**The EM-303 precision pass is merged (`6d9bf3b`).**
 Local suite **2178/5/3** bare and **2180/3/3** with numpy on Python 3.10 and 3.12,
-`ruff==0.16.2` clean. Vector rows are now model/dim/version-checked (memory
+`ruff==0.16.2` clean; CI green on the merge SHA. Vector rows are now
+model/dim/version-checked (memory
 `content_hash`, episode `updated_at` stamp, query-width filter); episode vectors
 are read through `candidates.episodic` into EM-307's renderer; `embed_backfill`
 idempotence/resume is pinned; and every eval result carries a `retrieval_mode`
