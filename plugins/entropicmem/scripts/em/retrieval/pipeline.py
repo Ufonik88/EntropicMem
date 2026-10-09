@@ -22,9 +22,9 @@ Stdlib only (plan §3.2).
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..store.types import Scope
 from . import candidates, diversity, fusion, gate
@@ -65,6 +65,8 @@ def retrieve(
     with_gate: bool = False,
     gate_config: Optional[gate.GateConfig] = None,
     rank_weights: Optional[fusion.RankWeights] = None,
+    query_vector: Optional[Sequence[float]] = None,
+    embedding_model: Optional[str] = None,
 ) -> Retrieval:
     """Run §3.6's pipeline for one query.
 
@@ -78,13 +80,27 @@ def retrieve(
     tune harness passes candidates through the real pipeline rather than a copy of it.
     ``None`` — what the provider and the eval adapter pass — means the spec defaults,
     so nothing about the shipped path changes until the config is wired (EM-401–403).
+
+    ``query_vector`` and ``embedding_model`` are EM-303's seam. Both default to
+    ``None``, and then the vector generator does not run and the gate's cosine
+    condition stays off — the lexical path is unchanged. Passing both turns
+    cosine on for this call **only when** ``gate_config`` was not supplied; an
+    explicit config is obeyed, including ``cosine_enabled=False``.
     """
     moment = now or datetime.now(timezone.utc)
     analyzed = analyze(query, conn=conn, scope=scope, now=moment)
+    vector = tuple(query_vector) if query_vector else None
 
     results: Dict[str, List[Any]] = {}
     for name, generator in candidates.GENERATORS.items():
-        context = candidates.RetrievalContext(conn=conn, aq=analyzed, scope=scope, now=moment)
+        context = candidates.RetrievalContext(
+            conn=conn,
+            aq=analyzed,
+            scope=scope,
+            now=moment,
+            query_vector=vector,
+            embedding_model=embedding_model if vector else None,
+        )
         results[name] = generator(context)
 
     fused = fusion.fuse(results, intent=analyzed.intent)
@@ -97,7 +113,25 @@ def retrieve(
 
     texts = {key: info.text for key, info in rows.items()}
     coverages = gate.coverage(list(analyzed.terms), texts)
-    gated = gate.apply_gate(ranked, rows=rows, coverages=coverages, config=gate_config)
+    cosines = None
+    model_name = None
+    settings = gate_config
+    if vector is not None and embedding_model:
+        cosines = {
+            (candidate.owner_type, candidate.owner_id): float(candidate.raw_score)
+            for candidate in results.get("vector", [])
+        }
+        model_name = embedding_model
+        if gate_config is None:
+            settings = replace(gate.DEFAULT_GATE, cosine_enabled=True)
+    gated = gate.apply_gate(
+        ranked,
+        rows=rows,
+        coverages=coverages,
+        config=settings,
+        cosines=cosines,
+        model=model_name,
+    )
     if gated.empty:
         return Retrieval(analyzed=analyzed, rankings=[], rows=rows)
 

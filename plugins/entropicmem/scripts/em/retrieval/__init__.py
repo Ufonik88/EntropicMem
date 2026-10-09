@@ -19,12 +19,13 @@ The pipeline §3.6 describes, as far as it is built:
 
 Recorded gaps, so nobody has to rediscover them:
 
-* **``vector``** is §3.6's sixth generator and is not implemented. §3.6 gates it on
-  an embedding backend and forbids re-reading vector blobs per query, so it lands
-  with the backend and the numpy cache in EM-303 (``candidates.GENERATOR_LIMITS``
-  already carries its ``k``). The same card owns the **cosine** support condition
-  in ``gate``, which is present but switched off, and MMR's embedding path, which
-  falls back to token Jaccard today.
+* **``vector`` searches stored embeddings and does not embed (EM-303, partial).**
+  It runs only when ``retrieve`` is given a query vector and a model, and only
+  when ≥ 50% of the active memories in scope have a usable vector for that
+  model. The default call passes neither, so the generator returns ``[]``,
+  does no SQL, and the gate's cosine condition stays off. Still absent: the
+  embedding backends, the embed job, the numpy cache, and MMR's embedding
+  path (MMR is still token Jaccard).
 * **Chat scoping.** §3.5's ``scope_mode=chat`` adds ``scope_chat`` to reads, and
   its owner rule also looks at ``visibility``. Both are now implemented —
   ``scope_sql`` and ``_in_scope`` share ``chat_in_scope`` and ``row_is_owner_only``

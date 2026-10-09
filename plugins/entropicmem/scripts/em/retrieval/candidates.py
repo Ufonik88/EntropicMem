@@ -12,11 +12,12 @@ the caller's scope and, for memories, ``status='active'`` (§3.6):
 | ``recent`` | memories updated in the last 48 h   | 10        |
 | ``pinned`` | ``pinned=1`` or ``kind='constraint'`` | 10      |
 
-``vector`` is §3.6's sixth generator and is **not here**: §3.6 makes it
-conditional on an embedding backend ("only if backend available and coverage
-≥ 50%") and forbids re-reading vector blobs per query, so it belongs with the
-backend and the numpy cache that EM-303 builds. ``GENERATOR_LIMITS`` still
-carries its ``k`` because that is §3.6's table verbatim.
+``vector`` searches embeddings already stored for the scope. It runs only
+when the caller hands it a query vector (this module never embeds) and only
+when at least half the active memories in scope have a vector for that model.
+No query vector — the pipeline's default — means it returns ``[]`` and does
+no SQL. The numpy cache, the embed job and the backends are the rest of
+EM-303.
 
 Two conventions this module fixes and the tests pin:
 
@@ -44,6 +45,12 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple
 
 from ..clock import to_iso
+from ..store.embeddings import (
+    VECTOR_MIN_COVERAGE,
+    count_active_memories,
+    load_memory_vectors,
+    rank_by_cosine,
+)
 from ..store.types import OWNER_ONLY_TIERS, Scope, may_read_owner_only
 from .query import MAX_TERMS, AnalyzedQuery
 
@@ -63,6 +70,7 @@ __all__ = [
     "pinned",
     "recent",
     "scope_sql",
+    "vector",
 ]
 
 OWNER_TYPE_MEMORY = "memory"
@@ -205,6 +213,10 @@ class RetrievalContext:
     now: datetime
     deadline: Optional[float] = None
     limits: Mapping[str, int] = field(default_factory=dict)
+    #: Precomputed. ``None`` — the default — means the vector generator does
+    #: nothing and does not embed. EM-303 forbids an embedding call here.
+    query_vector: Optional[Tuple[float, ...]] = None
+    embedding_model: Optional[str] = None
 
     def k(self, generator: str) -> int:
         """The row cap for ``generator`` — its limit, else §3.6's default."""
@@ -297,6 +309,35 @@ def bm25(ctx: RetrievalContext) -> List[Candidate]:
     )
     rows = _fetch(ctx, sql, [expr, *scope_params], ctx.k("bm25"))
     return [Candidate(OWNER_TYPE_MEMORY, r["id"], -float(r["score"] or 0.0)) for r in rows]
+
+
+def vector(ctx: RetrievalContext) -> List[Candidate]:
+    """Memories by cosine against a precomputed query vector (§3.6).
+
+    Returns nothing — and touches no SQL — unless both a query vector and a
+    model were supplied, the deadline has not passed, and at least half the
+    active memories in scope have a usable vector for that model. This
+    function does not embed.
+    """
+    if ctx.out_of_time():
+        return []
+    query = ctx.query_vector
+    model = ctx.embedding_model
+    if not query or not model:
+        return []
+    clause, params = scope_sql(ctx.scope, table="m")
+    loaded = load_memory_vectors(
+        ctx.conn, model=model, scope_clause=clause, scope_params=params
+    )
+    active = count_active_memories(ctx.conn, scope_clause=clause, scope_params=params)
+    if active <= 0 or (len(loaded) / active) < VECTOR_MIN_COVERAGE:
+        return []
+    if ctx.out_of_time():
+        return []
+    ranked = rank_by_cosine(query, loaded, k=ctx.k("vector"))
+    return [
+        Candidate(OWNER_TYPE_MEMORY, owner_id, score) for owner_id, score in ranked
+    ]
 
 
 def pinned(ctx: RetrievalContext) -> List[Candidate]:
@@ -412,6 +453,7 @@ def entity(ctx: RetrievalContext) -> List[Candidate]:
 #: §3.6's generators, by name. ``vector`` joins in EM-303.
 GENERATORS: Mapping[str, Callable[[RetrievalContext], List[Candidate]]] = {
     "bm25": bm25,
+    "vector": vector,
     "entity": entity,
     "episodic": episodic,
     "recent": recent,

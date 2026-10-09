@@ -523,6 +523,8 @@ def test_the_chat_dimension_is_emitted_only_when_the_scope_is_in_a_chat():
 # --- the registry ---------------------------------------------------------
 
 
-def test_the_registry_holds_the_generators_that_exist_and_not_vector():
-    assert set(GENERATORS) == {"bm25", "entity", "episodic", "recent", "pinned"}
-    assert "vector" in GENERATOR_LIMITS, "§3.6's k for vector is kept for EM-303"
+def test_the_registry_holds_the_generators_including_vector():
+    """``vector`` joined the registry in EM-303. With no query vector it is a
+    no-op (see ``test_em_retrieval_vectors``); the old pin was "not yet"."""
+    assert set(GENERATORS) == {"bm25", "vector", "entity", "episodic", "recent", "pinned"}
+    assert "vector" in GENERATOR_LIMITS
