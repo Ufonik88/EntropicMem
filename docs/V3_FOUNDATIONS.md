@@ -185,8 +185,8 @@ These are decisions the writes chunk made that are not obvious from the signatur
 - **Recorded deviations from v2, each pinned by a test:** no fuzzy overwrite (v2's EM-109 near-duplicate rule could rewrite a stored fact in place; v3 collapses only *exact* duplicates), and no deprecation warnings (the card asks for once-per-process warnings on methods "suled for removal in 3.1", but v2 emits none, no list of which methods is recorded, and the provider calls all of them every session).
 - **EM-212 — DONE (Chunk 8, 2026-10-07).** The six shared-name engine modules (`vault`, `index`, `security`, `policy`, `embeddings`, `retrieval`) now live under the `em_internal` package, so the import system registers `em_internal.*` and never the bare names; `_backend._own_module` (the 2026-09-27 first step) is gone in favour of a qualified import, because a qualified name cannot collide. The strict xfail `test_em212_plan_ac_no_unprefixed_engine_modules_in_process` **flipped to a passing test**. The other 14 modules keep unprefixed names deliberately — the AC names only the six. The packaging guard now derives every package under `scripts/` from disk, so a new one cannot ship missing from the wheel.
 - **EM-213** is done, re-scoped on 2026-09-26: the Hermes catalog verifies the plugin against `provides_tools`/`provides_hooks`, so they stay and only the duplicate `hooks:` list went. `test_f011_plugin_manifest_declares_tools_and_hooks_once` pins it. Do not remove the provides lists.
-- **EM-303 (embeddings, S3) — first slice, on the unmerged branch `em/em-307-packer`
-  (`9d5a72b`).** What exists: `em/store/embeddings.py` decodes the native float32
+- **EM-303 (embeddings, S3) — first slice, merged to `main` (`9d5a72b`, ff-merged as
+  `7d6a22e`).** What exists: `em/store/embeddings.py` decodes the native float32
   blobs v2 already writes and a stdlib cosine; `candidates.vector` joins
   `embeddings` to active, in-scope memories in **one** query and runs only when
   `retrieve` was given a query vector and a model **and** ≥ 50% of active memories
@@ -262,7 +262,8 @@ These are decisions the writes chunk made that are not obvious from the signatur
   `pipeline.retrieve(..., with_gate=True)` returns the predecessors MMR kept,
   and `render_retrieval` prints `(kind · updated <date>; was: <old>)`. The
   provider's `_format_block` does not call it, and the eval adapter still emits
-  full-id bullets. The branch is `em/em-307-packer`, not merged.
+  full-id bullets. **Merged to `main` (`7d6a22e`)**; switching either caller is a
+  separate, measured change.
 - **`why_retrieved_tokens` reaches a read path only in P0b's on mode (EM-304).**
   §3.6 keeps the legacy flat token list for one minor version.
   `fusion.legacy_tokens()` converts a `Ranking`, and the facade's flag-gated path

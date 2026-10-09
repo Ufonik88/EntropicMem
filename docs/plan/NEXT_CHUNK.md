@@ -1,12 +1,12 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-09. **EM-303's first slice is committed on `em/em-307-packer`, not merged.** Code `9d5a72b`: `em/store/embeddings.py` (float32 decode + stdlib cosine), `candidates.vector` (one query, active in-scope rows, 50% coverage gate), and `retrieve(..., query_vector=…, embedding_model=…)` for the call that supplies both and turns the gate's cosine condition on. **The default call, the eval adapter and the provider pass neither**, so every score today is unchanged. Not built yet, recorded: the backends, the `embed` job, the model-switch backfill, the numpy cache, and MMR's embedding path. Local suite **2121/3/3** on Python 3.10 and 3.12. **CI has not run. `main` is still `9910616`.** **Next: EM-303's remainder.** P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
+**Updated:** 2026-10-09. **EM-307 and EM-303's first slice are merged (`7d6a22e`), all 12 check-runs green on that exact SHA.** EM-303's first slice: `em/store/embeddings.py` (float32 decode + stdlib cosine), `candidates.vector` (one query, active in-scope rows, 50% coverage gate), and `retrieve(..., query_vector=…, embedding_model=…)` for the call that supplies both and turns the gate's cosine condition on. **The default call, the eval adapter and the provider pass neither**, so every score today is unchanged. Not built yet, recorded: the backends, the `embed` job, the model-switch backfill, the numpy cache, and MMR's embedding path. EM-307's library and retrieval wiring are also merged. Local suite **2121/3/3** on Python 3.10 and 3.12. **Next: EM-303's remainder.** P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
 
 **Owner decisions in force — the order was re-set on 2026-10-08** (`REMAINING_PLAN.md` §9 item 6):
 1. **P0c — collect the shadow data.** The gating empirical step for the cutover. **Freeze before you look: do not fit a threshold to the sample, and report the raw distribution and the margin, not just a green light.** The observable is now fully armed, so a clean sample can conclude — it still needs the dev-line shadow on a host (the owner's machine is active).
 2. **P2 / EM-306 — `evals tune`.** **DONE (2026-10-08, `4a2b25e`):** split by id hash, pre-declared grid, holdout reported, `em/config.py` committed, and the miss ceiling armed from the same holdout. **Hard constraint held: the gate does not depend on EM-301's 92.9%-on-42 intent table** (nothing intent-related is tuned).
-3. **EM-307 — packer and renderer.** Committed, not merged. A gated retrieval renders; the adapter does not call it.
-4. **EM-303 — vectors.** **First slice committed, not merged** (search over stored vectors + the cosine condition). **Next build: the remainder** — backends, `embed` job, backfill, numpy cache, MMR path. Lower urgency; the remaining quality lever behind the gate.
+3. **EM-307 — packer and renderer.** **Done, merged (`7d6a22e`).** A gated retrieval renders; the adapter does not call it.
+4. **EM-303 — vectors.** **First slice done, merged (`7d6a22e`)** (search over stored vectors + the cosine condition). **Next build: the remainder** — backends, `embed` job, backfill, numpy cache, MMR path. Lower urgency; the remaining quality lever behind the gate.
 
 **The ceiling ruling (§9 item 7), in force from `3c8b301` and executed by EM-306:** `max_v3_only = 0` is hard and non-negotiable — a fabricated hit is a correctness/safety failure. The miss side is its own ceiling, `max_v2_miss_rate`, **armed 2026-10-08 at `0.107143`** — `1 − recall@5` of the v2 adapter on EM-306's holdout split (`evals/results/tune-hard-4eb8097.json`), which is exactly what `_shadow.MISS_CEILING_RULE` pre-registered. **The rule states the relationship plainly: the shadow's rate is v3-vs-v2, the bound is v2-vs-truth applied to it — a policy choice, not an identity.** **Do not re-arm it from a synthetic sample** — that is evidence about the metric, not about turns. The un-armed shape (`None` → `not armed`, blocking `met`) still exists and is tested; a clean sample can now read `met`.
 
@@ -68,29 +68,29 @@ P0b (`be6352e` — a v3 store serving prefetch from S3 behind `ENTROPICMEM_V3_RE
 
 ---
 
-## Part A (continued): EM-307's library. **COMMITTED, NOT MERGED (2026-10-09, `6cd0943`)**
+## Part A (continued): EM-307's library. **DONE, MERGED (2026-10-09, `7d6a22e`; code `6cd0943`)**
 
 - **`em/retrieval/packer.py`.** `estimate_tokens` is `ceil(len/4)`. `pack` is greedy by score (tie: `owner_id` ascending). A row is kept in full when the rendered block fits, else its summary, else skipped. Default budget 450, passed in — `em/config.py` is not read.
 - **`em/provider/render.py`.** §3.6's heading and five sections, empty sections omitted, empty selection is `""`. Citations are `[m·…]` / `[e·…]` via `em.clock.short_id`. A `was` field renders `(kind · updated <date>; was: <old>)`. `<memory-context` and `</memory-context` are broken with U+200B; a line whose first non-space is `#` gains a backslash. Flagged rows get the provider's injection warning; `on_flagged="drop"` exists and is not the default.
 - **Deliberately not called.** Short ids would make `parse_injected_ids` miss stored ids. `pipeline.retrieve` still does not return collapse predecessors. P0b's served block is unchanged.
 - **The tiktoken AC was measured and missed.** 222 characters of ordinary prose: cl100k/o200k/p50k/r50k all counted 42 tokens, the estimate said 56 (~33% high). A repetitive short-sentence sample was ~19% high. Conservative, so left in place. Not "fixed" with tiktoken or with a stopword sample that lands inside 15%.
-- 13 new tests. **2103 passed / 3 skipped / 3 xfailed on 3.10 and 3.12** with CI's extras (fastapi, httpx, cryptography, pyyaml). `ruff==0.16.2` clean on the new modules. Five mutations went red (summary fallback, tag break, heading escape, score order, section order). **The v2 eval gate was not re-run** — the adapter was not touched. **CI has not run. Not pushed.**
+- 13 new tests. **2103 passed / 3 skipped / 3 xfailed on 3.10 and 3.12** with CI's extras (fastapi, httpx, cryptography, pyyaml). `ruff==0.16.2` clean on the new modules. Five mutations went red (summary fallback, tag break, heading escape, score order, section order). **The v2 eval gate was not re-run** — the adapter was not touched. **Merged `7d6a22e`; all 12 check-runs green on that SHA.**
 
-## Part A (continued): EM-307 wiring. **COMMITTED, NOT MERGED (2026-10-09, `a674383`)**
+## Part A (continued): EM-307 wiring. **DONE, MERGED (2026-10-09, `7d6a22e`; code `a674383`)**
 
 - **`Retrieval.predecessors`** is filled only on the gated path, and only for keys still present after MMR. An ungated `search` still has an empty map.
 - **`load_pack_items`** reads `content` and `summary` as separate columns (the gate's concatenated text is for coverage, not the bullet), quotes the newest predecessor as `was`, and emits one follow-up row per open loop at a slightly lower score than the episode.
 - **`render_retrieval`** packs that. Default citation is short. `cite="full"` is the seam that keeps `parse_injected_ids` honest. It is not what the adapter uses.
 - **The adapter is pinned not to call it** (`tests/unit/test_em_retrieval_render.py` reads the adapter source). Served prefetch is unchanged.
-- 7 new tests. **2110 passed / 3 skipped / 3 xfailed on 3.10 and 3.12.** `ruff==0.16.2` clean. Three mutations went red. **CI has not run. Not pushed.** The v2 eval gate was not re-run; the adapter's prefetch text did not change.
+- 7 new tests. **2110 passed / 3 skipped / 3 xfailed on 3.10 and 3.12.** `ruff==0.16.2` clean. Three mutations went red. **The v2 eval gate was not re-run**; the adapter's prefetch text did not change. **Merged `7d6a22e`; all 12 check-runs green on that SHA.**
 
-## Part A (continued): EM-303, first slice — search stored embeddings. **COMMITTED, NOT MERGED (2026-10-09, `9d5a72b`)**
+## Part A (continued): EM-303, first slice — search stored embeddings. **DONE, MERGED (2026-10-09, `7d6a22e`; code `9d5a72b`)**
 
 - **`em/store/embeddings.py`.** `pack_vector`/`unpack_vector` in native float32 (the layout v2 already writes); `cosine` is the plain normalised dot product — a zero or mismatched vector is 0.0, never a pretended similarity; `load_memory_vectors` is **one** joined query over active, in-scope rows; `count_active_memories` is the same-scope denominator. A corrupt blob is skipped, not raised.
 - **`candidates.vector`.** Runs only with both a query vector and a model on the context, and only when `len(loaded) / active ≥ VECTOR_MIN_COVERAGE` (0.5). Ranks by cosine, ties on `owner_id`, caps at `k`. **Does not embed**; with no query vector it returns `[]` and issues no SQL.
 - **The pipeline seam.** `retrieve(..., query_vector=…, embedding_model=…)` passes both to the generators and, **only when no `gate_config` was given**, enables the gate's cosine condition for that call. An explicit config is obeyed, including `cosine_enabled=False`. An unknown model gets no threshold — §3.6 names two, and the gate does not invent one.
 - **What this slice is not, recorded:** no backends (`fastembed`/`sentence_transformers`/`openai_compat`/`none`), no `embed` job, no model-switch backfill, no numpy matrix cache (one read per search, not per candidate), no MMR cosine path (still token Jaccard). The eval adapter and the provider do not pass a query vector.
-- 11 new tests. **2121 passed / 3 skipped / 3 xfailed on 3.10 and 3.12.** `ruff==0.16.2` clean. Three mutations went red: the coverage floor removed, cosine unnormalised, and the pipeline failing to enable cosine for a supplied vector. **CI has not run. Not pushed.**
+- 11 new tests. **2121 passed / 3 skipped / 3 xfailed on 3.10 and 3.12.** `ruff==0.16.2` clean. Three mutations went red: the coverage floor removed, cosine unnormalised, and the pipeline failing to enable cosine for a supplied vector. **Merged `7d6a22e`; all 12 check-runs green on that SHA (4 Pythons, lint, evals, perf, Windows import, plugin validate, identity).**
 
 ## Part B: next — EM-303's remainder; P0c stays blocked on a host
 
