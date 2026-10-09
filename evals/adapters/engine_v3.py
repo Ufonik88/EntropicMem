@@ -17,10 +17,12 @@ already separates ranking from abstention:
 **What is not here, and why:**
 * the vector generator and the gate's cosine condition, because EM-303 owns the
   embedding backend — a v3 score today is lexical, entity and episodic only;
-* the token packer and §3.6's full render (EM-307), so ``prefetch`` emits the
-  minimal id-bearing bullet form the runner parses (``- [id] text``) with no token
-  budget. ``prefetch_tokens`` is an "info" metric, not a gated one, so an unbudgeted
-  block cannot fail a compare — but do not read that number as the shipped render;
+* §3.6's block. EM-307 can render a gated retrieval, and this ``prefetch``
+  deliberately does not call it: the bullet stays ``- [id] text`` with the
+  stored id and no token budget. A short citation would stop the runner
+  matching ids, and a budget can drop an id this bullet emits. Switching is a
+  separate change. ``prefetch_tokens`` is an "info" metric, so the missing
+  budget cannot fail a compare — but this number is not the shipped render;
 * anything to do with a v2 store: this adapter builds a v3 one and never migrates or
   touches a live database.
 """

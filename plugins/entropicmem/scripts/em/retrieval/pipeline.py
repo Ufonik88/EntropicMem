@@ -11,10 +11,10 @@ second one — which is how two "identical" pipelines stop being identical.
 adapter's ``search`` needs, because ranking metrics measure ORDER and letting the
 abstention filter truncate the list would score abstention twice.
 
-**What this module is not:** it is not the packer or the renderer (EM-307), and it
-does not own the vector generator or the gate's cosine condition (EM-303). It returns
-rankings and the rows their text came from; what a caller *does* with them is the
-caller's business.
+**What this module is not:** it does not render (EM-307's ``render_retrieval``
+does, from the rankings and predecessors returned here), and it does not own
+the vector generator or the gate's cosine condition (EM-303). The eval adapter
+still emits its own bullets: a short citation would stop injected ids matching.
 
 Stdlib only (plan §3.2).
 """
@@ -42,6 +42,10 @@ class Retrieval:
     #: The gate's row inputs, keyed by ``(owner_type, owner_id)``. Present for every
     #: key the caller may render text for, including keys the gate dropped.
     rows: Dict[Tuple[str, str], gate.RowInfo] = field(default_factory=dict)
+    #: Successor key → predecessors that earned a ``superseded_note``. Empty
+    #: unless ``with_gate`` ran the collapse, and only for keys still in
+    #: ``rankings`` after MMR. The renderer quotes these; this module does not.
+    predecessors: Dict[Tuple[str, str], Tuple[Any, ...]] = field(default_factory=dict)
 
     @property
     def ids(self) -> List[str]:
@@ -107,8 +111,16 @@ def retrieve(
         ),
         now=moment,
     )
+    kept = diversity.mmr(collapsed.kept, texts=texts)
+    kept_keys = {ranking.key for ranking in kept}
+    noted = {
+        key: predecessors
+        for key, predecessors in collapsed.predecessors.items()
+        if key in kept_keys
+    }
     return Retrieval(
         analyzed=analyzed,
-        rankings=diversity.mmr(collapsed.kept, texts=texts),
+        rankings=kept,
         rows=rows,
+        predecessors=noted,
     )

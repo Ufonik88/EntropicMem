@@ -38,11 +38,13 @@ Recorded gaps, so nobody has to rediscover them:
   call sites via EM-401–403, and the typed loader is EM-407. ``query.analyze``'s
   ``extra_stopwords`` and §3.6's optional ``query_rewrite`` are in the same
   position.
-* **The packer is not on the pipeline's return path (EM-307).** ``packer.pack``
-  and ``em.provider.render.pack_block`` implement §3.6's budget and block.
-  ``pipeline.retrieve`` still returns rankings, not a rendered block: the eval
-  adapter cites full ids, and the short citation (``[m·…]``) would stop
-  ``parse_injected_ids`` matching them. Wiring it is a later, deliberate change.
+* **The eval adapter does not render (EM-307).** ``packer.load_pack_items`` and
+  ``em.provider.render.render_retrieval`` turn a gated ``Retrieval`` — rankings
+  plus the predecessors the collapse kept — into §3.6's block. The adapter
+  still emits ``- [full id]`` bullets. Short citations would stop
+  ``parse_injected_ids`` matching, and the budget can drop an id the old
+  bullet emitted, so that switch is a separate change. ``cite="full"`` is the
+  seam.
 * **``why_retrieved_tokens``.** ``fusion.legacy_tokens`` produces §3.6's flat
   v2-shaped reason list; putting it on the recall path is the provider's card, as
   is the ``include_history`` flag the EM-305 AC names (this layer supplies the

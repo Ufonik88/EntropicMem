@@ -37,7 +37,7 @@ Stdlib only (plan §3.2).
 from __future__ import annotations
 
 import re
-from typing import Sequence
+from typing import Any, Sequence
 
 from ..clock import short_id
 from ..retrieval.packer import (
@@ -45,6 +45,7 @@ from ..retrieval.packer import (
     Chosen,
     PackItem,
     estimate_tokens,
+    load_pack_items,
     pack,
 )
 
@@ -55,6 +56,7 @@ __all__ = [
     "escape_untrusted",
     "pack_block",
     "render",
+    "render_retrieval",
     "section_of",
 ]
 
@@ -135,14 +137,26 @@ def _provenance(item: PackItem) -> str:
     return f"({kind} · {verb} {when})"
 
 
-def _citation(item: PackItem) -> str:
-    """``[e·…]`` for an episode, ``[m·…]`` for a memory (including a memory follow-up)."""
+def _citation(item: PackItem, cite: str) -> str:
+    """``[e·…]`` / ``[m·…]`` by default. ``cite="full"`` is the eval seam.
+
+    The runner compares bracket text to stored ids. Short citations are what
+    §3.6 shows a person; they are the wrong string for that comparison.
+    """
+    if cite == "full":
+        return f"[{item.owner_id}]"
     prefix = "e" if (item.owner_type or "").casefold() == "episode" else "m"
     return f"[{prefix}·{short_id(item.owner_id)}]"
 
 
-def render_line(chosen: Chosen) -> str:
+def _check_cite(cite: str) -> None:
+    if cite not in ("short", "full"):
+        raise ValueError(f"cite must be 'short' or 'full', not {cite!r}")
+
+
+def render_line(chosen: Chosen, *, cite: str = "short") -> str:
     """One bullet. The body is what the packer chose (full or summary)."""
+    _check_cite(cite)
     item = chosen.item
     body = escape_untrusted(chosen.body)
     if item.injection_flagged:
@@ -153,14 +167,15 @@ def render_line(chosen: Chosen) -> str:
         decided = ""
         if item.decided:
             decided = f" — decided: {escape_untrusted(item.decided)}"
-        return f"- {prefix}{_citation(item)} {body}{decided}"
+        return f"- {prefix}{_citation(item, cite)} {body}{decided}"
     if section_of(item) == "Open follow-ups":
-        return f"- {_citation(item)} {body}"
-    return f"- {_citation(item)} {body} {_provenance(item)}"
+        return f"- {_citation(item, cite)} {body}"
+    return f"- {_citation(item, cite)} {body} {_provenance(item)}"
 
 
-def render(chosen: Sequence[Chosen]) -> str:
+def render(chosen: Sequence[Chosen], *, cite: str = "short") -> str:
     """The block, sections in §3.6's order, or ``""`` when nothing was kept."""
+    _check_cite(cite)
     if not chosen:
         return ""
     groups: dict[str, list[Chosen]] = {name: [] for name in SECTIONS}
@@ -180,7 +195,7 @@ def render(chosen: Sequence[Chosen]) -> str:
         if not rows:
             continue
         lines.append(f"### {name}")
-        lines.extend(render_line(row) for row in rows)
+        lines.extend(render_line(row, cite=cite) for row in rows)
     return "\n".join(lines) + "\n"
 
 
@@ -189,6 +204,7 @@ def pack_block(
     *,
     budget: int = DEFAULT_TOKEN_BUDGET,
     on_flagged: str = "mark",
+    cite: str = "short",
 ) -> str:
     """Pack ``items`` under ``budget`` and render the block.
 
@@ -200,12 +216,36 @@ def pack_block(
         raise ValueError(
             f"on_flagged must be 'mark' or 'drop', not {on_flagged!r}"
         )
+    _check_cite(cite)
     usable = items
     if on_flagged == "drop":
         usable = [item for item in items if not item.injection_flagged]
-    chosen = pack(
-        usable,
-        budget=budget,
-        cost=lambda sequence: estimate_tokens(render(sequence)),
+
+    def cost(sequence: Sequence[Chosen]) -> int:
+        return estimate_tokens(render(sequence, cite=cite))
+
+    chosen = pack(usable, budget=budget, cost=cost)
+    return render(chosen, cite=cite)
+
+
+def render_retrieval(
+    conn: Any,
+    retrieval: Any,
+    *,
+    budget: int = DEFAULT_TOKEN_BUDGET,
+    on_flagged: str = "mark",
+    cite: str = "short",
+) -> str:
+    """Pack and render one ``pipeline.retrieve`` result.
+
+    ``cite="short"`` is §3.6. ``cite="full"`` puts the stored id in the
+    brackets so ``parse_injected_ids`` still matches. The eval adapter does
+    not call this — that switch is a separate change, because the budget can
+    also drop ids the unbudgeted bullet used to emit.
+    """
+    items = load_pack_items(
+        conn,
+        retrieval.rankings,
+        predecessors=retrieval.predecessors,
     )
-    return render(chosen)
+    return pack_block(items, budget=budget, on_flagged=on_flagged, cite=cite)

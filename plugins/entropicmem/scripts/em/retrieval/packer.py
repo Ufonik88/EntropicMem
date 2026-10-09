@@ -29,24 +29,32 @@ a section heading and a superseded note all consume it. The default is
 §3.6's ``prefetch.token_budget`` of 450, passed in by the caller. This module
 does not read ``em/config.py`` — those scalars are EM-401–403's to wire.
 
-What a caller does with the chosen rows is the renderer's (``em.provider.render``).
-``pipeline.retrieve`` does not call this yet: the eval adapter still emits full
-ids, and §3.6's short citation would stop those ids matching.
+``load_pack_items`` builds ``PackItem``s from rankings the pipeline already
+kept. Content and summary stay separate columns — the gate's concatenated
+text is for coverage, not for the bullet. ``was`` is the newest predecessor
+the collapse attached. The renderer (``em.provider.render``) packs them.
+The eval adapter does not: a short citation would stop injected ids matching.
 
 Stdlib only (plan §3.2).
 """
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Mapping, Optional, Sequence, Tuple
+
+from ..clock import parse_iso
+from .candidates import OWNER_TYPE_EPISODE, OWNER_TYPE_MEMORY
 
 __all__ = [
     "DEFAULT_TOKEN_BUDGET",
     "Chosen",
     "PackItem",
     "estimate_tokens",
+    "load_pack_items",
     "pack",
 ]
 
@@ -138,3 +146,151 @@ def pack(
         if kept is not None:
             chosen.append(kept)
     return chosen
+
+
+# --- from a retrieval -----------------------------------------------------
+
+
+def _json_strings(value: Any) -> list[str]:
+    """A JSON list of strings, or nothing. Bad JSON is empty, not an error."""
+    if not value:
+        return []
+    try:
+        loaded = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(loaded, list):
+        return []
+    return [str(item) for item in loaded if str(item).strip()]
+
+
+def _day(value: Any) -> Optional[date]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return parse_iso(str(value)).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _about(kind: str) -> bool:
+    return kind.casefold() in {"profile", "preference"}
+
+
+def load_pack_items(
+    conn: sqlite3.Connection,
+    rankings: Sequence[Any],
+    *,
+    predecessors: Optional[Mapping[Tuple[str, str], Sequence[Any]]] = None,
+) -> list[PackItem]:
+    """The rows behind ``rankings``, in ranking order, ready to pack.
+
+    A ranking whose row is gone is skipped. An episode with open loops also
+    yields one follow-up item per loop, at a hair under the episode's score,
+    so a tight budget keeps the episode and drops the loop.
+    """
+    notes = predecessors or {}
+    memory_ids = [ranking.owner_id for ranking in rankings if ranking.owner_type == OWNER_TYPE_MEMORY]
+    episode_ids = [ranking.owner_id for ranking in rankings if ranking.owner_type == OWNER_TYPE_EPISODE]
+    memories = _memory_rows(conn, memory_ids)
+    episodes = _episode_rows(conn, episode_ids)
+
+    items: list[PackItem] = []
+    for ranking in rankings:
+        if ranking.owner_type == OWNER_TYPE_MEMORY:
+            row = memories.get(ranking.owner_id)
+            if row is None:
+                continue
+            items.append(_memory_item(ranking, row, notes.get(ranking.key)))
+        elif ranking.owner_type == OWNER_TYPE_EPISODE:
+            row = episodes.get(ranking.owner_id)
+            if row is None:
+                continue
+            items.extend(_episode_items(ranking, row))
+    return items
+
+
+def _memory_rows(conn: sqlite3.Connection, ids: Sequence[str]) -> dict[str, Any]:
+    if not ids:
+        return {}
+    marks = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"SELECT id, kind, content, summary, trust_flags, valid_from, created_at, updated_at"
+        f" FROM memories WHERE id IN ({marks})",
+        tuple(ids),
+    ).fetchall()
+    return {str(row["id"]): row for row in rows}
+
+
+def _episode_rows(conn: sqlite3.Connection, ids: Sequence[str]) -> dict[str, Any]:
+    if not ids:
+        return {}
+    marks = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"SELECT id, title, summary, decisions, open_loops, start_at, created_at"
+        f" FROM episodes WHERE id IN ({marks})",
+        tuple(ids),
+    ).fetchall()
+    return {str(row["id"]): row for row in rows}
+
+
+def _memory_item(ranking: Any, row: Any, predecessors: Optional[Sequence[Any]]) -> PackItem:
+    kind = str(row["kind"] or "fact")
+    content = str(row["content"] or "").strip()
+    summary = str(row["summary"] or "").strip()
+    if not content:
+        content, summary = summary, ""
+    newest = predecessors[0] if predecessors else None
+    was = ""
+    when = _day(row["valid_from"] or row["created_at"]) if _about(kind) else _day(row["updated_at"])
+    if newest is not None:
+        was = str(getattr(newest, "summary", "") or "").strip()
+        changed = _day(getattr(newest, "changed_at", None))
+        if changed is not None:
+            when = changed
+    flags = _json_strings(row["trust_flags"])
+    return PackItem(
+        owner_type=OWNER_TYPE_MEMORY,
+        owner_id=ranking.owner_id,
+        score=float(ranking.score),
+        content=content,
+        summary=summary,
+        kind=kind,
+        when=when,
+        was=was,
+        injection_flagged=bool(flags),
+    )
+
+
+def _episode_items(ranking: Any, row: Any) -> list[PackItem]:
+    title = str(row["title"] or "").strip()
+    summary = str(row["summary"] or "").strip()
+    decisions = _json_strings(row["decisions"])
+    loops = _json_strings(row["open_loops"])
+    when = _day(row["start_at"] or row["created_at"])
+    episode = PackItem(
+        owner_type=OWNER_TYPE_EPISODE,
+        owner_id=ranking.owner_id,
+        score=float(ranking.score),
+        content=title or summary,
+        summary=summary if title else "",
+        kind="episode",
+        when=when,
+        decided="; ".join(decisions),
+    )
+    follow_ups = [
+        PackItem(
+            owner_type=OWNER_TYPE_EPISODE,
+            owner_id=ranking.owner_id,
+            score=float(ranking.score) - 1e-6,
+            content=loop,
+            kind="episode",
+            follow_up=True,
+        )
+        for loop in loops
+    ]
+    return [episode, *follow_ups]
