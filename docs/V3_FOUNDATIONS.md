@@ -234,13 +234,12 @@ These are decisions the writes chunk made that are not obvious from the signatur
   `em/config.py` and nothing in retrieval reads them — EM-401–403 wire them, and
   EM-407 owns the loader. `fusion.RankWeights` still carries the spec's numbers
   as the default a caller may override. Do not invent a second config system.
-- **`superseded_note` has a renderer and no caller (EM-304 → EM-305 → EM-307).**
-  §3.6's third `why_retrieved` flag is emitted by EM-305's collapse when a
-  predecessor changed inside 30 days. `em.provider.render` prints
-  `(kind · updated <date>; was: <old>)` when `PackItem.was` is set. Nothing on
-  the served path or in `pipeline.retrieve` calls it — P0b's block is still the
-  provider's `_format_block`, and the library is committed on `em/em-307-packer`,
-  not merged.
+- **`superseded_note` renders from a gated retrieval, not from served prefetch
+  (EM-304 → EM-305 → EM-307).** The collapse still emits the flag.
+  `pipeline.retrieve(..., with_gate=True)` returns the predecessors MMR kept,
+  and `render_retrieval` prints `(kind · updated <date>; was: <old>)`. The
+  provider's `_format_block` does not call it, and the eval adapter still emits
+  full-id bullets. The branch is `em/em-307-packer`, not merged.
 - **`why_retrieved_tokens` reaches a read path only in P0b's on mode (EM-304).**
   §3.6 keeps the legacy flat token list for one minor version.
   `fusion.legacy_tokens()` converts a `Ranking`, and the facade's flag-gated path

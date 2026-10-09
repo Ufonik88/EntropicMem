@@ -1,11 +1,11 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-09. **EM-307's library is committed on `em/em-307-packer` and is not merged.** Code `6cd0943`: `em/retrieval/packer.py` and `em/provider/render.py` implement §3.6's budget and block (golden-tested). **Nothing calls them** — not `pipeline.retrieve`, not the v3 eval adapter, not the provider — so served prefetch is still memories-only and injected ids are still full ids. The ±15% tiktoken AC does not hold (`ceil(len/4)` is about 33% high vs cl100k on ordinary prose); the estimate stays the spec. Local suite **2103/3/3** on Python 3.10 and 3.12. **CI has not run. `main` is still `9910616`.** P0c's data is still blocked on the owner's host. **Next: wire the packer without changing injected ids, then EM-303. The cutover stays the owner's call.**
+**Updated:** 2026-10-09. **EM-307 can render a gated retrieval. Committed on `em/em-307-packer`, not merged.** Wiring commit `a674383` (library `6cd0943`): `retrieve(..., with_gate=True)` returns the predecessors MMR kept, and `render_retrieval` packs them. **The eval adapter and the provider still do not call it**, so served prefetch is still memories-only and injected ids are still full ids. The ±15% tiktoken AC does not hold. Local suite **2110/3/3** on Python 3.10 and 3.12. **CI has not run. `main` is still `9910616`.** **Next: EM-303.** Do not switch the adapter without measuring the hard suite — a 450-token budget can drop an id. The cutover stays the owner's call.
 
 **Owner decisions in force — the order was re-set on 2026-10-08** (`REMAINING_PLAN.md` §9 item 6):
 1. **P0c — collect the shadow data.** The gating empirical step for the cutover. **Freeze before you look: do not fit a threshold to the sample, and report the raw distribution and the margin, not just a green light.** The observable is now fully armed, so a clean sample can conclude — it still needs the dev-line shadow on a host (the owner's machine is active).
 2. **P2 / EM-306 — `evals tune`.** **DONE (2026-10-08, `4a2b25e`):** split by id hash, pre-declared grid, holdout reported, `em/config.py` committed, and the miss ceiling armed from the same holdout. **Hard constraint held: the gate does not depend on EM-301's 92.9%-on-42 intent table** (nothing intent-related is tuned).
-3. **EM-307 — packer and renderer.** The library is committed, not merged, and not wired. Wiring it is the next slice; it must keep full ids on the eval path.
+3. **EM-307 — packer and renderer.** Committed, not merged. A gated retrieval renders; the adapter does not call it. **Next build is EM-303.**
 4. **EM-303 — vectors** (the gate's cosine condition, MMR's embedding path). Lower urgency; the remaining quality lever behind the gate.
 
 **The ceiling ruling (§9 item 7), in force from `3c8b301` and executed by EM-306:** `max_v3_only = 0` is hard and non-negotiable — a fabricated hit is a correctness/safety failure. The miss side is its own ceiling, `max_v2_miss_rate`, **armed 2026-10-08 at `0.107143`** — `1 − recall@5` of the v2 adapter on EM-306's holdout split (`evals/results/tune-hard-4eb8097.json`), which is exactly what `_shadow.MISS_CEILING_RULE` pre-registered. **The rule states the relationship plainly: the shadow's rate is v3-vs-v2, the bound is v2-vs-truth applied to it — a policy choice, not an identity.** **Do not re-arm it from a synthetic sample** — that is evidence about the metric, not about turns. The un-armed shape (`None` → `not armed`, blocking `met`) still exists and is tested; a clean sample can now read `met`.
@@ -76,9 +76,17 @@ P0b (`be6352e` — a v3 store serving prefetch from S3 behind `ENTROPICMEM_V3_RE
 - **The tiktoken AC was measured and missed.** 222 characters of ordinary prose: cl100k/o200k/p50k/r50k all counted 42 tokens, the estimate said 56 (~33% high). A repetitive short-sentence sample was ~19% high. Conservative, so left in place. Not "fixed" with tiktoken or with a stopword sample that lands inside 15%.
 - 13 new tests. **2103 passed / 3 skipped / 3 xfailed on 3.10 and 3.12** with CI's extras (fastapi, httpx, cryptography, pyyaml). `ruff==0.16.2` clean on the new modules. Five mutations went red (summary fallback, tag break, heading escape, score order, section order). **The v2 eval gate was not re-run** — the adapter was not touched. **CI has not run. Not pushed.**
 
-## Part B: next — wire EM-307 without changing ids; P0c stays blocked on a host
+## Part A (continued): EM-307 wiring. **COMMITTED, NOT MERGED (2026-10-09, `a674383`)**
 
-**The library is not the served block.** The next buildable slice is still EM-307: build `PackItem`s from a retrieval (kind, summary, dates, `was`, episode title) and render them where a caller already has the rows. Do not point the eval adapter's brackets at short ids unless `parse_injected_ids` resolves prefixes — that is a separate, explicit change. Do not wire `em/config.py`. Do not flip `ENTROPICMEM_V3_RETRIEVAL`. P0c's data collection is unchanged and still blocked on the owner's host.
+- **`Retrieval.predecessors`** is filled only on the gated path, and only for keys still present after MMR. An ungated `search` still has an empty map.
+- **`load_pack_items`** reads `content` and `summary` as separate columns (the gate's concatenated text is for coverage, not the bullet), quotes the newest predecessor as `was`, and emits one follow-up row per open loop at a slightly lower score than the episode.
+- **`render_retrieval`** packs that. Default citation is short. `cite="full"` is the seam that keeps `parse_injected_ids` honest. It is not what the adapter uses.
+- **The adapter is pinned not to call it** (`tests/unit/test_em_retrieval_render.py` reads the adapter source). Served prefetch is unchanged.
+- 7 new tests. **2110 passed / 3 skipped / 3 xfailed on 3.10 and 3.12.** `ruff==0.16.2` clean. Three mutations went red. **CI has not run. Not pushed.** The v2 eval gate was not re-run; the adapter's prefetch text did not change.
+
+## Part B: next — EM-303; P0c stays blocked on a host
+
+**Do not switch the eval adapter onto `render_retrieval` as a drive-by.** Short ids break id matching. `cite="full"` fixes the brackets and still lets the 450-token budget drop an id the current bullet emits — measure that on the hard suite before doing it, and do not do it inside EM-303. Do not wire `em/config.py`. Do not flip `ENTROPICMEM_V3_RETRIEVAL`. P0c's data collection is unchanged and still blocked on the owner's host. **The next build is EM-303 (vectors).**
 
 ### Step 1 — collect the real turns (**blocked on the environment, which is now measured**)
 
@@ -91,9 +99,9 @@ P0b (`be6352e` — a v3 store serving prefetch from S3 behind `ENTROPICMEM_V3_RE
 - **The lesson for arming, and it is a real one:** the shadow's miss rate is a **v3-vs-v2** quantity, so it is only interpretable where v2's own injections are mostly *correct* — i.e. on a real store, not on filler. Note also the **unit mismatch** to state explicitly in whichever commit arms the ceiling: the bound is derived from a **v2-vs-truth** rate (`1 − recall@5` on the holdout) but applied to a **v3-vs-v2** ratio. That is a defensible policy ("v3 may drop no more of v2's hits than v2 itself misses against truth") but it is not an identity, and it must not be written as one.
 - **The miss ceiling is armed now, so a clean sample can read `met`** — the `cannot conclude` shape was the un-armed era's expected reading; the report still names every dimension and its margin, and a violation still outranks a short sample.
 
-### Step 2 — EM-307 wiring (**the next buildable slice**)
+### Step 2 — EM-303, vectors (**the next buildable chunk**)
 
-The card was read from `~/Documents/EntropicMem Dev docs/EntropicMem_v3_Master_Plan.md` on 2026-10-09. The library half is `6cd0943`. What is still true of the gap:
+EM-307's card was read on 2026-10-09. The library is `6cd0943`; the retrieval wiring is `a674383`. What is still true, and is not EM-303's job to "finish" by wiring the adapter:
 
 - **The gap is recorded, not silent:** served prefetch is memories-only because a v2 `StoredFact` has no episode shape, and nothing renders §3.6's `superseded_note` — EM-305's collapse produces the predecessors and the flag; the render is this card's.
 - **The v3 adapter's `prefetch` today emits the minimal id-bearing bullet form with no token budget** (EM-307 owns §3.6's render; `prefetch_tokens` is an "info" metric, so the missing budget cannot fail a compare — but it is not the shipped render). Whatever replaces it must keep `evals.runner.parse_injected_ids` reading the block, or update the runner deliberately.
@@ -135,7 +143,7 @@ suite, and **stop and report on a mismatch** instead of assuming the older numbe
 ### Pre-flight
 
 1. `main` must be at `4eb8097` or later: `git merge-base --is-ancestor 4eb8097 main`.
-2. **Baseline:** `pytest -q` gives **2103 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12** (3 skips on a box without the private digest list; CI runs with it, and a venv also needs fastapi, httpx, cryptography, and pyyaml or the yaml/graph tests fail or skip). The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo). The 7 collision tests were re-run green on 2026-10-09; the full suite with the list was not, and would read **2104 passed / 2 skipped / 3 xfailed** by the same one-skip shift. `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list still fails closed, deliberately.
+2. **Baseline:** `pytest -q` gives **2110 passed, 3 skipped, 3 xfailed** on **both Python 3.10 and 3.12** (3 skips on a box without the private digest list; CI runs with it, and a venv also needs fastapi, httpx, cryptography, and pyyaml or the yaml/graph tests fail or skip). The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo). The full suite with the list was not re-run for this wiring commit; it would read **2111 passed / 2 skipped / 3 xfailed** by the same one-skip shift. `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list still fails closed, deliberately.
 3. **Re-measure from the code, not this file:** `_shadow.py` (`PROMOTION`, `MISS_CEILING_RULE`, `evaluate`, `read_log`, `render`, `main`), `scripts/shadow_collect.py`, `em/facade/engine.py` (`v3_retrieval_enabled`, `_recall_from_v3`), `em/retrieval/pipeline.py`, `em/config.py`, `evals/tune.py`, `em/retrieval/gate.py` (`load_rows`' pinned input), `evals/` (`runner`, `metrics`, `adapters/engine_v3.py`), `.github/workflows/test.yml`.
 4. **Verify CI with the check-runs API on the commit**, and read `head_sha`.
 

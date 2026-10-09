@@ -13,10 +13,10 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-09, against branch `em/em-307-packer` at `6cd0943` — the
-packer/renderer code commit, named deliberately instead of the tip (a tip is falsified
-by the very next docs commit). **Not merged.** `main` is still `9910616`. CI has not
-run on `6cd0943`. The last merged chunk remains EM-306 (`4a2b25e` on `main`).
+**Last reconciled:** 2026-10-09, against branch `em/em-307-packer` at `a674383` — the
+wiring commit, named deliberately instead of the tip. **Not merged.** `main` is still
+`9910616`. CI has not run. The library commit before it is `6cd0943`. The last merged
+chunk on `main` remains EM-306 (`4a2b25e`).
 
 ---
 
@@ -132,7 +132,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 19 | **P0c's readout — score a shadow log against the frozen observable, and collect one honestly** | **Done, merged** (`94dd3c7` + docs `2b1e49b`; count-guard deferral `b213dc0`). **The data itself is still not collected** — see the environment finding below |
 | 20 | **The ceiling split — the owner's ruling of 2026-10-08** | **Done** (code `3c8b301`; two commits, merged `--ff-only` after green check-runs on the tip). Fabrication stays hard (`max_v3_only = 0`); the miss side is its own ceiling, **pre-registered and un-armed**, and an un-armed ceiling blocks `met` rather than passing silently |
 | 21 | **EM-306 — the calibration harness; it arms the miss ceiling** | **Done** (code `4a2b25e`; code + docs commits, merged `--ff-only` after green check-runs on the tip). `evals tune` splits by id hash, searches a pre-declared grid, commits `em/config.py`; the same holdout armed `max_v2_miss_rate` at `0.107143` |
-| 22 | **EM-307 — packer and renderer (the library)** | **Committed, not merged** (branch `em/em-307-packer`, code named in Last reconciled). `packer.pack` + `em.provider.render`. **Not called** from the pipeline, the eval adapter, or the provider. CI not run |
+| 22 | **EM-307 — packer, renderer, and retrieval wiring** | **Committed, not merged** (branch `em/em-307-packer`; the wiring commit is what Last reconciled names). A gated retrieval renders. **The eval adapter and the provider still do not call it.** CI not run |
 
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
@@ -146,7 +146,7 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Chunk 22 (EM-307's library), on branch `em/em-307-packer`, not merged.** `main`
+**Chunk 22 (EM-307, library plus retrieval wiring), on branch `em/em-307-packer`, not merged.** `main`
 is unchanged (`9910616`). The remote still carries `main` and `release/2.8.x`
 only — this branch has not been pushed, so there is no CI. The Marketplace entry
 is untouched (still 2.8.1 at `7e02412`). The code commit is the one `Last
@@ -308,15 +308,13 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**EM-307's library is committed on `em/em-307-packer` and is not merged.** Local suite
-**2103/3/3** on Python 3.10 and 3.12, `ruff==0.16.2` clean on the new files. CI has
-not run. The v2 eval gate was not re-run: the adapter and the v2 path were not
-touched. The packer and renderer exist; **nothing calls them**, so served prefetch
-is still memories-only and the eval adapter still emits full ids. The ±15% tiktoken
-AC does not hold for `ceil(len/4)` on ordinary prose (about 33% high vs cl100k); the
-estimate was left as the spec, which packs conservatively. Next slice of this card:
-wire `PackItem`s from a retrieval **without** changing injected ids. Then EM-303.
-The cutover stays with the owner. P0's observable stays armed at `0.107143`.
+**EM-307's renderer is reachable from a gated retrieval, on `em/em-307-packer`, not
+merged.** Local suite **2110/3/3** on Python 3.10 and 3.12, `ruff==0.16.2` clean.
+CI has not run. The v2 eval gate was not re-run: the adapter's prefetch text did
+not change. Served prefetch is still memories-only. The adapter still emits full
+ids. Switching it onto the renderer is a separate change — measure the hard suite
+first, because a 450-token budget can drop an id. Next build: **EM-303**. The
+cutover stays with the owner. P0's observable stays armed at `0.107143`.
 
 **P0c's data is blocked on the environment, and the reason is now measured rather than
 assumed.** This box is not running EntropicMem at all: `~/.hermes/config.yaml` has **no
@@ -342,11 +340,11 @@ line there.**
    observable is fully armed now, so a clean sample can conclude; until (a) exists, the
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
-3. **EM-307's remainder — wire the packer without changing injected ids.** The
-   library is committed on `em/em-307-packer` and nothing calls it. Do not switch
-   the eval adapter to short citations (`parse_injected_ids` compares exact ids).
-   Do not wire `em/config.py`. After the wiring: **EM-303** (vectors).
-4. **Pre-flight:** `python -m pytest -q` gives **2103 passed / 3 skipped / 3 xfailed**
+3. **EM-303 — vectors.** EM-307's retrieval wiring is committed and not merged.
+   Do not point the eval adapter at short citations, and do not wire `em/config.py`,
+   as part of EM-303. Measure before any adapter switch: the 450-token budget can
+   drop an id the current bullet emits.
+4. **Pre-flight:** `python -m pytest -q` gives **2110 passed / 3 skipped / 3 xfailed**
    on **both Python 3.10 and 3.12** (CI's extra set: fastapi, httpx, cryptography, pyyaml).
    `git merge-base --is-ancestor 4eb8097 HEAD` proves the base. A fresh venv without
    those extras skips and fails tests that are green in CI — that is the environment,
@@ -364,14 +362,14 @@ The owner set the order explicitly; do not reorder it without asking.
 |:--|:--|:--|:--|
 | **1** | **P0c — collect the shadow data and read it against the frozen observable** | It is the gating empirical step for the cutover; the readout landed in `94dd3c7`, the **data has not** | **Readout DONE, observable fully armed, data outstanding** — needs ≥200 real turns on a host running the **dev-line shadow** (the owner's active machine is the candidate) |
 | **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py`, and the armed miss ceiling) | It was the next buildable chunk and it unblocks P0c's reading | **DONE (`4a2b25e`)** — holdout reported, defaults committed, ceiling armed at `0.107143` |
-| **3** | **EM-307 — packer and renderer** | The library is what §3.6's block is. Wiring it is what closes the memories-only gap, and it must not switch injected ids to short form | **Library committed, not merged, not wired.** Wiring (full ids preserved) is the next slice |
+| **3** | **EM-307 — packer and renderer** | §3.6's block, fed by a real retrieval | **Committed, not merged.** A gated retrieval renders. The adapter and the provider do not call it. Next build is EM-303 |
 | **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | Lower urgency |
 | **—** | **P3 — the cutover** | Both re-decision conditions are met in code | **Held: the owner decides; the agent brings it** |
 
 **The owner's order was re-set on 2026-10-08** (this table): P0c first as the gating
 empirical step — now blocked only on a host, with the observable armed — then EM-306
-(**done**), then EM-307 (**library committed on `em/em-307-packer`, not merged, not
-wired**), then EM-303. P1 is done and P3 stays with the owner. Do not reorder it
+(**done**), then EM-307 (**committed on `em/em-307-packer`, not merged**; a retrieval
+renders, the adapter does not call it), then EM-303 (**next**). P1 is done and P3 stays with the owner. Do not reorder it
 without asking.
 
 **P0b's shape, as landed — serve prefetch from S3 on a v3 store:**
@@ -426,7 +424,8 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
 * **`ranking.*` is still the spec defaults at the call site (EM-304 / EM-306).**
   `fusion.RankWeights` carries §3.6's numbers. EM-306's tuned scalars are in
   `em/config.py` and nothing in retrieval reads them. `superseded_note` is emitted
-  by EM-305; EM-307's renderer can print it and is not called.
+  by EM-305; `render_retrieval` prints it when the pipeline kept a predecessor.
+  The provider's served block still does not.
 * **`recent`'s "current session" half** — §3.6 reads "in current session / last
   48 h"; the 48 h window is implemented and the session half needs a session id
   `RetrievalContext` does not carry.
@@ -434,7 +433,7 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   them is S3/S5/S6 work, not a bug.
 * **P0b's served path is memories-only, and the flag defaults off.** The pipeline also
   ranks episodes; they are skipped from the served prefetch because a v2 `StoredFact`
-  has no episode shape. EM-307's renderer can print an episode, and the served path
+  has no episode shape. `render_retrieval` can print an episode; the served path
   does not call it. On that path v2's
   `min_relevance`/decay/evergreen parameters are not applied — the gate's support test
   and `min_score` are S3's filter — so the provider's `min_relevance_score` config
@@ -508,7 +507,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2103 passed / 3 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2110 passed / 3 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
