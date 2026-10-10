@@ -380,13 +380,16 @@ def test_em102_memory_config_section_overrides_plugin_config(tmp_path):
 
 def test_f005_uses_spawn_context_thread():
     """No call site may spawn a bare threading thread — every background job
-    goes through EntropicMemMemoryProvider._spawn (host spawn_context_thread
-    propagating contextvars, with one named-daemon fallback inside _spawn
-    itself) (F-005b, H3/EM-103)."""
-    init_py = Path("plugins/entropicmem/__init__.py")
-    if not init_py.is_file():
-        init_py = Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "__init__.py"
-    text = init_py.read_text(encoding="utf-8")
+    goes through ``_spawn`` (host spawn_context_thread propagating contextvars,
+    with one named-daemon fallback inside ``_spawn`` itself) (F-005b, H3/EM-103).
+
+    EM-401: ``_spawn`` and the provider itself moved out of the plugin package
+    into ``em/provider/provider.py``; the guard reads its new home.
+    """
+    impl = Path("plugins/entropicmem/scripts/em/provider/provider.py")
+    if not impl.is_file():
+        impl = Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "scripts" / "em" / "provider" / "provider.py"
+    text = impl.read_text(encoding="utf-8")
     needle = "threading.Thread("
     total = text.count(needle)
     spawn_at = text.find("def _spawn(")

@@ -347,3 +347,56 @@ def test_the_surface_covers_the_pins_optional_hooks():
         "pinned methods missing from em.provider.provider.HOOK_SURFACE: "
         f"{sorted(pinned - {s.name for s in surface.specs()})}"
     )
+
+
+# ── the file split (EM-401's file layout AC) ──────────────────────────────────
+
+PLUGIN_INIT = REPO / "plugins" / "entropicmem" / "__init__.py"
+PROVIDER_IMPL = SCRIPTS / "em" / "provider" / "provider.py"
+
+
+def test_the_plugin_package_is_a_thin_host_shell():
+    """``__init__.py`` is ≤150 LOC: ``register`` plus a delegating provider class.
+
+    The card's file layout, pinned because a shell that quietly grows provider
+    logic back into the host-facing package is how the split rots.
+    """
+    source = PLUGIN_INIT.read_text(encoding="utf-8")
+    lines = source.splitlines()
+    assert len(lines) <= 150, (
+        f"plugins/entropicmem/__init__.py is {len(lines)} lines (EM-401: ≤150). "
+        "Provider behaviour belongs in em/provider/provider.py."
+    )
+    assert "def register(ctx)" in source
+    assert "def register_memory_provider(ctx)" in source
+    assert "class EntropicMemProvider" not in source, (
+        "the provider implementation must not live in the host shell"
+    )
+    assert "class EntropicMemProvider" in PROVIDER_IMPL.read_text(encoding="utf-8")
+
+
+def test_the_provider_implementation_imports_no_host():
+    """``em`` is standard-library only: no Hermes host and no plugin package.
+
+    An AST check, not a substring one, so a commented-out mention cannot pass it
+    and a real import cannot hide in a deferred block.
+    """
+    import ast
+
+    tree = ast.parse(PROVIDER_IMPL.read_text(encoding="utf-8"))
+    offending = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            offending += [
+                alias.name
+                for alias in node.names
+                if alias.name.split(".")[0] in ("agent", "plugins", "tools")
+            ]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            root = (node.module or "").split(".")[0]
+            if root in ("agent", "plugins", "tools"):
+                offending.append(node.module)
+    assert not offending, (
+        f"em.provider.provider imports the host or the plugin package: {offending} — "
+        "the dependency is injected through ProviderHost instead"
+    )

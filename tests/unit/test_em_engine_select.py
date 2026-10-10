@@ -296,7 +296,8 @@ def test_the_provider_builds_engines_only_through_the_helper():
     in Chunk 9. The provider must not construct an engine itself again, or that
     site would bypass the version check and could migrate a v2 store.
     """
-    provider = REPO / "plugins" / "entropicmem" / "__init__.py"
+    # EM-401: the implementation moved into em/provider/provider.py.
+    provider = SCRIPTS / "em" / "provider" / "provider.py"
     tree = ast.parse(provider.read_text(encoding="utf-8"))
     raw = [
         node.lineno

@@ -21,7 +21,10 @@ if str(SCRIPTS) not in sys.path:
 
 from em.facade import contract  # noqa: E402
 
-PROVIDER = REPO / "plugins" / "entropicmem" / "__init__.py"
+# EM-401: the provider implementation moved out of the plugin package into
+# ``em/provider/provider.py``; this guard follows it, because engine calls are
+# what the contract table pins.
+PROVIDER = SCRIPTS / "em" / "provider" / "provider.py"
 
 
 def _implementations():

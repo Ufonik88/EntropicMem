@@ -232,6 +232,25 @@ def test_recall_status_reports_the_last_prefetch_only(driven_provider, home_a, m
     host.shutdown()
 
 
+def test_tool_errors_route_through_the_host_formatter(driven_provider, home_a, monkeypatch):
+    """``_error`` must use the host's bounded formatter, not a local fallback.
+
+    The implementation imports no host, so the formatter is injected; this pins
+    that the injection is what produces the error body (a local
+    ``json.dumps({"error": ...})`` would skip the host's bounding).
+    """
+    seen = []
+
+    def fake_tool_error(self, message):
+        seen.append(message)
+        return json.dumps({"error": "host:" + message})
+
+    monkeypatch.setattr(type(driven_provider._host), "tool_error", fake_tool_error)
+    out = driven_provider._error("boom")
+    assert seen == ["boom"]
+    assert json.loads(out)["error"] == "host:boom"
+
+
 def test_the_state_holder_survives_a_session_switch(driven_provider, home_a):
     provider = driven_provider
     host = FakeHost(provider, hermes_home=home_a, agent_context="cron")

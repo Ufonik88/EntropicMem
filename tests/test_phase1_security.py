@@ -77,7 +77,11 @@ def test_export_html_omits_bodies_by_default(tmp_path, monkeypatch):
 
 
 def test_plugin_defaults_secure():
-    plugin_path = Path(__file__).resolve().parents[1] / "plugins" / "entropicmem" / "__init__.py"
+    # EM-401: the secure defaults' source moved into em/provider/provider.py.
+    plugin_path = (
+        Path(__file__).resolve().parents[1]
+        / "plugins" / "entropicmem" / "scripts" / "em" / "provider" / "provider.py"
+    )
     # Avoid importing agent.memory_provider — load defaults only by exec subset
     text = plugin_path.read_text(encoding="utf-8")
     assert '"auto_extract_enabled": False' in text

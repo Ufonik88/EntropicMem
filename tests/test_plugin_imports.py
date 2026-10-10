@@ -22,6 +22,10 @@ from unittest.mock import MagicMock
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "plugins" / "entropicmem" / "scripts"
 PLUGIN = REPO / "plugins" / "entropicmem" / "__init__.py"
+# EM-401: the provider implementation (and its deferred imports) moved out of
+# the plugin package. The scan covers both files, so the 2026-08-14 bug class
+# cannot come back through the split.
+PROVIDER_IMPL = SCRIPTS / "em" / "provider" / "provider.py"
 
 sys.path.insert(0, str(SCRIPTS))
 
@@ -63,12 +67,17 @@ def _load_plugin_module():
 
 
 def _deferred_imports():
-    """Yield (module, name, lineno) for deferred script-module imports."""
-    tree = ast.parse(PLUGIN.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module in SCRIPT_MODULES:
-            for alias in node.names:
-                yield node.module, alias.name, node.lineno
+    """Yield (module, name, lineno) for deferred script-module imports.
+
+    Both files are scanned: the plugin shell and the provider implementation it
+    delegates to (EM-401 moved the imports with the code).
+    """
+    for source in (PLUGIN, PROVIDER_IMPL):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module in SCRIPT_MODULES:
+                for alias in node.names:
+                    yield node.module, alias.name, node.lineno
 
 
 def test_deferred_imports_resolve():
