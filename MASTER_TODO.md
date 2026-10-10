@@ -13,9 +13,9 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-10, against branch `main` at `6646351` — the fast-forward
-merge of Chunk 30 (the `save_config` blank-home fix and two hygiene corrections from
-the EM-401 run), named deliberately instead of the tip. **All check-runs were green on that exact SHA, `identity-guard`
+**Last reconciled:** 2026-10-10, against branch `main` at `b8e170a` — the fast-forward
+merge of Chunk 31 (EM-401 slice 2: the provider moves into `em/provider/provider.py`
+and the plugin package becomes a host shell), named deliberately instead of the tip. **All check-runs were green on that exact SHA, `identity-guard`
 included** (11 on the branch push, 22 across both events on the `main` push). The
 branch is deleted; the remote carries `main` and `release/2.8.x` only.
 
@@ -163,6 +163,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 29 | **EM-401 slice 1 — the §4.1 hook skeleton and the pinned host contract** | **Done, merged** (`f8af1a9` as `db7c24f`, ff). `fail_soft` wraps every hook (timed, counted, over-budget at WARNING, exceptions swallowed with the type only) and is **fail-closed** on `on_pre_compress`/`initialize`/`save_config`/`backup_paths`; `ProviderState` holds the session-scoped fields; `em/provider/provider.py` is the §4.1 surface table with `on_delegation`→EM-405 and `identity_signature`→EM-402 deferred by name; the contract test enumerates `MemoryProvider` from the pinned hermes-agent (`tests/harness/pinned_memory_provider.json`, re-derived against the real host when reachable); the harness drives every §4.1 hook and proves from the metrics that each ran and none failed. The class itself stays in `plugins/entropicmem/__init__.py` — the move is the next slice |
 
 | 30 | **`save_config` blank-home fix + the two hygiene corrections the EM-401 run surfaced** | **Done, merged** (`6646351`). `save_config(values, "")` resolved `Path("")` to `Path(".")` and merged `plugins.entropicmem` into the CWD's `config.yaml`, rewriting that file; it now refuses a blank home and raises (the fail-closed shape §4.1 asks for; the host always passes `str(get_hermes_home())`, so this is defence in depth). `.gitignore` covers `uv*.lock` so `git add -A` cannot sweep a stray lock file in again. `AGENTS.md`'s mutation rule records that a mutation must be restored from a **copy**, never `git checkout -- <file>`. 2 new tests; **2223 / 5 / 3** bare and **2225 / 3 / 3** with numpy on 3.10 and 3.12; ruff clean; 3 mutation checks red |
+| 31 | **EM-401 slice 2 — the provider moves into `em/provider/provider.py`** | **Done, merged** (`b8e170a`). `plugins/entropicmem/__init__.py` is a **145-line** host shell: `register` + a `MemoryProvider` subclass over `_HermesHost`, which injects the path/config resolvers, the P0a shadow read, the context-propagating thread factory, the host's bounded tool-error formatter and `RecallStatus`. `em/provider/provider.py` holds `EntropicMemProvider` (the whole provider; EM-404 later splits `tools.py`) plus the `ProviderHost` ABC. `em` imports no host and no plugin package — an AST guard pins that, another pins the 150-line shell. Six source-scanning guards now read the implementation. 3 new tests; **2226 / 5 / 3** bare and **2228 / 3 / 3** with numpy on 3.10 and 3.12; ruff clean; 8 mutation checks red |
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
 both select their engine by the store's `user_version`, so either one runs on a v3
@@ -175,7 +176,7 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunk 30 (the `save_config` blank-home fix) is merged (`6646351`) with all checks green on that exact SHA. The branch is deleted; the remote carries `main` and `release/2.8.x` only. The Marketplace entry is untouched (2.8.1 at `7e02412`). EM-411 remains planned and unbuilt; the promotion gate is recommended, awaiting the owner's confirmation. **EM-401's remaining slices:** the provider class moves into `em/provider/provider.py`, then EM-402 (ScopeContext) and EM-403 (PrefetchService) — and only then does a query embedding reach the live path.
+**Nothing.** Chunk 31 (EM-401 slice 2, the provider move) is merged (`b8e170a`) with all checks green on that exact SHA. The branch is deleted; the remote carries `main` and `release/2.8.x` only. The Marketplace entry is untouched (2.8.1 at `7e02412`). EM-411 remains planned and unbuilt; the promotion gate is recommended, awaiting the owner's confirmation. **EM-401's remaining slices:** the provider class moves into `em/provider/provider.py`, then EM-402 (ScopeContext) and EM-403 (PrefetchService) — and only then does a query embedding reach the live path.
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
 from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed
@@ -361,18 +362,17 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**The last two chunks are merged and green: Chunk 29 (EM-401 slice 1, the §4.1
-hook skeleton, `db7c24f`) and Chunk 30 (the `save_config` blank-home fix,
-`6646351`).** Local suite **2223/5/3** bare and **2225/3/3** with numpy on Python
-3.10 and 3.12, `ruff==0.16.2` clean, CI green on both merge SHAs. **A review of
-the EM-401 run found no residual damage** — the mutation-script incident was
-recovered byte-for-byte, nothing stale is in history, and the two real defects it
-exposed (a blank `hermes_home` writing into the CWD, and `git add -A` sweeping a
-`uv` lock file in) are both fixed and pinned. **Next chunk: EM-401's remaining
-slices** — the provider class moves into `em/provider/provider.py`, then EM-402
-(ScopeContext) and EM-403 (PrefetchService). Live retrieval is still lexical.
-EM-411 stays test-first, unbuilt, default off. The cutover stays with the owner.
-P0's observable stays armed at `0.107143`.
+**EM-401 is complete in code: slice 1 (the §4.1 hook skeleton, `db7c24f`) and
+slice 2 (the provider move, `b8e170a`) are merged, with the `save_config` fix
+(`6646351`) between them.** Local suite **2226/5/3** bare and **2228/3/3** with
+numpy on Python 3.10 and 3.12, `ruff==0.16.2` clean, CI green on every merge SHA.
+`plugins/entropicmem/__init__.py` is now a 145-line host shell and
+`em/provider/provider.py` holds the provider — so **EM-402 (ScopeContext) and
+EM-403 (PrefetchService) build on the moved class**, and only then does a query
+embedding reach the live path. `on_delegation` (EM-405) and `identity_signature`
+(EM-402) remain explicitly deferred in the §4.1 surface table. Live retrieval is
+still lexical. EM-411 stays test-first, unbuilt, default off. The cutover stays
+with the owner. P0's observable stays armed at `0.107143`.
 
 **P0c's data is blocked on the environment, and the reason is now measured rather than
 assumed.** This box is not running EntropicMem at all: `~/.hermes/config.yaml` has **no
@@ -404,7 +404,7 @@ line there.**
    at short citations and do not wire `em/config.py` as a drive-by. Measure before
    any adapter switch: the 450-token budget can drop an id the current bullet
    emits.
-4. **Pre-flight:** `python -m pytest -q` gives **2223 passed / 5 skipped / 3 xfailed**
+4. **Pre-flight:** `python -m pytest -q` gives **2226 passed / 5 skipped / 3 xfailed**
    on **both Python 3.10 and 3.12** (CI's extra set: fastapi, httpx, cryptography, pyyaml).
    `git merge-base --is-ancestor 4eb8097 HEAD` proves the base. A fresh venv without
    those extras skips and fails tests that are green in CI — that is the environment,
@@ -577,7 +577,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2223 passed / 5 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2226 passed / 5 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |

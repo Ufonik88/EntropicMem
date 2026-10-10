@@ -7,7 +7,13 @@ If this file and the code disagree, the code is the fact. Fix whichever is wrong
 ## Layers
 
 ```
-Hermes provider (plugins/entropicmem/__init__.py)   <- unchanged in S2; talks to one engine API
+Hermes provider  plugins/entropicmem/__init__.py   <- thin host shell since EM-401 slice 2
+        |        (register + a MemoryProvider over em/provider/provider.py; no
+        |         provider logic, <=150 LOC)
+        |
+        v
+em.provider     provider.py: the provider class (hooks, tools) over ProviderHost,
+                the injected host seam; hooks.py: fail_soft + budgets; render.py
         |
         v
 em.facade  (EM-211)       contract.py: the exact API + behaviours the provider relies on
