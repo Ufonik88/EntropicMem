@@ -86,3 +86,9 @@ graph_export/
 # Worktrees and tool caches
 .worktrees/
 .ruff_cache/
+
+# uv's lock files are not part of this plugin's source (it ships as source, not a
+# locked application): `uv run` writes one beside the project, and a second
+# concurrent invocation falls back to `uv <n>.lock`. `git add -A` swept one into
+# a commit once; the pattern catches every form.
+uv*.lock

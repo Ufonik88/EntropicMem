@@ -60,7 +60,7 @@ records a SHA that is not a real ancestor of the branch.
 ## Always
 
 1. One card per commit, each with a CHANGELOG line under `[Unreleased]`, in the right section: Added for new features, Fixed for bugs, Security for privacy/security.
-2. Write the test first, watch it fail for the right reason, then mutation-check it: break the code the test protects and confirm it goes red. **A claim that the suite would catch a *class* of bug needs more than one removal** — deleting a single call is not proof the suite covers the class. Remove the logic in several independent ways and show each goes red (EM-301's document-frequency claim took three: no frequencies at all, the map ignored, and the formula flattened).
+2. Write the test first, watch it fail for the right reason, then mutation-check it: break the code the test protects and confirm it goes red. **A claim that the suite would catch a *class* of bug needs more than one removal** — deleting a single call is not proof the suite covers the class. Remove the logic in several independent ways and show each goes red (EM-301's document-frequency claim took three: no frequencies at all, the map ignored, and the formula flattened). **Restore each mutation from a copy, never `git checkout -- <file>`:** on a file with uncommitted work it discards the work, and on a new untracked file it fails and leaves the mutation applied — both silently, and the second one contaminated a mutation run on 2026-10-09 until the copy-based backups replaced it.
 3. Before you push, run:
    - `python -m pytest -q`
    - `ruff check .`

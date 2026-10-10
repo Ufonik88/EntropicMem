@@ -385,6 +385,49 @@ def test_config_schema_denied_sources_default_matches_defaults():
     assert default == ["auto_extracted", "test"]
 
 
+def test_save_config_refuses_a_blank_home_and_writes_nothing(tmp_path, monkeypatch):
+    """A blank ``hermes_home`` must not resolve to the process working directory.
+
+    ``Path("")`` is ``Path(".")``, so an unguarded ``save_config(values, "")``
+    computes ``./config.yaml`` — merges ``plugins.entropicmem`` into whatever
+    ``config.yaml`` happens to sit in the CWD, then rewrites the whole file
+    (comments and layout included). The host always passes
+    ``str(get_hermes_home())``, which is never blank, so this cannot fire in
+    normal use: it is defence in depth, and it fails **closed**, because
+    guessing where to write a user's config is worse than not writing it.
+
+    This is the shape of the bug a manual drive of EM-401's hook surface hit:
+    calling ``save_config(..., "")`` dropped a ``config.yaml`` into the repo.
+    """
+    monkeypatch.chdir(tmp_path)
+    prov = EntropicMemMemoryProvider(config={})
+
+    for blank in ("", "   ", None):
+        with pytest.raises(ValueError, match="hermes_home"):
+            prov.save_config({"min_relevance_score": 0.4}, blank)  # type: ignore[arg-type]
+
+    assert not (tmp_path / "config.yaml").exists(), (
+        "a blank home must not write config.yaml into the working directory"
+    )
+
+
+def test_save_config_still_merges_into_a_real_home(tmp_path):
+    """The guard must not break the real path: other plugins are untouched."""
+    other = tmp_path / "config.yaml"
+    other.write_text(
+        "plugins:\n  homeassistant:\n    enabled: true\n", encoding="utf-8"
+    )
+    prov = EntropicMemMemoryProvider(config={})
+    prov.save_config({"min_relevance_score": 0.4}, str(tmp_path))
+
+    import yaml
+
+    data = yaml.safe_load(other.read_text(encoding="utf-8"))
+    assert data["plugins"]["entropicmem"]["min_relevance_score"] == 0.4
+    # merge-only: a sibling plugin's section survives
+    assert data["plugins"]["homeassistant"]["enabled"] is True
+
+
 # ── Fix 9: prefetch cache keyed by enhanced-query hash ────────────────────────
 
 def test_prefetch_cache_keys_fact_block_by_query_hash(tmp_path):

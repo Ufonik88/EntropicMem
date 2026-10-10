@@ -558,7 +558,22 @@ class EntropicMemMemoryProvider(MemoryProvider):
 
     @fail_soft  # fail-closed: §4.1 — save_config raises on failure, visible to the setup UI
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
-        """Merge-only update of plugins.entropicmem — never clobber other plugins."""
+        """Merge-only update of plugins.entropicmem — never clobber other plugins.
+
+        A blank ``hermes_home`` is **refused**, not resolved: ``Path("")`` is
+        ``Path(".")``, so an unguarded call would merge ``plugins.entropicmem``
+        into whatever ``config.yaml`` sits in the process working directory and
+        then rewrite that whole file (comments and layout included). The host
+        always passes ``str(get_hermes_home())``, which is never blank, so this
+        cannot fire in normal use — it is defence in depth, and it fails closed,
+        because guessing where to write a user's config is worse than not
+        writing it.
+        """
+        if not str(hermes_home or "").strip():
+            raise ValueError(
+                "entropicmem: save_config needs a hermes_home; refusing to write "
+                "into the working directory"
+            )
         config_path = Path(hermes_home) / "config.yaml"
         try:
             import yaml
