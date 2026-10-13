@@ -315,6 +315,12 @@ def _fetch(ctx: RetrievalContext, sql: str, params: Sequence[Any], k: int) -> Li
     ``sql`` must not carry its own ``LIMIT``/``OFFSET``. The deadline is checked
     *before* each page, so an expired context issues no query at all and one
     that expires mid-scan returns the pages already collected.
+
+    This is the generator deadline contract in one place: ``test_the_deadline_
+    is_checked_before_a_page_not_after_it`` and ``test_a_generator_that_runs_
+    out_midway_returns_a_partial_list`` pin its stop point and its partial
+    shape directly. ``bm25`` deliberately does **not** page through it — see
+    that generator for why.
     """
     rows: List[sqlite3.Row] = []
     while len(rows) < k:
@@ -334,9 +340,22 @@ def _fetch(ctx: RetrievalContext, sql: str, params: Sequence[Any], k: int) -> Li
 
 
 def bm25(ctx: RetrievalContext) -> List[Candidate]:
-    """Lexical search over ``memories_fts`` with §3.6's column weights."""
+    """Lexical search over ``memories_fts`` with §3.6's column weights.
+
+    **One bounded query, not :func:`_fetch`'s pages (EM-403).** Every page of a
+    paged FTS query re-scores and re-sorts *every* match before applying its
+    ``OFFSET`` — measured at 50k rows, four 10-row pages cost 78 ms where one
+    40-row query costs 20 ms, so the paging bought deadline granularity with a
+    4× tax on every query. The deadline still binds: an expired generator does
+    no SQL and returns ``[]`` (the same structural contract ``_fetch``
+    documents, pinned by the tests that now drive ``_fetch`` directly), and the
+    run's partial story is §4.2's between-generator skip plus the prefetch
+    service's watchdog. What this generator cannot do is return *mid-scan*: it
+    returns its top-k whole, at most one query's time past the deadline — which
+    is the same overrun any in-flight page query has always had.
+    """
     expr = match_expression(ctx.aq.terms)
-    if not expr:
+    if not expr or ctx.out_of_time():
         return []
     clause, scope_params = scope_sql(ctx.scope, table="m")
     sql = (
@@ -345,7 +364,9 @@ def bm25(ctx: RetrievalContext) -> List[Candidate]:
         "WHERE memories_fts MATCH ? AND m.status = 'active' AND " + clause + " "
         "ORDER BY score"
     )
-    rows = _fetch(ctx, sql, [expr, *scope_params], ctx.k("bm25"))
+    rows = ctx.conn.execute(
+        sql + " LIMIT ?", [expr, *scope_params, ctx.k("bm25")]
+    ).fetchall()
     return [Candidate(OWNER_TYPE_MEMORY, r["id"], -float(r["score"] or 0.0)) for r in rows]
 
 

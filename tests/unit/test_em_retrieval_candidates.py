@@ -451,6 +451,11 @@ def test_the_deadline_is_checked_before_a_page_not_after_it(store, monkeypatch):
 
     With a clock that reports "not expired" once and "expired" thereafter, exactly one
     page may be fetched. A check placed after the query would fetch two.
+
+    EM-403: the claim is pinned where the mechanism lives — ``_fetch`` directly —
+    because ``bm25`` now fetches its top-k in one bounded query (measured: paged FTS
+    queries re-score every match per page, 78 ms of 4×10 vs 20 ms of 1×40 at 50k).
+    The stop point is unchanged; only which generator exercises it moved.
     """
     for i in range(25):
         remember(store, f"staging server number {i} is running", scope=ALICE)
@@ -462,14 +467,19 @@ def test_the_deadline_is_checked_before_a_page_not_after_it(store, monkeypatch):
         return 0.0 if ticks["n"] == 1 else 999.0
 
     monkeypatch.setattr(C, "_monotonic", fake_monotonic)
-    ctx = ctx_for(store, scope=ALICE, terms=["staging"], deadline=100.0)
-    got = bm25(ctx)
+    ctx = ctx_for(store, scope=ALICE, deadline=100.0)
+    got = C._fetch(ctx, "SELECT id FROM memories ORDER BY rid", [], 40)
 
     assert len(got) == C._PAGE, "exactly one page, because the check precedes the fetch"
 
 
 def test_a_generator_that_runs_out_midway_returns_a_partial_list(store, monkeypatch):
-    """Not just "expired": a generator that expires mid-scan keeps what it has."""
+    """Not just "expired": a scan that expires midway keeps what it has.
+
+    EM-403: driven through ``_fetch`` directly for the same reason as the test
+    above — the accumulation claim is about the paging mechanism, and it stays
+    exactly as strong there (two pages collected, the third never runs).
+    """
     for i in range(25):
         remember(store, f"staging server number {i} is running", scope=ALICE)
 
@@ -480,10 +490,29 @@ def test_a_generator_that_runs_out_midway_returns_a_partial_list(store, monkeypa
         return 0.0 if calls["n"] <= 2 else 999.0  # two pages fit, then the wall
 
     monkeypatch.setattr(C, "_monotonic", fake_monotonic)
-    got = bm25(ctx_for(store, scope=ALICE, terms=["staging"], deadline=100.0))
+    ctx = ctx_for(store, scope=ALICE, deadline=100.0)
+    got = C._fetch(ctx, "SELECT id FROM memories ORDER BY rid", [], 40)
 
     assert len(got) == 2 * C._PAGE
     assert len(got) < 25, "the whole set came back, so the deadline was not honoured"
+
+
+def test_bm25_fetches_its_top_k_in_one_query(store):
+    """EM-403's perf shape, pinned structurally: one bounded query.
+
+    Paging this query re-scores and re-sorts every FTS match per page — measured
+    at 50k rows, 78 ms for four 10-row pages where one 40-row query costs 20 ms.
+    A regression back to paged fetches is four queries here, not a stopwatch.
+    """
+    for i in range(25):
+        remember(store, f"staging server number {i} is running", scope=ALICE)
+
+    ctx = recording_ctx(store, scope=ALICE, terms=["staging"])
+    got = bm25(ctx)
+
+    assert len(got) == 25
+    assert len(ctx.conn.queries) == 1, f"bm25 paged: {ctx.conn.queries}"
+    assert "LIMIT" in ctx.conn.queries[0]
 
 
 def test_the_full_set_comes_back_when_there_is_no_deadline(store):

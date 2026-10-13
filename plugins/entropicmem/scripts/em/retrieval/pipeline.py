@@ -24,13 +24,13 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..embeddings.cache import cached_vectors
 from ..store.embeddings import cosine
 from ..store.types import Scope
 from . import candidates, diversity, fusion, gate
-from .query import AnalyzedQuery, analyze
+from .query import AnalyzedQuery, VocabularyCache, analyze
 
 __all__ = ["Retrieval", "retrieve"]
 
@@ -70,6 +70,13 @@ class Retrieval:
     #: unless ``with_gate`` ran the collapse, and only for keys still in
     #: ``rankings`` after MMR. The renderer quotes these; this module does not.
     predecessors: Dict[Tuple[str, str], Tuple[Any, ...]] = field(default_factory=dict)
+    #: True when the deadline cut the generator stage short (§4.2): at least one
+    #: generator was skipped or abandoned because the deadline passed. A run
+    #: without a deadline is never partial.
+    partial: bool = False
+    #: The generators the deadline skipped, in run order (an abandoned call is
+    #: named too — its results were discarded).
+    generators_skipped: Tuple[str, ...] = ()
 
     @property
     def ids(self) -> List[str]:
@@ -78,6 +85,16 @@ class Retrieval:
     def text_of(self, ranking: Any) -> str:
         info = self.rows.get(ranking.key)
         return info.text if info is not None else ranking.owner_id
+
+
+class GeneratorDeadline(Exception):
+    """A ``generator_runner`` abandoned its call at the deadline (§4.2).
+
+    The runner contract: raise this when the deadline (or the run budget) has
+    passed and the generator's results must be discarded. ``retrieve`` then
+    marks the result partial and skips the remaining generators — it never
+    retries the call.
+    """
 
 
 def retrieve(
@@ -91,6 +108,13 @@ def retrieve(
     rank_weights: Optional[fusion.RankWeights] = None,
     query_vector: Optional[Sequence[float]] = None,
     embedding_model: Optional[str] = None,
+    deadline: Optional[float] = None,
+    generator_order: Optional[Sequence[str]] = None,
+    generator_runner: Optional[
+        Callable[[str, Callable[[candidates.RetrievalContext], List[Any]], candidates.RetrievalContext], List[Any]]
+    ] = None,
+    idf_cache: Optional[VocabularyCache] = None,
+    write_generation: str = "",
 ) -> Retrieval:
     """Run §3.6's pipeline for one query.
 
@@ -110,22 +134,74 @@ def retrieve(
     condition stays off — the lexical path is unchanged. Passing both turns
     cosine on for this call **only when** ``gate_config`` was not supplied; an
     explicit config is obeyed, including ``cosine_enabled=False``.
+
+    ``deadline``, ``generator_order`` and ``generator_runner`` are **EM-403's
+    execution seams** (§4.2) and all default to today's behaviour: no deadline,
+    :data:`candidates.GENERATORS`' own order, and a direct call. A deadline is an
+    absolute ``time.monotonic()`` reading handed to every generator's context; when
+    it passes, the remaining generators are skipped and the result is marked
+    ``partial`` (with ``generators_skipped``). ``generator_order`` is the priority
+    order partial results are kept in — the prefetch service passes §4.2's
+    ``pinned → bm25 → entity → vector → episodic → recent``; the global mapping's
+    order is deliberately untouched. ``generator_runner(name, generator, context)``
+    executes each generator and may abandon a call by raising
+    :class:`GeneratorDeadline` (the watchdog that makes the 1.5 s hard cap hold
+    even for a generator that ignores the deadline contract).
+
+    ``idf_cache``/``write_generation`` are §3.6's IDF cache (EM-403): with both,
+    the analyzer's vocabulary read is served from the cache until a write moves
+    the generation; with neither — every caller but the prefetch service — the
+    vocabulary is read per call exactly as before.
     """
     moment = now or datetime.now(timezone.utc)
-    analyzed = analyze(query, conn=conn, scope=scope, now=moment)
+    analyzed = analyze(
+        query,
+        conn=conn,
+        scope=scope,
+        now=moment,
+        idf_cache=idf_cache,
+        write_generation=write_generation,
+    )
     vector = tuple(query_vector) if query_vector else None
 
+    order = tuple(generator_order) if generator_order is not None else tuple(candidates.GENERATORS)
+    unknown = [name for name in order if name not in candidates.GENERATORS]
+    if unknown:
+        raise ValueError(f"unknown generators: {unknown!r}")
+
     results: Dict[str, List[Any]] = {}
-    for name, generator in candidates.GENERATORS.items():
+    skipped: List[str] = []
+    partial = False
+    for index, name in enumerate(order):
         context = candidates.RetrievalContext(
             conn=conn,
             aq=analyzed,
             scope=scope,
             now=moment,
+            deadline=deadline,
             query_vector=vector,
             embedding_model=embedding_model if vector else None,
         )
-        results[name] = generator(context)
+        if context.out_of_time():
+            skipped = list(order[index:])
+            partial = True
+            break
+        generator = candidates.GENERATORS[name]
+        try:
+            if generator_runner is None:
+                results[name] = generator(context)
+            else:
+                results[name] = generator_runner(name, generator, context)
+        except GeneratorDeadline:
+            skipped = list(order[index:])
+            partial = True
+            break
+        if context.out_of_time():
+            # The generator finished, but it ran against the deadline and may
+            # have returned a page-truncated list; the rest cannot do SQL at all.
+            skipped = list(order[index + 1:])
+            partial = True
+            break
 
     fused = fusion.fuse(results, intent=analyzed.intent)
     features = fusion.load_features(conn, scope=scope, keys=fused.keys())
@@ -133,7 +209,13 @@ def retrieve(
 
     rows = gate.load_rows(conn, scope=scope, keys=[r.key for r in ranked])
     if not with_gate:
-        return Retrieval(analyzed=analyzed, rankings=ranked, rows=rows)
+        return Retrieval(
+            analyzed=analyzed,
+            rankings=ranked,
+            rows=rows,
+            partial=partial,
+            generators_skipped=tuple(skipped),
+        )
 
     texts = {key: info.text for key, info in rows.items()}
     coverages = gate.coverage(list(analyzed.terms), texts)
@@ -175,7 +257,13 @@ def retrieve(
         model=model_name,
     )
     if gated.empty:
-        return Retrieval(analyzed=analyzed, rankings=[], rows=rows)
+        return Retrieval(
+            analyzed=analyzed,
+            rankings=[],
+            rows=rows,
+            partial=partial,
+            generators_skipped=tuple(skipped),
+        )
 
     survivors = gated.survivors
     collapsed = diversity.collapse(
@@ -215,4 +303,6 @@ def retrieve(
         rankings=kept,
         rows=rows,
         predecessors=noted,
+        partial=partial,
+        generators_skipped=tuple(skipped),
     )

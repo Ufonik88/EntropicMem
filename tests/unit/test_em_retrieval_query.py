@@ -459,7 +459,18 @@ def test_the_analyzer_is_stdlib_only(store):
     """
     import ast
 
-    allowed = {"__future__", "math", "re", "sqlite3", "dataclasses", "datetime", "typing"}
+    # threading (stdlib) is the IDF cache's lock (EM-403): the list is the set
+    # of approved *stdlib* modules, and a non-stdlib absolute import still fails.
+    allowed = {
+        "__future__",
+        "math",
+        "re",
+        "sqlite3",
+        "dataclasses",
+        "datetime",
+        "threading",
+        "typing",
+    }
     imported = set()
     for node in ast.walk(ast.parse(Path(Q.__file__).read_text())):
         if isinstance(node, ast.Import):
@@ -467,3 +478,79 @@ def test_the_analyzer_is_stdlib_only(store):
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             imported.add(node.module.split(".")[0])
     assert imported <= allowed, f"non-stdlib absolute imports: {sorted(imported - allowed)}"
+
+
+# --- §3.6's IDF cache (EM-403) -------------------------------------------
+
+
+def _add(store, content, *, scope=ALICE):
+    with store.transaction() as conn:
+        result = MemoryStore(conn).add(
+            MemoryDraft(content=content, source="agent", status="active"),
+            scope=scope,
+            actor="tester",
+        )
+        assert result.ok
+        return result.id
+
+
+def test_the_cached_vocabulary_agrees_with_the_uncached_read(store):
+    for i in range(5):
+        _add(store, f"staging server number {i} is running")
+    conn = store.reader()
+    plain, plain_n = vocabulary(conn, ["staging", "running"])
+    cache = Q.VocabularyCache()
+    cached, cached_n = vocabulary(
+        conn, ["staging", "running"], cache=cache, generation="g1"
+    )
+    assert cached_n == plain_n
+    assert dict(cached) == dict(plain)
+
+
+def test_the_vocabulary_is_read_once_per_generation(store, monkeypatch):
+    _add(store, "the Acme staging port is 9090")
+    reads = {"n": 0}
+    real = Q._read_base_vocabulary
+
+    def counted(conn):
+        reads["n"] += 1
+        return real(conn)
+
+    monkeypatch.setattr(Q, "_read_base_vocabulary", counted)
+    cache = Q.VocabularyCache()
+    conn = store.reader()
+    vocabulary(conn, ["staging"], cache=cache, generation="g1")
+    vocabulary(conn, ["port"], cache=cache, generation="g1")
+    assert reads["n"] == 1, "one generation means one vocabulary read"
+    vocabulary(conn, ["staging"], cache=cache, generation="g2")
+    assert reads["n"] == 2, "a new generation re-reads"
+
+
+def test_the_cache_serves_the_current_store_only_when_the_generation_moves(store):
+    """The generation is the caller's write signal (§4.2's write_generation):
+    equal generation means equal vocabulary, and a write moves the generation —
+    which is what makes the cache safe."""
+    _add(store, "the Acme staging port is 9090")
+    cache = Q.VocabularyCache()
+    conn = store.reader()
+    before, before_n = vocabulary(conn, ["staging"], cache=cache, generation="g1")
+    _add(store, "the Globex staging port is 9191")
+    stale, stale_n = vocabulary(conn, ["staging"], cache=cache, generation="g1")
+    fresh, fresh_n = vocabulary(conn, ["staging"], cache=cache, generation="g2")
+    assert stale_n == before_n == 1, "same generation, same vocabulary — the cache holds"
+    assert fresh_n == 2, "the new generation sees the write"
+    assert dict(fresh) != dict(before)
+
+
+def test_a_stemmed_term_is_still_probed_through_the_cache(store):
+    """"staging" is `porter`-stemmed to "stage" in the vocab view; the probe
+    path must keep working through a cached base map."""
+    for i in range(3):
+        _add(store, f"staging server number {i} is running")
+    cache = Q.VocabularyCache()
+    conn = store.reader()
+    frequencies, _ = vocabulary(conn, ["staging"], cache=cache, generation="g1")
+    assert frequencies["staging"] == 3
+    # and a second call through the cache agrees
+    again, _ = vocabulary(conn, ["staging"], cache=cache, generation="g1")
+    assert again["staging"] == 3

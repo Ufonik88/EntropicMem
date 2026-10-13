@@ -25,6 +25,7 @@ from __future__ import annotations
 import math
 import re
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -38,6 +39,7 @@ __all__ = [
     "INTENTS",
     "MAX_TERMS",
     "AnalyzedQuery",
+    "VocabularyCache",
     "analyze",
     "detect_entities",
     "detect_intent",
@@ -154,8 +156,59 @@ def _phrase(term: str) -> str:
     return '"' + term.replace('"', '""') + '"'
 
 
+def _read_base_vocabulary(conn: sqlite3.Connection) -> Tuple[Dict[str, int], int]:
+    """``(term -> df, active memory count)`` straight from the store."""
+    row = conn.execute("SELECT COUNT(*) FROM memories WHERE status = 'active'").fetchone()
+    n_docs = int(row[0]) if row else 0
+
+    try:
+        rows = conn.execute("SELECT term, doc FROM memories_vocab").fetchall()
+        frequencies = {str(r["term"]).casefold(): int(r["doc"]) for r in rows}
+    except sqlite3.OperationalError:
+        frequencies = {}
+    return frequencies, n_docs
+
+
+class VocabularyCache:
+    """§3.6's IDF vocabulary cache — the recorded EM-301 gap, keyed by
+    ``write_generation`` (EM-403 is what finally defines one).
+
+    ``vocabulary()`` reads the whole ``memories_vocab`` view, and that read is
+    the same for every query until a write lands — measured at 50k memories it
+    is ~25 ms, which is per-call latency for nothing. The caller that knows
+    whether a write landed is the prefetch service: it combines an in-process
+    write counter with ``PRAGMA data_version`` into a generation string, so
+    equal generation ⇒ equal vocabulary. Without a generation the read stays
+    uncached and byte-identical (every caller but the service).
+
+    The returned mapping is live and shared: ``vocabulary()`` extends it with
+    per-term probes, which are valid for the same generation. Callers read it;
+    nothing outside this module should hold it across a generation change.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._generation: Optional[str] = None
+        self._frequencies: Optional[Dict[str, int]] = None
+        self._n_docs = 0
+
+    def load(self, conn: sqlite3.Connection, generation: str) -> Tuple[Dict[str, int], int]:
+        with self._lock:
+            if self._frequencies is not None and self._generation == generation:
+                return self._frequencies, self._n_docs
+            frequencies, n_docs = _read_base_vocabulary(conn)
+            self._generation = generation
+            self._frequencies = frequencies
+            self._n_docs = n_docs
+            return frequencies, n_docs
+
+
 def vocabulary(
-    conn: sqlite3.Connection, terms: Iterable[str] = ()
+    conn: sqlite3.Connection,
+    terms: Iterable[str] = (),
+    *,
+    cache: Optional[VocabularyCache] = None,
+    generation: str = "",
 ) -> Tuple[Dict[str, int], int]:
     """``(term -> document frequency, active memory count)`` for IDF (§3.6).
 
@@ -176,15 +229,13 @@ def vocabulary(
     ``N`` is the number of *active* memories (§3.6), while the view describes the
     whole FTS index — the two differ by exactly the non-active rows, which is the
     plan's design and not something to "fix" here.
-    """
-    row = conn.execute("SELECT COUNT(*) FROM memories WHERE status = 'active'").fetchone()
-    n_docs = int(row[0]) if row else 0
 
-    try:
-        rows = conn.execute("SELECT term, doc FROM memories_vocab").fetchall()
-        frequencies = {str(r["term"]).casefold(): int(r["doc"]) for r in rows}
-    except sqlite3.OperationalError:
-        frequencies = {}
+    ``cache`` + ``generation`` are §3.6's IDF cache (see :class:`VocabularyCache`).
+    """
+    if cache is not None and generation:
+        frequencies, n_docs = cache.load(conn, generation)
+    else:
+        frequencies, n_docs = _read_base_vocabulary(conn)
 
     for term in dict.fromkeys(terms):
         key = term.casefold()
@@ -385,6 +436,8 @@ def analyze(
     now: Optional[datetime] = None,
     extra_stopwords: Iterable[str] = (),
     max_terms: int = MAX_TERMS,
+    idf_cache: Optional[VocabularyCache] = None,
+    write_generation: str = "",
 ) -> AnalyzedQuery:
     """Turn one user message into an :class:`AnalyzedQuery` (§3.6, EM-301).
 
@@ -395,10 +448,15 @@ def analyze(
     ``conn`` and ``scope`` are needed for the two lookups: IDF reads
     ``memories_vocab``, and entity detection resolves aliases *within the
     profile*, so one profile's "Acme" cannot resolve to another's.
+
+    ``idf_cache``/``write_generation`` carry §3.6's IDF cache (EM-403); with
+    neither, the vocabulary is read per call exactly as before.
     """
     normalized = strip_memory_context(text)
     tokens = tokenize(normalized)
-    frequencies, n_docs = vocabulary(conn, tokens)
+    frequencies, n_docs = vocabulary(
+        conn, tokens, cache=idf_cache, generation=write_generation
+    )
     return AnalyzedQuery(
         raw=text,
         text=normalized,

@@ -37,7 +37,7 @@ Stdlib only (plan §3.2).
 from __future__ import annotations
 
 import re
-from typing import Any, Sequence
+from typing import Any, List, Sequence
 
 from ..clock import short_id
 from ..retrieval.packer import (
@@ -199,18 +199,19 @@ def render(chosen: Sequence[Chosen], *, cite: str = "short") -> str:
     return "\n".join(lines) + "\n"
 
 
-def pack_block(
+def pack_chosen(
     items: Sequence[PackItem],
     *,
     budget: int = DEFAULT_TOKEN_BUDGET,
     on_flagged: str = "mark",
     cite: str = "short",
-) -> str:
-    """Pack ``items`` under ``budget`` and render the block.
+) -> List[Chosen]:
+    """The rows ``pack`` keeps under ``budget``, ready to render.
 
-    ``on_flagged="mark"`` is v2.7: the warning prefix, text kept.
-    ``on_flagged="drop"`` is the EM-703 hook: flagged rows are not packed.
-    Anything else is a caller bug and raises rather than silently marking.
+    Split out of :func:`pack_block` for EM-403: the prefetch service must know
+    *which* rows its budget bought (the injected set drives §4.2's dedup and the
+    ``prefetch.injected_count`` metric), not just the rendered text. The packing
+    decision is identical either way — one sequence, one cost function.
     """
     if on_flagged not in ("mark", "drop"):
         raise ValueError(
@@ -224,7 +225,23 @@ def pack_block(
     def cost(sequence: Sequence[Chosen]) -> int:
         return estimate_tokens(render(sequence, cite=cite))
 
-    chosen = pack(usable, budget=budget, cost=cost)
+    return pack(usable, budget=budget, cost=cost)
+
+
+def pack_block(
+    items: Sequence[PackItem],
+    *,
+    budget: int = DEFAULT_TOKEN_BUDGET,
+    on_flagged: str = "mark",
+    cite: str = "short",
+) -> str:
+    """Pack ``items`` under ``budget`` and render the block.
+
+    ``on_flagged="mark"`` is v2.7: the warning prefix, text kept.
+    ``on_flagged="drop"`` is the EM-703 hook: flagged rows are not packed.
+    Anything else is a caller bug and raises rather than silently marking.
+    """
+    chosen = pack_chosen(items, budget=budget, on_flagged=on_flagged, cite=cite)
     return render(chosen, cite=cite)
 
 
