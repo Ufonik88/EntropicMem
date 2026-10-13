@@ -46,6 +46,12 @@ def score_turn(
     expect_real = resolve_refs(turn.expect_ids, handle.ref_ids, handle.noise_ids)
     must_not_real = set(resolve_refs(turn.must_not, handle.ref_ids, handle.noise_ids))
 
+    # §3.5 (EM-402): the adapter answers as the turn's asker. A no-op for
+    # adapters without the seam and for turns without an ``as_user``.
+    set_scope = getattr(adapter, "set_turn_scope", None)
+    if set_scope is not None:
+        set_scope(handle, turn)
+
     t0 = time.perf_counter()
     hits = adapter.search(handle, turn.query, k=k)
     block = adapter.prefetch(handle, turn.query)

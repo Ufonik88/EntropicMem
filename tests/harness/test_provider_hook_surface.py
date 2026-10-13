@@ -47,6 +47,7 @@ DRIVEN_DIRECTLY = {
     "is_available": lambda prov: prov.is_available(),
     "unavailable_reason": lambda prov: prov.unavailable_reason(),
     "recall_status": lambda prov: prov.recall_status(),
+    "identity_signature": lambda prov: prov.identity_signature(),
     "get_tool_schemas": lambda prov: prov.get_tool_schemas(),
     "handle_tool_call": lambda prov: prov.handle_tool_call("entropicmem_stats", {}),
     "get_config_schema": lambda prov: prov.get_config_schema(),

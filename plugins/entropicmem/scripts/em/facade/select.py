@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from ..store.migrations import LATEST
+from ..store.types import Scope
 
 __all__ = ["StoreVersionError", "open_engine", "store_kind"]
 
@@ -96,6 +97,7 @@ def open_engine(
     scope_user: str = "",
     scope_chat: str = "",
     is_owner: bool = False,
+    scope: Optional[Scope] = None,
 ):
     """Open the engine the store's schema calls for.
 
@@ -123,6 +125,7 @@ def open_engine(
             scope_user=scope_user,
             scope_chat=scope_chat,
             is_owner=is_owner,
+            scope=scope,
             pii_locales=tuple(pii_locales or ()),
         )
 

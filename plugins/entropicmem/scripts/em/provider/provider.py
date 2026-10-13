@@ -29,7 +29,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from ..policy.scopes import ScopeContext
 from .hooks import HOOK_BUDGETS, fail_soft
+from .identity import ConfigSignatureCache, default_signature
 from .state import ProviderState
 
 logger = logging.getLogger(__name__)
@@ -327,6 +329,9 @@ class EntropicMemProvider:
         # ``_agent_context`` and ``_core_baseline`` below are properties over
         # it, so no call site changed and no second copy can drift.
         self._state = ProviderState()
+        # §3.5's identity probe (EM-402): one mtime-keyed cache per provider,
+        # because the host calls identity_signature() on every inbound message.
+        self._identity = ConfigSignatureCache()
         self._prefetch_lock = threading.Lock()
         self._prefetch_cache: Optional[str] = None
         self._prefetch_cache_count: int = 0
@@ -370,6 +375,25 @@ class EntropicMemProvider:
     @_core_baseline.setter
     def _core_baseline(self, value: str) -> None:
         self._state.core_baseline = value or ""
+
+    @property
+    def _gateway_user_id(self) -> Optional[str]:
+        """The current §3.5 user bucket (the per-turn author when one is known,
+        else the gateway ``user_id``).
+
+        A property over the session's :class:`~em.policy.scopes.ScopeContext`
+        since EM-402 — there is one identity, and it is the scope. ``None`` only
+        while nothing has been resolved, which is how callers read it as "no
+        gateway identity".
+        """
+        return self._state.scope.user or None
+
+    @_gateway_user_id.setter
+    def _gateway_user_id(self, value: Any) -> None:
+        """Re-bucket the scope to *value*, against the configured owner list."""
+        self._state.scope = self._state.scope.with_user(
+            value, owner_user_ids=self._config.get("owner_user_ids") or ()
+        )
 
     @property
     def name(self) -> str:
@@ -655,16 +679,20 @@ class EntropicMemProvider:
             **self._explicit_config,
         }
         self._scripts_dir = self._host.resolve_scripts_dir(self._hermes_home)
-        # EM-118: gateway identity for the interim owner/guest privacy guard
-        self._gateway_user_id = str(kwargs.get("user_id") or "").strip() or None
+        # §3.5 (EM-402): resolve the session's ScopeContext from the host's
+        # init kwargs + config. This is the one identity every read and write
+        # goes through, narrowed per turn by on_turn_start's author trio. The
+        # gateway chat type is kept for provenance alongside it.
+        self._state.scope = ScopeContext.from_init_kwargs(kwargs, self._config)
         self._gateway_chat_type = str(kwargs.get("chat_type") or "").strip() or None
         owners = [str(u).strip() for u in (self._config.get("owner_user_ids") or []) if str(u).strip()]
-        if self._gateway_user_id and not owners and not getattr(self.__class__, "_owner_warned", False):
+        if str(kwargs.get("user_id") or "").strip() and not owners and not getattr(self.__class__, "_owner_warned", False):
             self.__class__._owner_warned = True
             logger.warning(
                 "EntropicMem: gateway user_id present but owner_user_ids is empty — "
-                "all users share one memory pool (set plugins.entropicmem.owner_user_ids). "
-                "Full per-user scoping remains a known limitation (S4)."
+                "no user is a guest, so owner-only memories are visible to everyone "
+                "(set plugins.entropicmem.owner_user_ids). Per-user scoping itself is "
+                "active: each user's memories stay theirs (§3.5)."
             )
         if not self._scripts_dir:
             logger.warning("EntropicMem skill scripts not found — run /learn EntropicMem")
@@ -811,10 +839,15 @@ class EntropicMemProvider:
         self._spawn(_shadow_work, "em-shadow-v3")
 
     def _is_guest(self) -> bool:
-        """EM-118: gateway user is not in the (non-empty) owner list."""
-        owners = [str(u).strip() for u in (self._config.get("owner_user_ids") or []) if str(u).strip()]
-        uid = getattr(self, "_gateway_user_id", None)
-        return bool(uid) and bool(owners) and uid not in owners
+        """EM-118: the current bucket is not the owner context.
+
+        Since EM-402 this is the scope's own flag
+        (:attr:`~em.policy.scopes.ScopeContext.is_guest`), so a per-turn author
+        in a group chat is judged by the same rule as the gateway user: a guest
+        is one whose id is not in a non-empty ``owner_user_ids``. No owner list
+        means no guests — v2's single-pool behaviour.
+        """
+        return self._state.scope.is_guest
 
     def _core_memory_block(self) -> str:
         """Core Memory (Persona / User Profile) injection block, screened. '' when disabled or missing."""
@@ -926,6 +959,23 @@ class EntropicMemProvider:
         # plugin against a stub that carries the base class only.
         return self._host.recall_status("EntropicMem", count)
 
+    @fail_soft(fallback=lambda *a, **k: default_signature())
+    def identity_signature(self) -> Dict[str, Any]:
+        """§3.5's identity probe: cheap, no DB, safe on an uninitialized instance.
+
+        The host calls it on every inbound message to detect config changes, so
+        the config read is cached against the file's ``(path, mtime, size)``
+        (:mod:`em.provider.identity`). Only the config file is read — never the
+        store, never the environment through this module — and every failure
+        mode (missing home, missing or broken config, no PyYAML) degrades to the
+        default signature rather than raising.
+        """
+        home = self._hermes_home
+        if home is None:
+            home = self._host.hermes_home_from_kwargs({})
+        config_path = Path(home) / "config.yaml" if home else None
+        return self._identity.signature(config_path)
+
     @fail_soft
     def sync_turn(
         self,
@@ -943,7 +993,8 @@ class EntropicMemProvider:
 
         Multimodal payloads (list content) are normalised with
         ``textutil.message_text`` so history stays ``{"role", "content": str}``
-        (EM-101/H2). ``turn_author`` is stored on the turn entries only.
+        (EM-101/H2). ``turn_author`` is stored on the turn entries **and** used
+        for §3.5 attribution of this turn's extracted memories.
         """
         from textutil import message_text
 
@@ -977,15 +1028,42 @@ class EntropicMemProvider:
         # Auto-extract facts from conversation (non-blocking, regex-based)
         if self._config.get("auto_extract_enabled", False) and self._memory_db and self._scripts_dir:
             try:
-                self._auto_extract(user_text, assistant_text, session_id or self._session_id)
+                # §3.5 attribution (EM-402): this turn's extracted memories
+                # belong to the turn's author (a bot's go profile-wide). Derived
+                # locally from turn_author and passed down — deliberately NOT
+                # stored on the session state, because the sync worker can land
+                # after the NEXT turn's on_turn_start has already re-bucketed
+                # the scope and this turn's writes must not clobber that.
+                ctx = self._state.scope
+                if isinstance(turn_author, dict):
+                    ctx = ctx.with_author(
+                        turn_author.get("id") or turn_author.get("author_id"),
+                        bool(turn_author.get("is_bot", False)),
+                    )
+                self._auto_extract(
+                    user_text,
+                    assistant_text,
+                    session_id or self._session_id,
+                    write_scope=ctx.write_scope(),
+                )
             except Exception as e:
                 logger.debug("EntropicMem auto-extract failed: %s", e)
 
-    def _auto_extract(self, user_content: str, assistant_content: str, session_id: str) -> None:
+    def _auto_extract(
+        self,
+        user_content: str,
+        assistant_content: str,
+        session_id: str,
+        *,
+        write_scope: Any = None,
+    ) -> None:
         """Background auto-extraction of durable facts from conversation text.
 
         Fire-and-forget: skips if an extraction is already running. Skipped
-        for non-primary agent contexts (write path).
+        for non-primary agent contexts (write path). ``write_scope`` is the
+        §3.5 scope the extracted memories are stamped with, captured at call
+        time so the background thread writes as the turn's author even if the
+        session's scope has moved on.
         """
         if not self._writes_allowed():
             return
@@ -995,7 +1073,7 @@ class EntropicMemProvider:
         def _run():
             try:
                 self._host.ensure_scripts_on_path(self._scripts_dir)
-                with self._open_engine() as engine:
+                with self._open_engine(scope=write_scope) as engine:
                     engine.extract_and_store(
                         user_text=user_content,
                         assistant_text=assistant_content,
@@ -1033,9 +1111,17 @@ class EntropicMemProvider:
     # ── Smart Context Helpers ─────────────────────────────────────────────
 
     def _cache_key(self, query: str) -> str:
-        """Hash key for the prefetch fact-block cache (input: the enhanced query)."""
+        """Hash key for the prefetch fact-block cache (input: the enhanced query).
+
+        §3.5 (EM-402): the scope is part of the key. One session can carry
+        several authors (group chats), and a cache keyed on the query alone
+        hands one author's block to the next — a user-private memory leaking
+        across authors through the cache. ``scope_key`` guarantees one key ⇒
+        one readable set, so a hit is always safe.
+        """
         import hashlib
-        return hashlib.sha256(query.encode("utf-8")).hexdigest()[:16]
+        material = self._state.scope.scope_key + "\x1f" + query
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
     def _check_cache(self, query: str) -> Optional[Tuple[str, int]]:
         """Return ``(fact_block, injected_count)`` for *query*, else None.
@@ -1341,7 +1427,9 @@ class EntropicMemProvider:
             self._host.ensure_scripts_on_path(self._scripts_dir)
 
             domain = "People" if target == "user" else "Knowledge"
-            with self._open_engine() as engine:
+            # §3.5 (EM-402): a mirrored write is stamped with the current
+            # turn's scope like any other write.
+            with self._open_engine(scope=self._state.scope.write_scope()) as engine:
                 old_id = self._locate_mirror(engine, metadata) if action != "add" else None
                 if action == "remove":
                     if old_id:
@@ -1454,11 +1542,17 @@ class EntropicMemProvider:
 
         The author trio is §4.1's signature: a shared session carries several
         participants, so a provider keying durable state on identity must read
-        it per turn. EM-402 (ScopeContext) is where the values are used; naming
-        them here is what makes the host's signature filtering pass them, and
-        the harness pins that they arrive.
+        it per turn. EM-402 (ScopeContext) is where the values are used: the
+        trio re-buckets the session's scope for this turn — the author is the
+        user bucket for the turn's prefetch and for the attribution of
+        extracted memories, and a bot author never creates user-scoped
+        memories. Naming the trio here is what makes the host's signature
+        filtering pass them, and the harness pins that they arrive.
         """
         try:
+            # §3.5's per-turn scope: applied every turn, before the cadence
+            # early-returns below — a turn that flushes nothing still re-buckets.
+            self._state.scope = self._state.scope.with_author(author_id, author_is_bot)
             cadence = int(self._config.get("turn_cadence_flush_turns") or 0)
             if cadence <= 0 or not turn_number or turn_number % cadence != 0:
                 return
@@ -1546,7 +1640,7 @@ class EntropicMemProvider:
                 return  # empty / tool-only transcript, no-op
 
             sid = self._session_id or ""
-            with self._open_engine() as engine:
+            with self._open_engine(scope=self._state.scope.write_scope()) as engine:
                 # EM-112: cadence flushes get a fresh wave id (ep_sess_{sid}_w{n})
                 # so earlier waves are never overwritten; session end keeps the
                 # single ep_sess_{sid} covering the tail.
@@ -1612,7 +1706,9 @@ class EntropicMemProvider:
             from em_internal.index import VaultIndex
             from em_internal.vault import Vault
 
-            with self._open_engine() as engine:
+            # The write scope (EM-402) is the §3.5 stamp: the current turn's
+            # author owns this memory (a bot author's writes go profile-wide).
+            with self._open_engine(scope=self._state.scope.write_scope()) as engine:
                 # EM-118: guest writes are stamped with the gateway user and a
                 # guest_tool source for later scoping/auditing
                 write_source, write_actor, write_tags = "agent_tool", "agent_tool", []
@@ -1779,8 +1875,8 @@ class EntropicMemProvider:
             return self._error(str(e))
 
 
-    def _open_engine(self):
-        """Open the engine this store's schema calls for.
+    def _open_engine(self, *, scope: Any = None):
+        """Open the engine this store's schema calls for, under a §3.5 scope.
 
         A v2 store gets the v2 ``MemoryEngine``, a v3 store gets the facade —
         decided by the store's own ``user_version``, read read-only *before* any
@@ -1793,6 +1889,12 @@ class EntropicMemProvider:
         owner-only rule the facade's read chunk left for the wiring: a guest gets
         ``is_owner=False``, and the default config (no ``owner_user_ids``) has no
         guests at all, so it stays the owner context exactly as v2 did.
+
+        EM-402: every call resolves through the session's ScopeContext. The
+        default scope is the **read** scope (``to_scope()`` — the current turn's
+        bucket); content-write paths pass ``write_scope()`` instead (a bot
+        author's writes are profile-wide). This one seam is what "all reads and
+        writes in provider/tools go through the scope" means in code.
         """
         if not self._scripts_dir:
             raise RuntimeError("EntropicMem not initialized")
@@ -1809,8 +1911,7 @@ class EntropicMemProvider:
             profile_id=self._profile_id,
             hermes_home=self._hermes_home,
             pii_locales=self._config.get("locale_packs") or [],
-            scope_user=getattr(self, "_gateway_user_id", None) or "",
-            is_owner=not self._is_guest(),
+            scope=scope if scope is not None else self._state.scope.to_scope(),
         )
 
     def _memory_engine(self):
@@ -1988,17 +2089,11 @@ HOOK_SURFACE: Tuple[HookSpec, ...] = (
     _spec("backup_paths", CLI),
     _spec("shutdown", CALLER),
     _spec("get_config_schema", CLI),
-    HookSpec(  # §3.5 / EM-402: config-derived, cached by mtime, called per message
-        name="identity_signature",
-        thread=GATEWAY,
-        budget_ms=HOOK_BUDGETS["identity_signature"],
-        status=DEFERRED,
-        deferred_to="EM-402",
-        defer_reason=(
-            "§3.5 owns the identity mapping and its mtime cache; EM-402 lands "
-            "it with ScopeContext so the two cannot disagree"
-        ),
-    ),
+    # §3.5 / EM-402: identity_signature is config-derived, cached by file mtime
+    # and called on every inbound message (thread: gateway). It is implemented
+    # on the provider and deliberately NOT in provides_hooks — the manifest
+    # lists only the on_* hooks the catalog review verifies.
+    _spec("identity_signature", GATEWAY),
     _spec("save_config", CLI),
 )
 

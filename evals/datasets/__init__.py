@@ -28,6 +28,17 @@ def hard_suite_paths():
     return sorted((_HERE.parent / "datasets_hard").glob("*.jsonl"))
 
 
+def multi_user_suite_paths():
+    """The ``multi_user`` isolation suite (EM-402).
+
+    Kept apart from ``datasets_hard`` on purpose: the hard suite is frozen
+    (its baselines are committed evidence and its generator owns its files),
+    while this suite measures §3.5's isolation rule — ``as_user`` turns whose
+    expectations are the rule itself.
+    """
+    return sorted((_HERE.parent / "datasets_multi_user").glob("*.jsonl"))
+
+
 def suite_paths(name: str):
     """Scenario files belonging to a suite name."""
     if name == "ci":
@@ -36,6 +47,8 @@ def suite_paths(name: str):
         return [ci_suite_path(), full_suite_path()]
     if name == "hard":
         return hard_suite_paths()
+    if name == "multi_user":
+        return multi_user_suite_paths()
     if name == "external":
         return []  # EM-006 will register external datasets here
-    raise ValueError(f"unknown suite: {name!r} (choose ci|full|hard|external)")
+    raise ValueError(f"unknown suite: {name!r} (choose ci|full|hard|multi_user|external)")

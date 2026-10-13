@@ -397,3 +397,47 @@ def test_the_cli_still_opens_a_store_that_does_not_exist_yet(tmp_path):
         assert isinstance(engine, MemoryEngine)
     finally:
         engine.close()
+
+
+# --- the §3.5 scope seam (EM-402) --------------------------------------------
+
+
+def test_open_engine_takes_a_resolved_scope_and_keeps_the_profile_rule(tmp_path):
+    """A full ScopeContext-derived scope reaches the facade; the profile still
+    comes from ``profile_id`` so rows and reads cannot disagree about it."""
+    from em.store.types import Scope
+
+    scope = Scope(profile="ignored", user="u-bob", chat="chat-1",
+                  chat_type="group", author="u-bob", is_owner=False)
+    engine = open_engine(v3_store(tmp_path), profile_id="acme", scope=scope)
+    try:
+        assert engine.scope.user == "u-bob"
+        assert engine.scope.chat == "chat-1"
+        assert engine.scope.author == "u-bob"
+        assert engine.scope.is_owner is False
+        assert engine.scope.profile == "acme", "the engine owns the profile stamp"
+    finally:
+        engine.close()
+
+
+def test_the_provider_engine_carries_the_current_turn_s_author(tmp_path):
+    """The per-turn bucket (§3.5 group chats) is what the store reads under."""
+    provider = make_provider(v3_store(tmp_path), gateway_user="u-alice",
+                             owners=["u-alice"])
+    provider._state.scope = provider._state.scope.with_author("u-bob", is_bot=False)
+    engine = provider._open_engine()
+    try:
+        assert engine.scope.user == "u-bob"
+        assert engine.scope.author == "u-bob"
+        assert engine.scope.is_owner is False
+    finally:
+        engine.close()
+    # ...and the write scope is what a write is stamped with: a bot author's
+    # row goes profile-wide.
+    provider._state.scope = provider._state.scope.with_author("relay-bot", is_bot=True)
+    engine = provider._open_engine(scope=provider._state.scope.write_scope())
+    try:
+        assert engine.scope.user == ""
+        assert engine.scope.author == "relay-bot"
+    finally:
+        engine.close()

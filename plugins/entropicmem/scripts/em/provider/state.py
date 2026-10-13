@@ -6,14 +6,18 @@ the fields a later card adds have a home, and so ``recall_status`` — which mus
 reflect only the LAST prefetch, never a stale prior count — has exactly one
 place to be told that count.
 
-Deliberately small. EM-402 adds the :class:`~em.provider.identity.ScopeContext`
-(this file holds no identity, on purpose: scoping is a privacy decision and
-belongs to its own card) and EM-405 adds the persisted turn index.
+EM-402 adds the :class:`~em.policy.scopes.ScopeContext` — the one §3.5 scope
+the session runs under, narrowed per turn by ``with_author``. This file holds no
+resolution *rules*: scoping is a privacy decision and lives in its own card
+(``em.policy.scopes``); the identity probe that reports it to the host is
+``em.provider.identity``. EM-405 adds the persisted turn index.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from ..policy.scopes import ScopeContext
 
 #: The agent contexts the host may report in ``initialize()`` kwargs. Only the
 #: first is allowed to write durable state (§4.1's ``sync_turn`` / tools rows).
@@ -29,6 +33,11 @@ class ProviderState:
     session_id: str = ""
     #: 'primary' | 'subagent' | 'cron' | 'flush' — absent on legacy hosts.
     agent_context: str = PRIMARY
+    #: §3.5's resolved scope for this session, narrowed per turn by
+    #: ``with_author``. The default is "nothing resolved" — the v2
+    #: single-owner, profile-wide context — so a provider that is driven before
+    #: ``initialize`` behaves exactly as it did before EM-402.
+    scope: ScopeContext = field(default_factory=ScopeContext)
     #: What the most recent :meth:`prefetch` injected; ``recall_status`` reads it.
     last_recall_count: int = 0
     #: sha256 of the core block as issued by the last ``system_prompt_block``.

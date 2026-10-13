@@ -27,6 +27,10 @@ class Memory:
     importance: float = 0.5
     domain: str = "Knowledge"
     scope_user: str = ""
+    #: §3.5's row tier. ``"internal"`` — the ordinary shape — keeps every
+    #: frozen suite's behaviour identical; the ``multi_user`` isolation
+    #: scenarios use ``"sensitive"`` to make rows owner-only.
+    sensitivity: str = "internal"
 
 
 @dataclass
@@ -42,6 +46,10 @@ class Turn:
     expect_ids: List[str] = field(default_factory=list)
     expect_substrings: List[str] = field(default_factory=list)
     must_not: List[str] = field(default_factory=list)
+    #: §3.5's asker: the user bucket this turn is answered in (EM-402). Empty
+    #: — every frozen suite's value — is the profile-wide owner context, so
+    #: runs without askers are byte-identical to before.
+    as_user: str = ""
 
 
 @dataclass
@@ -51,6 +59,20 @@ class Scenario:
     memories: List[Memory]
     noise: NoiseSpec
     turns: List[Turn]
+
+    @property
+    def scoped(self) -> bool:
+        """True when this scenario runs through §3.5 scoping (EM-402).
+
+        A scenario is scoped iff its turns name askers (``as_user``). Without
+        askers there is nobody to scope *to*, and the frozen suites — whose
+        ``Memory.scope_user`` values no adapter has ever honoured (v2 and v3
+        both loaded profile-wide, and the committed baselines measure exactly
+        that) — must keep loading byte-identically. So the load rule is:
+        scoped scenarios write each memory in its ``scope_user`` bucket; every
+        other scenario writes profile-wide, as before.
+        """
+        return any(turn.as_user for turn in self.turns)
 
 
 def _require(obj: dict, key: str, where: str):
@@ -67,6 +89,7 @@ def _parse_memory(raw: dict, where: str) -> Memory:
         importance=float(raw.get("importance", 0.5)),
         domain=str(raw.get("domain", "Knowledge")),
         scope_user=str(raw.get("scope_user", "")),
+        sensitivity=str(raw.get("sensitivity", "internal")),
     )
 
 
@@ -76,6 +99,7 @@ def _parse_turn(raw: dict, where: str) -> Turn:
         expect_ids=[str(x) for x in raw.get("expect_ids", [])],
         expect_substrings=[str(x) for x in raw.get("expect_substrings", [])],
         must_not=[str(x) for x in raw.get("must_not", [])],
+        as_user=str(raw.get("as_user", "")),
     )
 
 

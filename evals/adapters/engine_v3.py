@@ -120,6 +120,11 @@ class EngineV3Adapter(AdapterBase):
 
         scope = Scope(profile=_PROFILE)
         ref_ids: Dict[str, str] = {}
+        # §3.5 (EM-402): a scoped scenario (turns name askers) writes each
+        # memory in its owner's bucket; every other scenario — the frozen
+        # suites included, whose ``scope_user`` values no adapter has ever
+        # honoured — is written profile-wide exactly as before.
+        scoped = scenario.scoped
         with store.transaction() as conn:
             memories = MemoryStore(conn)
             for index, memory in enumerate(scenario.memories):
@@ -128,11 +133,12 @@ class EngineV3Adapter(AdapterBase):
                         content=memory.content,
                         kind=memory.kind,
                         domain=memory.domain,
+                        sensitivity=memory.sensitivity,
                         importance=memory.importance,
                         source="agent",
                         status="active",
                     ),
-                    scope=scope,
+                    scope=Scope(profile=_PROFILE, user=memory.scope_user) if scoped else scope,
                     actor="eval",
                 )
                 if not result.ok:
@@ -176,6 +182,17 @@ class EngineV3Adapter(AdapterBase):
             noise_ids=noise_ids,
             extra={"store": store, "conn": store.reader(), "scope": scope},
         )
+
+    def set_turn_scope(self, handle: EvalHandle, turn: Any) -> None:
+        """Answer this turn's queries as ``turn.as_user`` (§3.5, EM-402).
+
+        An empty ``as_user`` — every frozen suite's value — is the profile-wide
+        scope the adapter has always used. A named asker gets their own bucket
+        and is **not** the owner: ``Scope.is_owner`` fails closed, so owner-only
+        rows (``sensitive``/``secret`` tiers) never reach an asker who has not
+        asserted ownership.
+        """
+        handle.extra["scope"] = Scope(profile=_PROFILE, user=getattr(turn, "as_user", "") or "")
 
     def _embed_documents(self, store: Store, service: Any) -> None:
         """Embed every memory in the scenario store (EM-303's document side).

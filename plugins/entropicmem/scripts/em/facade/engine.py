@@ -292,6 +292,7 @@ class V3Engine:
         scope_user: str = "",
         scope_chat: str = "",
         is_owner: bool = False,
+        scope: "Scope | None" = None,
         pii_locales: Sequence[str] = (),
     ) -> None:
         self.db_path = Path(db_path)
@@ -305,16 +306,32 @@ class V3Engine:
         # read, which is also the owner context, so the default facade reads and
         # writes exactly as v2 did.
         #
-        # ``scope_user`` and ``is_owner`` are the gateway identity the provider
-        # will supply when it is wired onto this facade. ``is_owner`` defaults to
-        # False (fail-closed): a scoped caller must assert ownership to read a
-        # `sensitive`/`secret` row, so a wiring mistake hides the owner's own
-        # sensitive rows — a visible bug — instead of showing them to a guest,
-        # which is a silent one. The provider computes it as `not _is_guest()`.
-        # Never an environment read: identity is passed in, always.
-        self.scope = Scope(
-            profile=profile_id, user=scope_user, chat=scope_chat, is_owner=is_owner
-        )
+        # EM-402: a caller that has resolved a full :class:`~em.store.types.Scope`
+        # (the provider's ``ScopeContext.to_scope()`` / ``write_scope()``) passes
+        # it as ``scope``; the scalar trio above stays for callers that only have
+        # a gateway user (and for ``open_engine``'s forwarding). Either way the
+        # **profile** comes from ``profile_id`` — the engine owns the profile
+        # stamp (explicit > coerced 'default'), so a passed scope can never make
+        # rows and reads disagree about which profile they belong to.
+        #
+        # ``is_owner`` defaults to False (fail-closed): a scoped caller must
+        # assert ownership to read a `sensitive`/`secret` row, so a wiring
+        # mistake hides the owner's own sensitive rows — a visible bug — instead
+        # of showing them to a guest, which is a silent one. Never an
+        # environment read: identity is passed in, always.
+        if scope is not None:
+            self.scope = Scope(
+                profile=profile_id,
+                user=scope.user,
+                chat=scope.chat,
+                chat_type=scope.chat_type,
+                author=scope.author,
+                is_owner=scope.is_owner,
+            )
+        else:
+            self.scope = Scope(
+                profile=profile_id, user=scope_user, chat=scope_chat, is_owner=is_owner
+            )
         with self.store.writer() as conn:
             migrate(conn)
 

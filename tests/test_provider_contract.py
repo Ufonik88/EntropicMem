@@ -265,11 +265,11 @@ def test_audit_reports_a_real_problem():
         def name(self):
             return "stub"
 
-        def identity_signature(self):  # deferred to EM-402
+        def on_delegation(self):  # deferred to EM-405
             return {}
 
     problems = surface.audit(EarlyHook())
-    assert any("identity_signature" in p for p in problems)
+    assert any("on_delegation" in p for p in problems)
 
 
 def test_the_deferred_set_is_exactly_the_unimplemented_pinned_methods():

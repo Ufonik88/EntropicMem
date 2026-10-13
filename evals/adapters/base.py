@@ -48,6 +48,15 @@ class AdapterBase:
     def load(self, scenario: Scenario) -> EvalHandle:  # pragma: no cover - interface
         raise NotImplementedError
 
+    def set_turn_scope(self, handle: EvalHandle, turn: Any) -> None:
+        """Answer the next queries as ``turn``'s asker (§3.5, EM-402).
+
+        Called by ``score_turn`` before ``search``/``prefetch``. The default is
+        a no-op: adapters that cannot scope (v2 — one owner per database) and
+        turns without an ``as_user`` keep every frozen run byte-identical.
+        """
+        return None
+
     def search(self, handle: EvalHandle, query: str, k: int = 5) -> List[Hit]:  # pragma: no cover
         raise NotImplementedError
 
