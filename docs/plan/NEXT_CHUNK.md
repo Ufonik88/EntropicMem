@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-10. **EM-401 is complete in code: slice 2 (the provider moves into `em/provider/provider.py`) is merged (`b8e170a`), all checks green on that exact SHA; slice 1 (the §4.1 hook skeleton, `db7c24f`) and the `save_config` fix (`6646351`) are merged.** The slice: `fail_soft` wraps every hook (timed, counted, over-budget at WARNING, exceptions swallowed with the type only, and **fail-closed** on the four hooks where a swallowed failure would claim a success that never happened); `em/provider/state.py`'s `ProviderState` holds the session-scoped fields; `em/provider/provider.py` is the §4.1 surface table with `on_delegation` (EM-405) and `identity_signature` (EM-402) deferred by name; the **contract test** enumerates `MemoryProvider` from the pinned hermes-agent (`tests/harness/pinned_memory_provider.json`, re-derived against the real host when reachable) and asserts every method is implemented or explicitly deferred; and the **harness drives every §4.1 hook**, proving from the `fail_soft` metrics that each ran and none failed. **The provider class itself stays in `plugins/entropicmem/__init__.py`** — its move into `em/provider/provider.py` is the next slice, then EM-402 and EM-403. **Live retrieval is lexical until EM-401–403** — no semantic-retrieval claims before it. **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
+**Updated:** 2026-10-13. **Chunk 32 (EM-402 — ScopeContext & identity) is DONE in code and committed on `em-402-scope-context` (`7104bed` + this commit); merge pending (CI on the tip, then ff-merge + reconcile).** The chunk record is at the bottom of Part A. Its AC is met under the owner's isolation reading (2026-10-13): the group-chat harness (3 authors + a bot) proves attribution and no cross-author leak **including through the prefetch cache**, and the `multi_user` eval category reads **1.0** on its own isolation surface (`evals/datasets_multi_user/`, `as_user` turns; baseline `evals/baselines/v3-multi-user.json`). The frozen hard suite and its baselines are byte-identical and untouched; its `multi_user` stays **0.90 lexical / 0.933 vector** — the two `multi_user_shared_01` misses are cross-memory coreference ("when is the wedding?" → "The event date is set for June 1, 2030", zero shared terms, missed even by `BAAI/bge-small-en-v1.5`), a retrieval gap scoping cannot fix. **Next chunk: EM-403 (PrefetchService)** — the last card before a query embedding reaches the live path. **Live retrieval is lexical until EM-401–403** — no semantic-retrieval claims before it. **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call. The slice: `fail_soft` wraps every hook (timed, counted, over-budget at WARNING, exceptions swallowed with the type only, and **fail-closed** on the four hooks where a swallowed failure would claim a success that never happened); `em/provider/state.py`'s `ProviderState` holds the session-scoped fields; `em/provider/provider.py` is the §4.1 surface table with `on_delegation` (EM-405) and `identity_signature` (EM-402) deferred by name; the **contract test** enumerates `MemoryProvider` from the pinned hermes-agent (`tests/harness/pinned_memory_provider.json`, re-derived against the real host when reachable) and asserts every method is implemented or explicitly deferred; and the **harness drives every §4.1 hook**, proving from the `fail_soft` metrics that each ran and none failed. **The provider class itself stays in `plugins/entropicmem/__init__.py`** — its move into `em/provider/provider.py` is the next slice, then EM-402 and EM-403. **Live retrieval is lexical until EM-401–403** — no semantic-retrieval claims before it. **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
 
 **Owner decisions in force — the order was re-set on 2026-10-08** (`REMAINING_PLAN.md` §9 item 6):
 1. **P0c — collect the shadow data.** The gating empirical step for the cutover. **Freeze before you look: do not fit a threshold to the sample, and report the raw distribution and the margin, not just a green light.** The observable is now fully armed, so a clean sample can conclude — it still needs the dev-line shadow on a host (the owner's machine is active).
@@ -156,7 +156,128 @@ P0b (`be6352e` — a v3 store serving prefetch from S3 behind `ENTROPICMEM_V3_RE
 - **Six source-scanning guards now read the implementation** — `PROVIDER_CALLS`, the raw-`MemoryEngine` drift guard, the deferred-import scan (now both files), the injection-marker text, the secure defaults, and the `_spawn`/threading rule. Each failed the moment the code moved; that is them working, and each was repointed deliberately rather than loosened.
 - 3 new tests (2 layout guards, 1 tool-error seam); **2226 / 5 / 3** bare and **2228 / 3 / 3** with numpy on 3.10 and 3.12; ruff clean; privacy guard clean in place; **8 mutation checks, all red** (a host import in `em`; a 151-line shell; the class copied back into the shell; a bypassed config host; an unconsulted thread factory; tool errors skipping the host formatter; `recall_status` silent; an unconsulted shadow read).
 
-## Part B: next — **EM-401's remaining slices, then EM-402 and EM-403**, then EM-411
+## Part A (continued): Chunk 32 — EM-402 (ScopeContext & identity). **DONE IN CODE, COMMITTED (`7104bed` + docs on `em-402-scope-context`; merge pending — CI on the tip, then ff-merge + reconcile)**
+
+### The chunk as built (planned here 2026-10-13; the plan below is kept as the record)
+
+**Files:** `em/policy/scopes.py` (new `em.policy` subpackage — `ScopeContext` and the §3.5
+resolution rules), `em/provider/identity.py` (`identity_signature()`'s config-file reader),
+wiring in `em/provider/provider.py` + `em/provider/state.py`, the facade seam
+(`open_engine`/`V3Engine` accept an optional `Scope`), and the new eval surface.
+
+**What it builds (spec: §3.5, transcribed in the master plan at lines 455–468):**
+
+- **`ScopeContext(profile, user, chat, chat_type, author, is_owner)`** — frozen dataclass,
+  `from_init_kwargs(kw, config)` (reads the §4.1 init kwargs `agent_identity`, `user_id`,
+  `chat_id`, `chat_type`), `with_author(author_id, is_bot)` per turn, `scope_key` (a stable
+  sha256 over the six fields, for caches), `to_scope()` → `em.store.types.Scope`.
+- **`scope_mode` resolution:** explicit config (`profile`|`user`|`chat`; an invalid value is
+  logged once and falls back) > `user` when a gateway `user_id`/`chat_id` is present >
+  `profile` (v2 behaviour preserved for CLI/primary sessions without gateway identity —
+  the current default path writes profile-wide and must not move). In `user`/`chat` mode
+  without a gateway identity the bucket is config `owner_user_id` (default `"owner"`) with
+  `is_owner=True` — the plan's `meta.owner_user_id`, resolved from config because `em`
+  reads no DB at resolution (recorded interpretation).
+- **Per-turn author:** `on_turn_start`'s author trio drives `with_author`; a non-bot author
+  is the user bucket for that turn's prefetch and for attribution of extracted memories;
+  **bot authors never create user-scoped memories** (their writes go profile-wide).
+- **`is_owner` stays EM-118's rule exactly** (guest iff `user_id` present *and*
+  `owner_user_ids` non-empty *and* not a member; a profile-wide caller is the owner
+  context). The owner rule widens only owner-only *rows*, never other users' rows.
+- **All reads/writes go through the scope:** `_open_engine()` opens with the current
+  `ScopeContext.to_scope()`, so every tool, hook and background write resolves through
+  §3.5 in one seam; `MemoryStore` already stamps `draft.author_id or scope.author` and
+  derives visibility from the scope (Chunk 13), so attribution rides the same channel.
+  Chat mode stamps `scope_chat` (already plumbed: `chat_in_scope` + `scope_sql`) and
+  derives `visibility='chat'` for chat-derived writes (§3.5's chat row).
+- **The prefetch cache is keyed by `scope_key` + query.** Today `_cache_key` hashes the
+  query alone, so in one group-chat session author B gets author A's cached memory block —
+  measured as the leak the group-chat AC names. Fixed by construction here.
+- **`identity_signature()` lands** (`em/provider/identity.py`): returns
+  `{"provider":"entropicmem","schema":3,"scope_mode":<resolved>}`; reads **only the config
+  file**, cached by `(path, mtime, size)` because the host calls it on every inbound
+  message; cheap, no DB, safe on an uninitialized instance (no home → the default
+  signature; unparseable config → defaults, never raises). `HOOK_SURFACE`'s row flips from
+  deferred to implemented; the deferred set shrinks to `on_delegation` (EM-405).
+
+**AC — reading settled by the owner on 2026-10-13 (the isolation reading):**
+
+1. **Group-chat harness test (3 authors in one chat):** each author's memories are
+   attributed to that author (`scope_user=<author>`, `visibility='user'`), a bot author
+   creates no user-scoped memory, and no user-private memory ever reaches another author's
+   prefetch — **including through the prefetch cache** (same query, two authors, two
+   blocks).
+2. **`multi_user` eval category = 1.0 on a new isolation surface**, not on the frozen hard
+   suite: `evals/dataset.py` gains `Turn.as_user` (and `Memory.sensitivity`) as optional
+   fields; `evals/adapters/engine_v3.py` loads `scope_user` and queries through the scope
+   per turn (`AdapterBase.set_turn_scope`, called by `score_turn`); a new suite
+   `evals/datasets_multi_user/` (category `multi_user`) measures §3.5's own definition —
+   user X's private fact must not appear for user Y — with `expect_ids`/`must_not`/
+   abstain turns; the committed baseline reads multi_user = 1.0.
+   **Recorded deviation from the card's literal wording:** the frozen hard suite's
+   `multi_user` (5 scenarios / 15 turns) scores recall@5 **0.90 lexical / 0.933 vector**
+   (measured 2026-10-13), and its two misses are `multi_user_shared_01` turns 1 and 3 —
+   *"when is the wedding?"* must retrieve *"The event date is set for June 1, 2030"*,
+   which shares **zero terms** with the query (even `BAAI/bge-small-en-v1.5` misses that
+   turn; the committed vector baseline agrees at 0.933). That is the cross-memory
+   coreference class (like `ageing`'s lexical ceiling), a retrieval gap no scoping change
+   can close; the frozen suite and its baselines stay untouched and the number is reported
+   as-is. The frozen turns also carry no `must_not` and no asker, so as written the
+   category cannot measure isolation at all — which is why the reading is the new surface.
+
+**Guards to update:** `pyproject.toml` gains the `em.policy` subpackage (pinned by
+`test_pyproject_lists_every_em_subpackage`); `tests/test_provider_contract.py`'s deferred
+set shrinks to `on_delegation` and the stub that probes it; the six source-scanning guards
+are repointed only if a signature they scan moves. `plugin.yaml`'s `provides_hooks` is
+**not** touched (the catalog rule: no list changes outside a release that re-pins).
+
+**Workflow:** test-first with mutation checks (restored from copies), `python -m pytest -q`
+on 3.10 and 3.12, `ruff check .`, the privacy digest check in place, two commits (code +
+tests + CHANGELOG under `[Unreleased]`/Added, then docs with reconciliation folded in),
+branch push, check-runs on the exact SHAs via the API (`head_sha` read), `git merge
+--ff-only`. Expected suite size moves from **2226 / 5 / 3** (bare) — the three pages'
+counters are updated together in the docs commit.
+
+**What the build found beyond the plan (2026-10-13):**
+
+- **The frozen hard `multi_user` category cannot reach 1.0 and is not an isolation
+  measure.** Its two misses (`multi_user_shared_01` turns 1, 3) need cross-memory
+  coreference — *"when is the wedding?"* must retrieve *"The event date is set for
+  June 1, 2030"* (zero shared terms; even `BAAI/bge-small-en-v1.5` misses it) — and
+  its turns carry no `must_not` and no asker. Hence the owner's isolation reading and
+  the new surface. Frozen files and baselines untouched (verified category-by-category
+  against `v3-hard.json`).
+- **The frozen suites' `scope_user` values no adapter ever honoured** (v2 and v3 both
+  loaded profile-wide). Honouring them for asker-less scenarios would have silently
+  rewritten every frozen number (hard multi_user 0.90 → 0.0), so `Scenario.scoped`
+  opts a scenario into §3.5 buckets **only** when its turns name askers.
+- **A `sensitive`/`secret`-tier row is owner-only even to its own user** under the
+  pinned `row_is_owner_only` (stricter than §3.5's "non-owners see … plus their
+  own"). Not changed: widening a privacy read rule is the owner's call (Chunk 13's
+  precedent). Recorded in the CHANGELOG and plan §5.
+- **One mutation survived first** — removing `initialize`'s `ScopeContext` resolution
+  broke nothing, because every test re-bucketed through `with_author` or the setter
+  seam. The fix was a test, not a mutation exemption: three initialize-resolution
+  tests now pin the gateway bucket, `scope_mode: chat`, and the owner-list guest
+  derivation.
+
+## Part B: next — **EM-403 (PrefetchService)**, then EM-411
+
+**EM-403 is the next chunk and the last card before a query embedding reaches the
+live path.** Spec: §4.2 exactly — the prefetch service with metrics
+`prefetch.latency_ms`, `prefetch.cache_hit`, `prefetch.partial`,
+`prefetch.injected_count`, `prefetch.tokens`. **AC (harness):** warm p95 ≤ 150 ms @
+50k, the cache-hit path ≤ 10 ms; a forced-slow generator returns within 1.5 s with a
+partial result; the block never exceeds 9,000 chars; cumulative replayed memory
+tokens over 50 turns ≤ 50 × budget × 0.6 (dedup working). It builds on EM-402's
+`scope_key` (the cache is already scope-keyed) and on the §3.6 pipeline
+(`pipeline.retrieve` + EM-307's packer/renderer are merged and waiting to be called).
+The owner's precision list below stays in force: per-query vector observability must
+stay wired, the runtime coverage fallback serves lexical rather than degrading
+silently, and the stale→re-embed queue keeps running. **Guards that stay in force:**
+nothing embeds on the agent/prefetch thread; a query with no caller-supplied vector
+keeps doing no vector work; `gate.*`/`ranking.*` config stays unwired (EM-407);
+`EM-411`'s two test groups come first when its card starts.
 
 ### EM-401–403 — acceptance criteria (pasted before starting, per the owner)
 
@@ -221,9 +342,14 @@ Guards that stay in force: **do not wire `em/config.py`** outside its owning car
 - **The lesson for arming, and it is a real one:** the shadow's miss rate is a **v3-vs-v2** quantity, so it is only interpretable where v2's own injections are mostly *correct* — i.e. on a real store, not on filler. Note also the **unit mismatch** to state explicitly in whichever commit arms the ceiling: the bound is derived from a **v2-vs-truth** rate (`1 − recall@5` on the holdout) but applied to a **v3-vs-v2** ratio. That is a defensible policy ("v3 may drop no more of v2's hits than v2 itself misses against truth") but it is not an identity, and it must not be written as one.
 - **The miss ceiling is armed now, so a clean sample can read `met`** — the `cannot conclude` shape was the un-armed era's expected reading; the report still names every dimension and its margin, and a violation still outranks a short sample.
 
-### Step 2 — the next card is the owner's choice (**not yet set**)
+### Step 2 — the next card: **EM-403 (PrefetchService)**, then EM-411
 
-The candidates are listed under Part B — **EM-411 is the new one, requested by the owner on 2026-10-09** (capture on idle & compaction; plan §6.3). No work starts on one of them until that call is made; the previous chunks closed the last cards the owner's order named.
+**The order is the owner's (2026-10-08): EM-401–403 first, EM-411 after EM-406.**
+EM-401 is complete in code (merged); **Chunk 32 = EM-402 is done in code and
+committed (merge pending)**; **EM-403** is next (its brief is under Part B), and only
+then does a query embedding reach the live path. EM-411 (capture on idle &
+compaction, requested by the owner 2026-10-09) stays planned, test-first, default off
+(plan §6.3).
 
 ### Step 3 — the pre-flight count guard. **DONE, MERGED (2026-10-08, hygiene chunk)**
 
@@ -260,7 +386,7 @@ suite, and **stop and report on a mismatch** instead of assuming the older numbe
 ### Pre-flight
 
 1. `main` must be at `4eb8097` or later: `git merge-base --is-ancestor 4eb8097 main`.
-2. **Baseline:** `pytest -q` gives **2226 passed, 5 skipped, 3 xfailed** on **both Python 3.10 and 3.12** on a bare box. The 5 skips are exactly: `test_numpy_and_python_paths_agree` and `test_50k_vectors_search_p95_under_25ms_with_numpy` (numpy not installed), `test_v2_1_8.py` and `test_v2_2_0.py` (internal-ops scripts not in the public repo), and `test_no_personal_data` (private digest list not configured). With numpy installed it reads **2186 / 3 / 3** (the two numpy tests pass); with the private digest list in place one more skip becomes a pass. **CI installs numpy and runs with the digest list, so CI reads 2186 passed / 2 skipped / 3 xfailed**, and `tests/test_vector_ci_guard.py` fails if that install or either gated test disappears. The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo). `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list still fails closed, deliberately.
+2. **Baseline:** `pytest -q` gives **2279 passed, 5 skipped, 3 xfailed** on **both Python 3.10 and 3.12** on a bare box. The 5 skips are exactly: `test_numpy_and_python_paths_agree` and `test_50k_vectors_search_p95_under_25ms_with_numpy` (numpy not installed), `test_v2_1_8.py` and `test_v2_2_0.py` (internal-ops scripts not in the public repo), and `test_no_personal_data` (private digest list not configured). With numpy installed it reads **2281 / 3 / 3** (the two numpy tests pass); with the private digest list in place one more skip becomes a pass, so the CI-like pair is **2282 passed / 2 skipped / 3 xfailed** (measured 2026-10-13), and `tests/test_vector_ci_guard.py` fails if that install or either gated test disappears. The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo). `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list still fails closed, deliberately.
 3. **Re-measure from the code, not this file:** `_shadow.py` (`PROMOTION`, `MISS_CEILING_RULE`, `evaluate`, `read_log`, `render`, `main`), `scripts/shadow_collect.py`, `em/facade/engine.py` (`v3_retrieval_enabled`, `_recall_from_v3`), `em/retrieval/pipeline.py`, `em/retrieval/candidates.py` (`vector`), `em/embeddings/` (`backends`, `service`, `jobs`, `cache`), `em/store/embeddings.py`, `em/config.py`, `evals/tune.py`, `em/retrieval/gate.py` (`load_rows`' pinned input), `evals/` (`runner`, `metrics`, `adapters/engine_v3.py`), `.github/workflows/test.yml`.
 4. **Verify CI with the check-runs API on the commit**, and read `head_sha`.
 
