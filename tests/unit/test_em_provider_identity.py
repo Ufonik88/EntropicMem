@@ -14,8 +14,11 @@ the loader the session itself uses.
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "plugins" / "entropicmem" / "scripts"
@@ -25,6 +28,15 @@ for p in (str(ROOT), str(SCRIPTS)):
 
 from em.policy.scopes import resolve_scope_mode  # noqa: E402
 from em.provider import identity  # noqa: E402
+
+#: Parsing the config file needs PyYAML — the same optional dependency
+#: ``_backend.load_plugin_config`` has (CI's test jobs install it; the
+#: windows-import job runs ``tests/unit`` with pytest alone, where these four
+#: skip exactly like the fastapi/numpy-gated tests do). The cache semantics,
+#: the failure modes and the AST guard run everywhere.
+needs_yaml = pytest.mark.skipif(
+    importlib.util.find_spec("yaml") is None, reason="PyYAML not installed"
+)
 
 
 def _write(path: Path, text: str, mtime: float) -> None:
@@ -58,6 +70,7 @@ def test_the_signature_shape_is_the_three_fields_section_3_5_names():
     assert set(sig) == {"provider", "schema", "scope_mode"}
 
 
+@needs_yaml
 def test_scope_mode_comes_from_the_config_file(tmp_path):
     cfg = tmp_path / "config.yaml"
     _write(cfg, PLUGIN_ONLY, mtime=100.0)
@@ -67,6 +80,7 @@ def test_scope_mode_comes_from_the_config_file(tmp_path):
     assert identity.ConfigSignatureCache().signature(cfg)["scope_mode"] == "user"
 
 
+@needs_yaml
 def test_the_memory_section_wins_like_the_session_loader(tmp_path):
     """``memory.entropicmem`` merges OVER ``plugins.entropicmem``
     (``_backend.load_plugin_config``) — identity must not disagree with the
@@ -107,6 +121,7 @@ def test_an_unchanged_file_is_not_re_parsed(monkeypatch, tmp_path):
     assert len(calls) == 1, "same mtime: one parse, not one per message"
 
 
+@needs_yaml
 def test_a_changed_file_is_re_parsed_and_the_new_mode_reported(monkeypatch, tmp_path):
     cfg = tmp_path / "config.yaml"
     _write(cfg, PLUGIN_ONLY, mtime=100.0)
@@ -127,6 +142,7 @@ def test_a_changed_file_is_re_parsed_and_the_new_mode_reported(monkeypatch, tmp_
     assert second["scope_mode"] == "profile"
 
 
+@needs_yaml
 def test_the_cache_is_per_file_not_global(tmp_path):
     a = tmp_path / "a" / "config.yaml"
     b = tmp_path / "b" / "config.yaml"
