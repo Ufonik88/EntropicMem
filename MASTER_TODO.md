@@ -13,13 +13,14 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-13, against branch `main` at `5474d3c` — the previous
-permanent ancestor, named deliberately instead of the tip, because **Chunk 32
-(EM-402) is committed on the branch `em-402-scope-context` and not yet merged**.
-The reconcile commit that names the merge SHA follows the ff-merge, per the
-document-control rule. Before that, Chunk 31 (EM-401 slice 2) was the last merge
-(`b8e170a`), with all check-runs green on that exact SHA, `identity-guard`
-included. The remote carries `main` and `release/2.8.x` only.
+**Last reconciled:** 2026-10-13, against branch `main` at `2706a86` — the fast-forward
+merge of **Chunk 32 (EM-402: ScopeContext & identity — §3.5 scoping per turn through
+one seam, the cross-author prefetch-cache leak closed, `identity_signature()` landed,
+the group-chat AC green and `multi_user` = 1.0 on its isolation surface)**, named
+deliberately instead of the tip. **All check-runs were green on that exact SHA,
+`identity-guard` included** (11 on the branch push, 11 across the `main` push — 22 on
+the same `head_sha`). The branch is deleted; the remote carries `main` and
+`release/2.8.x` only.
 
 ---
 
@@ -166,7 +167,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 
 | 30 | **`save_config` blank-home fix + the two hygiene corrections the EM-401 run surfaced** | **Done, merged** (`6646351`). `save_config(values, "")` resolved `Path("")` to `Path(".")` and merged `plugins.entropicmem` into the CWD's `config.yaml`, rewriting that file; it now refuses a blank home and raises (the fail-closed shape §4.1 asks for; the host always passes `str(get_hermes_home())`, so this is defence in depth). `.gitignore` covers `uv*.lock` so `git add -A` cannot sweep a stray lock file in again. `AGENTS.md`'s mutation rule records that a mutation must be restored from a **copy**, never `git checkout -- <file>`. 2 new tests; **2223 / 5 / 3** bare and **2225 / 3 / 3** with numpy on 3.10 and 3.12; ruff clean; 3 mutation checks red |
 | 31 | **EM-401 slice 2 — the provider moves into `em/provider/provider.py`** | **Done, merged** (`b8e170a`). `plugins/entropicmem/__init__.py` is a **145-line** host shell: `register` + a `MemoryProvider` subclass over `_HermesHost`, which injects the path/config resolvers, the P0a shadow read, the context-propagating thread factory, the host's bounded tool-error formatter and `RecallStatus`. `em/provider/provider.py` holds `EntropicMemProvider` (the whole provider; EM-404 later splits `tools.py`) plus the `ProviderHost` ABC. `em` imports no host and no plugin package — an AST guard pins that, another pins the 150-line shell. Six source-scanning guards now read the implementation. 3 new tests; **2226 / 5 / 3** bare and **2228 / 3 / 3** with numpy on 3.10 and 3.12; ruff clean; 8 mutation checks red |
-| 32 | **EM-402 — ScopeContext & identity (§3.5 scoping per turn)** | **Committed on `em-402-scope-context` (`7104bed` + docs), not yet merged — CI pending.** `em/policy/scopes.py` resolves one `ScopeContext` from the init kwargs + config (`scope_mode`; EM-118's owner rule unchanged; `with_author` re-buckets per turn; bot authors never create user-scoped memories; `scope_key` for caches); the provider opens every engine under `to_scope()`/`write_scope()` — all reads/writes through one seam; `open_engine`/`V3Engine` accept the resolved `Scope`; the prefetch cache keys on `scope_key` + query (the cross-author block-replay leak is closed); `identity_signature()` lands (config-file only, mtime-cached, uninitialized-safe) and `HOOK_SURFACE`'s deferred set shrinks to `on_delegation`. **AC:** the group-chat harness (3 authors + bot) proves attribution and no cross-author leak including through the cache; the `multi_user` eval category reads **1.0** on its own isolation surface (`evals/datasets_multi_user/`, `as_user` turns; baseline `v3-multi-user.json`) — the frozen hard suite is byte-identical and its multi_user stays 0.90 lexical / 0.933 vector as recorded evidence (owner's isolation reading, 2026-10-13). 53 new tests; **2279 / 5 / 3** bare, **2281 / 3 / 3** with numpy, **2282 / 2 / 3** with the digest list; ruff clean; 21 mutation checks red |
+| 32 | **EM-402 — ScopeContext & identity (§3.5 scoping per turn)** | **Done, merged** (`7104bed` + docs `618c180` + the windows fix `2706a86`, ff-merged to `main` as `2706a86`; all 22 check-runs green on that SHA). `em/policy/scopes.py` resolves one `ScopeContext` from the init kwargs + config (`scope_mode`; EM-118's owner rule unchanged; `with_author` re-buckets per turn; bot authors never create user-scoped memories; `scope_key` for caches); the provider opens every engine under `to_scope()`/`write_scope()` — all reads/writes through one seam; `open_engine`/`V3Engine` accept the resolved `Scope`; the prefetch cache keys on `scope_key` + query (the cross-author block-replay leak is closed); `identity_signature()` lands (config-file only, mtime-cached, uninitialized-safe) and `HOOK_SURFACE`'s deferred set shrinks to `on_delegation`. **AC:** the group-chat harness (3 authors + bot) proves attribution and no cross-author leak including through the cache; the `multi_user` eval category reads **1.0** on its own isolation surface (`evals/datasets_multi_user/`, `as_user` turns; baseline `v3-multi-user.json`) — the frozen hard suite is byte-identical and its multi_user stays 0.90 lexical / 0.933 vector as recorded evidence (owner's isolation reading, 2026-10-13). 53 new tests; **2279 / 5 / 3** bare, **2281 / 3 / 3** with numpy, **2282 / 2 / 3** with the digest list; ruff clean; 21 mutation checks red |
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
 both select their engine by the store's `user_version`, so either one runs on a v3
@@ -179,25 +180,18 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Chunk 32 — EM-402 (ScopeContext & identity): committed on `em-402-scope-context`
-(`7104bed` + this docs commit), NOT yet merged — CI pending, nothing on `main`.**
-The card is done in code: `em/policy/scopes.py` (`ScopeContext` — `from_init_kwargs`,
-`with_author`, `scope_key`), `em/provider/identity.py` (`identity_signature()`:
-config-file only, mtime-cached, uninitialized-safe), all provider reads/writes
-through the scope in one seam (`_open_engine`), the prefetch cache keyed by
-`scope_key` (closing the cross-author block-replay leak), the group-chat harness AC
-(3 authors + a bot: correct attribution, no leak including through the cache), and
-the `multi_user` eval category at **1.0** on its own isolation surface
-(`evals/datasets_multi_user/`; owner's isolation reading, 2026-10-13 — the frozen
-hard suite and its baselines untouched, its multi_user recall **0.90 lexical /
-0.933 vector** reported as the retrieval-bridge gap scoping cannot fix). **What
-remains of the chunk:** check-runs green on the branch tip, the ff-merge, and the
-reconcile commit naming the merge SHA. Next chunk after that: **EM-403
-(PrefetchService)** — and only then does a query embedding reach the live path.
-The remote carries `main` and `release/2.8.x` only; the Marketplace entry is
-untouched (2.8.1 at `7e02412`). EM-411 remains planned and unbuilt; the promotion
-gate is recommended, awaiting the owner's confirmation. The cutover stays with the
-owner.
+**Nothing.** Chunk 32 (EM-402 — ScopeContext & identity) is merged (`2706a86`, ff from
+`2706a86`) with **22/22 check-runs green on that exact SHA**, `identity-guard` included;
+the branch is deleted. §3.5's scoping is now live and per turn: the session's
+`ScopeContext` is re-bucketed by each turn's author, all provider reads and writes go
+through one scope seam, the prefetch cache is scope-keyed (the cross-author block-replay
+leak is closed), `identity_signature()` reads the config file only and is mtime-cached,
+the group-chat harness AC is green, and the `multi_user` eval category reads **1.0** on
+its isolation surface (`evals/datasets_multi_user/`). **Next chunk: EM-403
+(PrefetchService)** — and only then does a query embedding reach the live path. The
+Marketplace entry is untouched (2.8.1 at `7e02412`). EM-411 remains planned and
+unbuilt; the promotion gate is recommended, awaiting the owner's confirmation. The
+cutover stays with the owner.
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
 from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed
@@ -393,29 +387,26 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**Finish the Chunk 32 (EM-402) landing, then start EM-403.** The chunk is committed
-on `em-402-scope-context` (`7104bed` + docs) and **not yet merged**: verify
-check-runs green on the exact branch-tip SHA (`ghx api repos/Ufonik88/EntropicMem/commits/<sha>/check-runs`,
-reading `head_sha`), `git merge --ff-only` into `main`, push, confirm CI on the merge
-SHA and `identity-guard` green, then the reconcile commit naming that SHA. **EM-402
-in one line:** §3.5's `ScopeContext` resolved once per session and re-bucketed per
-turn by the author trio, all provider reads/writes through one scope seam, the
-cross-author prefetch-cache leak closed, `identity_signature()` landed, the
-group-chat harness AC green, and `multi_user` = **1.0** on its own isolation surface
-(`evals/datasets_multi_user/`, `as_user` turns; owner's isolation reading 2026-10-13 —
-the frozen hard suite untouched, its multi_user still **0.90 lexical / 0.933
-vector**, a cross-memory coreference gap scoping cannot fix). One recorded finding
-not changed: a `sensitive`-tier row is owner-only even to its own user under the
-pinned `row_is_owner_only` — stricter than §3.5's "plus their own"; owner's call.
+**The next chunk is EM-403 (PrefetchService, §4.2)** — the last card before a query
+embedding reaches the live path. Chunk 32 (EM-402) is merged (`2706a86`, 22/22
+check-runs green on that SHA): §3.5's `ScopeContext` is resolved once per session and
+re-bucketed per turn by the author trio, all provider reads/writes go through one
+scope seam, the cross-author prefetch-cache leak is closed, `identity_signature()`
+lands (config-file only, mtime-cached), the group-chat harness AC is green, and
+`multi_user` = **1.0** on its isolation surface (`evals/datasets_multi_user/`,
+`as_user` turns; owner's isolation reading 2026-10-13 — the frozen hard suite
+untouched, its multi_user still **0.90 lexical / 0.933 vector**, a cross-memory
+coreference gap scoping cannot fix). One recorded finding not changed: a
+`sensitive`-tier row is owner-only even to its own user under the pinned
+`row_is_owner_only` — stricter than §3.5's "plus their own"; owner's call.
 
-**Then EM-403 (PrefetchService, §4.2)** — the last card before a query embedding
-reaches the live path: metrics `prefetch.latency_ms/cache_hit/partial/injected_count/
-tokens`, warm p95 ≤ 150 ms @ 50k, the cache-hit path ≤ 10 ms, a forced-slow
-generator returning within 1.5 s with a partial result, ≤ 9,000 chars, and cumulative
-replayed memory tokens over 50 turns ≤ 50 × budget × 0.6 (dedup working). Its AC is
-in `NEXT_CHUNK.md` Part B. Live retrieval is still lexical. EM-411 stays test-first,
-unbuilt, default off. The cutover stays with the owner. P0's observable stays armed
-at `0.107143`.
+**EM-403's brief is in `NEXT_CHUNK.md` Part B:** metrics
+`prefetch.latency_ms/cache_hit/partial/injected_count/tokens`, warm p95 ≤ 150 ms @
+50k, the cache-hit path ≤ 10 ms, a forced-slow generator returning within 1.5 s with
+a partial result, ≤ 9,000 chars, and cumulative replayed memory tokens over 50 turns
+≤ 50 × budget × 0.6 (dedup working). Live retrieval is still lexical. EM-411 stays
+test-first, unbuilt, default off. The cutover stays with the owner. P0's observable
+stays armed at `0.107143`.
 
 **P0c's data is blocked on the environment, and the reason is now measured rather than
 assumed.** This box is not running EntropicMem at all: `~/.hermes/config.yaml` has **no
