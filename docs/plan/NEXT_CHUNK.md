@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-13. **Chunk 32 (EM-402 — ScopeContext & identity) is DONE, MERGED (`2706a86`; code `7104bed`, docs `618c180`, windows fix `2706a86`, ff — 22/22 check-runs green on that SHA, `identity-guard` included).** The chunk record is at the bottom of Part A. Its AC is met under the owner's isolation reading (2026-10-13): the group-chat harness (3 authors + a bot) proves attribution and no cross-author leak **including through the prefetch cache**, and the `multi_user` eval category reads **1.0** on its own isolation surface (`evals/datasets_multi_user/`, `as_user` turns; baseline `evals/baselines/v3-multi-user.json`). The frozen hard suite and its baselines are byte-identical and untouched; its `multi_user` stays **0.90 lexical / 0.933 vector** — the two `multi_user_shared_01` misses are cross-memory coreference ("when is the wedding?" → "The event date is set for June 1, 2030", zero shared terms, missed even by `BAAI/bge-small-en-v1.5`), a retrieval gap scoping cannot fix. **Next chunk: EM-403 (PrefetchService)** — the last card before a query embedding reaches the live path. **Live retrieval is lexical until EM-401–403** — no semantic-retrieval claims before it. **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call. The slice: `fail_soft` wraps every hook (timed, counted, over-budget at WARNING, exceptions swallowed with the type only, and **fail-closed** on the four hooks where a swallowed failure would claim a success that never happened); `em/provider/state.py`'s `ProviderState` holds the session-scoped fields; `em/provider/provider.py` is the §4.1 surface table with `on_delegation` (EM-405) and `identity_signature` (EM-402) deferred by name; the **contract test** enumerates `MemoryProvider` from the pinned hermes-agent (`tests/harness/pinned_memory_provider.json`, re-derived against the real host when reachable) and asserts every method is implemented or explicitly deferred; and the **harness drives every §4.1 hook**, proving from the `fail_soft` metrics that each ran and none failed. **The provider class itself stays in `plugins/entropicmem/__init__.py`** — its move into `em/provider/provider.py` is the next slice, then EM-402 and EM-403. **Live retrieval is lexical until EM-401–403** — no semantic-retrieval claims before it. **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
+**Updated:** 2026-10-13. **Chunk 32 (EM-402 — ScopeContext & identity) is DONE, MERGED (`2706a86`; code `7104bed`, docs `618c180`, windows fix `2706a86`, ff — 22/22 check-runs green on that SHA, `identity-guard` included).** The chunk record is at the bottom of Part A. Its AC is met under the owner's isolation reading (2026-10-13): the group-chat harness (3 authors + a bot) proves attribution and no cross-author leak **including through the prefetch cache**, and the `multi_user` eval category reads **1.0** on its own isolation surface (`evals/datasets_multi_user/`, `as_user` turns; baseline `evals/baselines/v3-multi-user.json`). The frozen hard suite and its baselines are byte-identical and untouched; its `multi_user` stays **0.90 lexical / 0.933 vector** — the two `multi_user_shared_01` misses are cross-memory coreference ("when is the wedding?" → "The event date is set for June 1, 2030", zero shared terms, missed even by `BAAI/bge-small-en-v1.5`), a retrieval gap scoping cannot fix. **Next chunk: EM-403 (PrefetchService)** — the last card before a query embedding reaches the live path; it is **sliced into chunks 33–35 (plan in Part B)** and **chunk 33 (slice 1 — the synchronous core and the card's AC) is COMMITTED on `em-403-prefetch-core`, merge pending** (record at the bottom of Part A). **Live retrieval is lexical until EM-401–403** — no semantic-retrieval claims before it. **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call. The slice: `fail_soft` wraps every hook (timed, counted, over-budget at WARNING, exceptions swallowed with the type only, and **fail-closed** on the four hooks where a swallowed failure would claim a success that never happened); `em/provider/state.py`'s `ProviderState` holds the session-scoped fields; `em/provider/provider.py` is the §4.1 surface table with `on_delegation` (EM-405) and `identity_signature` (EM-402) deferred by name; the **contract test** enumerates `MemoryProvider` from the pinned hermes-agent (`tests/harness/pinned_memory_provider.json`, re-derived against the real host when reachable) and asserts every method is implemented or explicitly deferred; and the **harness drives every §4.1 hook**, proving from the `fail_soft` metrics that each ran and none failed. **The provider class itself stays in `plugins/entropicmem/__init__.py`** — its move into `em/provider/provider.py` is the next slice, then EM-402 and EM-403. **Live retrieval is lexical until EM-401–403** — no semantic-retrieval claims before it. **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
 
 **Owner decisions in force — the order was re-set on 2026-10-08** (`REMAINING_PLAN.md` §9 item 6):
 1. **P0c — collect the shadow data.** The gating empirical step for the cutover. **Freeze before you look: do not fit a threshold to the sample, and report the raw distribution and the margin, not just a green light.** The observable is now fully armed, so a clean sample can conclude — it still needs the dev-line shadow on a host (the owner's machine is active).
@@ -261,9 +261,87 @@ counters are updated together in the docs commit.
   tests now pin the gateway bucket, `scope_mode: chat`, and the owner-list guest
   derivation.
 
+## Part A (continued): Chunk 33 — EM-403 slice 1 (`PrefetchService`, the synchronous core). **COMMITTED (2026-10-13; merge pending)**
+
+### The chunk as built (planned in Part B below on 2026-10-13; that plan is kept as the record)
+
+**Files:** `em/provider/prefetch_service.py` (**new** — `PrefetchService`,
+`PrefetchMetrics`, `PrefetchResult`, `scope_key`, `normalize_query`),
+`em/retrieval/pipeline.py` (the three execution seams + `GeneratorDeadline`),
+`em/retrieval/query.py` (§3.6's IDF cache — `VocabularyCache`),
+`em/retrieval/candidates.py` (`bm25`'s single bounded query),
+`em/provider/render.py` (`pack_chosen`, split out of `pack_block`).
+**Nothing calls the service yet** — the provider wiring is slice 3 (chunk 35).
+
+**What landed, against §4.2:**
+
+- The cache is §4.2's key exactly: `(session_id, scope_key, sha1(normalized_query),
+  write_generation)`, with `write_generation` = `note_write()`'s in-process counter
+  plus the persistent read connection's `PRAGMA data_version`. **The persistent
+  connection is measured, not assumed:** `data_version` is per-connection — a fresh
+  connection always reads `1` — so the cross-process half of §4.2 only works on a
+  connection that lives across calls (verified empirically 2026-10-13).
+- Deadline + partial: `pipeline.retrieve(..., deadline=, generator_order=,
+  generator_runner=)` — optional seams, defaults byte-identical (the EM-306
+  pattern). The service passes §4.2's priority order; expired deadline ⇒
+  generators skipped, `Retrieval.partial` + `generators_skipped`.
+- **The watchdog** — the recorded strengthening: each generator runs on the one
+  worker thread (`spawn_thread` seam, F-005b) and is joined with the remaining
+  deadline + 50 ms grace; an overrun is abandoned and the result discarded, so
+  §4.1's 1.5 s hard cap holds for a **contract-violating** generator too. While
+  the worker is stuck the next call fails fast to `partial` and recovers after.
+- §4.2's dedup rule exactly (6-turn window; score ≥ 0.8 re-shows after > 2
+  turns; pinned/constraint rows every 10 turns), applied to memories; a cache
+  hit re-filters and re-renders rather than replaying a block; a partial build
+  is never cached.
+- Hard cap `min(token_budget*4, 9000)` chars, whole rows dropped from the tail.
+- The five metrics with a real latency distribution (the histogram
+  `em.provider.hooks` deferred to this card).
+
+**The AC is green (harness, one test per line):** forced-slow generator returns
+in 1.26 s (< 1.5) with `partial=True` and earlier rows served; block ≤ 9,000
+chars; 50 turns replay **5,536** cumulative memory tokens ≤ 13,500
+(50 × budget × 0.6); cache-hit p95 **0.04 ms** (≤ 10); warm p95 **43 ms** @ 50k
+(p50 42, max 45 ≤ 150).
+
+**What the build found beyond the plan (2026-10-13):**
+
+- **The 50k AC first read 153 ms, and the profile named two wastes.** `analyze`
+  re-read the whole `memories_vocab` view per call (**25 ms at 50k**) — exactly
+  the recorded EM-301 gap this card's `write_generation` exists for, so §3.6's
+  IDF cache landed here (`VocabularyCache`, keyed by generation; uncached for
+  every caller that passes none) — and `bm25`'s `_fetch` pages re-scored and
+  re-sorted every FTS match **per page** (78 ms for four 10-row pages vs 20 ms
+  for one 40-row query). `bm25` now fetches its top-k in one bounded query;
+  `_fetch`'s paging contract is untouched and its two tests now pin it
+  **directly** (same claims: check-before-fetch, partial accumulation), with a
+  new structural pin (`bm25` = one query) replacing the 4× regression silently.
+  Recorded: `bm25` can no longer return mid-scan partials — top-k whole, at most
+  one query's time past the deadline, which is the overrun any in-flight page
+  query always had.
+- **The replay AC's first corpus was too small to mean anything.** With rows
+  filling ~54% of the budget per turn, dedup deleted entirely still passed
+  (12,005 ≤ 13,500). The corpus now fills a turn's budget (asserted in the
+  test) and is **cold** (score < 0.8): a hot row re-shows every 3 turns *by
+  §4.2's own rule*, which makes the bound unsatisfiable by design — the hot
+  escape valve is pinned by unit tests instead. Dedup-off now reads 16,954 and
+  dies.
+- **`PRAGMA data_version` is per-connection** (measured): a fresh connection
+  reads `1` always, only a living connection sees another connection's commit.
+  This is why the service owns persistent read connections — and why the
+  generator worker must hold its own (an abandoned generator runs concurrently
+  with the caller's next read).
+
+39 new tests; **2318 / 5 / 3** bare, **2320 / 3 / 3** with numpy, **2321 / 2 / 3**
+with the digest list, on 3.10 and 3.12; `ruff==0.16.2` clean; privacy guard
+clean in place; **29 mutation checks, all red** (list in the CHANGELOG). One
+first-battery survivor class, caught before the battery even ran: the replay AC
+itself was weak (above) — fixed by fixing the fixture's *meaning*, not the
+bound.
+
 ## Part B: next — **EM-403 (PrefetchService)**, then EM-411
 
-**EM-403 is the next chunk and the last card before a query embedding reaches the
+**EM-403 is the next card and the last one before a query embedding reaches the
 live path.** Spec: §4.2 exactly — the prefetch service with metrics
 `prefetch.latency_ms`, `prefetch.cache_hit`, `prefetch.partial`,
 `prefetch.injected_count`, `prefetch.tokens`. **AC (harness):** warm p95 ≤ 150 ms @
@@ -278,6 +356,112 @@ silently, and the stale→re-embed queue keeps running. **Guards that stay in fo
 nothing embeds on the agent/prefetch thread; a query with no caller-supplied vector
 keeps doing no vector work; `gate.*`/`ranking.*` config stays unwired (EM-407);
 `EM-411`'s two test groups come first when its card starts.
+
+### EM-403 is sliced into three chunks (33–35)
+
+An `L` card cannot be one reviewable chunk, and the slices follow the card's own
+seams: the synchronous core (what the AC measures), the async half (§4.2's worker),
+and the provider wiring (where every compatibility pin lives). **The card's AC lands
+in chunk 33** — the harness drives `PrefetchService` directly over a real v3 store;
+chunks 34–35 complete "§4.2 exactly" and re-run the AC through the wired provider.
+
+| Chunk | Slice | What it lands |
+|---|---|---|
+| **33** | **1 — the synchronous core + the AC** | `em/provider/prefetch_service.py`: cache, deadline+partial, dedup, hard cap, the five metrics |
+| 34 | 2 — the async half | `precompute`, the coalescing worker queue, the candidate-pool cache, session topic state (+0.05 soft signal), the query embedding computed on the worker |
+| 35 | 3 — the provider wiring | `prefetch`/`queue_prefetch` route through the service on a v3 store (v2 store unchanged), metrics surfaced, AC re-run wired |
+
+### Chunk 33 (planned 2026-10-13) — EM-403 slice 1: `PrefetchService`, the synchronous core
+
+> **Landed 2026-10-13** — see the Part A record above for the chunk as built and
+> what the build found. This plan is kept as the record; the only deviations are
+> the two perf fixes (the IDF cache and `bm25`'s single query) and the replay
+> fixture, all itemised there.
+
+**Files:** `em/provider/prefetch_service.py` (**new**), `em/retrieval/pipeline.py`
+(the deadline seam), `em/provider/render.py` (one seam so the service can see what
+it injected), tests in `tests/unit/test_em_prefetch_service.py` +
+`tests/harness/test_prefetch_service_ac.py`. **Nothing calls the service yet** — the
+provider wiring is chunk 35 (the EM-307/EM-401-slice-1 precedent: a measured
+component lands first, the switch is its own change).
+
+**What it builds (§4.2):**
+
+- **`PrefetchService(connect=, spawn_thread=, token_budget=450, max_latency_ms=1200,
+  dedup_turns=6, constraint_repeat_turns=10, is_trivial=, metrics=)`** with
+  `prefetch(query, *, scope, session_id="", query_vector=None, embedding_model=None)
+  -> PrefetchResult`. `connect()` supplies the service's **persistent read
+  connection** — measured, not assumed: `PRAGMA data_version` is per-connection and a
+  fresh connection always reads `1`, so §4.2's cross-process invalidation only works
+  on a connection that lives across calls (verified empirically 2026-10-13). The
+  generator watchdog's worker thread is created through the injected `spawn_thread`
+  seam (F-005b: no bare `threading.Thread` outside `_spawn`) and holds its **own**
+  connection, so an abandoned generator can never touch the caller's.
+- **Cache:** key `(session_id, scope_key, sha1(normalized_query), write_generation)`
+  exactly as §4.2 says. `write_generation` = an in-process counter bumped by
+  `note_write()` **plus** the read connection's `data_version` (cross-process). The
+  cached artifact is the turn-independent part (the packer's `PackItem` pool + the
+  pinned set); the turn-level dedup filter and the render run **per turn, also on a
+  hit**, so a cache hit can never replay a memory the dedup rule would have
+  skipped — "Hit → return rendered block" is honoured as "render from cache", which
+  is the only reading consistent with "(dedup working)".
+- **Deadline + partial:** `pipeline.retrieve(..., deadline=, generator_order=,
+  generator_runner=)` — three optional seams, defaults byte-identical to today
+  (the EM-306 calibration-seam pattern: one shared sequence, no second pipeline).
+  §4.2's priority order `pinned → bm25 → entity → vector → episodic → recent` is
+  passed by the service (the global `GENERATORS` order is deliberately untouched —
+  reordering it could shift fused float rounding under the frozen eval baselines).
+  When the deadline passes, remaining generators are skipped and
+  `Retrieval.partial=True` with `generators_skipped`. `GeneratorDeadline` is how a
+  watchdog runner reports an abandoned call.
+- **The watchdog (a deliberate strengthening of "when the deadline passes"):** each
+  generator call runs on the service's single worker thread and is joined with the
+  remaining deadline; a generator that ignores the deadline contract (a blocked
+  SQLite read, a stuck disk page) is **abandoned** — result discarded, `partial`
+  set — so the §4.1 hard internal cap (1.5 s) holds for any generator, not only a
+  cooperative one. While the worker is still busy with an abandoned call the next
+  prefetch fails fast to `partial` and returns promptly (the v2 host's own rule:
+  "skipped until the stuck call returns"). Without this, "forced-slow generator →
+  returns within 1.5 s" is unenforceable in Python, because no cooperative deadline
+  can interrupt a blocked call.
+- **Dedup across turns (memories only, exactly §4.2's rule):** a memory injected in
+  any of the last `dedup_turns` (6) turns is skipped **unless** its score ≥ 0.8 and
+  it was injected > 2 turns ago (the score is the fusion score, §3.6's `[0, 1]`
+  `Ranking.score`); pinned/constraint rows (`RowInfo.pinned`) are re-shown only
+  every `constraint_repeat_turns` (10) turns, since earlier injections remain in
+  the replayed history. Episodes/follow-ups are not deduped (recorded: the spec
+  says "a memory").
+- **Output hard cap `min(token_budget*4, 9000)` chars** — rows are dropped from the
+  end of the pack and the block re-rendered (never cut mid-row, EM-107(c)'s rule);
+  the injected set is what survived the cap.
+- **The five metrics** (`prefetch.latency_ms/cache_hit/partial/injected_count/
+  tokens`) as `PrefetchMetrics` with a bounded per-call window: `latency_ms` is a
+  real distribution (count/avg/p50/p95/max — the histogram `em.provider.hooks`
+  explicitly deferred to this card), and the snapshot's keys are exactly those five
+  names.
+- **Guards kept:** no vector work without a caller-supplied `query_vector` (the
+  seam accepts one and passes `None` through by default; nothing embeds anywhere in
+  slice 1); `em/config.py` is not read (knobs are constructor parameters);
+  `render_retrieval`'s "eval adapter does not call it" pin is untouched (the new
+  service renders through `pack_chosen`/`render` with `cite="full"`, so the ids an
+  injection screen parses are the stored ids).
+
+**AC harness (`tests/harness/test_prefetch_service_ac.py`), one test per AC line:**
+1. forced-slow generator — a contract-violating `time.sleep` generator — returns
+   within 1.5 s with `partial=True` and the earlier generators' rows present;
+2. the block never exceeds 9,000 chars even with a huge token budget and huge rows;
+3. 50 turns × distinct queries over a shared hot set: cumulative **replayed**
+   memory tokens ≤ 50 × budget × 0.6 (total injected reported as context);
+4. cache-hit path ≤ 10 ms;
+5. warm p95 ≤ 150 ms over a 50k-memory v3 store (distribution printed).
+
+**Workflow:** test-first with mutation checks (restored from copies); `pytest -q`
+on 3.10 and 3.12; `ruff==0.16.2`; the privacy digest check in place; two commits
+(code+tests+CHANGELOG under `[Unreleased]`/Added, then docs with reconciliation);
+branch `em-403-prefetch-core`; check-runs on the exact SHAs via the API
+(`head_sha` read); `git merge --ff-only`; branch deleted. Suite size moves from
+**2279 / 5 / 3** (bare) — the three pages' counters move together in the docs
+commit.
 
 ### EM-401–403 — acceptance criteria (pasted before starting, per the owner)
 
@@ -386,7 +570,7 @@ suite, and **stop and report on a mismatch** instead of assuming the older numbe
 ### Pre-flight
 
 1. `main` must be at `4eb8097` or later: `git merge-base --is-ancestor 4eb8097 main`.
-2. **Baseline:** `pytest -q` gives **2279 passed, 5 skipped, 3 xfailed** on **both Python 3.10 and 3.12** on a bare box. The 5 skips are exactly: `test_numpy_and_python_paths_agree` and `test_50k_vectors_search_p95_under_25ms_with_numpy` (numpy not installed), `test_v2_1_8.py` and `test_v2_2_0.py` (internal-ops scripts not in the public repo), and `test_no_personal_data` (private digest list not configured). With numpy installed it reads **2281 / 3 / 3** (the two numpy tests pass); with the private digest list in place one more skip becomes a pass, so the CI-like pair is **2282 passed / 2 skipped / 3 xfailed** (measured 2026-10-13), and `tests/test_vector_ci_guard.py` fails if that install or either gated test disappears. The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo). `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list still fails closed, deliberately.
+2. **Baseline:** `pytest -q` gives **2318 passed, 5 skipped, 3 xfailed** on **both Python 3.10 and 3.12** on a bare box. The 5 skips are exactly: `test_numpy_and_python_paths_agree` and `test_50k_vectors_search_p95_under_25ms_with_numpy` (numpy not installed), `test_v2_1_8.py` and `test_v2_2_0.py` (internal-ops scripts not in the public repo), and `test_no_personal_data` (private digest list not configured). With numpy installed it reads **2320 / 3 / 3** (the two numpy tests pass); with the private digest list in place one more skip becomes a pass, so the CI-like pair is **2321 passed / 2 skipped / 3 xfailed** (measured 2026-10-13), and `tests/test_vector_ci_guard.py` fails if that install or either gated test disappears. The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo). `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list still fails closed, deliberately.
 3. **Re-measure from the code, not this file:** `_shadow.py` (`PROMOTION`, `MISS_CEILING_RULE`, `evaluate`, `read_log`, `render`, `main`), `scripts/shadow_collect.py`, `em/facade/engine.py` (`v3_retrieval_enabled`, `_recall_from_v3`), `em/retrieval/pipeline.py`, `em/retrieval/candidates.py` (`vector`), `em/embeddings/` (`backends`, `service`, `jobs`, `cache`), `em/store/embeddings.py`, `em/config.py`, `evals/tune.py`, `em/retrieval/gate.py` (`load_rows`' pinned input), `evals/` (`runner`, `metrics`, `adapters/engine_v3.py`), `.github/workflows/test.yml`.
 4. **Verify CI with the check-runs API on the commit**, and read `head_sha`.
 

@@ -168,6 +168,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 30 | **`save_config` blank-home fix + the two hygiene corrections the EM-401 run surfaced** | **Done, merged** (`6646351`). `save_config(values, "")` resolved `Path("")` to `Path(".")` and merged `plugins.entropicmem` into the CWD's `config.yaml`, rewriting that file; it now refuses a blank home and raises (the fail-closed shape §4.1 asks for; the host always passes `str(get_hermes_home())`, so this is defence in depth). `.gitignore` covers `uv*.lock` so `git add -A` cannot sweep a stray lock file in again. `AGENTS.md`'s mutation rule records that a mutation must be restored from a **copy**, never `git checkout -- <file>`. 2 new tests; **2223 / 5 / 3** bare and **2225 / 3 / 3** with numpy on 3.10 and 3.12; ruff clean; 3 mutation checks red |
 | 31 | **EM-401 slice 2 — the provider moves into `em/provider/provider.py`** | **Done, merged** (`b8e170a`). `plugins/entropicmem/__init__.py` is a **145-line** host shell: `register` + a `MemoryProvider` subclass over `_HermesHost`, which injects the path/config resolvers, the P0a shadow read, the context-propagating thread factory, the host's bounded tool-error formatter and `RecallStatus`. `em/provider/provider.py` holds `EntropicMemProvider` (the whole provider; EM-404 later splits `tools.py`) plus the `ProviderHost` ABC. `em` imports no host and no plugin package — an AST guard pins that, another pins the 150-line shell. Six source-scanning guards now read the implementation. 3 new tests; **2226 / 5 / 3** bare and **2228 / 3 / 3** with numpy on 3.10 and 3.12; ruff clean; 8 mutation checks red |
 | 32 | **EM-402 — ScopeContext & identity (§3.5 scoping per turn)** | **Done, merged** (`7104bed` + docs `618c180` + the windows fix `2706a86`, ff-merged to `main` as `2706a86`; all 22 check-runs green on that SHA). `em/policy/scopes.py` resolves one `ScopeContext` from the init kwargs + config (`scope_mode`; EM-118's owner rule unchanged; `with_author` re-buckets per turn; bot authors never create user-scoped memories; `scope_key` for caches); the provider opens every engine under `to_scope()`/`write_scope()` — all reads/writes through one seam; `open_engine`/`V3Engine` accept the resolved `Scope`; the prefetch cache keys on `scope_key` + query (the cross-author block-replay leak is closed); `identity_signature()` lands (config-file only, mtime-cached, uninitialized-safe) and `HOOK_SURFACE`'s deferred set shrinks to `on_delegation`. **AC:** the group-chat harness (3 authors + bot) proves attribution and no cross-author leak including through the cache; the `multi_user` eval category reads **1.0** on its own isolation surface (`evals/datasets_multi_user/`, `as_user` turns; baseline `v3-multi-user.json`) — the frozen hard suite is byte-identical and its multi_user stays 0.90 lexical / 0.933 vector as recorded evidence (owner's isolation reading, 2026-10-13). 53 new tests; **2279 / 5 / 3** bare, **2281 / 3 / 3** with numpy, **2282 / 2 / 3** with the digest list; ruff clean; 21 mutation checks red |
+| 33 | **EM-403 slice 1 — `PrefetchService`, §4.2's synchronous core** | **Committed, not merged** (code + docs on `em-403-prefetch-core`; CI has not run). `em/provider/prefetch_service.py` (new) serves one turn per §4.2: the cache keyed `(session_id, scope_key, sha1(query), write_generation)` (in-process counter + the persistent read connection's `PRAGMA data_version` — measured: that pragma is per-connection, so the read connection must live across calls), the deadline with §4.2's generator priority order and `Retrieval.partial`, the per-generator **watchdog** on the service's one worker thread (a stuck generator is abandoned, so the 1.5 s hard cap holds for any generator; busy worker ⇒ fail-fast `partial`), §4.2's dedup rule exactly (6-turn window; score ≥ 0.8 re-shows after > 2 turns; pinned rows every 10), the `min(token_budget*4, 9000)` char cap, and the five `prefetch.*` metrics with a latency distribution. Also lands §3.6's IDF cache (`VocabularyCache`, keyed by `write_generation` — the recorded EM-301 gap) and `bm25`'s single bounded query (its paged form re-scored every FTS match per page: 78 ms vs 20 ms at 50k). **Nothing calls the service yet** — wiring is chunk 35. **AC green (harness):** forced-slow generator 1.26 s partial; ≤ 9,000 chars; 50 turns replay 5,536 ≤ 13,500 tokens; cache-hit p95 0.04 ms; warm p95 **43 ms @ 50k**. 39 new tests; **2318 / 5 / 3** bare, **2320 / 3 / 3** with numpy, **2321 / 2 / 3** with the digest list; ruff clean; 29 mutation checks red |
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
 both select their engine by the store's `user_version`, so either one runs on a v3
@@ -180,18 +181,29 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunk 32 (EM-402 — ScopeContext & identity) is merged (`2706a86`, ff from
-`2706a86`) with **22/22 check-runs green on that exact SHA**, `identity-guard` included;
-the branch is deleted. §3.5's scoping is now live and per turn: the session's
-`ScopeContext` is re-bucketed by each turn's author, all provider reads and writes go
-through one scope seam, the prefetch cache is scope-keyed (the cross-author block-replay
-leak is closed), `identity_signature()` reads the config file only and is mtime-cached,
-the group-chat harness AC is green, and the `multi_user` eval category reads **1.0** on
-its isolation surface (`evals/datasets_multi_user/`). **Next chunk: EM-403
-(PrefetchService)** — and only then does a query embedding reach the live path. The
-Marketplace entry is untouched (2.8.1 at `7e02412`). EM-411 remains planned and
-unbuilt; the promotion gate is recommended, awaiting the owner's confirmation. The
-cutover stays with the owner.
+**Chunk 33 — EM-403 slice 1 (`PrefetchService`, §4.2's synchronous core) is
+committed on branch `em-403-prefetch-core` and NOT MERGED — no CI has run on it
+yet.** It is planned and recorded in `NEXT_CHUNK.md` (Part B is the plan, Part A
+the record). The card is sliced into chunks 33–35: (1) this slice — the
+synchronous core and the card's AC (cache keyed `(session_id, scope_key,
+sha1(query), write_generation)`, deadline + partial with the per-generator
+watchdog, §4.2's dedup rule, the 9,000-char hard cap, the five `prefetch.*`
+metrics, plus §3.6's IDF cache and `bm25`'s single bounded query); (2)
+`precompute`, the coalescing worker queue and session topic state; (3) the
+provider wiring. **Nothing calls the service until the wiring slice lands.** Chunk 32
+(EM-402 — ScopeContext & identity) is merged (`2706a86`, ff from `2706a86`) with
+**22/22 check-runs green on that exact SHA**, `identity-guard` included; that
+branch is deleted. §3.5's scoping is now live and per turn: the session's
+`ScopeContext` is re-bucketed by each turn's author, all provider reads and
+writes go through one scope seam, the prefetch cache is scope-keyed (the
+cross-author block-replay leak is closed), `identity_signature()` reads the
+config file only and is mtime-cached, the group-chat harness AC is green, and
+the `multi_user` eval category reads **1.0** on its isolation surface
+(`evals/datasets_multi_user/`). **Only after EM-403 does a query embedding reach
+the live path** (through `precompute` on the worker's thread, in the async
+slice — never on the agent/prefetch thread). The Marketplace entry is untouched (2.8.1 at `7e02412`).
+EM-411 remains planned and unbuilt; the promotion gate is recommended, awaiting
+the owner's confirmation. The cutover stays with the owner.
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
 from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed
@@ -290,8 +302,8 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   `_run` when a suite allows embeddings, so vector quality is measurable with
   `evals run --adapter v3` on a box with a backend; CI installs numpy, so the
   cache tests and the 50k AC run there rather than skipping.
-- **EM-402 landed (2026-10-13, committed `7104bed` on `em-402-scope-context`, merge
-  pending): §3.5's scoping is live, per turn, through one seam.** `ScopeContext`
+- **EM-402 landed (2026-10-13, `2706a86` merged — code `7104bed`, docs `618c180`,
+  windows fix `2706a86`): §3.5's scoping is live, per turn, through one seam.** `ScopeContext`
   resolves the session's scope from the host's init kwargs + config and re-buckets
   per turn by the author trio (bot authors never create user-scoped memories);
   `_open_engine` is the single seam every read and write goes through; the prefetch
@@ -387,12 +399,23 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**The next chunk is EM-403 (PrefetchService, §4.2)** — the last card before a query
-embedding reaches the live path. Chunk 32 (EM-402) is merged (`2706a86`, 22/22
-check-runs green on that SHA): §3.5's `ScopeContext` is resolved once per session and
-re-bucketed per turn by the author trio, all provider reads/writes go through one
-scope seam, the cross-author prefetch-cache leak is closed, `identity_signature()`
-lands (config-file only, mtime-cached), the group-chat harness AC is green, and
+**Chunk 33 — EM-403 slice 1 (`PrefetchService`, the synchronous core) is
+committed on `em-403-prefetch-core`, NOT MERGED (no CI has run) — finish that
+first: verify CI on the exact tip SHA, `git merge --ff-only`, then reconcile.**
+The chunk is planned in `NEXT_CHUNK.md` Part B and recorded in Part A. EM-403
+(§4.2, the last card before a query embedding reaches the live path) is sliced
+into chunks 33–35: (1) this slice — cache keyed `(session_id, scope_key,
+sha1(query), write_generation)`, deadline + partial with the per-generator
+watchdog, §4.2's dedup rule, the 9,000-char hard cap, the five `prefetch.*`
+metrics, §3.6's IDF cache, `bm25`'s single bounded query — with the card's AC
+green (forced-slow 1.26 s partial; replay 5,536 ≤ 13,500; cache-hit p95 0.04 ms;
+warm p95 43 ms @ 50k); (2) `precompute`, the coalescing worker queue and session
+topic state; (3) the provider wiring. Nothing calls the service until chunk 35.
+Chunk 32 (EM-402) is merged (`2706a86`, 22/22 check-runs green on that SHA):
+§3.5's `ScopeContext` is resolved once per session and re-bucketed per turn by
+the author trio, all provider reads/writes go through one scope seam, the
+cross-author prefetch-cache leak is closed, `identity_signature()` lands
+(config-file only, mtime-cached), the group-chat harness AC is green, and
 `multi_user` = **1.0** on its isolation surface (`evals/datasets_multi_user/`,
 `as_user` turns; owner's isolation reading 2026-10-13 — the frozen hard suite
 untouched, its multi_user still **0.90 lexical / 0.933 vector**, a cross-memory
@@ -438,7 +461,7 @@ line there.**
    at short citations and do not wire `em/config.py` as a drive-by. Measure before
    any adapter switch: the 450-token budget can drop an id the current bullet
    emits.
-4. **Pre-flight:** `python -m pytest -q` gives **2279 passed / 5 skipped / 3 xfailed**
+4. **Pre-flight:** `python -m pytest -q` gives **2318 passed / 5 skipped / 3 xfailed**
    on **both Python 3.10 and 3.12** (CI's extra set: fastapi, httpx, cryptography, pyyaml).
    `git merge-base --is-ancestor 4eb8097 HEAD` proves the base. A fresh venv without
    those extras skips and fails tests that are green in CI — that is the environment,
@@ -611,7 +634,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2279 passed / 5 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2318 passed / 5 skipped / 3 xfailed** |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
