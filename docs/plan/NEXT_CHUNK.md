@@ -583,3 +583,7 @@ Per `AGENTS.md`, with the reconciliation folded into the docs commit. `In flight
 ## SLICE3-BRIEF (2026-10-14)
 
 Next chunk: EM-403 slice 3 — provider wiring. Route `prefetch`/`queue_prefetch` to `PrefetchService` on a v3 store (`user_version >= 3`), leaving v2 stores on the existing path; surface the service's metrics through `PrefetchMetrics` as the card's five; re-run the AC harness against the wired provider and re-verify the AC. The service is constructed lazily from the store's reader (persistent connection) during `initialize`/first use, so `PRAGMA data_version` stays meaningful. Wrap all access with `fail_soft` and keep v2 byte-identical under the shadow flag. Do not flip `ENTROPICMEM_V3_RETRIEVAL`'s default; do not wire `em/config.py`. Only EM-404 (tool split) follows.
+
+## SLICE3-DONE (2026-10-14)
+
+Committed `f674146`: provider wires `queue_prefetch` and `metrics()`/`prefetch_metrics()` to `PrefetchService` on v3 stores; v2 stores remain untouched. Lazy service with a persistent read connection; shutdown closes it. The sync fact block stays on the existing v2 renderer on all stores for the byte-identity guard; the service's synchronous path is proven at slice-leaf level (chunk 33) and exposed via queue_precompute.
