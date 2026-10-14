@@ -336,6 +336,9 @@ class EntropicMemProvider:
         self._prefetch_cache: Optional[str] = None
         self._prefetch_cache_count: int = 0
         self._cache_query_key: str = ""
+        self._prefetch_service = None
+        self._prefetch_store = None
+        self._prefetch_service_kind: Optional[bool] = None
         self._last_query: str = ""
         self._conversation_history: List[Dict[str, Any]] = []
 
@@ -752,6 +755,17 @@ class EntropicMemProvider:
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         if query:
             self._last_query = query[:2000]
+        service = self._ensure_prefetch_service()
+        from em.facade.engine import v3_retrieval_enabled
+
+        if service is not None and query and v3_retrieval_enabled():
+            try:
+                service.queue_precompute(
+                    query, session_id=session_id or self._session_id or "",
+                    scope=self._state.scope.to_scope() if hasattr(self._state.scope, "to_scope") else None,
+                )
+            except Exception:
+                pass
 
     @fail_soft(fallback=lambda *a, **k: "")
     def prefetch(self, query: str, *, session_id: str = "") -> str:
@@ -958,6 +972,14 @@ class EntropicMemProvider:
         # Injected: this module imports no host, and the eval adapters load the
         # plugin against a stub that carries the base class only.
         return self._host.recall_status("EntropicMem", count)
+
+    @fail_soft(fallback=lambda *a, **k: {}, budget_ms=5)
+    def metrics(self) -> Dict[str, Any]:
+
+        """Surfaced PrefetchService metrics, or ``{}`` on a v2 store."""
+        service = self._ensure_prefetch_service()
+        return service.metrics.snapshot() if (service is not None and hasattr(service, "metrics")) else {}
+
 
     @fail_soft(fallback=lambda *a, **k: default_signature())
     def identity_signature(self) -> Dict[str, Any]:
@@ -1687,6 +1709,18 @@ class EntropicMemProvider:
             self._prefetch_cache = None
             self._prefetch_cache_count = 0
             self._cache_query_key = ""
+        if self._prefetch_service is not None:
+            try:
+                self._prefetch_service.close()
+            except Exception:
+                pass
+            self._prefetch_service = None
+        if self._prefetch_store is not None:
+            try:
+                self._prefetch_store.close()
+            except Exception:
+                pass
+            self._prefetch_store = None
 
     def _remember(self, args: dict) -> str:
         if not self._writes_allowed():
@@ -1874,6 +1908,62 @@ class EntropicMemProvider:
             logger.exception("entropicmem_patch_core failed")
             return self._error(str(e))
 
+
+    def _v3_store(self) -> bool:
+        """True when this provider's store is a v3 (schema >= 3) store.
+
+        Read-only: never migrates. Cached per provider instance.
+        """
+        if self._prefetch_service_kind is not None:
+            return self._prefetch_service_kind
+        result = False
+        if self._memory_db:
+            try:
+                import sqlite3
+
+                conn = sqlite3.connect(str(self._memory_db))
+                try:
+                    row = conn.execute("PRAGMA user_version").fetchone()
+                    version = int(row[0]) if row else 0
+                finally:
+                    conn.close()
+                result = version >= 3
+            except Exception:
+                result = False
+        self._prefetch_service_kind = result
+        return result
+
+    def _ensure_prefetch_service(self):
+        """Lazily build the v3 ``PrefetchService`` (None on v2 stores).
+
+        The connection is kept alive for the service's lifetime so
+        ``PRAGMA data_version`` stays meaningful across calls.
+        """
+        if self._prefetch_service is not None:
+            return self._prefetch_service
+        if not (self._scripts_dir and self._memory_db and self._v3_store()):
+            return None
+        self._host.ensure_scripts_on_path(self._scripts_dir)
+        from em.provider.prefetch_service import PrefetchService
+        from em.store.db import Store
+
+        store = Store(str(self._memory_db))
+        self._prefetch_store = store
+        try:
+            token_budget = int(
+                max(1, self._config.get("prefetch_token_budget", 1500) // 4 or 450)
+            )
+        except Exception:
+            token_budget = 450
+        service = PrefetchService(
+            connect=store.reader,
+            spawn_thread=self._spawn,
+            token_budget=token_budget,
+            max_latency_ms=float(self._config.get("prefetch_max_latency_ms", 1200)),
+            is_trivial=None,
+        )
+        self._prefetch_service = service
+        return service
 
     def _open_engine(self, *, scope: Any = None):
         """Open the engine this store's schema calls for, under a §3.5 scope.
