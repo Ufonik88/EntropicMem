@@ -408,6 +408,7 @@ class PrefetchService:
         embedding_model: Optional[str] = None,
         embedder: Optional[Callable[[str], Optional[Sequence[float]]]] = None,
         query_embedder: Optional[Callable[[str], Optional[Sequence[float]]]] = None,
+        topic_bonus: Optional[float] = None,
     ) -> None:
         self._connect = connect
         self._spawn_thread = spawn_thread
@@ -420,6 +421,7 @@ class PrefetchService:
         self._metrics = PrefetchMetrics() if metrics is None else metrics
         self._embed_query = embed_query or embedder or query_embedder
         self._embedding_model = embedding_model
+        self._topic_bonus = TOPIC_ENTITY_BONUS if topic_bonus is None else float(topic_bonus)
 
         self._conn_lock = threading.Lock()
         self._conn: Optional[sqlite3.Connection] = None
@@ -442,18 +444,39 @@ class PrefetchService:
         self._topic_windows: Dict[str, Deque[FrozenSet[str]]] = {}
         self._last_scope: Optional[Scope] = None
         self._last_session_id: str = ""
+        self._candidate_pool_max = 64
+        self._closed = False
+        self._stats = {
+            "precompute_enqueued": 0,
+            "precompute_coalesced": 0,
+            "precompute_dropped": 0,
+            "precompute_rejected_after_close": 0,
+            "candidate_pool_evicted": 0,
+            "thread_join_timeout": 0,
+        }
 
         self._precompute_lock = threading.Lock()
         self._precompute_queue: "queue.Queue[Any]" = queue.Queue(maxsize=8)
         self._precompute_worker_started = False
         self._pending_precompute: Dict[str, Any] = {}
         self._precompute_latest: Dict[str, Any] = {}
+        self._worker_thread: Any = None
+        self._precompute_thread: Any = None
 
     # -- public surface ---------------------------------------------------
 
     @property
     def metrics(self) -> PrefetchMetrics:
         return self._metrics
+
+    @property
+    def precompute_stats(self) -> Dict[str, int]:
+        with self._precompute_lock:
+            return dict(self._stats)
+
+    @property
+    def stats(self) -> Dict[str, int]:
+        return self.precompute_stats
 
     def note_write(self) -> None:
         """Tell the service a memory write landed in this process.
@@ -472,9 +495,24 @@ class PrefetchService:
         """
         self._cache.clear()
         self._recent.clear()
+        with self._precompute_lock:
+            self._candidate_pools.clear()
+            self._topic_states.clear()
+            self._topic_windows.clear()
 
     def close(self) -> None:
         """Stop the worker and close the read connection (``shutdown()``)."""
+        self._closed = True
+        for thread in (self._precompute_thread, self._worker_thread):
+            if thread is not None and hasattr(thread, "join"):
+                try:
+                    thread.join(timeout=2.0)
+                    if getattr(thread, "is_alive", lambda: False)():
+                        with self._precompute_lock:
+                            self._stats["thread_join_timeout"] += 1
+                        log.warning("prefetch worker thread did not exit within 2s")
+                except Exception:  # noqa: BLE001
+                    pass
         if self._precompute_worker_started:
             try:
                 self._precompute_queue.put(None, block=False)
@@ -521,7 +559,9 @@ class PrefetchService:
         with self._conn_lock:
             conn = self._read_conn()
             generation = self._write_generation(conn)
-            key = self._cache_key(generation, text, scope, session_id, query_vector, embedding_model)
+            key = self._cache_key(
+                generation, text, scope, session_id, query_vector, embedding_model
+            )
             entry = self._cache.get(key)
             hit = entry is not None
             retrieval = None
@@ -562,9 +602,7 @@ class PrefetchService:
             kept = self._dedup_filter(entry.items, entry.pinned, turn)
             # slice 2: session topic soft signal (+0.05 for sharing an entity)
             kept = self._apply_topic_bonus(kept, session_id, scope_conn=conn, pinned=entry.pinned)
-            chosen = pack_chosen(
-                kept, budget=self._token_budget, on_flagged="mark", cite="full"
-            )
+            chosen = pack_chosen(kept, budget=self._token_budget, on_flagged="mark", cite="full")
             block = render(chosen, cite="full")
             cap = min(self._token_budget * 4, OUTPUT_CHAR_CAP)
             while chosen and len(block) > cap:
@@ -585,9 +623,7 @@ class PrefetchService:
             self._prune_recent(turn)
 
         partial = bool(retrieval is not None and retrieval.partial)
-        result = PrefetchResult(
-            text=block, injected=injected, cache_hit=hit, partial=partial
-        )
+        result = PrefetchResult(text=block, injected=injected, cache_hit=hit, partial=partial)
         self._metrics.record(
             PrefetchCall(
                 latency_ms=(time.perf_counter() - started) * 1000.0,
@@ -677,9 +713,7 @@ class PrefetchService:
     def _prune_recent(self, turn: int) -> None:
         horizon = max(self._dedup_turns, self._constraint_repeat_turns) + 1
         self._recent = {
-            owner_id: last
-            for owner_id, last in self._recent.items()
-            if turn - last <= horizon
+            owner_id: last for owner_id, last in self._recent.items() if turn - last <= horizon
         }
 
     # -- the generator watchdog -------------------------------------------
@@ -702,9 +736,7 @@ class PrefetchService:
             self._requests.put(request)
         timeout: Optional[float] = None
         if ctx.deadline is not None:
-            timeout = (
-                max(0.0, ctx.deadline - time.monotonic()) + _ABANDON_GRACE_MS / 1000.0
-            )
+            timeout = max(0.0, ctx.deadline - time.monotonic()) + _ABANDON_GRACE_MS / 1000.0
         if not request.done.wait(timeout):
             raise GeneratorDeadline(name)
         if request.error is not None:
@@ -716,16 +748,9 @@ class PrefetchService:
             if self._worker_started:
                 return
             self._worker_started = True
-        self._spawn_thread(self._worker_loop, "em-prefetch-worker")
+        self._worker_thread = self._spawn_thread(self._worker_loop, "em-prefetch-worker")
 
     def _worker_loop(self) -> None:
-        """The single worker thread (§4.2). It owns its own read connection.
-
-        An abandoned request still runs to completion here; its result lands on
-        a request nobody reads, which is the cost of not being able to kill a
-        thread in Python — bounded, and the fail-fast path above means it never
-        blocks a later call.
-        """
         try:
             while True:
                 request = self._requests.get()
@@ -777,7 +802,8 @@ class PrefetchService:
         if vector is None and self._embed_query is not None:
             try:
                 vector = self._embed_query(text)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - worker resilience: never kill the queue
+                log.warning("prefetch precompute embedder failed: %s", type(exc).__name__)
                 vector = None
 
         started = time.perf_counter()
@@ -800,7 +826,8 @@ class PrefetchService:
             pinned: FrozenSet[str] = frozenset()
             if retrieval is not None:
                 items_full = load_pack_items(
-                    conn, list(retrieval.rankings)[:CANDIDATE_POOL_SIZE],
+                    conn,
+                    list(retrieval.rankings)[:CANDIDATE_POOL_SIZE],
                     predecessors=retrieval.predecessors,
                 )
                 items = tuple(items_full[:CANDIDATE_POOL_SIZE])
@@ -828,26 +855,47 @@ class PrefetchService:
         }
         key = (session_id or "", scope_key(scope))
         pool = _CandidatePool(pool)
-        self._candidate_pools[key] = pool
-        self._candidate_pools.setdefault((session_id or "", ""), pool)
+        with self._precompute_lock:
+            self._candidate_pools[key] = pool
+            self._candidate_pools.setdefault((session_id or "", ""), pool)
+            while len(self._candidate_pools) > self._candidate_pool_max:
+                try:
+                    oldest = next(iter(self._candidate_pools))
+                    del self._candidate_pools[oldest]
+                    self._stats["candidate_pool_evicted"] += 1
+                except StopIteration:
+                    break
         return pool
 
-    def queue_precompute(self, query, *, session_id: str = "", scope: Optional[Scope] = None, **kwargs: Any) -> Any:
+    def queue_precompute(
+        self, query, *, session_id: str = "", scope: Optional[Scope] = None, **kwargs: Any
+    ) -> Any:
+        if self._closed:
+            with self._precompute_lock:
+                self._stats["precompute_rejected_after_close"] += 1
+            raise RuntimeError("PrefetchService is closed")
         self._ensure_precompute_worker()
         session_id = session_id or self._last_session_id or ""
         scope = scope if scope is not None else self._last_scope
         handle = SimpleNamespace(done=threading.Event(), cancelled=False, session_id=session_id)
+        with self._precompute_lock:
+            self._stats["precompute_enqueued"] += 1
+            previous = self._precompute_latest.get(session_id)
+            if previous is not None and not getattr(previous, "done", threading.Event()).is_set():
+                setattr(previous, "cancelled", True)
+                self._stats["precompute_coalesced"] += 1
+            self._precompute_latest[session_id] = handle
+            self._pending_precompute[session_id] = handle
         handle._query = query
         handle._scope = scope
         handle._kwargs = dict(kwargs)
-        with self._precompute_lock:
-            self._precompute_latest[session_id] = handle
-            self._pending_precompute[session_id] = handle
         try:
             self._precompute_queue.put(handle, block=False)
         except Exception:  # noqa: BLE001
             try:
                 self._precompute_queue.get_nowait()
+                with self._precompute_lock:
+                    self._stats["precompute_dropped"] += 1
             except Exception:  # noqa: BLE001
                 pass
             try:
@@ -870,7 +918,9 @@ class PrefetchService:
             if self._precompute_worker_started:
                 return
             self._precompute_worker_started = True
-        self._spawn_thread(self._precompute_worker_loop, "em-prefetch-precompute")
+        self._precompute_thread = self._spawn_thread(
+            self._precompute_worker_loop, "em-prefetch-precompute"
+        )
 
     def _precompute_worker_loop(self) -> None:
         while True:
@@ -883,11 +933,15 @@ class PrefetchService:
                 with self._precompute_lock:
                     latest = self._precompute_latest.get(getattr(handle, "session_id", ""))
                 if latest is not None and latest is not handle:
+                    with self._precompute_lock:
+                        self._stats["precompute_coalesced"] += 1
                     continue
                 query = getattr(handle, "_query", "")
                 scope = getattr(handle, "_scope", None)
                 kwargs = getattr(handle, "_kwargs", {})
-                result = self.precompute(query, session_id=getattr(handle, "session_id", ""), scope=scope, **kwargs)
+                result = self.precompute(
+                    query, session_id=getattr(handle, "session_id", ""), scope=scope, **kwargs
+                )
                 try:
                     handle.result = result
                 except Exception:  # noqa: BLE001
@@ -901,12 +955,11 @@ class PrefetchService:
                     pass
 
     def candidate_pool(self, session_id: str = "", scope: Optional[Scope] = None) -> Any:
-        if scope is not None:
-            key = (session_id or self._last_session_id or "", scope_key(scope))
-            if key in self._candidate_pools:
-                return self._candidate_pools[key]
         sid = session_id or self._last_session_id or ""
-        for (s, _), pool in self._candidate_pools.items():
+        if scope is not None:
+            key = (sid, scope_key(scope))
+            return self._candidate_pools.get(key)
+        for (s, sk), pool in self._candidate_pools.items():
             if s == sid:
                 return pool
         return None
@@ -934,7 +987,12 @@ class PrefetchService:
                     setattr(handle, "cancelled", True)
 
     def _apply_topic_bonus(
-        self, items: Sequence[PackItem], session_id: str, *, scope_conn: Optional[sqlite3.Connection] = None, pinned: FrozenSet[str] = frozenset()
+        self,
+        items: Sequence[PackItem],
+        session_id: str,
+        *,
+        scope_conn: Optional[sqlite3.Connection] = None,
+        pinned: FrozenSet[str] = frozenset(),
     ) -> List[PackItem]:
         topic = self._topic_entities(session_id)
         if not topic:
@@ -949,14 +1007,16 @@ class PrefetchService:
         for item in items:
             bonus = 0.0
             if item.owner_type == "memory" and (mapping.get(item.owner_id, frozenset()) & topic):
-                bonus = TOPIC_ENTITY_BONUS
+                bonus = self._topic_bonus
             if bonus:
                 out.append(_replace(item, score=float(item.score) + bonus))
             else:
                 out.append(item)
         return out
 
-    def _memory_entities(self, conn: sqlite3.Connection, ids: Sequence[str]) -> Dict[str, FrozenSet[str]]:
+    def _memory_entities(
+        self, conn: sqlite3.Connection, ids: Sequence[str]
+    ) -> Dict[str, FrozenSet[str]]:
         if not ids:
             return {}
         marks = ",".join("?" for _ in ids)
@@ -979,7 +1039,11 @@ class PrefetchService:
         return state.entities if state is not None else frozenset()
 
     def _update_topic(
-        self, session_id: str, *, entities: Sequence[str] = (), embedding: Optional[Sequence[float]] = None
+        self,
+        session_id: str,
+        *,
+        entities: Sequence[str] = (),
+        embedding: Optional[Sequence[float]] = None,
     ) -> None:
         session_id = session_id or self._last_session_id or ""
         prev = self._topic_states.get(session_id)

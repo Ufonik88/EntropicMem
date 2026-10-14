@@ -542,7 +542,7 @@ def test_f007_consolidate_archives_low_importance_first(engine):
 # F-008 → EM-111: Prefetch synchronous on agent thread; core memory re-injected
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-008a → S4 async prefetch: queue_prefetch "
+@pytest.mark.xfail(strict=True, reason="F-008a → S4 async prefetch (chunk 35): queue_prefetch "
           "is a synchronous no-op stub; prefetch work runs inline on the caller")
 def test_f008_prefetch_runs_async(make_provider, home_a):
     """queue_prefetch must schedule the recall work on a background thread
