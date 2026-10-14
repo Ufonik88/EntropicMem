@@ -529,7 +529,7 @@ cd ~/Documents/trae_projects/EntropicMem
 git fetch --all --prune && git status -sb && git log --oneline -12
 git ls-remote --heads origin        # expect exactly main + release/2.8.x
 
-# The repo's own pre-flight. Expect 2318 passed, 5 skipped, 3 xfailed (about 1 minute on a warm box).
+# The repo's own pre-flight. Expect 2326 passed, 5 skipped, 3 xfailed (about 1 minute on a warm box).
 # 3 skips here because the private digest list is not at the default path on this machine; CI has
 # it. With no list, REQUIRE=1 fails closed by design, so do not set it for this run.
 env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_INDEX_DB -u ENTROPICMEM_VAULT_PATH \
