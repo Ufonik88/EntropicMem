@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import sys
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -20,11 +19,9 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from em.provider.prefetch_service import (
-    CANDIDATE_POOL_SIZE,
+    TOPIC_WINDOW,
     PrefetchService,
     TopicState,
-    TOPIC_ALPHA,
-    TOPIC_WINDOW,
 )
 from em.store.db import Store
 from em.store.migrations import migrate
@@ -62,8 +59,8 @@ def test_precompute_returns_a_candidate_pool(service):
 
 
 def test_precompute_caches_by_session_and_scope(service):
-    a = service.precompute("q", scope=SCOPE, session_id="s1")
-    b = service.precompute("q", scope=SCOPE, session_id="s1")
+    service.precompute("q", scope=SCOPE, session_id="s1")
+    service.precompute("q", scope=SCOPE, session_id="s1")
     assert service.candidate_pool("s1", SCOPE) is not None
     # a fresh scope is a separate slot
     other = Scope(profile="other")
