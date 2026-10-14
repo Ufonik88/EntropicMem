@@ -578,3 +578,8 @@ suite, and **stop and report on a mismatch** instead of assuming the older numbe
 ### Document control
 
 Per `AGENTS.md`, with the reconciliation folded into the docs commit. `In flight` names no commit; `Last reconciled` names the previous chunk's permanent ancestor. Chunk 13 stays internal; the Marketplace entry is untouched. **Never write to the live store** — and remember the two rules this chunk was shaped by: **run the thing once, on a real store** (that is how the `kind='constraint'` bug and the symmetric-ceiling finding surfaced), and **a test that asserts on a stopwatch measures the runner.**
+
+
+## SLICE3-BRIEF (2026-10-14)
+
+Next chunk: EM-403 slice 3 — provider wiring. Route `prefetch`/`queue_prefetch` to `PrefetchService` on a v3 store (`user_version >= 3`), leaving v2 stores on the existing path; surface the service's metrics through `PrefetchMetrics` as the card's five; re-run the AC harness against the wired provider and re-verify the AC. The service is constructed lazily from the store's reader (persistent connection) during `initialize`/first use, so `PRAGMA data_version` stays meaningful. Wrap all access with `fail_soft` and keep v2 byte-identical under the shadow flag. Do not flip `ENTROPICMEM_V3_RETRIEVAL`'s default; do not wire `em/config.py`. Only EM-404 (tool split) follows.
