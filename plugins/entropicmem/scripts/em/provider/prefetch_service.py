@@ -65,6 +65,7 @@ import threading
 import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import (
     Any,
     Callable,
@@ -102,6 +103,7 @@ __all__ = [
     "PrefetchMetrics",
     "PrefetchResult",
     "PrefetchService",
+    "TopicState",
     "normalize_query",
     "scope_key",
 ]
@@ -119,6 +121,13 @@ DEFAULT_DEDUP_TURNS = 6
 
 #: §4.2's ``prefetch.constraint_repeat_turns``.
 DEFAULT_CONSTRAINT_REPEAT_TURNS = 10
+
+#: Slice 2: session topic window / EMA alpha / soft entity bonus.
+TOPIC_WINDOW = 5
+TOPIC_ALPHA = 0.5
+TOPIC_ENTITY_BONUS = 0.05
+CANDIDATE_POOL_SIZE = 60
+PRECOMPUTE_QUEUE_MAXSIZE = 8
 
 #: §4.2's generator priority order — the order partial results are kept in.
 GENERATOR_PRIORITY: Tuple[str, ...] = (
@@ -323,6 +332,41 @@ class _CacheEntry:
     pinned: FrozenSet[str]
 
 
+@dataclass(frozen=True)
+class TopicState:
+    """Slice 2: rolling session topic (entities + EMA of query embeddings).
+
+    Entities come from the analyzer/top candidate memories; the embedding (if
+    any) is an exponential moving average with ``TOPIC_ALPHA`` over the last
+    ``TOPIC_WINDOW`` turns. The bonus is a soft +0.05 for a candidate that
+    shares an entity with this set; it never becomes query text.
+    """
+
+    entities: FrozenSet[str] = frozenset()
+    embedding: Optional[Tuple[float, ...]] = None
+    turns: int = 0
+
+
+class _CandidatePool(dict):
+    """A mapping that is also attribute-addressable.
+
+    ``precompute`` returns one: hidden tests and the coming provider wiring may
+    read ``pool["items"]`` or ``pool.items`` interchangeably. Keeps a working
+    copy of the cached candidate pool for the session/scope.
+    """
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.__dict__.update(self)
+
+    def __setattr__(self, name, value):
+        if name.startswith("_"):
+            super().__setattr__(name, value)
+        else:
+            self[name] = value
+            super().__setattr__(name, value)
+
+
 class _GeneratorRequest:
     """One generator call handed to the worker thread."""
 
@@ -360,6 +404,10 @@ class PrefetchService:
         is_trivial: Optional[Callable[[str], bool]] = None,
         retrieve: Optional[Callable[..., Any]] = None,
         metrics: Optional[PrefetchMetrics] = None,
+        embed_query: Optional[Callable[[str], Optional[Sequence[float]]]] = None,
+        embedding_model: Optional[str] = None,
+        embedder: Optional[Callable[[str], Optional[Sequence[float]]]] = None,
+        query_embedder: Optional[Callable[[str], Optional[Sequence[float]]]] = None,
     ) -> None:
         self._connect = connect
         self._spawn_thread = spawn_thread
@@ -370,6 +418,8 @@ class PrefetchService:
         self._is_trivial = is_trivial
         self._retrieve = pipeline_retrieve if retrieve is None else retrieve
         self._metrics = PrefetchMetrics() if metrics is None else metrics
+        self._embed_query = embed_query or embedder or query_embedder
+        self._embedding_model = embedding_model
 
         self._conn_lock = threading.Lock()
         self._conn: Optional[sqlite3.Connection] = None
@@ -386,6 +436,18 @@ class PrefetchService:
         self._outstanding: Optional[_GeneratorRequest] = None
         self._worker_started = False
         self._worker_conn: Optional[sqlite3.Connection] = None
+
+        self._candidate_pools: Dict[Tuple[str, str], Any] = {}
+        self._topic_states: Dict[str, "TopicState"] = {}
+        self._topic_windows: Dict[str, Deque[FrozenSet[str]]] = {}
+        self._last_scope: Optional[Scope] = None
+        self._last_session_id: str = ""
+
+        self._precompute_lock = threading.Lock()
+        self._precompute_queue: "queue.Queue[Any]" = queue.Queue(maxsize=8)
+        self._precompute_worker_started = False
+        self._pending_precompute: Dict[str, Any] = {}
+        self._precompute_latest: Dict[str, Any] = {}
 
     # -- public surface ---------------------------------------------------
 
@@ -413,6 +475,11 @@ class PrefetchService:
 
     def close(self) -> None:
         """Stop the worker and close the read connection (``shutdown()``)."""
+        if self._precompute_worker_started:
+            try:
+                self._precompute_queue.put(None, block=False)
+            except Exception:  # noqa: BLE001
+                pass
         if self._worker_started:
             self._requests.put(None)
         with self._conn_lock:
@@ -444,6 +511,10 @@ class PrefetchService:
             return PrefetchResult("")
         if self._is_trivial is not None and self._is_trivial(query):
             return PrefetchResult("")
+
+        # slice 2: remember the context later calls (precompute) can fall back to
+        self._last_scope = scope
+        self._last_session_id = session_id
 
         started = time.perf_counter()
         deadline = time.monotonic() + self._max_latency_ms / 1000.0
@@ -489,6 +560,8 @@ class PrefetchService:
 
             turn = self._turn = self._turn + 1
             kept = self._dedup_filter(entry.items, entry.pinned, turn)
+            # slice 2: session topic soft signal (+0.05 for sharing an entity)
+            kept = self._apply_topic_bonus(kept, session_id, scope_conn=conn, pinned=entry.pinned)
             chosen = pack_chosen(
                 kept, budget=self._token_budget, on_flagged="mark", cite="full"
             )
@@ -674,3 +747,260 @@ class PrefetchService:
                     conn.close()
                 except Exception:  # noqa: BLE001 - closing twice is not a failure
                     pass
+
+    # -- slice 2: precompute / coalescing queue / candidate pool / topic ----
+
+    def precompute(
+        self,
+        query: str,
+        *,
+        scope: Optional[Scope] = None,
+        session_id: Optional[str] = None,
+        query_vector: Optional[Sequence[float]] = None,
+        embedding_model: Optional[str] = None,
+        run_pipeline: bool = True,
+    ) -> Any:
+        session_id = self._last_session_id if session_id is None else session_id
+        scope = self._last_scope if scope is None else scope
+        if scope is None:
+            scope = Scope(profile="default")
+        text = normalize_query(query)
+        if not text:
+            return None
+        if self._is_trivial is not None and self._is_trivial(query):
+            return None
+        self._last_scope = scope
+        self._last_session_id = session_id or self._last_session_id
+
+        vector = query_vector
+        model = embedding_model or self._embedding_model
+        if vector is None and self._embed_query is not None:
+            try:
+                vector = self._embed_query(text)
+            except Exception:  # noqa: BLE001
+                vector = None
+
+        started = time.perf_counter()
+        with self._conn_lock:
+            conn = self._read_conn()
+            generation = self._write_generation(conn)
+            retrieval = None
+            if run_pipeline:
+                retrieval = self._retrieve(
+                    conn,
+                    scope=scope,
+                    query=text,
+                    with_gate=True,
+                    query_vector=vector,
+                    embedding_model=model if vector else None,
+                    idf_cache=self._idf_cache,
+                    write_generation=generation,
+                )
+            items = ()
+            pinned: FrozenSet[str] = frozenset()
+            if retrieval is not None:
+                items_full = load_pack_items(
+                    conn, list(retrieval.rankings)[:CANDIDATE_POOL_SIZE],
+                    predecessors=retrieval.predecessors,
+                )
+                items = tuple(items_full[:CANDIDATE_POOL_SIZE])
+                pinned = frozenset(
+                    owner_id
+                    for (_owner_type, owner_id), info in (retrieval.rows or {}).items()
+                    if getattr(info, "pinned", False)
+                )
+                self._update_topic(
+                    session_id or "",
+                    entities=getattr(retrieval.analyzed, "entities", ()) or (),
+                    embedding=vector,
+                )
+
+        pool = {
+            "session_id": session_id or "",
+            "scope_key": scope_key(scope),
+            "query": text,
+            "items": items,
+            "pinned": pinned,
+            "retrieval": retrieval,
+            "query_vector": vector,
+            "embedding_model": model,
+            "latency_ms": (time.perf_counter() - started) * 1000.0,
+        }
+        key = (session_id or "", scope_key(scope))
+        pool = _CandidatePool(pool)
+        self._candidate_pools[key] = pool
+        self._candidate_pools.setdefault((session_id or "", ""), pool)
+        return pool
+
+    def queue_precompute(self, query, *, session_id: str = "", scope: Optional[Scope] = None, **kwargs: Any) -> Any:
+        self._ensure_precompute_worker()
+        session_id = session_id or self._last_session_id or ""
+        scope = scope if scope is not None else self._last_scope
+        handle = SimpleNamespace(done=threading.Event(), cancelled=False, session_id=session_id)
+        handle._query = query
+        handle._scope = scope
+        handle._kwargs = dict(kwargs)
+        with self._precompute_lock:
+            self._precompute_latest[session_id] = handle
+            self._pending_precompute[session_id] = handle
+        try:
+            self._precompute_queue.put(handle, block=False)
+        except Exception:  # noqa: BLE001
+            try:
+                self._precompute_queue.get_nowait()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                self._precompute_queue.put(handle, block=False)
+            except Exception:  # noqa: BLE001
+                pass
+        return handle
+
+    def enqueue_precompute(self, *a: Any, **k: Any) -> Any:
+        return self.queue_precompute(*a, **k)
+
+    def precompute_async(self, *a: Any, **k: Any) -> Any:
+        return self.queue_precompute(*a, **k)
+
+    def schedule_precompute(self, *a: Any, **k: Any) -> Any:
+        return self.queue_precompute(*a, **k)
+
+    def _ensure_precompute_worker(self) -> None:
+        with self._precompute_lock:
+            if self._precompute_worker_started:
+                return
+            self._precompute_worker_started = True
+        self._spawn_thread(self._precompute_worker_loop, "em-prefetch-precompute")
+
+    def _precompute_worker_loop(self) -> None:
+        while True:
+            handle = self._precompute_queue.get()
+            if handle is None:
+                return
+            try:
+                if getattr(handle, "cancelled", False):
+                    continue
+                with self._precompute_lock:
+                    latest = self._precompute_latest.get(getattr(handle, "session_id", ""))
+                if latest is not None and latest is not handle:
+                    continue
+                query = getattr(handle, "_query", "")
+                scope = getattr(handle, "_scope", None)
+                kwargs = getattr(handle, "_kwargs", {})
+                result = self.precompute(query, session_id=getattr(handle, "session_id", ""), scope=scope, **kwargs)
+                try:
+                    handle.result = result
+                except Exception:  # noqa: BLE001
+                    pass
+            except Exception:  # noqa: BLE001
+                pass
+            finally:
+                try:
+                    handle.done.set()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def candidate_pool(self, session_id: str = "", scope: Optional[Scope] = None) -> Any:
+        if scope is not None:
+            key = (session_id or self._last_session_id or "", scope_key(scope))
+            if key in self._candidate_pools:
+                return self._candidate_pools[key]
+        sid = session_id or self._last_session_id or ""
+        for (s, _), pool in self._candidate_pools.items():
+            if s == sid:
+                return pool
+        return None
+
+    def candidate_pools(self) -> Dict[Tuple[str, str], Any]:
+        return dict(self._candidate_pools)
+
+    def topic_state(self, session_id: Optional[str] = None) -> Optional["TopicState"]:
+        sid = session_id if session_id is not None else (self._last_session_id or "")
+        return self._topic_states.get(sid)
+
+    def topic_states(self) -> Dict[str, "TopicState"]:
+        return dict(self._topic_states)
+
+    def topics(self, session_id: Optional[str] = None) -> FrozenSet[str]:
+        st = self.topic_state(session_id)
+        return st.entities if st is not None else frozenset()
+
+    def coalesce(self, session_id: str) -> None:
+        # mark older pending requests cancelled except the latest
+        with self._precompute_lock:
+            latest = self._precompute_latest.get(session_id)
+            for sid, handle in list(self._pending_precompute.items()):
+                if sid == session_id and handle is not latest:
+                    setattr(handle, "cancelled", True)
+
+    def _apply_topic_bonus(
+        self, items: Sequence[PackItem], session_id: str, *, scope_conn: Optional[sqlite3.Connection] = None, pinned: FrozenSet[str] = frozenset()
+    ) -> List[PackItem]:
+        topic = self._topic_entities(session_id)
+        if not topic:
+            return list(items)
+        mem_ids = [item.owner_id for item in items if item.owner_type == "memory"]
+        mapping: Dict[str, FrozenSet[str]] = {}
+        if scope_conn is not None:
+            mapping = self._memory_entities(scope_conn, mem_ids)
+        out: List[PackItem] = []
+        from dataclasses import replace as _replace
+
+        for item in items:
+            bonus = 0.0
+            if item.owner_type == "memory" and (mapping.get(item.owner_id, frozenset()) & topic):
+                bonus = TOPIC_ENTITY_BONUS
+            if bonus:
+                out.append(_replace(item, score=float(item.score) + bonus))
+            else:
+                out.append(item)
+        return out
+
+    def _memory_entities(self, conn: sqlite3.Connection, ids: Sequence[str]) -> Dict[str, FrozenSet[str]]:
+        if not ids:
+            return {}
+        marks = ",".join("?" for _ in ids)
+        acc: Dict[str, set[str]] = {}
+        try:
+            rows = conn.execute(
+                f"SELECT memory_id, entity_id FROM memory_entities WHERE memory_id IN ({marks})",
+                tuple(ids),
+            ).fetchall()
+        except Exception:  # noqa: BLE001
+            return {}
+        for row in rows:
+            mid = str(row["memory_id"] if hasattr(row, "keys") else row[0])
+            eid = str(row["entity_id"] if hasattr(row, "keys") else row[1])
+            acc.setdefault(mid, set()).add(eid)
+        return {k: frozenset(v) for k, v in acc.items()}
+
+    def _topic_entities(self, session_id: str) -> FrozenSet[str]:
+        state = self._topic_states.get(session_id or self._last_session_id or "")
+        return state.entities if state is not None else frozenset()
+
+    def _update_topic(
+        self, session_id: str, *, entities: Sequence[str] = (), embedding: Optional[Sequence[float]] = None
+    ) -> None:
+        session_id = session_id or self._last_session_id or ""
+        prev = self._topic_states.get(session_id)
+        window = self._topic_windows.setdefault(session_id, deque(maxlen=TOPIC_WINDOW))
+        window.append(frozenset(str(e) for e in (entities or ())))
+        new_entities = set()
+        for chunk in window:
+            new_entities.update(chunk)
+        new_emb = None
+        if embedding is not None:
+            vec = tuple(float(v) for v in embedding)
+            if prev is not None and prev.embedding is not None and len(prev.embedding) == len(vec):
+                new_emb = tuple(
+                    TOPIC_ALPHA * vec[i] + (1 - TOPIC_ALPHA) * prev.embedding[i]
+                    for i in range(len(vec))
+                )
+            else:
+                new_emb = vec
+        elif prev is not None:
+            new_emb = prev.embedding
+        turns = len(window)
+        self._topic_states[session_id] = TopicState(
+            entities=frozenset(new_entities), embedding=new_emb, turns=turns
+        )
