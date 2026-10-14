@@ -13,7 +13,7 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-13, against branch `main` at `9f9ba0c` — the fast-forward
+**Last reconciled:** 2026-10-14, against branch `main` at `31053df` — the fast-forward
 merge of **Chunk 33 (EM-403 slice 1: `PrefetchService` — §4.2's synchronous core,
 the card's AC green at warm p95 43 ms @ 50k, plus §3.6's IDF cache and `bm25`'s
 single bounded query)**, named deliberately instead of the tip. **All check-runs
