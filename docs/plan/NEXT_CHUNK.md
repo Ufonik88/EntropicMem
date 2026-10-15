@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-15. **`main` is at `007bb22` (11/11 check-runs green on that exact SHA, `identity-guard` included) and carries Chunk 33 (EM-403 slice 1, `9f9ba0c`), Chunk 34 (EM-403 slice 2, ff-merged as `31053df`; code `8b30aa9`, lint `31053df`, docs `007bb22`), and the first half of EM-403 slice 3 (`f674146` code + `55f85ce` docs — committed onto `main` and pushed directly; CI green on both exact SHAs post-push; see the Part A record for what that half does and does not do, and the process record).** **In flight: one branch — `em-404-tools-split` at `3dcb35f` (EM-404 slice 1: tool schemas move verbatim into `em/provider/tools.py`)** — pushed, and green on a rerun of the exact SHA after one flaky 3.12 run on the numpy-gated 50k AC (p95 29.77 ms vs 25 ms; 18/20 samples ≈14 ms; green rerun reads 2347 / 3 / 3); it owes its CHANGELOG line before merge. **Next, in order: (1) land EM-404 slice 1; (2) EM-403 slice 3's second half — route the sync fact block through `PrefetchService` on v3 stores, wire-level tests, and the AC re-run through the wired provider (brief in Part B).** **Live retrieval is lexical until EM-401–403 completes** — no semantic-retrieval claims before it. **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
+**Updated:** 2026-10-15 (second pass). **`main` is at `a5b613a` + docs (11/11 check-runs green on the exact SHA, `identity-guard` included), and EM-403 is complete:** Chunk 33 (slice 1, `9f9ba0c`), Chunk 34 (slice 2, ff-merged as `31053df`, docs `007bb22`), **Chunk 35 (slice 3, second half, `a5b613a`)** — the synchronous fact block routes through `PrefetchService.prefetch` on a v3 store, gated on the v3 store **and** `ENTROPICMEM_V3_RETRIEVAL=1` (the decision and its reasons are in Part A); v2 stores are byte-identical by construction (golden captured from `e4fd865` in a detached worktree); the wire-level tests and the **AC re-run through the wired provider** are green (warm p95 40.58 ms @ 50k, cache-hit 0.09 ms, forced-slow 1.261 s partial, 7,648 chars, 50-turn replay 5,504 ≤ 13,500). The first half (`f674146` + `55f85ce`, pushed **directly to `main`, CI green post-push on both exact SHAs) is recorded in Part A with everything it deliberately did not do. **In flight and blocked on the owner, not on code: `em-404-tools-split` at `84a555f` (EM-404 slice 1)** — CHANGELOG line landed, CI green on that exact SHA, but `git merge --ff-only` aborted because `main` had moved to `e4fd865`; nothing was rebased, merged, or forced, and the landing choice (rebase the two commits onto `main`, or merge `main` into the branch) is the owner's. **Next: that decision, then EM-404 slice 2 (tool handlers), then EM-405/EM-407.** **Live retrieval is lexical until the owner flips the flag** — no semantic-retrieval claims before it. **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
 
 **Owner decisions in force — the order was re-set on 2026-10-08** (`REMAINING_PLAN.md` §9 item 6):
 1. **P0c — collect the shadow data.** The gating empirical step for the cutover. **Freeze before you look: do not fit a threshold to the sample, and report the raw distribution and the margin, not just a green light.** The observable is now fully armed, so a clean sample can conclude — it still needs the dev-line shadow on a host (the owner's machine is active).
@@ -356,31 +356,54 @@ bound.
 - **The process record, stated plainly.** Slice 2's first commit (`7be05dd`, plus lint `82637ae` and docs `50d7ebc`) was committed onto local `main` and **never pushed**; slice 3's code and its docs (`f674146`, `55f85ce`) were then committed onto `main` and **pushed directly to `origin/main`**, so CI ran *after* the push rather than before a merge. Every one of those SHAs came back green (`identity-guard` included), nothing red ever landed on `main`, and published history is untouched — but the branch-first workflow was not followed for `f674146`/`55f85ce`, and this record stands rather than being papered over. The re-committed slice 2 (`8b30aa9`, on branch `em-403-prefetch-async`, with the two new test files) then merged to `main` the documented way: branch push, green check-runs on the exact SHAs, `git merge --ff-only` to `31053df`, docs `007bb22`.
 - **The slice-3 brief, kept as the record (written 2026-10-14 as `25a8d68`):** route `prefetch`/`queue_prefetch` to `PrefetchService` on a v3 store (`user_version >= 3`), leaving v2 stores on the existing path; surface the service's metrics through `PrefetchMetrics` as the card's five; re-run the AC harness against the wired provider and re-verify the AC; construct the service lazily from the store's reader (persistent connection) during `initialize`/first use; wrap all access with `fail_soft`; keep v2 byte-identical under the shadow flag; do not flip `ENTROPICMEM_V3_RETRIEVAL`'s default; do not wire `em/config.py`; only EM-404 (tool split) follows. **Built against that brief: the lazy service, the metrics, the `fail_soft` wrapping, v2 untouched; not built: the sync `prefetch` routing, the tests, the AC re-run.**
 
-## Part B: next — **EM-403 slice 3's second half**, EM-404's remainder, then EM-411
+## Part A (continued): Chunk 35 — EM-403 slice 3, second half: the provider's sync fact block routes through `PrefetchService`. **DONE, MERGED (2026-10-15, `a5b613a` code; docs on top, ff; 11/11 check-runs green on the exact SHA)**
 
-**EM-403 is the card in flight and the last one before a query embedding reaches the
-live path.** Slices 1 and 2 are merged (`9f9ba0c`, `31053df`) and slice 3's first half
-is on `main` (`f674146`): the service is built lazily on v3 stores, `queue_prefetch`
-enqueues into it (flag-gated), `metrics()` surfaces the five names, and shutdown
-closes it — but the synchronous `prefetch()` fact block still renders through the
-existing path on every store, and the wiring has no tests and no AC re-run. **Next,
-in order: land `em-404-tools-split` (`3dcb35f` — add its CHANGELOG line, confirm green
-CI on the exact SHA, ff-merge, delete the branch), then chunk 35: route the sync fact
-block through the service on v3 stores with the tests and the AC re-run through the
-wired provider.** Spec for the card: §4.2 exactly — the prefetch service with metrics
-`prefetch.latency_ms`, `prefetch.cache_hit`, `prefetch.partial`,
-`prefetch.injected_count`, `prefetch.tokens`. **AC (harness):** warm p95 ≤ 150 ms @
-50k, the cache-hit path ≤ 10 ms; a forced-slow generator returns within 1.5 s with a
-partial result; the block never exceeds 9,000 chars; cumulative replayed memory
-tokens over 50 turns ≤ 50 × budget × 0.6 (dedup working). It builds on EM-402's
-`scope_key` (the cache is already scope-keyed) and on the §3.6 pipeline
-(`pipeline.retrieve` + EM-307's packer/renderer are merged and waiting to be called).
-The owner's precision list below stays in force: per-query vector observability must
-stay wired, the runtime coverage fallback serves lexical rather than degrading
-silently, and the stale→re-embed queue keeps running. **Guards that stay in force:**
-nothing embeds on the agent/prefetch thread; a query with no caller-supplied vector
-keeps doing no vector work; `gate.*`/`ranking.*` config stays unwired (EM-407);
-`EM-411`'s two test groups come first when its card starts.
+### What landed
+
+- **The wiring.** `prefetch()` serves the fact block from `PrefetchService.prefetch()` whenever `_prefetch_service_for_turn()` says to: cache, dedup, hard cap and the five `prefetch.*` metrics then own the turn. `served` is True only for a service call that *returned* — an empty block from the service is an answer, not a failure. `queue_prefetch` shares the one gate. `_turn_scope()` hands the service the **effective** scope: the profile comes from `_profile_id or "default"`, exactly as `em/facade/engine.py` resolves it ("a passed scope can never make rows and reads disagree about which profile they belong to"), because the service reads the store directly and a raw `to_scope()` carries the usually-empty `agent_identity` — without this the wired path would query a profile no rows live in. The two halves share it, so the first half's `queue_precompute` scope is repaired by the same line.
+- **The gate decision (the chunk's required write-up): the service path needs BOTH a v3 store AND `ENTROPICMEM_V3_RETRIEVAL=1`. The brief (`25a8d68`, kept in the record above) named the v3 store alone. Where this lands and why: keep the flag alongside the store version.** (1) **P0b consistency:** every other v3-read switch in the provider — the facade's ranking path — is flag-gated; a prefetch that moved on the store version alone would split the provider's v3 behaviour across two different triggers, so "what turned v3 on" would have two answers. (2) **The byte-identity pin needs default-off:** P0b's golden and chunk 35's v2 golden (captured from `e4fd865` in a detached worktree, flag ON) assert the *un-wired* output; a store-version-only gate would flip the served block for every v3 store the day it was migrated — the owner's cutover act — with no separate switch to verify it under. The cost is that the wiring stays dormant until the owner flips the flag, which is the direction this card should fail in. **The flag's default is untouched.**
+- **v2 is byte-identical by construction.** The service is `None` on a v2 store, the old path runs, and the golden replays byte-for-byte; a second test blocks service construction on a v2 store outright (a raiser in `PrefetchService.__init__`) so the wiring is structurally unreachable there. A v3 store with the flag off takes the same old path (P0b's off shape) and its two goldens are unchanged and green.
+- **Fail soft, not silent.** A service that raises degrades to the v2 smart-context path (P0b's off path, always available on a v3 store) rather than losing the turn; the block is still served, and the host records no error.
+- **A defect the wiring's shutdown test found and this chunk fixes.** `PrefetchService.close()` joined its worker **before** posting the `None` sentinel — the loops block on `get()` with no timeout, so an idle worker could never be observed leaving and every close paid the full 2 s timeout (measured 2011 ms) plus a warning. Since the provider now closes a service on every v3 session end, that was a 2 s stall on every shutdown. The sentinel now goes out first; a genuinely stuck generator still times out, is counted, and is logged — the slice-2 invariant pin (`test_thread_join_timeout_counted_and_logged`) stays green — and a new pin asserts a clean shutdown is prompt and counts nothing.
+- **One deliberate test rewrite.** `test_provider_v3_retrieval.py`'s flag-on test pinned P0b's *interim* contract — facade-mapped rankings rendered as v2 bullets with scores. This chunk supersedes that contract (§4.2's render with full-id citations), so the test was rewritten to pin the new one: same fixture, same gate, `### Constraints` + `### Relevant memories` sections, full-id citations, the second identical turn a service cache hit that dedups to empty. **Its two off-path tests — the pre-P0b byte-identity golden and the "retrieve never ran" pin — are unchanged and green.**
+- **Recorded gaps on the wired path, not silently dropped:** the service owns caching and dedup, so the v2 fact-block cache and its window do not run; `touch_on_inject`'s background `last_accessed` bump does not run; and the provider's config-level `prefetch_denied_sources`/domain filters are not applied by the service. §3.5 scoping *is* applied — the service reads through the turn's scope, pinned by a two-author isolation test — and the owner-only/sensitive store rules ride the same scope.
+
+### Evidence
+
+- 13 wire-level tests (`tests/unit/test_em403_slice3_wiring.py`) + the card's AC re-run through the wired provider (`tests/harness/test_em403_slice3_wired_ac.py`): forced-slow generator **1.261 s** (< 1.5) with `partial` and earlier rows served; block **7,648 chars** (≤ 9,000); 50-turn replay **5,504** replayed tokens ≤ 13,500 (first turn 344 > 0.6 × budget); cache-hit **p95 0.09 ms** (≤ 10, 20/20 hits); warm **p95 40.58 ms** @ 50k (p50 39.44, max 42.07; ≤ 150).
+- Suite **2288 / 16 / 3** bare on 3.11 (was 2270 / 16 / 3), CI **2365 / 3 / 3** on `a5b613a`; `ruff==0.16.2` clean; the privacy digest guard clean **in place** (2289 / 15 / 3). **7 mutation checks, all red, each restored from a copy:** the gate removed (4 unit + all 4 runnable AC tests), the gate inverted (8), `_turn_scope` back to the raw scope (4), the service built on v2 stores (3), the fallback removed (1), the close sentinel reordered (1, with the 2 s stall visible), and the AC harness re-run under the gate removal.
+
+## Part B: next — **EM-404's remainder** (slice 2, then EM-405/EM-407)
+
+**EM-403 is complete.** Slices 1 and 2 are merged (`9f9ba0c`, `31053df`), and chunk 35
+(`a5b613a`) closed slice 3: the synchronous fact block routes through the service on a
+v3 store behind the v3-store **and** flag gate (the decision and its reasons are in the
+Part A record), the wire-level tests and the AC re-run are green, and v2 is
+byte-identical by construction. The card's AC, verified **through the wired provider**:
+warm p95 40.58 ms @ 50k; cache-hit 0.09 ms; forced-slow 1.261 s partial; 7,648 chars;
+50-turn replay 5,504 ≤ 13,500.
+
+**Next, in order:**
+
+1. **The owner's decision on `em-404-tools-split` (`84a555f`).** The CHANGELOG line
+   landed and CI is green on that exact SHA, but the ff-only into `main` aborted —
+   `main` had moved to `e4fd865`, which the branch predates. The choice is (a) rebase
+   the branch's two commits onto `main`, or (b) merge `main` into the branch; nothing
+   was rebased, merged, or forced, and the branch is green either way.
+2. **EM-404 slice 2 — the tool handlers split** (`handle_tool_call`'s seven branches
+   move into `em/provider/tools.py` beside the schemas slice 1 moved; the
+   source-scanning guards already read that file, so they lead the rewrite).
+3. **EM-405 (lifecycle) and EM-407 (typed config)** — where `em/config.py`'s tuned
+   `gate.*`/`ranking.*` scalars finally reach call sites. They stay unwired until
+   EM-407; do not wire them as a drive-by.
+
+The owner's precision list stays in force: per-query vector observability must stay
+wired, the runtime coverage fallback serves lexical rather than degrading silently, and
+the stale→re-embed queue keeps running. **Guards that stay in force:** nothing embeds on
+the agent/prefetch thread; a query with no caller-supplied vector keeps doing no vector
+work; `gate.*`/`ranking.*` config stays unwired (EM-407); `EM-411`'s two test groups come
+first when its card starts; `ENTROPICMEM_V3_RETRIEVAL`'s default stays off; CI's eval
+gate stays v2.
 
 ### EM-403 is sliced into three chunks (33–35)
 
@@ -394,7 +417,7 @@ chunks 34–35 complete "§4.2 exactly" and re-run the AC through the wired prov
 |---|---|---|
 | **33** | **1 — the synchronous core + the AC** | `em/provider/prefetch_service.py`: cache, deadline+partial, dedup, hard cap, the five metrics. **DONE, merged `9f9ba0c`** |
 | **34** | **2 — the async half** | `precompute`, the coalescing worker queue, the candidate-pool cache, session topic state (+0.05 soft signal), the query embedding computed on the worker. **DONE, merged `31053df`** (record in Part A) |
-| **35** | **3 — the provider wiring** | `prefetch`/`queue_prefetch` route through the service on a v3 store (v2 store unchanged), metrics surfaced, AC re-run wired. **First half on `main` (`f674146`): lazy service, `queue_prefetch`, `metrics()`, shutdown — no tests, no AC re-run, sync fact block still on the existing path. Second half is the next chunk (after EM-404 slice 1 lands): route the sync fact block, tests, AC re-run through the wired provider** |
+| **35** | **3 — the provider wiring** | `prefetch`/`queue_prefetch` route through the service on a v3 store (v2 store unchanged), metrics surfaced, AC re-run wired. **First half on `main` (`f674146`, pushed directly); second half DONE, merged `a5b613a`** — the sync fact block routes through `PrefetchService.prefetch` (gate: v3 store **and** `ENTROPICMEM_V3_RETRIEVAL=1`, decision recorded in Part A), wire-level tests, AC re-run through the wired provider |
 
 ### Chunk 33 (planned 2026-10-13) — EM-403 slice 1: `PrefetchService`, the synchronous core
 
@@ -552,19 +575,18 @@ Guards that stay in force: **do not wire `em/config.py`** outside its owning car
 - **The lesson for arming, and it is a real one:** the shadow's miss rate is a **v3-vs-v2** quantity, so it is only interpretable where v2's own injections are mostly *correct* — i.e. on a real store, not on filler. Note also the **unit mismatch** to state explicitly in whichever commit arms the ceiling: the bound is derived from a **v2-vs-truth** rate (`1 − recall@5` on the holdout) but applied to a **v3-vs-v2** ratio. That is a defensible policy ("v3 may drop no more of v2's hits than v2 itself misses against truth") but it is not an identity, and it must not be written as one.
 - **The miss ceiling is armed now, so a clean sample can read `met`** — the `cannot conclude` shape was the un-armed era's expected reading; the report still names every dimension and its margin, and a violation still outranks a short sample.
 
-### Step 2 — the next card: **EM-403's slice-3 second half**, after EM-404 slice 1 lands
+### Step 2 — the next card: **EM-404's remainder**, after the owner's landing decision
 
 **The order is the owner's (2026-10-08): EM-401–403 first, EM-411 after EM-406.**
-EM-401 and EM-402 are complete and merged; **EM-403's slices 1 and 2 are merged
-(`9f9ba0c`, `31053df`) and slice 3's first half is on `main` (`f674146`)**. Two
-chunks stand between here and the card's completion: **land EM-404 slice 1**
-(`em-404-tools-split` at `3dcb35f` — CHANGELOG line, green CI on the exact SHA,
-`git merge --ff-only`, delete the branch), then **chunk 35, slice 3's second half** —
-route the sync fact block through `PrefetchService.prefetch` on v3 stores, tests for
-the wiring, and the AC re-run through the wired provider. Only then does a query
-embedding reach the live path (through `precompute` on the worker's thread — never on
-the agent/prefetch thread). EM-411 (capture on idle &
-compaction, requested by the owner 2026-10-09) stays planned, test-first, default off
+**EM-401, EM-402 and all of EM-403 are now complete and merged** (`b8e170a`;
+`2706a86`; slices 1–3 at `9f9ba0c`, `31053df`, `a5b613a`). Two things stand between
+here and the next feature card: **the owner's decision on how to land
+`em-404-tools-split`** (`84a555f` — CHANGELOG line landed, CI green on that exact SHA,
+ff-only blocked by `main`'s move to `e4fd865`: rebase its two commits onto `main`, or
+merge `main` into the branch), then **EM-404 slice 2 (the tool handlers split)**, then
+EM-405 (lifecycle) and EM-407 (typed config — where the tuned `gate.*`/`ranking.*`
+scalars finally reach call sites; they stay unwired until it). EM-411 (capture on idle
+& compaction, requested by the owner 2026-10-09) stays planned, test-first, default off
 (plan §6.3).
 
 ### Step 3 — the pre-flight count guard. **DONE, MERGED (2026-10-08, hygiene chunk)**
@@ -602,7 +624,7 @@ suite, and **stop and report on a mismatch** instead of assuming the older numbe
 ### Pre-flight
 
 1. `main` must be at `4eb8097` or later: `git merge-base --is-ancestor 4eb8097 main`.
-2. **Baseline:** `pytest -q` gives **2347 passed, 3 skipped, 3 xfailed** in CI — measured 2026-10-14 on Python 3.12 at `3dcb35f`, with CI's extra set (fastapi, httpx, cryptography, pyyaml), numpy, and the private digest list as the repository secret; that is the figure the three pages' counters now state, and a pre-flight run is checked against it. On this box's scratch venv (`.venv311`, without fastapi/httpx/cryptography/numpy) the same command reads **2270 passed, 16 skipped, 3 xfailed** with zero failures — the missing extras change what is collected and skipped, which is the environment, not the tree. The documented skip families are unchanged: the two internal-ops script tests (`test_v2_1_8.py`, `test_v2_2_0.py`), the two numpy-gated tests (pass with numpy, and `tests/test_vector_ci_guard.py` fails if that install or either gated test disappears), and the private digest-list privacy test (skips with no list configured, passes with one, and **fails closed** under `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list). The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo).
+2. **Baseline:** `pytest -q` gives **2365 passed, 3 skipped, 3 xfailed** in CI — measured 2026-10-15 on Python 3.12 at `a5b613a`, with CI's extra set (fastapi, httpx, cryptography, pyyaml), numpy, and the private digest list as the repository secret; that is the figure the three pages' counters now state, and a pre-flight run is checked against it. On this box's scratch venv (`.venv311`, without fastapi/httpx/cryptography/numpy) the same command reads **2288 passed, 16 skipped, 3 xfailed** with zero failures — the missing extras change what is collected and skipped, which is the environment, not the tree (and with the digest list pointed in place the privacy skip becomes a pass: **2289 / 15 / 3**). The documented skip families are unchanged: the two internal-ops script tests (`test_v2_1_8.py`, `test_v2_2_0.py`), the two numpy-gated tests (pass with numpy, and `tests/test_vector_ci_guard.py` fails if that install or either gated test disappears), and the private digest-list privacy test (skips with no list configured, passes with one, and **fails closed** under `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list). The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo).
 3. **Re-measure from the code, not this file:** `_shadow.py` (`PROMOTION`, `MISS_CEILING_RULE`, `evaluate`, `read_log`, `render`, `main`), `scripts/shadow_collect.py`, `em/facade/engine.py` (`v3_retrieval_enabled`, `_recall_from_v3`), `em/retrieval/pipeline.py`, `em/retrieval/candidates.py` (`vector`), `em/embeddings/` (`backends`, `service`, `jobs`, `cache`), `em/store/embeddings.py`, `em/config.py`, `evals/tune.py`, `em/retrieval/gate.py` (`load_rows`' pinned input), `evals/` (`runner`, `metrics`, `adapters/engine_v3.py`), `.github/workflows/test.yml`.
 4. **Verify CI with the check-runs API on the commit**, and read `head_sha`.
 
