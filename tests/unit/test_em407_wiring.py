@@ -55,6 +55,14 @@ from em.store.db import Store  # noqa: E402
 from em.store.migrations import migrate  # noqa: E402
 from em.store.types import Scope  # noqa: E402
 
+#: Parsing and writing the host config file needs PyYAML — the same optional
+#: dependency ``_backend.load_plugin_config``/``save_config`` carry (CI's test
+#: jobs install it; the windows-import job runs ``tests/unit`` with pytest
+#: alone, where these skip like the numpy-gated tests do).
+needs_yaml = pytest.mark.skipif(
+    importlib.util.find_spec("yaml") is None, reason="PyYAML not installed"
+)
+
 SCOPE = Scope(profile="em407")
 QUERY = "what is the staging port?"
 
@@ -120,6 +128,7 @@ def _provider_with_v3_store(tmp_path: Path, db: Path, config: dict | None = None
 # --- initialize: the §3.8 sources -------------------------------------------
 
 
+@needs_yaml
 def test_initialize_reads_memory_entropicmem_over_plugins_entropicmem(tmp_path):
     (tmp_path / "config.yaml").write_text(
         "plugins:\n"
@@ -191,6 +200,7 @@ def test_constructor_overrides_are_last_and_accept_dotted_keys(tmp_path):
     assert provider._typed_config.prefetch.token_budget == 777
 
 
+@needs_yaml
 def test_invalid_values_fall_back_and_are_logged_once(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(EntropicMemMemoryProvider, "_config_errors_logged", False, raising=False)
     (tmp_path / "config.yaml").write_text(
@@ -242,6 +252,7 @@ def test_there_is_no_post_setup():
     assert not hasattr(EntropicMemMemoryProvider, "post_setup")
 
 
+@needs_yaml
 def test_save_config_nests_into_memory_entropicmem_and_touches_nothing_else(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text(
@@ -268,6 +279,7 @@ def test_save_config_nests_into_memory_entropicmem_and_touches_nothing_else(tmp_
     assert data["plugins"]["homeassistant"]["enabled"] is True
 
 
+@needs_yaml
 def test_save_config_round_trips_through_initialize(tmp_path):
     """The card's AC: save, then the next init reads the saved values back."""
     provider = EntropicMemMemoryProvider(config={})
@@ -281,6 +293,7 @@ def test_save_config_round_trips_through_initialize(tmp_path):
     assert fresh._gate_config.min_score == 0.42
 
 
+@needs_yaml
 def test_save_config_raises_when_the_file_cannot_be_written(tmp_path):
     home_as_file = tmp_path / "home-as-file"
     home_as_file.write_text("not a directory", encoding="utf-8")
@@ -289,6 +302,7 @@ def test_save_config_raises_when_the_file_cannot_be_written(tmp_path):
         provider.save_config({"scope.mode": "profile"}, str(home_as_file))
 
 
+@needs_yaml
 def test_save_config_raises_when_the_atomic_replace_fails(tmp_path, monkeypatch):
     """Also the last step fails loudly: a half-written config the host counts as
     saved would be worse than a visible setup error."""
