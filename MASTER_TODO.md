@@ -13,23 +13,27 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-15, against branch `main` at `e483d43` — the
-**branch-first landing of EM-405's lifecycle slice, which completes the card**
-(the `on_delegation` row enqueuing one redacted `delegation` episode and, on v3,
-one `extract_session` job; the rewound-turn retraction — one `retract_turns`
-job, `MemoryStore.retract_session`, `retracted_by_undo`, and the reason-gated
-`deleted → active` restore; the provider-owned `turn_index` persisted per session
-in `meta` as `turn_index:<sid>` and stamped as `source_turn` on both write
-paths; the WAL checkpoint before close; `plugin.yaml`'s `provides_hooks` 5 → 6):
-the tree was verified on this box (**bare 2492 / 16 / 3**; with the digest list
-**2493 / 15 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
+**Last reconciled:** 2026-10-15, against branch `main` at `2b21ad1` — the
+**branch-first landing of EM-407's typed config, which completes the card**
+(Appendix A's typed model in `em/config.py`; §3.8's loader precedence — the
+host's merged `plugins.entropicmem`/`memory.entropicmem` view, the dashboard's
+`flat_json` at `$HERMES_HOME/entropicmem/config.json`, `ENTROPICMEM_*` paths
+only, constructor overrides; validation errors collected, logged once, defaults
+kept; the typed `get_config_schema()`; `save_config` nesting into
+`memory.entropicmem` atomically; the `plugins/entropicmem/config_schema.py`
+`flat_json` entry; and **EM-306's calibrated `gate.*`/`ranking.*` scalars
+reaching the call sites** — the search tool, the `PrefetchService` and the v3
+facade all pass `retrieve(gate_config=, rank_weights=)` now): the tree was
+verified on this box (**bare 2541 / 16 / 3**; with the digest list
+**2542 / 15 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
 SHA after **all 11 CI jobs were green on it** (the branch push and the main push
-each ran the job set; none red — CI's 3.12 count is **2569 / 3 / 3**). The branch
+each ran the job set; none red — CI's 3.12 count is **2618 / 3 / 3**). The branch
 is deleted, and the remote carries `main` and `release/2.8.x`. Named deliberately
-instead of the docs tip that follows it. Before it: the **EM-404 validation
-slice** (`5000942`, which completes that card), the **slice-2 landing**
-(`e5e54ef`) and the **owner-chosen landing of slice 1** (`381197f`, `3dcb35f` +
-`84a555f`; the record is in §5).
+instead of the docs tip that follows it. Before it: the **EM-405 lifecycle
+slice** (`e483d43`, which completes that card), the **EM-404 validation slice**
+(`5000942`, which completes that card), the **slice-2 landing** (`e5e54ef`) and
+the **owner-chosen landing of slice 1** (`381197f`, `3dcb35f` + `84a555f`; the
+records are in §5).
 
 **A second reconciliation pass on 2026-10-15 (docs only, no product change) re-read
 all pages against the tree and corrected five stale classes:** the EM-404 slice-1
@@ -38,7 +42,10 @@ moved — the landing choice stays the owner's), the priority rows for EM-307 /
 EM-303 / EM-401–403, the superseded-note gap (**the wired path does render it** —
 the service feeds `retrieval.predecessors` into `load_pack_items`), the
 `gate.*`/`ranking.*` expectation (**EM-401–403 landed without wiring them; EM-407
-is the named owner**), and the finding this pass records loudest: **the query
+was the named owner — resolved 2026-10-15: EM-407 landed (`2b21ad1`), the
+provider passes the typed `GateConfig`/`RankWeights` at every call site, and the
+eval adapter's own defaults remain the spec**), and the finding this pass records
+loudest: **the query
 embedding is not wired — `ensure_embedding_model` has no caller outside
 `em/embeddings/jobs.py`, the service is built with no `embed_query`, and the
 served path passes no `query_vector`, so even the wired v3+flag path scores
@@ -117,6 +124,14 @@ decision and its reasons are recorded on `_prefetch_service_for_turn` and in
 is green **through the wired provider**: warm p95 40.58 ms @ 50k, cache-hit 0.09 ms,
 forced-slow 1.261 s partial, 7,648 chars, 50-turn replay 5,504 ≤ 13,500 tokens.
 
+**EM-407 landed (2026-10-15, `2b21ad1`) and seated the typed config under the
+provider.** Appendix A's model and §3.8's loader are `em/config.py`'s; the typed
+`get_config_schema()` and the `memory.entropicmem`-nesting `save_config` are
+live; and **EM-306's calibrated `gate.*`/`ranking.*` scalars reach the call
+sites** — the search tool, the `PrefetchService` and the v3 facade all pass
+`retrieve(gate_config=, rank_weights=)`. The eval adapter's defaults remain the
+spec (the CI eval gate stays v2 by EM-306's call).
+
 > **Live retrieval is lexical. Semantic retrieval is not shipped.** The EM-303
 > stack (backends, jobs, cache, cosine gate, MMR) is merged and measured, but
 > the provider does not produce a query embedding yet. **EM-401–403 are all
@@ -146,7 +161,9 @@ it cannot happen until the v3 core is wired in and the live store is migrated.
 That work is listed under [What is next](#what-is-next); the cutover itself is
 owner-gated.
 
-What `em/` contains today: `em.clock` (freezable UTC, ULIDs), `em.store`
+What `em/` contains today: `em.clock` (freezable UTC, ULIDs), `em.config`
+(EM-306's calibrated scalars inside EM-407's typed model, the `RULES` table and
+§3.8's `load_config`), `em.store`
 (`db`/portable locking, numbered migrations `0001`–`0004`, `MemoryStore`,
 `episodes`, `entities`, `jobs`, `backup`, hash-chained `audit`), `em.jobs` (queue,
 worker, `entropicmem worker run`), `em.formation` (`EntityLinker`), `em.retrieval`
@@ -317,6 +334,59 @@ suite **2492 / 16 / 3** bare (was 2469 / 16 / 3) and **2493 / 15 / 3** with the
 digest list in place; `ruff==0.16.2` clean; **23 of 23 mutation checks red**,
 each restored from a byte copy.
 
+**EM-407's typed config landed on `main` as `2b21ad1` — branch-first (two
+commits: `0f38fbf` the card, `2b21ad1` the windows-import test gate), and it
+completes the card.** `em/config.py` grows from EM-306's scalar block into
+Appendix A's **typed model**: sixteen dataclasses (the fourteen sections plus
+`entities` and the root `timezone`), one frozen `Rule` per typed leaf (kind,
+label, description, choices, minimum/maximum — kinds `text`, `select`, `bool`,
+`integer`, `number`, `string_list`, `float_map`), `iter_leaf_keys()`, and a
+bidirectional test that walks model and rules together. `load_config(sources=(),
+*, overrides=None)` is §3.8's order exactly — defaults → the host's merged view
+(`plugins.entropicmem` flat plus the preferred nested `memory.entropicmem`,
+nested winning inside the source) → `$HERMES_HOME/entropicmem/config.json` (the
+dashboard's `flat_json`) → `ENTROPICMEM_*` **paths only** → constructor
+overrides — flattening nested sections to dotted keys; the one mapping leaf
+(`gate.min_cosine`) stays whole, and the nine `LEGACY_KEY_MAP` entries (including
+`prefetch_token_budget → prefetch.token_budget`, chars ÷ 4 clamped
+`max(100, min(2000, …))`) apply before direct keys, so a nested/dotted spelling
+beats a flat one inside a source. Invalid values are **collected, never raised**:
+`ConfigError(key, value, message)` on `ConfigLoad.errors`, the default (or the
+last valid value) standing, the list logged **once** at `initialize` ("config
+value(s) rejected") and kept on the provider for the future `doctor`. The
+gate/ranking defaults stay EM-306's calibrated pair — `0.30`/`0.34` and
+`0.50/0.25/0.10/0.10/0.05`, not Appendix A's spec table — and `gate.min_cosine`
+is a duplicated literal pinned equal to `GATE_MIN_COSINE` (stdlib-only, no
+import). `get_config_schema()` renders the curated **24 dotted keys** with
+`type`/`choices`/`minimum`/`maximum`/`default`, and there is deliberately **no
+`post_setup`** (it would replace the host wizard and skip saving
+`memory.provider`). `save_config` nests dotted keys into `memory.entropicmem`,
+leaves every other section and plugin untouched, and writes atomically
+(`.yaml.tmp` + replace); a write failure raises — the host sees a failed setup
+(the hook is fail-closed, pinned). `plugins/entropicmem/config_schema.py` (new)
+declares the dashboard's `flat_json` entry importing only
+`plugins.memory.config_schema` (AST-pinned), defaults as literal strings
+mirroring the model. **The point of the card:** the tuned scalars reach the
+pipeline's `retrieve(gate_config=, rank_weights=)` seam — `initialize` builds one
+`GateConfig`/`RankWeights` from the typed config (the paths overlay feeds
+`resolve_paths`; the embeddings switch reads the typed key) and the search tool,
+the `PrefetchService` (constructor and `_retrieval_kwargs`; both retrieve calls)
+and the v3 facade (`V3Engine`/`open_engine` accept and forward; v2
+accepts-and-ignores) all pass them. `cmd_init` prints the hourly cron line.
+Deliberate contract updates, each at the changed surface's own claim: the schema
+pin renamed and re-based on the typed model's defaults, the save drive switched
+to a dotted key, and the EM-403 wired AC's comment records the clamp;
+`tests/harness/pinned_memory_provider.json` is unchanged (the host contract did
+not move). 49 new tests (`tests/unit/test_em407_config.py` 30,
+`tests/unit/test_em407_wiring.py` 19); suite **2541 / 16 / 3** bare (was
+2492 / 16 / 3) and **2542 / 15 / 3** with the digest list in place;
+`ruff==0.16.2` clean; **16 of 16 mutation checks red**, each restored from a
+byte copy. The first CI round on `0f38fbf` was **10/11**: `windows-import` runs
+`tests/unit` with pytest alone (no PyYAML), where six of the new wiring tests
+read or write `config.yaml` — they now carry the same `needs_yaml` marker the
+identity tests use (`2b21ad1`: 13 passed / 6 skipped there), and the second
+round was **11/11**.
+
 **EM-403 slice 3's first half is on `main` without a chunk number — recorded here so
 it is neither forgotten nor mistaken for the whole card.** `f674146` (code, +90 lines
 in `em/provider/provider.py`) and `55f85ce` (its docs note) were committed onto `main`
@@ -349,12 +419,18 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing — `em-405-lifecycle` landed on `main` as `e483d43` by the branch-first
-path (code + tests + CHANGELOG committed, pushed, all 11 CI jobs green on that
-exact SHA, then `git merge --ff-only`; the branch is deleted).** The tree was
-verified on this box (bare **2492 / 16 / 3**; digest-list **2493 / 15 / 3**;
+**Nothing — `em-407-typed-config` landed on `main` as `2b21ad1` by the
+branch-first path (two commits: `0f38fbf` the card and `2b21ad1` the
+windows-import gate; code + tests + CHANGELOG, pushed, all 11 CI jobs green on
+that exact SHA, then `git merge --ff-only`; the branch is deleted).** The tree
+was verified on this box (bare **2541 / 16 / 3**; digest-list **2542 / 15 / 3**;
 `ruff==0.16.2` clean). Its record is in §5, START HERE, and the note above.
-**Next: EM-407 (typed config).**
+**Next: the owner's to place — the query-embedding wiring card (the open gap of
+2026-10-15; it needs a card before it can be scheduled), or one of the remaining
+S4 cards: EM-406 (checkpoint v2 / evidence archive — EM-411 follows it),
+EM-408 (CLI), EM-409 (system prompt — the natural home of the owed alias
+rewrite), EM-410 (cron & worker integration). P0c's data still waits on the
+owner's host.**
 
 **`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
 and, on top, the EM-404 landings — slice 1 (`381197f`), slice 2 (`e5e54ef`) and the
@@ -428,8 +504,9 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   unprefixed names — the AC names only the six.
 - **EM-306 landed (2026-10-08) and armed the miss ceiling:** `python -m evals tune`
   calibrates the hard suite on a dev/holdout split by id hash and commits its choice as
-  `em/config.py` scalars (still unwired — the EM-401–403 expectation did not hold;
-  EM-407 is the named owner, recorded 2026-10-15); the same holdout executed the
+  `em/config.py` scalars (**wired to the call sites by EM-407, `2b21ad1`** — the
+  expectation that EM-401–403 would wire them did not hold; the typed config landed
+  the seam); the same holdout executed the
   pre-registered arming rule, so `_shadow`'s promotion observable is fully armed and
   **P0's code is complete**.
 - **EM-307 landed (2026-10-09, `7d6a22e`): the token packer and §3.6 renderer, and a
@@ -571,36 +648,37 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**EM-405's lifecycle slice is merged (`e483d43`, all 11 CI jobs green on that
-exact SHA — the branch-first landing of `em-405-lifecycle`: code + tests +
-CHANGELOG, push, check-runs, `git merge --ff-only`, branch deleted), on top of the
-EM-404 validation slice (`5000942`, which completes that card — the nine v3 tools
-of Appendix B on both stores, the five legacy names routing for one minor
-version), the slice-2 landing (`e5e54ef`), the slice-1 landing (`381197f`) and the
-chunk-35 merge (`a5b613a`). `on_delegation` is implemented, `/undo` retracts the
-undone turn's stamped memories, and the turn index persists per session. **EM-405
-is complete.**
+**EM-407's typed config is merged (`2b21ad1`, all 11 CI jobs green on that
+exact SHA — the branch-first landing of `em-407-typed-config`: two commits, code
++ tests + CHANGELOG, push, check-runs, `git merge --ff-only`, branch deleted), on
+top of the EM-405 lifecycle slice (`e483d43`, which completes that card), the
+EM-404 validation slice (`5000942`, which completes that card — the nine v3
+tools of Appendix B on both stores, the five legacy names routing for one minor
+version), the slice-2 landing (`e5e54ef`), the slice-1 landing (`381197f`) and
+the chunk-35 merge (`a5b613a`). Appendix A's typed model, §3.8's loader and the
+typed schema/save pair are on `main`, and **the tuned `gate.*`/`ranking.*`
+scalars now reach every call site**. **EM-407 is complete.**
 
-1. **The next chunk: EM-407 (typed config) — where `em/config.py`'s tuned
-   `gate.*`/`ranking.*` scalars finally reach call sites; they stay unwired until
-   it.** The card: the typed `Config` model (Appendix A) in `em/config.py`, the
-   §3.8 loader precedence, collected validation errors (doctor-facing; logged once
-   at initialize, invalid values falling back to defaults), the typed
-   `get_config_schema()` (~20 dotted keys) with a `save_config` that nests into
-   `memory.entropicmem` atomically, the `plugins/entropicmem/config_schema.py`
-   `flat_json` entry, and the wiring that feeds the calibrated scalars into the
-   pipeline's `retrieve(gate_config=, rank_weights=)` seam. Follow the branch-first
-   workflow end to end: tests + CHANGELOG, push, check-runs on the exact SHA,
-   `git merge --ff-only`, delete.
+1. **The next chunk is the owner's to place.** The candidates, all recorded:
+   the **query-embedding wiring card** (the open gap below — it needs a card
+   before it can be scheduled, and the owner places it); the remaining S4 cards
+   — **EM-406** (checkpoint v2 / evidence archive; **EM-411 follows it**, its
+   test-first brief ready), **EM-408** (`hermes entropicmem …` CLI), **EM-409**
+   (system prompt: policy + core — the natural home of the owed legacy-alias
+   rewrite), **EM-410** (cron & worker integration); and **P0c's data**, still
+   blocked on the owner's host (item 2 below). Whatever is chosen, follow the
+   branch-first workflow end to end: tests + CHANGELOG, push, check-runs on the
+   exact SHA, `git merge --ff-only`, delete.
 
-**The card's AC, verified through the wired provider (chunk 35):** warm p95
+**EM-403's AC, verified through the wired provider (chunk 35):** warm p95
 **40.58 ms** @ 50k (p50 39.44, max 42.07); cache-hit **p95 0.09 ms**; forced-slow
 generator **1.261 s** with `partial` and earlier rows served; block **7,648** chars;
 50-turn replay **5,504** ≤ 13,500 tokens. Live retrieval is still lexical — **the
 query embedding is unwired, so even the wired path is lexical/entity/episodic (the
 open gap below)**; **nothing
 embeds on the agent/prefetch thread**; `ENTROPICMEM_V3_RETRIEVAL` stays off; CI's eval
-gate stays v2; `em/config.py` stays unwired. EM-411 stays test-first, unbuilt, default
+gate stays v2 (the adapter's own defaults are the spec; EM-407 wired the provider's
+call sites, not the adapter). EM-411 stays test-first, unbuilt, default
 off. The cutover stays with the owner. P0's observable stays armed at `0.107143`.
 
 **Known gaps, recorded rather than hidden — the wired (v3 + flag) path:** **the
@@ -637,10 +715,10 @@ line there.**
    observable is fully armed now, so a clean sample can conclude; until (a) exists, the
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
-3. **Pre-flight:** `python -m pytest -q` gives **2569 passed / 3 skipped / 3 xfailed**
-   in CI (3.12 at `e483d43`, with the extra set fastapi/httpx/cryptography/pyyaml,
+3. **Pre-flight:** `python -m pytest -q` gives **2618 passed / 3 skipped / 3 xfailed**
+   in CI (3.12 at `2b21ad1`, with the extra set fastapi/httpx/cryptography/pyyaml,
    numpy, and the private digest list as the repository secret); this box's scratch
-   venv (`.venv311`, without those extras) reads **2492 / 16 / 3** — the environment,
+   venv (`.venv311`, without those extras) reads **2541 / 16 / 3** — the environment,
    not the tree. `git merge-base --is-ancestor 4eb8097 HEAD` proves the base.
 4. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
    `run list`, which can hand back a stale green.
@@ -663,9 +741,13 @@ The owner set the order explicitly; do not reorder it without asking.
 **The owner's order was re-set on 2026-10-08** (this table): P0c first as the gating
 empirical step — now blocked only on a host, with the observable armed — then EM-306
 (**done**), then EM-307 (**done, merged**), then EM-303 (**closed and merged
-`3439b77`**: search, MMR, backends, jobs and the cache). **The next chunk's order
-is the owner's to set**; the candidates are listed in the table. P1 is done and P3
-stays with the owner. Do not reorder without asking.
+`3439b77`**: search, MMR, backends, jobs and the cache). Since then EM-404
+(validation, `5000942`), EM-405 (lifecycle, `e483d43`) and EM-407 (the typed
+config, `2b21ad1` — the chunk that seated EM-306's scalars at the call sites)
+landed. **The next chunk's order is the owner's to set**; the candidates are the
+query-embedding wiring card (recorded 2026-10-15, no owning card) and the
+remaining S4 cards (EM-406, EM-408, EM-409, EM-410). P1 is done and P3 stays
+with the owner. Do not reorder without asking.
 
 **P0b's shape, as landed — serve prefetch from S3 on a v3 store:**
 
@@ -716,16 +798,20 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   numpy so the cache tests and the 50k AC run there. **What is still absent — and now has no owning card (recorded 2026-10-15):** the **provider** does not embed a query. EM-401–403 all landed without wiring it (`ensure_embedding_model` has no caller outside `em/embeddings/jobs.py`; `_ensure_prefetch_service` builds the service with no `embed_query`; the served path passes no `query_vector`), so even the wired v3+flag path scores lexical/entity/episodic. **That wiring needs a card before it can be scheduled.**
   The cache's one recorded caveat: a raw-SQL same-length rewrite is not re-read
   until reset (all `put_embedding` writes are seen).
-* **§3.6's IDF cache and `query_rewrite` have no source (EM-301)** — nothing defines
-  the `write_generation` counter the cache would key on, so the vocabulary is read
-  per call, and there is no config module to enable `query_rewrite` or a hook to
-  call. Both are recorded in V3_FOUNDATIONS; they belong to EM-403/EM-407.
+* **§3.6's `query_rewrite` has no call site (EM-301; the IDF cache landed with
+  EM-403 slice 1)** — `query.VocabularyCache` now keys on the service's
+  `write_generation`, so the vocabulary is cached; but nothing implements a
+  rewrite or calls one, and the typed config's `prefetch.query_rewrite` (EM-407,
+  default `none`) is the switch with nothing behind it yet. Recorded in
+  V3_FOUNDATIONS; the rewrite itself needs its own card.
 * **The full temporal grammar is EM-310's** — EM-301 handles an ISO date, "since",
   "before", "between" and "last N days/weeks/months/years"; month names,
   weekdays, "earlier this week" and the `timezone` config are EM-310's.
-* **`ranking.*` is still the spec defaults at the call site (EM-304 / EM-306).**
-  `fusion.RankWeights` carries §3.6's numbers. EM-306's tuned scalars are in
-  `em/config.py` and nothing in retrieval reads them. `superseded_note` is emitted
+* **`ranking.*` reaches the provider's call sites now (EM-407, `2b21ad1`); the
+  eval adapter's defaults remain the spec (EM-304 / EM-306).**
+  `fusion.RankWeights` carries §3.6's numbers as its default; the provider builds
+  the weights from the typed config (EM-306's calibrated
+  `0.50/0.25/0.10/0.10/0.05`) and passes them into `retrieve`. `superseded_note` is emitted
   by EM-305; `render_retrieval` prints it when the pipeline kept a predecessor,
   and since chunk 35 **the wired path does too** — the service feeds
   `retrieval.predecessors` into `load_pack_items` and renders `updated …; was: …`
@@ -787,11 +873,14 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   `em/facade/engine.py`'s `v3_retrieval_enabled()` is the only reader in product code;
   the flip is `== "1"` → `!= "0"`, plus the tests and docs that pin default-off (the
   strictness test is meant to go red so the flip is a conscious act). Wiring the flag to
-  a config key instead of an env var is EM-306/EM-407 work.
-* **`gate.*`/`ranking.*` tuned defaults now exist in `em/config.py` (EM-306)** —
-  committed but **unwired**: the expectation that EM-401–403 would wire them did
-  not hold (recorded 2026-10-15) — they still reach no call site, and the typed
-  loader/schema owner is **EM-407**. `extra_stopwords` remains
+  a config key instead of an env var is still open: EM-407 landed the typed config
+  (`2b21ad1`) so the key now has a home, but making the flag config-driven (and
+  flipping the default) stays owner-facing.
+* **`gate.*`/`ranking.*` are wired to the provider's call sites (EM-306 → EM-407,
+  `2b21ad1`)** — `initialize` builds the `GateConfig`/`RankWeights` from the typed
+  config, and the search tool, the `PrefetchService` and the v3 facade pass them
+  into `retrieve`; the eval adapter's defaults are still the spec, so the CI eval
+  gate stays v2 by EM-306's call. `extra_stopwords` remains
   EM-301's parameter.
 
 ### The v3 cutover — **both conditions met; the owner decides**
@@ -814,17 +903,17 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2569 passed / 3 skipped / 3 xfailed** (CI, 3.12 at `e483d43`) |
+| Tests | `python -m pytest -q` | **2618 passed / 3 skipped / 3 xfailed** (CI, 3.12 at `2b21ad1`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2569 / 3 / 3 figure is CI's** (extras + numpy +
+`ENTROPICMEM_INDEX_DB` unset. **The 2618 / 3 / 3 figure is CI's** (extras + numpy +
 the private digest list as the repository secret) and is the reference a pre-flight
 run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
-cryptography/numpy) reads **2492 passed / 16 skipped / 3 xfailed** — the missing
+cryptography/numpy) reads **2541 passed / 16 skipped / 3 xfailed** — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the one CI red on `3dcb35f` was the numpy-gated 50k AC flaking
 once, green on rerun of the same SHA). **The skip count is 3 on a machine without the

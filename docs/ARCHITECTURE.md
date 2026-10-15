@@ -32,8 +32,9 @@ All engine code lives under `plugins/entropicmem/scripts/`, inside the plugin di
 Beside the 2.8.x provider above, `main` carries the 3.0 development line
 (`3.0.0.dev0`): a second, stdlib-only package under
 `plugins/entropicmem/scripts/em/`, with its own schema and migrations. **Nothing
-in it is wired into the plugin yet** — the provider still runs the engine in the
-component map above. The wiring is EM-211 (a legacy facade over `em.store`),
+in it is wired into the plugin yet — except `em.config`, EM-407's typed config
+read by the provider at `initialize`** — the provider still runs the engine in
+the component map above. The wiring is EM-211 (a legacy facade over `em.store`),
 whose facade `V3Engine` now implements the whole provider-facing contract; what
 remains is the entity-linker job and then switching the provider over. Every
 module is listed in `[tool.setuptools] packages`, and `em.__version__` is the
@@ -62,6 +63,7 @@ single version source for the whole repo.
 | `em.retrieval.fusion` | EM-304's weighted RRF, feature rerank, deterministic tie-break and explanation, plus the scoped feature loader |
 | `em.retrieval.gate` | EM-305's abstention gate: the four support conditions, then the score threshold |
 | `em.retrieval.diversity` | EM-305's supersession/duplicate collapse and MMR diversity |
+| `em.config` | EM-407's typed model (Appendix A) and §3.8's loader — collected validation, `save_config` nesting into `memory.entropicmem`, and the dashboard's `flat_json` schema in `plugins/entropicmem/config_schema.py`. EM-306's calibrated `gate.*`/`ranking.*` scalars reach the call sites: `initialize` builds `GateConfig`/`RankWeights` from here and passes them into `retrieve` |
 
 The ten invariants in [`V3_FOUNDATIONS.md`](V3_FOUNDATIONS.md) are the rules for
 this package: transactions belong to the caller, no slow work inside a write

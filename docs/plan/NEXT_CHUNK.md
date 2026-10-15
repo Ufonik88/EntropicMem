@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-15 (sixth pass — the EM-405 lifecycle-slice landing, which completes the card). **`main` is at `e483d43` — the branch-first landing of `em-405-lifecycle` (Part A's last record has the detail: the `on_delegation` row, the rewound-turn retraction through `retract_turns`, the provider-owned turn index, and the one reason-gated restorable deletion; 23 new tests; all 11 CI jobs green on that exact SHA — CI's 3.12 count 2569/3/3, this box 2492/16/3 bare and 2493/15/3 with the digest list — then `git merge --ff-only`; branch deleted) — on top of the EM-404 validation slice (`5000942`, which completed that card), the slice-2 landing (`e5e54ef`), the slice-1 landing (`381197f`, the owner-chosen merge-into-branch path) and the chunk-35 merge (`a5b613a`). EM-403, EM-404 and EM-405 are complete:** Chunk 33 (slice 1, `9f9ba0c`), Chunk 34 (slice 2, ff-merged as `31053df`, docs `007bb22`), **Chunk 35 (slice 3, second half, `a5b613a`)** — the synchronous fact block routes through `PrefetchService.prefetch` on a v3 store, gated on the v3 store **and** `ENTROPICMEM_V3_RETRIEVAL=1` (the decision and its reasons are in Part A); v2 stores are byte-identical by construction (golden captured from `e4fd865` in a detached worktree); the wire-level tests and the **AC re-run through the wired provider** are green (warm p95 40.58 ms @ 50k, cache-hit 0.09 ms, forced-slow 1.261 s partial, 7,648 chars, 50-turn replay 5,504 ≤ 13,500). The first half (`f674146` + `55f85ce`, pushed **directly to `main`, CI green post-push on both exact SHAs) is recorded in Part A with everything it deliberately did not do. **Nothing is in flight; `em-405-lifecycle` is deleted (landed `e483d43`).** **Next chunk: EM-407 (typed config).** **Live retrieval is lexical — and stays lexical whatever the flag does: the query embedding is unwired (`ensure_embedding_model` has no live caller; the service is built with no `embed_query`; the served path passes no `query_vector`), an open gap with no owning card, recorded 2026-10-15 in Part B — no semantic-retrieval claims before it.** **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
+**Updated:** 2026-10-15 (seventh pass — the EM-407 typed-config landing, which completes the card). **`main` is at `2b21ad1` — the branch-first landing of `em-407-typed-config` (Part A's last record has the detail: Appendix A's typed model, §3.8's loader, the typed schema/save pair, and EM-306's calibrated `gate.*`/`ranking.*` scalars at the call sites; 49 new tests; the second commit gates the six PyYAML-dependent wiring tests for the `windows-import` job; all 11 CI jobs green on that exact SHA — CI's 3.12 count 2618/3/3, this box 2541/16/3 bare and 2542/15/3 with the digest list — then `git merge --ff-only`; branch deleted) — on top of the EM-405 lifecycle slice (`e483d43`, which completes that card), the EM-404 validation slice (`5000942`, which completed that card), the slice-2 landing (`e5e54ef`), the slice-1 landing (`381197f`, the owner-chosen merge-into-branch path) and the chunk-35 merge (`a5b613a`). EM-403, EM-404, EM-405 and EM-407 are complete:** Chunk 33 (slice 1, `9f9ba0c`), Chunk 34 (slice 2, ff-merged as `31053df`, docs `007bb22`), **Chunk 35 (slice 3, second half, `a5b613a`)** — the synchronous fact block routes through `PrefetchService.prefetch` on a v3 store, gated on the v3 store **and** `ENTROPICMEM_V3_RETRIEVAL=1` (the decision and its reasons are in Part A); v2 stores are byte-identical by construction (golden captured from `e4fd865` in a detached worktree); the wire-level tests and the **AC re-run through the wired provider** are green (warm p95 40.58 ms @ 50k, cache-hit 0.09 ms, forced-slow 1.261 s partial, 7,648 chars, 50-turn replay 5,504 ≤ 13,500). The first half (`f674146` + `55f85ce`, pushed **directly to `main`, CI green post-push on both exact SHAs) is recorded in Part A with everything it deliberately did not do. **Nothing is in flight; `em-407-typed-config` is deleted (landed `2b21ad1`).** **Next chunk: the owner's to place — the query-embedding wiring card (it needs a card first) or the remaining S4 cards (EM-406, EM-408, EM-409, EM-410); the candidates are laid out in Part B.** **Live retrieval is lexical — and stays lexical whatever the flag does: the query embedding is unwired (`ensure_embedding_model` has no live caller; the service is built with no `embed_query`; the served path passes no `query_vector`), an open gap with no owning card, recorded 2026-10-15 in Part B — no semantic-retrieval claims before it.** **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
 
 **Owner decisions in force — the order was re-set on 2026-10-08** (`REMAINING_PLAN.md` §9 item 6):
 1. **P0c — collect the shadow data.** The gating empirical step for the cutover. **Freeze before you look: do not fit a threshold to the sample, and report the raw distribution and the margin, not just a green light.** The observable is now fully armed, so a clean sample can conclude — it still needs the dev-line shadow on a host (the owner's machine is active).
@@ -10,7 +10,7 @@
 
 **The ceiling ruling (§9 item 7), in force from `3c8b301` and executed by EM-306:** `max_v3_only = 0` is hard and non-negotiable — a fabricated hit is a correctness/safety failure. The miss side is its own ceiling, `max_v2_miss_rate`, **armed 2026-10-08 at `0.107143`** — `1 − recall@5` of the v2 adapter on EM-306's holdout split (`evals/results/tune-hard-4eb8097.json`), which is exactly what `_shadow.MISS_CEILING_RULE` pre-registered. **The rule states the relationship plainly: the shadow's rate is v3-vs-v2, the bound is v2-vs-truth applied to it — a policy choice, not an identity.** **Do not re-arm it from a synthetic sample** — that is evidence about the metric, not about turns. The un-armed shape (`None` → `not armed`, blocking `met`) still exists and is tested; a clean sample can now read `met`.
 
-**Still in force:** **the cutover is the owner's call** — both re-decision conditions are met in code, and **"conditions met" is not "proceed"**. The **flag default flip and `gate.*`/`ranking.*` plumbing are owner-facing**: staged, not pre-empted (the flip is one line plus the tests that pin default-off; the tuned scalars are committed but unwired). **CI's eval gate stays v2** — EM-306 made that call and wrote it on the `evals-ci` job: the tuned defaults are not wired (EM-401–403 landed without wiring them; EM-407 is the named owner — 2026-10-15), so a v3 gate today would enforce the spec defaults, not the calibration, and `tests/evals/test_adapter_v3.py` already protects v3 in the ordinary suite. **Chunk 13 is forward-only, ratified, internal only**; `release/2.8.x` carries no `em/`, so its only vehicle is 3.0. **Never write to the live store**; the readout and collector are read-only by construction and asserted so.
+**Still in force:** **the cutover is the owner's call** — both re-decision conditions are met in code, and **"conditions met" is not "proceed"**. The **flag default flip is owner-facing**: staged, not pre-empted (the flip is one line plus the tests that pin default-off; the tuned scalars reached the provider's call sites with EM-407, `2b21ad1`). **CI's eval gate stays v2** — EM-306 made that call and wrote it on the `evals-ci` job: the adapter's own defaults remain the spec (EM-407 wired the provider, not the adapter — 2026-10-15), so a v3 gate today would enforce the spec defaults, not the calibration, and `tests/evals/test_adapter_v3.py` already protects v3 in the ordinary suite. **Chunk 13 is forward-only, ratified, internal only**; `release/2.8.x` carries no `em/`, so its only vehicle is 3.0. **Never write to the live store**; the readout and collector are read-only by construction and asserted so.
 
 **Plan exactly one chunk.** Two commits: code+tests+CHANGELOG, then docs with the reconciliation folded in. `MASTER_TODO`'s `In flight` names no commit; `Last reconciled` names a permanent ancestor. **Verify CI with the check-runs API on the exact SHA** (`ghx api repos/Ufonik88/EntropicMem/commits/<sha>/check-runs`), never `ghx run list --branch main --limit 1`.
 
@@ -26,7 +26,7 @@
 - **One seam in the real pipeline, not a second pipeline.** `pipeline.retrieve` takes optional `gate_config`/`rank_weights` (defaults: the spec) and the v3 adapter threads them; tests pin that an override reaches the stage it names and that `None` is the spec.
 - **What the run found.** 27 candidates, 44 dev scenarios / 126 turns; holdout 16 scenarios / 28 scored turns, never optimised. Gate thresholds **stayed at the spec's 0.30/0.34**; the rerank weights moved to `importance_heavy` (rrf 0.50 / importance 0.25 / recency 0.10 / confidence 0.10 / feedback 0.05) — dev mrr 0.917 → 0.919, **holdout mrr 0.865 → 0.881** with the same recall (0.869) and noise (0.115). Committed as `em/config.py` + `evals/results/tune-hard-4eb8097.json`; a test pins the two together.
 - **The same holdout executes the pre-registered arming rule.** v2's recall@5 on it is 0.892857 → `max_v2_miss_rate = 0.107143`. The rule keeps the policy statement (v3-vs-v2 rate, v2-vs-truth bound, a policy choice not an identity), and a test pins the whole chain: holdout v2 recall → result file → `PROMOTION` → the rule text. **A shadow sample can now read `met`**; the cutover remains the owner's call.
-- **Deferred, recorded in the result file:** per-intent `GENERATOR_WEIGHTS` tables (a 4×6 space the card does not name) and per-model cosine (grid empty until EM-303). **CI's eval gate stays v2**, decided here and written on the job (tuned defaults unwired until EM-407 — EM-401–403 landed without wiring them, recorded 2026-10-15).
+- **Deferred, recorded in the result file:** per-intent `GENERATOR_WEIGHTS` tables (a 4×6 space the card does not name) and per-model cosine (grid empty until EM-303). **CI's eval gate stays v2**, decided here and written on the job (the tuned defaults reach the provider's call sites via EM-407, `2b21ad1`, but the adapter's own defaults remain the spec, so the gate still runs v2 — EM-401–403 landed without wiring them, recorded 2026-10-15).
 - 18 new tests; **2090 passed / 3 skipped / 3 xfailed on 3.10 and 3.12**; `ruff==0.16.2` clean; v2 eval gate unmoved; **12 mutation checks, all as expected**.
 
 ### Chunk 20 — the ceiling split, by owner ruling. **DONE, MERGED (2026-10-08, `3c8b301`)**
@@ -505,9 +505,69 @@ the pass forced (`>=` catching every later turn; a restored-then-forgotten row
 terminal again). Landed by the branch-first path: push, all 11 CI jobs green on
 the exact SHA, `git merge --ff-only`, branch deleted.
 
-## Part B: next — **EM-407 (typed config)**
+## Part A (continued): EM-407's typed config — Appendix A's model, §3.8's loader, and the tuned scalars at the call sites. **DONE, MERGED (2026-10-15, `2b21ad1`; branch-first, 11/11 check-runs green on the exact SHA)**
 
-**EM-403, EM-404 and EM-405 are complete.** EM-403's slices 1 and 2 are merged (`9f9ba0c`,
+**What landed.** `em/config.py` grows from EM-306's scalar block into Appendix
+A's **typed model**: sixteen dataclasses (the fourteen sections plus `entities`
+and the root `timezone`), one frozen `Rule` per typed leaf (kind, label,
+description, choices, minimum/maximum — kinds `text`, `select`, `bool`,
+`integer`, `number`, `string_list`, `float_map`), `iter_leaf_keys()`, and a
+bidirectional test that walks model and rules together. `load_config(sources=(),
+*, overrides=None)` is §3.8's order exactly — defaults → the host's merged view
+(`plugins.entropicmem` flat plus the preferred nested `memory.entropicmem`,
+nested winning inside the source) → `$HERMES_HOME/entropicmem/config.json` (the
+dashboard's `flat_json`) → `ENTROPICMEM_*` **paths only** → constructor
+overrides — flattening nested sections to dotted keys; the one mapping leaf
+(`gate.min_cosine`) stays whole, and the nine `LEGACY_KEY_MAP` entries (including
+`prefetch_token_budget → prefetch.token_budget`, chars ÷ 4 clamped
+`max(100, min(2000, …))`) apply before direct keys, so a nested/dotted spelling
+beats a flat one inside a source. Invalid values are **collected, never raised**:
+`ConfigError(key, value, message)` on `ConfigLoad.errors`, the default (or the
+last valid value) standing, the list logged **once** at `initialize` ("config
+value(s) rejected") and kept on the provider for the future `doctor`. The
+gate/ranking defaults stay EM-306's calibrated pair — `0.30`/`0.34` and
+`0.50/0.25/0.10/0.10/0.05`, not Appendix A's spec table — and `gate.min_cosine`
+is a duplicated literal pinned equal to `GATE_MIN_COSINE` (stdlib-only, no
+import). `get_config_schema()` renders the curated **24 dotted keys** with
+`type`/`choices`/`minimum`/`maximum`/`default`, and there is deliberately **no
+`post_setup`** (it would replace the host wizard and skip saving
+`memory.provider`). `save_config` nests dotted keys into `memory.entropicmem`,
+leaves every other section and plugin untouched, and writes atomically
+(`.yaml.tmp` + replace); a write failure raises — the host sees a failed setup
+(the hook is fail-closed, pinned). `plugins/entropicmem/config_schema.py` (new)
+declares the dashboard's `flat_json` entry importing only
+`plugins.memory.config_schema` (AST-pinned); `cmd_init` prints the hourly cron
+line.
+
+**The point of the card.** The tuned scalars reach the pipeline's
+`retrieve(gate_config=, rank_weights=)` seam: `initialize` builds one
+`GateConfig`/`RankWeights` from the typed config (the paths overlay feeds
+`resolve_paths`; the embeddings switch reads the typed key), and the search
+tool, the `PrefetchService` (constructor and `_retrieval_kwargs`; both retrieve
+calls) and the v3 facade (`V3Engine`/`open_engine` accept and forward; v2
+accepts-and-ignores) all pass them. The eval adapter's own defaults remain the
+spec; CI's eval gate stays v2.
+
+**Deliberate contract updates** (each at the changed surface's own claim): the
+schema pin renamed and re-based on the typed model's defaults; the save drive
+switched to a dotted key; the EM-403 wired AC's comment records the clamp; and
+`tests/harness/pinned_memory_provider.json` is unchanged (the host contract did
+not move).
+
+**Evidence.** 49 new tests (`tests/unit/test_em407_config.py` 30,
+`tests/unit/test_em407_wiring.py` 19); bare **2541 / 16 / 3** (was 2492 / 16 /
+3), digest-list **2542 / 15 / 3**; `ruff==0.16.2` clean; **16 of 16 mutation
+checks red**, each restored from a byte copy. The first CI round on `0f38fbf`
+was **10/11**: `windows-import` runs `tests/unit` with pytest alone (no PyYAML),
+where six of the new wiring tests read or write `config.yaml` — they now carry
+the same `needs_yaml` marker the identity tests use (in a no-PyYAML venv the
+six skip and the file reads 13 passed / 6 skipped), and the second round on the
+landing SHA (`2b21ad1`) was **11/11**. Landed by the branch-first path: push,
+all 11 CI jobs green on the exact SHA, `git merge --ff-only`, branch deleted.
+
+## Part B: next — **the owner's to place** (EM-403/404/405/407 complete; the query-embedding gap and the remaining S4 cards are the candidates)
+
+**EM-403, EM-404, EM-405 and EM-407 are complete.** EM-403's slices 1 and 2 are merged (`9f9ba0c`,
 `31053df`) and chunk 35 (`a5b613a`) closed slice 3: the synchronous fact block routes
 through the service on a v3 store behind the v3-store **and** flag gate (the decision
 and its reasons are in the Part A record), the wire-level tests and the AC re-run are
@@ -520,6 +580,11 @@ minor version, and the card's Spec/AC is pinned by 176 tests. **EM-405 closed
 with its lifecycle slice (`e483d43`):** `on_delegation` implemented, `/undo`
 retracting the undone turn's stamped memories, the turn index persisting per
 session, and the WAL-checkpointed shutdown within 2 s — the Part A record above
+has the full detail. **EM-407 closed with its typed-config slice (`2b21ad1`):**
+Appendix A's typed model and §3.8's loader in `em/config.py`, the typed
+`get_config_schema()` and the `memory.entropicmem`-nesting `save_config`, the
+`plugins/entropicmem/config_schema.py` `flat_json` entry, and **the tuned
+`gate.*`/`ranking.*` scalars reaching the call sites** — the Part A record above
 has the full detail.
 
 **Next, in order:**
@@ -570,26 +635,33 @@ has the full detail.
    mutation checks red**; landed by the branch-first path (push, all 11 CI jobs
    green on the exact SHA, `git merge --ff-only`, branch deleted). Full record:
    the Part A section above.
-5. **Next chunk — EM-407 (typed config)**: the typed `Config` model (Appendix A)
-   in `em/config.py` and the §3.8 loader precedence; validation errors collected
-   and logged once at `initialize` (doctor-facing; invalid values fall back to
-   defaults); the typed `get_config_schema()` for the top ~20 user-facing keys
-   and a `save_config` that merges dotted keys **nested** into
-   `memory.entropicmem` atomically (round-trip test, unrelated sections
-   untouched); `plugins/entropicmem/config_schema.py` with
-   `CONFIG_SCHEMA = ProviderConfigSchema(...)` importing only
-   `plugins.memory.config_schema`, `flat_json` storage reading
-   `$HERMES_HOME/entropicmem/config.json` as its own read-order step; **no
-   `post_setup`** — `initialize` auto-bootstraps and `entropicmem init` prints
-   the Hermes cron line for `worker run`; and **the point of the card:
-   `em/config.py`'s tuned `gate.*`/`ranking.*` scalars reach call sites** through
-   the pipeline's `retrieve(gate_config=, rank_weights=)` seam. They stay unwired
-   until it; do not wire them as a drive-by. Full spec: Step 2 below.
+5. **DONE (2026-10-15): EM-407's typed config (`2b21ad1`) — the card
+   completes.** Appendix A's typed model and §3.8's loader in `em/config.py`
+   (sixteen dataclasses, one frozen `Rule` per typed leaf, `iter_leaf_keys`), the
+   typed `get_config_schema()` (24 dotted keys) and the
+   `memory.entropicmem`-nesting `save_config` (atomic; fail-closed), the
+   `plugins/entropicmem/config_schema.py` `flat_json` entry, and **the tuned
+   `gate.*`/`ranking.*` scalars at the call sites** through the pipeline's
+   `retrieve(gate_config=, rank_weights=)` seam (the eval adapter's defaults
+   remain the spec). 49 new tests; bare **2541 / 16 / 3**, digest-list
+   **2542 / 15 / 3**; **16 of 16 mutation checks red**; landed by the
+   branch-first path (two commits — `0f38fbf` the card and `2b21ad1` the
+   `windows-import` yaml gate; all 11 CI jobs green on the exact SHA,
+   `git merge --ff-only`, branch deleted). Full record: the Part A section
+   above.
+6. **Next chunk — the owner's to place.** The candidates, all recorded: the
+   **query-embedding wiring card** (the open gap below — it needs a card before
+   it can be scheduled) and the remaining S4 cards — **EM-406** (checkpoint v2 /
+   evidence archive; **EM-411 follows it**), **EM-408** (CLI), **EM-409**
+   (system prompt — the natural home of the owed alias rewrite), **EM-410**
+   (cron & worker integration). Whatever is chosen: branch-first, tests first,
+   one CHANGELOG line, check-runs on the exact SHA, `git merge --ff-only`.
 
 **Open gap recorded 2026-10-15 (surfaced by the reconciliation pass; no owning card):
 the query embedding is still unwired.** EM-403 is complete and deliberately did not
 embed; the EM-401–403 plan expected the provider cards to call `ensure_embedding_model`
-at initialize and embed the query — **none did.** Verified in the tree:
+at initialize and embed the query — **none did** — EM-407 included, which wired the
+config, not the embedder. Verified in the tree:
 `ensure_embedding_model` has no caller outside `em/embeddings/jobs.py`;
 `_ensure_prefetch_service` builds the service with no `embed_query`; `prefetch` and
 `queue_prefetch` pass no `query_vector`. So **even the wired v3+flag path scores
@@ -605,9 +677,9 @@ The owner's precision list stays in force: per-query vector observability must s
 wired, the runtime coverage fallback serves lexical rather than degrading silently, and
 the stale→re-embed queue keeps running. **Guards that stay in force:** nothing embeds on
 the agent/prefetch thread; a query with no caller-supplied vector keeps doing no vector
-work; `gate.*`/`ranking.*` config stays unwired (EM-407); `EM-411`'s two test groups come
-first when its card starts; `ENTROPICMEM_V3_RETRIEVAL`'s default stays off; CI's eval
-gate stays v2.
+work; the eval adapter's defaults are the spec and CI's eval gate stays v2 (EM-407 wired
+the provider's call sites, not the adapter); `EM-411`'s two test groups come
+first when its card starts; `ENTROPICMEM_V3_RETRIEVAL`'s default stays off.
 
 ### EM-403 is sliced into three chunks (33–35)
 
@@ -766,7 +838,7 @@ The build is held until EM-502's caps exist, default `formation.mode=off`. The *
 
 Also in the plan: **old-model rows are pruned by embedding maintenance** — decided policy: after a *completed* backfill for the new model (`meta.embedding_model == new`, zero pending) plus a **7-day grace** (so a rollback does not pay a full re-backfill), keep at most the current and previous model and delete the rest; measured storage is **≈2.1 KB/row all-in (1.5 KB blob), ≈21 MB per 10k memories per model set** — 10k→21 MB, 50k→106 MB per stale set. The prune runs as a job under EM-410's maintenance pass.
 
-Guards that stay in force: **do not wire `em/config.py`** outside its owning cards; **the `ENTROPICMEM_V3_RETRIEVAL` flag stays off**; **CI's eval gate stays v2** and lexical; a query with no caller-supplied vector keeps doing no vector work; nothing embeds on the agent/prefetch thread.
+Guards that stay in force: **no drive-by `em/config.py` wiring** (EM-407 landed the provider wiring, `2b21ad1`; further changes need their own card); **the `ENTROPICMEM_V3_RETRIEVAL` flag stays off**; **CI's eval gate stays v2** and lexical; a query with no caller-supplied vector keeps doing no vector work; nothing embeds on the agent/prefetch thread.
 
 ### Step 1 — collect the real turns (**blocked on the environment, which is now measured**)
 
@@ -779,29 +851,20 @@ Guards that stay in force: **do not wire `em/config.py`** outside its owning car
 - **The lesson for arming, and it is a real one:** the shadow's miss rate is a **v3-vs-v2** quantity, so it is only interpretable where v2's own injections are mostly *correct* — i.e. on a real store, not on filler. Note also the **unit mismatch** to state explicitly in whichever commit arms the ceiling: the bound is derived from a **v2-vs-truth** rate (`1 − recall@5` on the holdout) but applied to a **v3-vs-v2** ratio. That is a defensible policy ("v3 may drop no more of v2's hits than v2 itself misses against truth") but it is not an identity, and it must not be written as one.
 - **The miss ceiling is armed now, so a clean sample can read `met`** — the `cannot conclude` shape was the un-armed era's expected reading; the report still names every dimension and its margin, and a violation still outranks a short sample.
 
-### Step 2 — the next card: **EM-405 (lifecycle)**
+### Step 2 — the next card: **the owner's to place** (EM-407 landed)
 
 **The order is the owner's (2026-10-08): EM-401–403 first, EM-411 after EM-406.**
-**EM-401–404 and EM-405 are now complete and merged** (`b8e170a`; `2706a86`;
-slices 1–3 at `9f9ba0c`, `31053df`, `a5b613a`; EM-404 at `381197f`, `e5e54ef` and
-the validation slice `5000942`; EM-405 at `e483d43` — Part B items 1–4).
-**The next chunk is EM-407 (typed config):** §4.1's `get_config_schema`/
-`save_config` row and §3.8's read order — defaults → `config.yaml`'s
-`plugins.entropicmem` (legacy flat) → `config.yaml`'s `memory.entropicmem`
-(preferred nested) → `$HERMES_HOME/entropicmem/config.json` (the dashboard's
-`flat_json`, written through `plugins/entropicmem/config_schema.py`) → env
-`ENTROPICMEM_*` (paths only) → constructor overrides (tests only); the typed
-`Config` model for Appendix A's sections; validation errors collected (logged
-once at `initialize`; invalid values fall back to defaults; a future `doctor`
-reads the same list); the typed `get_config_schema()` for the top ~20
-user-facing keys; `save_config` merging dotted keys nested into
-`memory.entropicmem` atomically, unrelated sections untouched (the round-trip
-test is the AC, with the host's manual `hermes memory setup` check); **no
-`post_setup`** — `initialize` auto-bootstraps and `entropicmem init` prints the
-Hermes cron line for `worker run`; and **the tuned `gate.*`/`ranking.*` scalars
-(EM-306) finally reach call sites** — the `retrieve(gate_config=,
-rank_weights=)` seam exists and EM-401–403 deliberately did not wire it. They
-stay unwired until it; do not wire them as a drive-by. EM-411 (capture on idle &
+**EM-401–404, EM-405 and EM-407 are now complete and merged** (`b8e170a`;
+`2706a86`; slices 1–3 at `9f9ba0c`, `31053df`, `a5b613a`; EM-404 at `381197f`,
+`e5e54ef` and the validation slice `5000942`; EM-405 at `e483d43`; EM-407 at
+`2b21ad1` — Part B items 1–5).
+**The next chunk is the owner's to place:** the candidates are the
+**query-embedding wiring card** (the open gap above — it needs a card before it
+can be scheduled) and the remaining S4 cards — **EM-406** (checkpoint v2 /
+evidence archive; **EM-411 follows it**, plan §6.3), **EM-408** (CLI), **EM-409**
+(system prompt — the natural home of the owed alias rewrite), **EM-410** (cron &
+worker integration). Whatever is chosen: branch-first, tests first, one CHANGELOG
+line, check-runs on the exact SHA, `git merge --ff-only`. EM-411 (capture on idle &
 compaction, requested by the owner 2026-10-09) stays planned, test-first, default
 off (plan §6.3).
 
@@ -833,14 +896,14 @@ suite, and **stop and report on a mismatch** instead of assuming the older numbe
 ### Size guards — stop and report if
 
 - **a threshold needs moving to get a reading** — that is not a reading (this is Part B step 1's decision, and it is the owner's).
-- **an EM-303 step wires `gate.*`/`ranking.*` or restructures the provider/facade** — the tuned defaults reach call sites via EM-407 (EM-401–403 did not wire them), and a renderer is not a config system.
+- **a step wires `gate.*`/`ranking.*` beyond the provider wiring EM-407 landed, or restructures the provider/facade** — the tuned defaults reach call sites via EM-407 (`2b21ad1`; EM-401–403 did not wire them), and a renderer is not a config system.
 - **a step invents a cosine path outside stored vectors or embeds on the query thread** — the backends and the `embed` job are EM-303's remainder, and a query with no caller-supplied vector must keep doing nothing.
 - **anything would write the live store, move the Marketplace entry, or touch a tag.**
 
 ### Pre-flight
 
 1. `main` must be at `4eb8097` or later: `git merge-base --is-ancestor 4eb8097 main`.
-2. **Baseline:** `pytest -q` gives **2569 passed, 3 skipped, 3 xfailed** in CI — measured 2026-10-15 on Python 3.12 at `e483d43`, with CI's extra set (fastapi, httpx, cryptography, pyyaml), numpy, and the private digest list as the repository secret; that is the figure the three pages' counters now state, and a pre-flight run is checked against it. On this box's scratch venv (`.venv311`, without fastapi/httpx/cryptography/numpy) the same command reads **2492 passed, 16 skipped, 3 xfailed** with zero failures — the missing extras change what is collected and skipped, which is the environment, not the tree (and with the digest list pointed in place the privacy skip becomes a pass: **2493 / 15 / 3**). The documented skip families are unchanged: the two internal-ops script tests (`test_v2_1_8.py`, `test_v2_2_0.py`), the two numpy-gated tests (pass with numpy, and `tests/test_vector_ci_guard.py` fails if that install or either gated test disappears), and the private digest-list privacy test (skips with no list configured, passes with one, and **fails closed** under `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list). The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo).
+2. **Baseline:** `pytest -q` gives **2618 passed, 3 skipped, 3 xfailed** in CI — measured 2026-10-15 on Python 3.12 at `2b21ad1`, with CI's extra set (fastapi, httpx, cryptography, pyyaml), numpy, and the private digest list as the repository secret; that is the figure the three pages' counters now state, and a pre-flight run is checked against it. On this box's scratch venv (`.venv311`, without fastapi/httpx/cryptography/numpy) the same command reads **2541 passed, 16 skipped, 3 xfailed** with zero failures — the missing extras change what is collected and skipped, which is the environment, not the tree (and with the digest list pointed in place the privacy skip becomes a pass: **2542 / 15 / 3**). The documented skip families are unchanged: the two internal-ops script tests (`test_v2_1_8.py`, `test_v2_2_0.py`), the two numpy-gated tests (pass with numpy, and `tests/test_vector_ci_guard.py` fails if that install or either gated test disappears), and the private digest-list privacy test (skips with no list configured, passes with one, and **fails closed** under `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list). The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo).
 3. **Re-measure from the code, not this file:** `_shadow.py` (`PROMOTION`, `MISS_CEILING_RULE`, `evaluate`, `read_log`, `render`, `main`), `scripts/shadow_collect.py`, `em/facade/engine.py` (`v3_retrieval_enabled`, `_recall_from_v3`), `em/retrieval/pipeline.py`, `em/retrieval/candidates.py` (`vector`), `em/embeddings/` (`backends`, `service`, `jobs`, `cache`), `em/store/embeddings.py`, `em/config.py`, `evals/tune.py`, `em/retrieval/gate.py` (`load_rows`' pinned input), `evals/` (`runner`, `metrics`, `adapters/engine_v3.py`), `.github/workflows/test.yml`.
 4. **Verify CI with the check-runs API on the commit**, and read `head_sha`.
 

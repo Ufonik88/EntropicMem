@@ -62,4 +62,4 @@ When active, Hermes injects prefetched memories wrapped in `<memory-context>` ta
 
 ## Smart Context Management
 
-Prefetch relevance filtering, token budgets, and dedup windows optimize context injection. Configure under `plugins.entropicmem` in `~/.hermes/config.yaml`; defaults and the full option list are in [`skills/entropicmem/references/HERMES_INTEGRATION.md`](../../skills/entropicmem/references/HERMES_INTEGRATION.md).
+Prefetch relevance filtering, token budgets, and dedup windows optimize context injection. Configure under `plugins.entropicmem` in `~/.hermes/config.yaml` — the schema is `config_schema.py`, the defaults come from the typed model in `scripts/em/config.py` (EM-407). The full option list and behaviour notes are in [`skills/entropicmem/references/HERMES_INTEGRATION.md`](../../skills/entropicmem/references/HERMES_INTEGRATION.md).

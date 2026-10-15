@@ -18,7 +18,7 @@ This installs `plugins/entropicmem/` (MemoryProvider + engine + CLI) under `~/.h
 
 ## Plugin configuration
 
-Optional settings live under `plugins.entropicmem` in `~/.hermes/config.yaml` (paths, smart-context tuning, lifecycle keys). Full key table: [../README.md](../README.md). The provider reads `vault_path`, `index_db`, `memory_db`; everything else falls back to defaults from the config schema in `plugins/entropicmem/__init__.py`.
+Optional settings live under `plugins.entropicmem` in `~/.hermes/config.yaml` (paths, smart-context tuning, lifecycle keys). Full key table: [../README.md](../README.md). The provider reads `vault_path`, `index_db`, `memory_db`; everything else falls back to defaults from the typed model in `plugins/entropicmem/scripts/em/config.py`, with the schema declared in `plugins/entropicmem/config_schema.py` (EM-407).
 
 ## Bootstrap: `entropicmem init`
 

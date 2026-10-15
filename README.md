@@ -85,7 +85,8 @@ python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py graph export --form
 ```
 EntropicMem/
 ├── plugins/entropicmem/         # Hermes MemoryProvider (9 tools, 6 hooks) + engine
-│   ├── __init__.py              # MemoryProvider, config schema, tool handlers
+│   ├── __init__.py              # Thin host shell (register + MemoryProvider import)
+│   ├── config_schema.py         # Dashboard config schema (flat_json; EM-407)
 │   ├── _backend.py              # Path resolution helpers
 │   ├── plugin.yaml              # Catalog manifest
 │   ├── scripts/                 # Engine + CLI (stdlib-only core)
@@ -97,7 +98,7 @@ EntropicMem/
 │   │   ├── graph_static.py      # Hardened stdlib server for `graph serve`
 │   │   ├── policy.py / pii.py   # Write policy + PII redaction
 │   │   ├── embeddings.py        # Vector search (optional)
-│   │   ├── em/                  # v3 storage + retrieval core (in development)
+│   │   ├── em/                  # v3 storage + retrieval core + typed config (in development)
 │   │   ├── em_internal/         # The six shared-name engine modules (EM-212)
 │   │   └── entropicmem.py       # CLI
 │   └── README.md                # Plugin quick reference
@@ -118,7 +119,7 @@ The engine lives under `plugins/entropicmem/scripts/` so the plugin directory is
 
 ## Configuration
 
-All settings live under `plugins.entropicmem` in `~/.hermes/config.yaml`. Every key is optional; defaults match the config schema in `plugins/entropicmem/__init__.py`.
+All settings live under `plugins.entropicmem` in `~/.hermes/config.yaml`. Every key is optional; the schema is declared in [`plugins/entropicmem/config_schema.py`](plugins/entropicmem/config_schema.py) and its defaults come from the typed model in `plugins/entropicmem/scripts/em/config.py` (EM-407). Dashboard-written settings arrive as `$HERMES_HOME/entropicmem/config.json` (flat JSON; one step in the read order).
 
 ```yaml
 plugins:

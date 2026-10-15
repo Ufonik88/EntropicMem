@@ -19,6 +19,8 @@ em.provider     provider.py: the provider class (hooks; composes tools.py's
                 map, and §4.4 argument validation via em.util/jsonschema_lite.py);
                 EM-405's lifecycle in provider.py (on_delegation, the rewound-turn
                 retraction enqueue, the per-session turn index, stamped writes);
+                EM-407: initialize builds one GateConfig/RankWeights from the
+                typed config and the call sites pass them into retrieve();
                 render.py
         |
         v
@@ -69,7 +71,11 @@ em.store                  the storage core; every module takes a connection the 
   backup.py    EM-210     BackupManager: verified snapshots of memory + index, rotation, guarded restore
   retract.py   EM-405     the `retract_turns` job handler over MemoryStore.retract_session: the undo retraction and the one reversible deletion (`retracted_by_undo`)
 em.clock                  the only source of time and ids (freezable in tests)
-em.config                 EM-306's calibrated scalars (committed; not yet read by call sites)
+em.config                 EM-407: Appendix A's typed model + §3.8's loader,
+                          validation, save_config; EM-306's calibrated
+                          gate.*/ranking.* scalars — built into
+                          GateConfig/RankWeights at initialize and passed into
+                          retrieve() by the call sites
 em.util                   jsonschema_lite: §4.4's tool-argument validation (types and
                           enums fatal, maxLength/maxItems capped, numeric bounds
                           clamped, unknown args dropped; EM-404's validation slice)
@@ -244,8 +250,9 @@ These are decisions the writes chunk made that are not obvious from the signatur
   gate, so EM-307's renderer prints a vector-only episode under "Recent
   episodes" — episode vectors are no longer write-only. **What is still
   absent — and now has no owning card (recorded 2026-10-15):** the **provider**
-  does not embed a query — EM-401–403 all landed without wiring it
-  (`ensure_embedding_model` has no caller outside `em/embeddings/jobs.py`), so
+  does not embed a query — EM-401–403 all landed without wiring it, and
+  EM-407 wired the config, not the embedder (`ensure_embedding_model` has no
+  caller outside `em/embeddings/jobs.py`), so
   even the wired v3+flag path scores lexical/entity/episodic; and capture
   on idle/compaction is **planned as EM-411** (plan §6.3; **no host idle hook
   exists** in the pinned contract, so idle is defined behaviourally).
@@ -258,6 +265,17 @@ These are decisions the writes chunk made that are not obvious from the signatur
 - **Wiring `EntityLinker`.** Run it from a job (`link:<memory_id>:<version>`), not inside `MemoryStore.add`, to keep entity work out of the write transaction.
 - **EM-401 slice 1 — the hook skeleton, merged (`db7c24f`, code `f8af1a9`).** `em/provider/hooks.py` owns `fail_soft` and the §4.1 budget table (`HOOK_BUDGETS`); `em/provider/state.py` owns `ProviderState` (session id, agent context, last recall count, core baseline — no identity: scoping is EM-402's privacy decision and belongs to its own card); `em/provider/provider.py` owns the §4.1 `HOOK_SURFACE` table, whose `audit()` the contract test asserts is empty. **A hook must be wrapped, and four of them are fail-closed:** `FAIL_CLOSED_HOOKS` (in `hooks.py`) re-raises for `on_pre_compress`, `initialize`, `save_config` and `backup_paths`, because §4.6 counts *any* non-raising `on_pre_compress` return as a checkpoint that landed — a swallowed failure would claim a persist that never happened. That is a deliberate strengthening of the card's "except `on_pre_compress` under `require_checkpoint`", and the repo's own fail-closed test (`test_pre_compress_fails_closed_when_checkpoint_persist_fails`, which expects a raise **without** `require_checkpoint` too) is what pins it. The catch logs the exception **type** at ERROR and the detail at DEBUG, never the message: a tool handler's message can carry the user's text. **The provider class has not moved** out of `plugins/entropicmem/__init__.py` — the move is the next slice, and EM-402/EM-403 follow it. *(Superseded 2026-10-10 by EM-401 slice 2, `b8e170a`: the shell is a 145-line host shell; and EM-404's two slices moved the tool schemas and handlers into `em/provider/tools.py`, and its validation slice (`5000942`) rewrote that surface to Appendix B's nine tools with §4.4 validation in `em/util/jsonschema_lite.py`. Recorded 2026-10-15.)*
 - **EM-405's lifecycle slice, merged (`e483d43`, branch-first; 11/11 check-runs green on the exact SHA).** `on_delegation` records one redacted `delegation` episode (task ≤ 500 chars, result ≤ 1500; redaction **before** the cap) through `add_episode(kind=...)` and, on v3, enqueues one `extract_session` job (`source=extracted_llm`, `confidence_cap` 0.6); the handler is the extraction card's. The rewound `on_session_switch` **only enqueues** (30 ms budget): one `retract_turns` job and a one-step counter walk-back, so repeated `/undo` reaches turn after turn. `MemoryStore.retract_session` (`em/store/retract.py`) soft-deletes the undone session's **live, turn-stamped** rows (`source_turn >= from_turn`) as `retracted_by_undo` on the audited, versioned edge; pending rows keep their TTL path and unstamped rows are not attributable. **The one reversal of a terminal status is reason-gated, not a table change:** `LEGAL_TRANSITIONS` keeps `deleted` terminal (still pinned at `tests/test_em_memories.py:260`) and `set_status` admits `deleted → active` only when the row's **latest** deletion record is `retracted_by_undo` and the reason is `restore` — a forget stays terminal before and after a retraction. The turn index is **provider-owned** (`ProviderState.turn_index`/`turn_index_session`; the host's `turn_number` is not trusted for attribution), bumped in `on_turn_start`, persisted on v3 stores to `meta['turn_index:<sid>']`, restored at `initialize`/switches by a read-only probe that **deliberately bypasses the per-instance `_v3_store()` cache** (a probe before the store file exists must not pin a session to the v2 path), and stamped as `source_turn` on the tool path and on the facade's extraction quarantine (captured at `sync_turn` call time, so the background thread cannot pick up the next turn's number). The facade contract records the two new keywords (`kind`, `source_turn`): one call shape reaches both engines, and the v2 engine accepts-and-ignores both — a keyword only one implementation understood would not be callable through the contract.
+- **EM-407's typed config reaches the call sites (`2b21ad1`, branch-first;
+  11/11 check-runs green on the exact SHA).** `em/config.py` is Appendix A's
+  typed model with §3.8's loader, collected-never-raised validation (logged once
+  at `initialize`), the typed schema/save pair nested into `memory.entropicmem`
+  (atomic, fail-closed), and the dashboard `flat_json` entry in the new
+  `plugins/entropicmem/config_schema.py`. **`initialize` builds one
+  `GateConfig`/`RankWeights` from it and the search tool, `PrefetchService` and
+  the v3 facade pass them into `retrieve(gate_config=, rank_weights=)`** — the
+  seam EM-305/EM-306 left open; `gate.min_cosine` is a duplicated literal
+  pinned to `GATE_MIN_COSINE` (no import). The adapter's defaults remain the
+  spec; CI's eval gate stays v2.
 - **Session capture: what exists and what EM-411 adds.** The v2 provider already
   captures on `on_session_end` (`session_end_capture`) and on a turn cadence
   (`turn_cadence_flush_turns`/`turn_cadence_min_interval_sec`); `on_pre_compress`
@@ -292,9 +310,11 @@ These are decisions the writes chunk made that are not obvious from the signatur
   texts into a transient in-memory FTS5 declared with the *same* tokenizer as
   `memories_fts` and matches each query term once. Do not "simplify" it into a
   substring or token-set test.
-- **`gate.*` config does not exist either (EM-305).** Same gap as `ranking.*`:
-  `gate.GateConfig` carries §3.6's numbers as overridable defaults, and EM-407 owns
-  the config module. The gate's cosine condition can now be switched on
+- **`gate.*` config exists and is wired (EM-407, `2b21ad1`).** `gate.GateConfig`
+  still carries §3.6's numbers as overridable defaults, but `initialize` now
+  builds it from the typed config (EM-306's calibrated `0.30`/`0.34`) and the
+  provider's call sites pass it into `retrieve`; the eval adapter's defaults
+  remain the spec. The gate's cosine condition can now be switched on
   (EM-303 first slice): `retrieve` does it for the call, **only when it was given
   both a query vector and a model and no explicit `gate_config`**; an explicit
   config always wins. MMR's embedding path is the same seam (EM-303, merged):
@@ -324,12 +344,13 @@ These are decisions the writes chunk made that are not obvious from the signatur
   (EM-305).** `MemoryStore._content_hash` mixes the scope into the digest, so the
   hash cannot see the pair. The collapse groups on the loaded text, which is what
   the hash was derived from.
-- **`ranking.*` call sites still use the spec defaults (EM-304 / EM-306).** §3.6
-  says the rerank weights live in `ranking.*`. EM-306 committed tuned scalars in
-  `em/config.py` and nothing in retrieval reads them — **EM-401–403 did not wire
-  them** (recorded 2026-10-15; the expectation that they would did not hold), and
-  EM-407 owns the typed loader/schema. `fusion.RankWeights` still carries the spec's numbers
-  as the default a caller may override. Do not invent a second config system.
+- **`ranking.*` call sites now use the typed config (EM-304 / EM-306 / EM-407,
+  `2b21ad1`).** §3.6 says the rerank weights live in `ranking.*`; EM-306
+  committed the tuned scalars and EM-407 wired them — `initialize` builds
+  `RankWeights` from the typed config and the provider's call sites pass it into
+  `retrieve`. `fusion.RankWeights` still carries the spec's numbers as the
+  *class* default a caller may override, and the eval adapter's defaults remain
+  the spec. Do not invent a second config system.
 - **`superseded_note` renders from a gated retrieval (EM-304 → EM-305 → EM-307),
   and since chunk 35 the wired served path prints it too.** The collapse still
   emits the flag.
@@ -346,9 +367,10 @@ These are decisions the writes chunk made that are not obvious from the signatur
   `fusion.legacy_tokens()` converts a `Ranking`, and the facade's flag-gated path
   uses it; giving the v2 scoring path the same flat form is the provider's card.
 - **§3.6's `query_rewrite` hook is not wired (EM-301).** §3.6 makes it optional and
-  background-only ("never blocking `prefetch`"). There is no config module to
-  enable it and no `plugins.memory.query_rewrite` to call, so nothing does. It
-  belongs with EM-403 (the prefetch service) and EM-407 (config).
+  background-only ("never blocking `prefetch`"). The config side now exists —
+  `prefetch.query_rewrite` is a typed leaf (default `"none"`) — but there is
+  still no `plugins.memory.query_rewrite` to call, so nothing does. The wiring
+  belongs with a prefetch-side card; do not add it as a drive-by.
 - **`memories_vocab` holds porter *stems*, not words.** `memories_fts` is
   `tokenize='porter unicode61'`, so the `fts5vocab` view §3.6 names carries
   `stage`, not `staging`. A raw-token IDF lookup would miss for every word whose
