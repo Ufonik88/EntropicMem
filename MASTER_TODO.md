@@ -28,6 +28,25 @@ choice between rebasing its two commits onto `main` or merging `main` into it is
 still the owner's call** (nothing was rebased, merged, or forced). The remote carries
 `main`, `em-404-tools-split` and `release/2.8.x`.
 
+**A second reconciliation pass on 2026-10-15 (docs only, no product change) re-read
+all pages against the tree and corrected five stale classes:** the EM-404 slice-1
+row (**its CHANGELOG line landed as `84a555f`**; the ff-only aborted because `main`
+moved — the landing choice stays the owner's), the priority rows for EM-307 /
+EM-303 / EM-401–403, the superseded-note gap (**the wired path does render it** —
+the service feeds `retrieval.predecessors` into `load_pack_items`), the
+`gate.*`/`ranking.*` expectation (**EM-401–403 landed without wiring them; EM-407
+is the named owner**), and the finding this pass records loudest: **the query
+embedding is not wired — `ensure_embedding_model` has no caller outside
+`em/embeddings/jobs.py`, the service is built with no `embed_query`, and the
+served path passes no `query_vector`, so even the wired v3+flag path scores
+lexical/entity/episodic; no remaining card owns it and it needs one.** Also
+recorded: `_shadow.py`'s printed caveat still says "until EM-303" while the real
+reason for its no-vectors line is the unwired embedding — a one-string follow-up,
+recorded rather than fixed (docs-only pass). **Suite re-verified on this box:**
+`ruff==0.16.2` clean; bare **2288 / 16 / 3**; with the digest list in place
+**2289 / 15 / 3**; CI's own count at `a5b613a` re-read from the job log:
+**2365 / 3 / 3**.
+
 ---
 
 ## The document-control rule (read this before working)
@@ -97,11 +116,15 @@ forced-slow 1.261 s partial, 7,648 chars, 50-turn replay 5,504 ≤ 13,500 tokens
 
 > **Live retrieval is lexical. Semantic retrieval is not shipped.** The EM-303
 > stack (backends, jobs, cache, cosine gate, MMR) is merged and measured, but
-> the provider does not produce a query embedding yet: that wiring is
-> **EM-401–403**, and until it lands a live turn is served by lexical,
-> entity and episodic scoring only. Do not describe semantic retrieval as
-> shipped, and do not quote vector eval numbers without their
-> `retrieval_mode` label (vector runs are comparable only to vector
+> the provider does not produce a query embedding yet. **EM-401–403 are all
+> complete and none of them wired it** (`ensure_embedding_model` has no caller
+> outside `em/embeddings/jobs.py`; `_ensure_prefetch_service` builds the
+> service with no `embed_query`; `prefetch`/`queue_prefetch` pass no query
+> vector), so **even the wired v3+flag path scores lexical, entity and
+> episodic only — and no remaining card owns that wiring** (recorded
+> 2026-10-15; it needs one before it can be scheduled). Do not describe
+> semantic retrieval as shipped, and do not quote vector eval numbers without
+> their `retrieval_mode` label (vector runs are comparable only to vector
 > baselines; the frozen suites' baselines are lexical).
 >
 > **Vector-mode results exist as context only (2026-10-09).** With fastembed
@@ -173,7 +196,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 19 | **P0c's readout — score a shadow log against the frozen observable, and collect one honestly** | **Done, merged** (`94dd3c7` + docs `2b1e49b`; count-guard deferral `b213dc0`). **The data itself is still not collected** — see the environment finding below |
 | 20 | **The ceiling split — the owner's ruling of 2026-10-08** | **Done** (code `3c8b301`; two commits, merged `--ff-only` after green check-runs on the tip). Fabrication stays hard (`max_v3_only = 0`); the miss side is its own ceiling, **pre-registered and un-armed**, and an un-armed ceiling blocks `met` rather than passing silently |
 | 21 | **EM-306 — the calibration harness; it arms the miss ceiling** | **Done** (code `4a2b25e`; code + docs commits, merged `--ff-only` after green check-runs on the tip). `evals tune` splits by id hash, searches a pre-declared grid, commits `em/config.py`; the same holdout armed `max_v2_miss_rate` at `0.107143` |
-| 22 | **EM-307 — packer, renderer, and retrieval wiring** | **Done, merged** (`7d6a22e`, ff from `a674383`; library `6cd0943`). A gated retrieval renders. **The eval adapter and the provider still do not call it** — deliberately, and pinned |
+| 22 | **EM-307 — packer, renderer, and retrieval wiring** | **Done, merged** (`7d6a22e`, ff from `a674383`; library `6cd0943`). A gated retrieval renders. **The eval adapter and the provider still do not call it** — deliberately, and pinned *(true at this chunk; chunk 35 later routed the provider's served block through the service's `pack_chosen`/`render` — the eval adapter still does not, 2026-10-15)* |
 | 23 | **EM-303, first slice — search stored embeddings** | **Done, merged** (`7d6a22e`, ff from `9d5a72b`). Cosine + the `vector` generator behind `retrieve()`'s query-vector seam and the 50% coverage gate. **No embedder, no numpy cache; the default call is unchanged** |
 | 24 | **EM-303 — MMR's embedding path** | **Done, merged** (`000a268`, ff from `156370e`). `diversity.mmr` takes an optional pairwise similarity; the pipeline supplies cosine when a query vector and model were given (clamped at 0), Jaccard otherwise. **Default path unchanged** |
 | 25 | **EM-303 closed — backends, `embed`/`embed_backfill`, model identity, vector cache** | **Done, merged** (`3439b77`, ff from `e8997d8`). Four backends + auto/none selection; jobs with a write-time version recheck and `meta.embedding_model`; a numpy/pure-Python snapshot cache behind migration 0005 (50k p95 **3.86 ms**) |
@@ -208,7 +231,7 @@ shutdown closes service and store. What it does **not** do: the synchronous
 (the P0b byte-identity golden is the reason), and it shipped **no tests, no CHANGELOG
 line (backfilled in this reconciliation), and no AC re-run through the wired
 provider**. The second half — route the sync fact block, wire-level tests, AC re-run —
-is the next chunk (below).
+**landed as chunk 35** (the ledger row above).
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
 both select their engine by the store's `user_version`, so either one runs on a v3
@@ -299,19 +322,22 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   unprefixed names — the AC names only the six.
 - **EM-306 landed (2026-10-08) and armed the miss ceiling:** `python -m evals tune`
   calibrates the hard suite on a dev/holdout split by id hash and commits its choice as
-  `em/config.py` scalars (unwired until EM-401–403); the same holdout executed the
+  `em/config.py` scalars (still unwired — the EM-401–403 expectation did not hold;
+  EM-407 is the named owner, recorded 2026-10-15); the same holdout executed the
   pre-registered arming rule, so `_shadow`'s promotion observable is fully armed and
   **P0's code is complete**.
 - **EM-307 landed (2026-10-09, `7d6a22e`): the token packer and §3.6 renderer, and a
   gated retrieval can be rendered.** `render_retrieval` produces the sectioned block
-  (superseded notes, episodes, follow-ups) under a 450-token budget. The eval adapter
-  and the provider deliberately still emit full-id bullets; switching them is a
-  separate, measured change.
+  (superseded notes, episodes, follow-ups) under a 450-token budget. **The eval adapter
+  still emits full-id bullets; the provider's served block is §3.6's render on the
+  wired path (chunk 35, full-id citations) and v2's bullets otherwise** — switching
+  the adapter is a separate, measured change.
 - **EM-303's first slice landed (2026-10-09, `7d6a22e`): stored embeddings can be
   searched.** A stdlib cosine ranker over one joined query, the 50%-coverage gate, and
   the gate's cosine condition behind `retrieve(query_vector=, embedding_model=)`. The
-  default path, the adapter and the provider pass no query vector, so scores today are
-  unchanged. Backends, `embed` job, numpy cache and MMR's cosine path remain.
+  live paths pass no query vector, so scores are unchanged — **still true after the
+  rest of EM-303 landed** (the entries below): the vector path is complete in code
+  and never fed on a live turn (the open embedding gap, 2026-10-15).
 - **EM-303's MMR embedding path landed (2026-10-09, `000a268`, merged):**
   `diversity.mmr` accepts a pairwise similarity; the pipeline supplies cosine when a
   vector and a model were given, clamped at 0, with a per-pair Jaccard fallback.
@@ -340,6 +366,17 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   `multi_user` eval category reads 1.0 on its own isolation surface; the frozen
   suites are byte-identical. One finding recorded, not changed: a `sensitive`-tier
   row is owner-only even to its own user under the pinned `row_is_owner_only`.
+- **EM-401 and EM-403 landed (2026-10-13 → 2026-10-15): the provider is the new
+  implementation, and §4.2's service is wired.** `plugins/entropicmem/__init__.py`
+  is a 145-line host shell over `em/provider/provider.py` (hooks, scopes, tools);
+  every §4.1 hook is `fail_soft`-wrapped (and four fail-closed); on a v3 store
+  **with** `ENTROPICMEM_V3_RETRIEVAL=1` the synchronous fact block is served by
+  `PrefetchService.prefetch` (its cache, dedup, hard cap and five `prefetch.*`
+  metrics) and `queue_prefetch` feeds the service's worker — v2 stores byte-identical
+  by construction, flag off by default. **The query embedding is the piece this
+  series left unwired** (see the open-gap bullets below): the provider never calls
+  `ensure_embedding_model` and embeds nothing, so even the wired path scores
+  lexical/entity/episodic.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
   identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
   test that prints its full distribution, a document-control guard that
@@ -391,8 +428,9 @@ evidence, all recorded above: (b) the adapter's numbers, and (a) P0b's measured 
 cost. Nothing about the live store has moved.
 
 **The shadow's own honesty, so its numbers cannot be over-read:** the copy lags, so
-divergence is a **lower bound**; v3 has no cosine condition until EM-303, so it is not
-an apples-to-apples quality comparison; and the promotion observable was fixed in
+divergence is a **lower bound**; v3's path has no query embedding wired, so its
+scores run lexical/entity/episodic only and it is not an apples-to-apples quality
+comparison; and the promotion observable was fixed in
 advance — **≥ 200 turns, copy within 900 s, `v3_only` never once non-zero (hard),
 the miss rate against its pre-registered ceiling (armed at `0.107143` from EM-306's
 holdout), off-turn p95 ≤ 150 ms.** The observable was amended once, by owner ruling on
@@ -447,12 +485,18 @@ owner decision blocks the pieces.
 **The card's AC, verified through the wired provider (chunk 35):** warm p95
 **40.58 ms** @ 50k (p50 39.44, max 42.07); cache-hit **p95 0.09 ms**; forced-slow
 generator **1.261 s** with `partial` and earlier rows served; block **7,648** chars;
-50-turn replay **5,504** ≤ 13,500 tokens. Live retrieval is still lexical; **nothing
+50-turn replay **5,504** ≤ 13,500 tokens. Live retrieval is still lexical — **the
+query embedding is unwired, so even the wired path is lexical/entity/episodic (the
+open gap below)**; **nothing
 embeds on the agent/prefetch thread**; `ENTROPICMEM_V3_RETRIEVAL` stays off; CI's eval
 gate stays v2; `em/config.py` stays unwired. EM-411 stays test-first, unbuilt, default
 off. The cutover stays with the owner. P0's observable stays armed at `0.107143`.
 
-**Known gaps on the wired (v3 + flag) path, recorded rather than hidden:** the
+**Known gaps, recorded rather than hidden — the wired (v3 + flag) path:** **the
+query embedding is not wired at all, so the wired render still scores
+lexical/entity/episodic — 2026-10-15: `ensure_embedding_model` has no caller
+outside `em/embeddings/jobs.py`, the service is built with no `embed_query`, the
+served path passes no `query_vector`; no card owns this — it needs one.** Also: the
 service owns caching and dedup, so the v2 fact-block cache and its window do not run;
 `touch_on_inject`'s background `last_accessed` bump does not run; and the provider's
 config-level `prefetch_denied_sources`/domain filters are not applied by the service.
@@ -500,9 +544,9 @@ The owner set the order explicitly; do not reorder it without asking.
 |:--|:--|:--|:--|
 | **1** | **P0c — collect the shadow data and read it against the frozen observable** | It is the gating empirical step for the cutover; the readout landed in `94dd3c7`, the **data has not** | **Readout DONE, observable fully armed, data outstanding** — needs ≥200 real turns on a host running the **dev-line shadow** (the owner's active machine is the candidate) |
 | **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py`, and the armed miss ceiling) | It was the next buildable chunk and it unblocks P0c's reading | **DONE (`4a2b25e`)** — holdout reported, defaults committed, ceiling armed at `0.107143` |
-| **3** | **EM-307 — packer and renderer** | §3.6's block, fed by a real retrieval | **DONE, merged (`7d6a22e`).** A gated retrieval renders. The adapter and the provider do not call it. Next build is EM-303's remainder |
-| **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | **DONE, merged (`3439b77`):** backends, jobs, model identity, cache (50k p95 3.86 ms). Next chunk is a choice — S3's remaining cards, the adapter switch, or EM-401 |
-| **5** | **Next chunk — EM-401–403 (live embedding wiring)**, then EM-411 | Closes the largest user-visible gap: today live retrieval is lexical, and the provider cards are where `ensure_embedding_model`, a query embedding and the capture hooks are wired | **EM-401 complete (merged `db7c24f` + `b8e170a`); EM-402 committed (`7104bed`), merge pending; EM-403 next.** EM-411 after EM-406, spec ready below |
+| **3** | **EM-307 — packer and renderer** | §3.6's block, fed by a real retrieval | **DONE, merged (`7d6a22e`).** A gated retrieval renders; the adapter does not call it, and the provider's served block **is** this render on the wired path (chunk 35). EM-303 shipped after it |
+| **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | **DONE, merged (`3439b77`):** backends, jobs, model identity, cache (50k p95 3.86 ms); follow-ups `42e16c7`, precision `6d9bf3b`, observability `60f0d67`. **The vector path is complete and never fed a live query — row 5's note** |
+| **5** | **EM-401–403 — the provider layer (hooks, scopes, the wired `PrefetchService`)**, then EM-411 | Moves the v3 core onto the live path behind the flag; EM-411 follows it | **All complete and merged** (`db7c24f`+`b8e170a`; `2706a86`; `9f9ba0c`+`31053df`+`a5b613a`). **What the series expected and did not deliver, recorded 2026-10-15: the query embedding** — the provider never calls `ensure_embedding_model` and embeds nothing, so live retrieval stays lexical even wired; **that wiring needs a card, the owner's to place.** EM-411 after EM-406, spec ready below |
 | **—** | **P3 — the cutover** | Both re-decision conditions are met in code | **Held: the owner decides; the agent brings it** |
 
 **The owner's order was re-set on 2026-10-08** (this table): P0c first as the gating
@@ -552,14 +596,13 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   owner-approved migration if ever wanted, never a silent rewrite. Reversible: no
   migration, no rewrite of existing rows. Full reasoning, including the outbox
   consumer analysis, in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
+* **The `_shadow.py` report's own printed caveat is stale and needs a one-line fix card (found 2026-10-15, docs pass):** it says "no vectors or cosine until EM-303", but EM-303 merged — the real reason the shadow's v3 scores carry no vectors is the unwired query embedding (the open gap in the `vector` bullet below). The substance ("not an apples-to-apples quality comparison") still holds; **the string was recorded, not fixed, in this docs-only pass.**
 * **`vector` is complete (EM-303, merged `3439b77`; follow-ups merged `42e16c7`).**
   Search, MMR, backends, jobs, model identity and the cache
   are merged. The follow-ups: `EpisodeStore` enqueues `embed` jobs and the jobs
   and backfill cover episodes; the v3 eval adapter embeds documents and the query
   when `disable_embeddings=False` (the frozen suites stay lexical); CI installs
-  numpy so the cache tests and the 50k AC run there. **What is still deliberately
-  absent:** the **provider** does not embed a query yet — the provider cards
-  (EM-401–403) call `ensure_embedding_model` at initialize and embed the query.
+  numpy so the cache tests and the 50k AC run there. **What is still absent — and now has no owning card (recorded 2026-10-15):** the **provider** does not embed a query. EM-401–403 all landed without wiring it (`ensure_embedding_model` has no caller outside `em/embeddings/jobs.py`; `_ensure_prefetch_service` builds the service with no `embed_query`; the served path passes no `query_vector`), so even the wired v3+flag path scores lexical/entity/episodic. **That wiring needs a card before it can be scheduled.**
   The cache's one recorded caveat: a raw-SQL same-length rewrite is not re-read
   until reset (all `put_embedding` writes are seen).
 * **§3.6's IDF cache and `query_rewrite` have no source (EM-301)** — nothing defines
@@ -572,8 +615,12 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
 * **`ranking.*` is still the spec defaults at the call site (EM-304 / EM-306).**
   `fusion.RankWeights` carries §3.6's numbers. EM-306's tuned scalars are in
   `em/config.py` and nothing in retrieval reads them. `superseded_note` is emitted
-  by EM-305; `render_retrieval` prints it when the pipeline kept a predecessor.
-  The provider's served block still does not.
+  by EM-305; `render_retrieval` prints it when the pipeline kept a predecessor,
+  and since chunk 35 **the wired path does too** — the service feeds
+  `retrieval.predecessors` into `load_pack_items` and renders `updated …; was: …`
+  via `pack_chosen`/`render` (the chain is in place; no test drives a real
+  supersession end-to-end through the provider, recorded 2026-10-15). The
+  v2/off path keeps v2's renderer, which has no such note.
 * **`recent`'s "current session" half** — §3.6 reads "in current session / last
   48 h"; the 48 h window is implemented and the session half needs a session id
   `RetrievalContext` does not carry.
@@ -631,8 +678,9 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   strictness test is meant to go red so the flip is a conscious act). Wiring the flag to
   a config key instead of an env var is EM-306/EM-407 work.
 * **`gate.*`/`ranking.*` tuned defaults now exist in `em/config.py` (EM-306)** —
-  committed but **unwired**: they reach call sites via the provider cards
-  (EM-401–403), and the typed loader/schema is EM-407's. `extra_stopwords` remains
+  committed but **unwired**: the expectation that EM-401–403 would wire them did
+  not hold (recorded 2026-10-15) — they still reach no call site, and the typed
+  loader/schema owner is **EM-407**. `extra_stopwords` remains
   EM-301's parameter.
 
 ### The v3 cutover — **both conditions met; the owner decides**

@@ -233,8 +233,10 @@ These are decisions the writes chunk made that are not obvious from the signatur
   under the same 50% coverage gate and the pipeline hands their cosines to the
   gate, so EM-307's renderer prints a vector-only episode under "Recent
   episodes" — episode vectors are no longer write-only. **What is still
-  absent by design:** the **provider** does not embed a query yet — EM-401–403
-  call `ensure_embedding_model` at initialize and embed the query; and capture
+  absent — and now has no owning card (recorded 2026-10-15):** the **provider**
+  does not embed a query — EM-401–403 all landed without wiring it
+  (`ensure_embedding_model` has no caller outside `em/embeddings/jobs.py`), so
+  even the wired v3+flag path scores lexical/entity/episodic; and capture
   on idle/compaction is **planned as EM-411** (plan §6.3; **no host idle hook
   exists** in the pinned contract, so idle is defined behaviourally).
   **Recorded deviation:** the cache keys by scope and loads through
@@ -262,8 +264,9 @@ These are decisions the writes chunk made that are not obvious from the signatur
   the caller supplies a query vector and a model (`retrieve(query_vector=,
   embedding_model=)`). MMR uses a cosine-then-Jaccard pairwise similarity in the
   same mode. The backends, the `embed` jobs and the numpy cache are merged;
-  the query embedding is the provider cards' (EM-401–403) and the eval
-  adapter's (when a suite allows it). `em/retrieval/__init__.py` records it.
+  the query embedding exists in the **eval adapter** only (when a suite allows
+  embeddings) — the provider never wires one, an open gap recorded 2026-10-15
+  with no owning card. `em/retrieval/__init__.py` records it.
 - **§3.6's IDF cache has no key, and its cache key is the reason (EM-301).** §3.6
   says the IDF table is "cached per `write_generation`". **Nothing in the store
   defines or maintains a `write_generation`** — there is no counter and no `meta`
@@ -312,15 +315,20 @@ These are decisions the writes chunk made that are not obvious from the signatur
   the hash was derived from.
 - **`ranking.*` call sites still use the spec defaults (EM-304 / EM-306).** §3.6
   says the rerank weights live in `ranking.*`. EM-306 committed tuned scalars in
-  `em/config.py` and nothing in retrieval reads them — EM-401–403 wire them, and
-  EM-407 owns the loader. `fusion.RankWeights` still carries the spec's numbers
+  `em/config.py` and nothing in retrieval reads them — **EM-401–403 did not wire
+  them** (recorded 2026-10-15; the expectation that they would did not hold), and
+  EM-407 owns the typed loader/schema. `fusion.RankWeights` still carries the spec's numbers
   as the default a caller may override. Do not invent a second config system.
-- **`superseded_note` renders from a gated retrieval, not from served prefetch
-  (EM-304 → EM-305 → EM-307).** The collapse still emits the flag.
+- **`superseded_note` renders from a gated retrieval (EM-304 → EM-305 → EM-307),
+  and since chunk 35 the wired served path prints it too.** The collapse still
+  emits the flag.
   `pipeline.retrieve(..., with_gate=True)` returns the predecessors MMR kept,
-  and `render_retrieval` prints `(kind · updated <date>; was: <old>)`. The
-  provider's `_format_block` does not call it, and the eval adapter still emits
-  full-id bullets. **Merged to `main` (`7d6a22e`)**; switching either caller is a
+  and `render_retrieval` prints `(kind · updated <date>; was: <old>)`. **On the
+  wired path the service feeds `retrieval.predecessors` into `load_pack_items`
+  and renders through `pack_chosen`/`render` (`a5b613a`); no test drives a real
+  supersession end-to-end through the provider (recorded 2026-10-15).** The
+  v2 fallback's `_format_block` does not call it, and the eval adapter still emits
+  full-id bullets. **Merged to `main` (`7d6a22e`)**; switching those two is a
   separate, measured change.
 - **`why_retrieved_tokens` reaches a read path only in P0b's on mode (EM-304).**
   §3.6 keeps the legacy flat token list for one minor version.
