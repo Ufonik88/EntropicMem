@@ -501,8 +501,25 @@ class PrefetchService:
             self._topic_windows.clear()
 
     def close(self) -> None:
-        """Stop the worker and close the read connection (``shutdown()``)."""
+        """Stop the workers and close the read connection (``shutdown()``).
+
+        The stop sentinels go out **before** the joins. The worker loops block
+        on ``get()`` with no timeout, so a join that precedes its sentinel can
+        never observe the thread leaving and every close pays the full 2 s
+        timeout — measured at 2011 ms with a warning on every session end while
+        the provider wiring was built (2026-10-15). A generator that is
+        genuinely stuck cannot consume the sentinel either, so it still times
+        out, is counted, and is logged; the reorder only lets an *idle* worker
+        leave promptly.
+        """
         self._closed = True
+        if self._precompute_worker_started:
+            try:
+                self._precompute_queue.put(None, block=False)
+            except Exception:  # noqa: BLE001
+                pass
+        if self._worker_started:
+            self._requests.put(None)
         for thread in (self._precompute_thread, self._worker_thread):
             if thread is not None and hasattr(thread, "join"):
                 try:
@@ -513,13 +530,6 @@ class PrefetchService:
                         log.warning("prefetch worker thread did not exit within 2s")
                 except Exception:  # noqa: BLE001
                     pass
-        if self._precompute_worker_started:
-            try:
-                self._precompute_queue.put(None, block=False)
-            except Exception:  # noqa: BLE001
-                pass
-        if self._worker_started:
-            self._requests.put(None)
         with self._conn_lock:
             conn, self._conn = self._conn, None
         if conn is not None:
