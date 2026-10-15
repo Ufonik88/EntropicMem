@@ -48,7 +48,7 @@ The legacy names (`recall`, `query`, `patch_core`, `get`, `consolidate`) route t
 
 ## Hooks
 
-`on_memory_write`, `on_session_switch`, `on_session_end`, `on_turn_start`, `on_pre_compress`. Behavior and config keys: [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
+`on_memory_write`, `on_session_switch`, `on_session_end`, `on_turn_start`, `on_pre_compress`, `on_delegation`. Behavior and config keys: [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
 
 ## Memory-Context Injection (Critical)
 

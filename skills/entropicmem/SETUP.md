@@ -67,7 +67,7 @@ memory:
   provider: entropicmem
 ```
 
-This enables the 7 `entropicmem_*` tools, the 5 lifecycle hooks, and prefetch injection. Configuration keys: repository README. Full guide: `references/HERMES_INTEGRATION.md`.
+This enables the 9 `entropicmem_*` tools, the 6 lifecycle hooks, and prefetch injection. Configuration keys: repository README. Full guide: `references/HERMES_INTEGRATION.md`.
 
 ---
 

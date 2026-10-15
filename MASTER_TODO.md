@@ -13,19 +13,23 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-15, against branch `main` at `5000942` — the
-**branch-first landing of EM-404's validation slice, which completes the card**
-(Appendix B's nine tools on both stores, `em/util/jsonschema_lite.py`'s §4.4
-argument handling, the legacy-name alias map, `forget`'s confirmation-token flow,
-`search`'s id/kind/source/time/history fields, and `reason_code:
-writes_disabled`): the tree was verified on this box (**bare 2469 / 16 / 3**; with
-the digest list **2470 / 15 / 3**; `ruff==0.16.2` clean) and `main`
-fast-forwarded to that exact SHA after **all 11 CI jobs were green on it** (the
-branch push and the main push each ran the job set; none red — CI's 3.12 count is
-**2546 / 3 / 3**). The branch is deleted, and the remote carries `main` and
-`release/2.8.x`. Named deliberately instead of the docs tip that follows it.
-Before it: the **slice-2 landing** (`e5e54ef`) and the **owner-chosen landing of
-slice 1** (`381197f`, `3dcb35f` + `84a555f`; the record is in §5).
+**Last reconciled:** 2026-10-15, against branch `main` at `e483d43` — the
+**branch-first landing of EM-405's lifecycle slice, which completes the card**
+(the `on_delegation` row enqueuing one redacted `delegation` episode and, on v3,
+one `extract_session` job; the rewound-turn retraction — one `retract_turns`
+job, `MemoryStore.retract_session`, `retracted_by_undo`, and the reason-gated
+`deleted → active` restore; the provider-owned `turn_index` persisted per session
+in `meta` as `turn_index:<sid>` and stamped as `source_turn` on both write
+paths; the WAL checkpoint before close; `plugin.yaml`'s `provides_hooks` 5 → 6):
+the tree was verified on this box (**bare 2492 / 16 / 3**; with the digest list
+**2493 / 15 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
+SHA after **all 11 CI jobs were green on it** (the branch push and the main push
+each ran the job set; none red — CI's 3.12 count is **2569 / 3 / 3**). The branch
+is deleted, and the remote carries `main` and `release/2.8.x`. Named deliberately
+instead of the docs tip that follows it. Before it: the **EM-404 validation
+slice** (`5000942`, which completes that card), the **slice-2 landing**
+(`e5e54ef`) and the **owner-chosen landing of slice 1** (`381197f`, `3dcb35f` +
+`84a555f`; the record is in §5).
 
 **A second reconciliation pass on 2026-10-15 (docs only, no product change) re-read
 all pages against the tree and corrected five stale classes:** the EM-404 slice-1
@@ -265,8 +269,53 @@ grew six recorded calls. **Two gaps recorded, not hidden:** the provider's syste
 prompt still names the legacy aliases (they route for one minor version; the
 rewrite of that block is owed and **EM-409, System prompt: policy + core, is the
 natural home**), and `allow_agent_consolidate`'s config-schema description still
-says the tool can archive — it can only preview now; the string is a one-line tidy
-on EM-405's branch.
+says the tool can archive — it can only preview now — **fixed on EM-405's branch
+(`e483d43`), whose record follows.**
+
+**EM-405's lifecycle slice landed on `main` as `e483d43` — branch-first, and it
+completes the card.** `em/provider/provider.py` implements `on_delegation`: one
+redacted `delegation` episode (task ≤ 500 characters, result ≤ 1500; redaction
+runs before the cap, so a truncated secret cannot slip past the detector) through
+the facade's `add_episode`, which now takes an explicit `kind` for the episode
+vocabulary; on a v3 store the hook then enqueues one `extract_session` job
+(`source=extracted_llm`, `confidence_cap` 0.6), and the extraction handler itself
+is the extraction card's. `HOOK_SURFACE`'s `on_delegation` row flips from
+deferred to implemented and `plugin.yaml`'s `provides_hooks` grows **5 → 6**
+(the dev-line manifest treatment EM-404 gave `provides_tools`; the catalog
+re-pin stays release business). The rewound `on_session_switch` **only enqueues**
+(30 ms budget): one `retract_turns` job (`{session_id, from_turn}`) and the
+counter steps back one, so repeated `/undo` walks turn by turn. The new handler
+(`em/store/retract.py`) runs `MemoryStore.retract_session`: the undone session's
+live, turn-stamped rows (`source_turn >= from_turn`) go to `deleted` as
+`retracted_by_undo`, audited and versioned on the existing edge; pending
+candidates keep their TTL path; unstamped rows are not attributable; a malformed
+payload is permanent (dead, never retried). The turn index is provider-owned:
+`ProviderState.turn_index`/`turn_index_session`, bumped in `on_turn_start` and
+persisted on v3 stores to `meta['turn_index:<sid>']`; `initialize` and session
+switches restore it fail-soft through a read-only probe that deliberately
+bypasses the per-instance `_v3_store()` cache (a probe before the store file
+exists must not pin a session to the v2 path); v2 keeps the counter in memory and
+its schema gains nothing. Writes are stamped with `source_turn` on the tool path
+and on the facade's extraction quarantine, captured at `sync_turn` call time so
+the background thread cannot pick up the next turn's number. `set_status` gains
+the one reversal of a terminal status: `deleted → active` only when the row's
+**latest** deletion record is `retracted_by_undo` and the reason is `restore` —
+`LEGAL_TRANSITIONS` keeps `deleted` terminal, still pinned at
+`tests/test_em_memories.py:260`; a forget stays terminal before and after a
+retraction, and `review`'s `restore` can bring a retraction back. `shutdown`
+checkpoints the WAL (`PRAGMA wal_checkpoint(PASSIVE)`) before closing the
+prefetch store and stays within 2 s with a precompute in flight. Deliberate
+contract updates, each at the changed surface's own claim: the facade contract
+table records `kind`/`source_turn` — one call shape reaches both engines, and the
+v2 engine accepts-and-ignores both (its episodes table has no kind column, its
+rows no turn) — the harness drives `on_delegation` directly,
+`test_audit_reports_a_real_problem` plants a deferred row now that the deferred
+set is empty, `test_plugin_hardening`'s hook list gains `on_delegation`, and the
+dead `allow_agent_consolidate` description now says what the tool is. 23 new
+tests (`tests/unit/test_em405_retract.py`, `tests/unit/test_em405_lifecycle.py`);
+suite **2492 / 16 / 3** bare (was 2469 / 16 / 3) and **2493 / 15 / 3** with the
+digest list in place; `ruff==0.16.2` clean; **23 of 23 mutation checks red**,
+each restored from a byte copy.
 
 **EM-403 slice 3's first half is on `main` without a chunk number — recorded here so
 it is neither forgotten nor mistaken for the whole card.** `f674146` (code, +90 lines
@@ -300,16 +349,17 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing — `em-404-validation-slice` landed on `main` as `5000942` by the
-branch-first path (code + tests + CHANGELOG committed, pushed, all 11 CI jobs green
-on that exact SHA, then `git merge --ff-only`; the branch is deleted).** The tree
-was verified on this box (bare **2469 / 16 / 3**; digest-list **2470 / 15 / 3**;
+**Nothing — `em-405-lifecycle` landed on `main` as `e483d43` by the branch-first
+path (code + tests + CHANGELOG committed, pushed, all 11 CI jobs green on that
+exact SHA, then `git merge --ff-only`; the branch is deleted).** The tree was
+verified on this box (bare **2492 / 16 / 3**; digest-list **2493 / 15 / 3**;
 `ruff==0.16.2` clean). Its record is in §5, START HERE, and the note above.
-**Next: EM-405 (lifecycle) and EM-407 (typed config).**
+**Next: EM-407 (typed config).**
 
 **`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
 and, on top, the EM-404 landings — slice 1 (`381197f`), slice 2 (`e5e54ef`) and the
-validation slice (`5000942`; §5 has all three records).** Chunks 33,
+validation slice (`5000942`) — and then the EM-405 lifecycle slice (`e483d43`; §5
+has all the records).** Chunks 33,
 34 and the whole of EM-403 slice 3 are on it: on a v3 store the
 provider builds the `PrefetchService` lazily, serves the **synchronous** fact block
 through `PrefetchService.prefetch()`, enqueues `queue_prefetch` into `precompute`, and
@@ -521,20 +571,27 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**EM-404's validation slice is merged (`5000942`, all 11 CI jobs green on that
-exact SHA — the branch-first landing of `em-404-validation-slice`: code + tests +
+**EM-405's lifecycle slice is merged (`e483d43`, all 11 CI jobs green on that
+exact SHA — the branch-first landing of `em-405-lifecycle`: code + tests +
 CHANGELOG, push, check-runs, `git merge --ff-only`, branch deleted), on top of the
-slice-2 landing (`e5e54ef`), the slice-1 landing (`381197f`) and the chunk-35 merge
-(`a5b613a`). The tool surface is the nine v3 tools of Appendix B on both stores;
-the five legacy names route through the alias map for one minor version. **EM-404
+EM-404 validation slice (`5000942`, which completes that card — the nine v3 tools
+of Appendix B on both stores, the five legacy names routing for one minor
+version), the slice-2 landing (`e5e54ef`), the slice-1 landing (`381197f`) and the
+chunk-35 merge (`a5b613a`). `on_delegation` is implemented, `/undo` retracts the
+undone turn's stamped memories, and the turn index persists per session. **EM-405
 is complete.**
 
-1. **The next chunk: EM-405 (lifecycle) — the `on_delegation` row, retraction on
-   rewind, and `turn_index` persistence — then EM-407 (typed config — where
-   `em/config.py`'s tuned `gate.*`/`ranking.*` scalars finally reach call sites;
-   they stay unwired until it).** Follow the branch-first workflow end to end:
-   tests + CHANGELOG, push, check-runs on the exact SHA, `git merge --ff-only`,
-   delete.
+1. **The next chunk: EM-407 (typed config) — where `em/config.py`'s tuned
+   `gate.*`/`ranking.*` scalars finally reach call sites; they stay unwired until
+   it.** The card: the typed `Config` model (Appendix A) in `em/config.py`, the
+   §3.8 loader precedence, collected validation errors (doctor-facing; logged once
+   at initialize, invalid values falling back to defaults), the typed
+   `get_config_schema()` (~20 dotted keys) with a `save_config` that nests into
+   `memory.entropicmem` atomically, the `plugins/entropicmem/config_schema.py`
+   `flat_json` entry, and the wiring that feeds the calibrated scalars into the
+   pipeline's `retrieve(gate_config=, rank_weights=)` seam. Follow the branch-first
+   workflow end to end: tests + CHANGELOG, push, check-runs on the exact SHA,
+   `git merge --ff-only`, delete.
 
 **The card's AC, verified through the wired provider (chunk 35):** warm p95
 **40.58 ms** @ 50k (p50 39.44, max 42.07); cache-hit **p95 0.09 ms**; forced-slow
@@ -580,10 +637,10 @@ line there.**
    observable is fully armed now, so a clean sample can conclude; until (a) exists, the
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
-3. **Pre-flight:** `python -m pytest -q` gives **2546 passed / 3 skipped / 3 xfailed**
-   in CI (3.12 at `5000942`, with the extra set fastapi/httpx/cryptography/pyyaml,
+3. **Pre-flight:** `python -m pytest -q` gives **2569 passed / 3 skipped / 3 xfailed**
+   in CI (3.12 at `e483d43`, with the extra set fastapi/httpx/cryptography/pyyaml,
    numpy, and the private digest list as the repository secret); this box's scratch
-   venv (`.venv311`, without those extras) reads **2469 / 16 / 3** — the environment,
+   venv (`.venv311`, without those extras) reads **2492 / 16 / 3** — the environment,
    not the tree. `git merge-base --is-ancestor 4eb8097 HEAD` proves the base.
 4. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
    `run list`, which can hand back a stale green.
@@ -757,17 +814,17 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2546 passed / 3 skipped / 3 xfailed** (CI, 3.12 at `5000942`) |
+| Tests | `python -m pytest -q` | **2569 passed / 3 skipped / 3 xfailed** (CI, 3.12 at `e483d43`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2546 / 3 / 3 figure is CI's** (extras + numpy +
+`ENTROPICMEM_INDEX_DB` unset. **The 2569 / 3 / 3 figure is CI's** (extras + numpy +
 the private digest list as the repository secret) and is the reference a pre-flight
 run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
-cryptography/numpy) reads **2469 passed / 16 skipped / 3 xfailed** — the missing
+cryptography/numpy) reads **2492 passed / 16 skipped / 3 xfailed** — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the one CI red on `3dcb35f` was the numpy-gated 50k AC flaking
 once, green on rerun of the same SHA). **The skip count is 3 on a machine without the
@@ -814,7 +871,9 @@ because it is irreversible or public:
   the catalog. *(Note 2026-10-15: the dev line's v3 surface names the tool
   `entropicmem_profile`, with `entropicmem_patch_core` as its one-minor-version
   alias — EM-404, `5000942` — so the catalog ask is in the owner's hands for the
-  next re-pin.)*
+  next re-pin. The same note covers the dev line's manifest breadth:
+  `provides_tools` is 9 and `provides_hooks` 6 on `main` (EM-404's 7 → 9; EM-405's
+  5 → 6, `e483d43`) while the live entry matches the 2.8.1 tag's 7/5 by design.)*
 - **Nothing else at the moment.** The merge blocker that used to sit here is
   cleared: Chunks 5 and 6 are on `main` at `e25db32` with green CI on that exact
   SHA (verified via the check-run `headSha`, not assumed).

@@ -47,7 +47,7 @@ memory:
   provider: entropicmem
 ```
 
-This activates the 7 `entropicmem_*` tools, the 5 lifecycle hooks, and `<memory-context>` prefetch injection. Contract and rules: [../skills/entropicmem/references/HERMES_INTEGRATION.md](../skills/entropicmem/references/HERMES_INTEGRATION.md).
+This activates the 9 `entropicmem_*` tools, the 6 lifecycle hooks, and `<memory-context>` prefetch injection. Contract and rules: [../skills/entropicmem/references/HERMES_INTEGRATION.md](../skills/entropicmem/references/HERMES_INTEGRATION.md).
 
 ## Uninstall / disable
 

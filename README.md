@@ -24,7 +24,7 @@ A Hermes Agent memory provider and skill delivering a complete, standalone knowl
 | **Vault** | Human-browsable, linked, domain-organized Markdown notes |
 | **Index** | Vault FTS5 plus graph edges powering cited retrieval |
 | **Visual graph** | Self-contained D3 galaxy HTML export with lazy wikilink resolution |
-| **MemoryProvider plugin** | 7 `entropicmem_*` tools and 5 lifecycle hooks wired into Hermes |
+| **MemoryProvider plugin** | 9 `entropicmem_*` tools and 6 lifecycle hooks wired into Hermes |
 
 ## Screenshots
 
@@ -84,7 +84,7 @@ python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py graph export --form
 
 ```
 EntropicMem/
-├── plugins/entropicmem/         # Hermes MemoryProvider (7 tools, 5 hooks) + engine
+├── plugins/entropicmem/         # Hermes MemoryProvider (9 tools, 6 hooks) + engine
 │   ├── __init__.py              # MemoryProvider, config schema, tool handlers
 │   ├── _backend.py              # Path resolution helpers
 │   ├── plugin.yaml              # Catalog manifest
@@ -214,7 +214,7 @@ memory:
 
 - **Interactive tools (nine):** `entropicmem_remember`, `entropicmem_search`, `entropicmem_update`, `entropicmem_forget`, `entropicmem_timeline`, `entropicmem_entity`, `entropicmem_profile`, `entropicmem_review`, `entropicmem_stats`, plus the built-in `memory` tool. The legacy names (`entropicmem_recall`, `entropicmem_query`, `entropicmem_patch_core`, `entropicmem_get`, `entropicmem_consolidate`) route through an alias map for one minor version and report `deprecated_tool` in their responses.
 - **Prefetch injection:** relevant facts are prefetched into `<memory-context>` each turn. These are system-injected context, not user input.
-- **Lifecycle hooks (5):** `on_memory_write` mirrors built-in `memory` tool writes into the engine; `on_session_switch` tracks session state and resets caches; `on_session_end` writes an extractive session digest episode (idempotent per session) and runs quarantine-first extraction; `on_turn_start` flushes a partial digest every N turns for always-on sessions; `on_pre_compress` checkpoints a standing-constraints digest before context compression (fail-closed checkpoint API v2). Config under `plugins.entropicmem` (`session_end_capture`, `turn_cadence_flush_turns`, `turn_cadence_min_interval_sec`, `session_extract_pending`), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **Lifecycle hooks (6):** `on_memory_write` mirrors built-in `memory` tool writes into the engine; `on_session_switch` tracks session state and resets caches — a rewound switch (host `/undo`) queues a `retract_turns` job that soft-deletes the undone turn's turn-stamped memories (restorable through `entropicmem_review`); `on_session_end` writes an extractive session digest episode (idempotent per session) and runs quarantine-first extraction; `on_turn_start` flushes a partial digest every N turns for always-on sessions; `on_pre_compress` checkpoints a standing-constraints digest before context compression (fail-closed checkpoint API v2); `on_delegation` records a redacted delegation episode and, on v3 stores, queues extraction over it with a 0.6 confidence cap. Config under `plugins.entropicmem` (`session_end_capture`, `turn_cadence_flush_turns`, `turn_cadence_min_interval_sec`, `session_extract_pending`), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Cron:** Hermes cron runs execute with memory writes disabled; persist durable facts through the CLI or the MemoryEngine API (deterministic, no LLM), never through interactive memory tools.
 - **Full integration guide:** [skills/entropicmem/references/HERMES_INTEGRATION.md](skills/entropicmem/references/HERMES_INTEGRATION.md).
 

@@ -23,7 +23,7 @@ All engine code lives under `plugins/entropicmem/scripts/`, inside the plugin di
 | Triple extraction | `plugins/entropicmem/scripts/triple_extract.py` | Rule-based subject, predicate, object extraction |
 | Graph export | `plugins/entropicmem/scripts/graph_export.py` | D3 HTML template (with markdown sanitize pass) + json/dot/canvas export |
 | CLI | `plugins/entropicmem/scripts/entropicmem.py` | 35 top-level commands over the modules above |
-| Plugin | `plugins/entropicmem/` | Hermes `MemoryProvider`: 7 tools, 5 lifecycle hooks, config schema |
+| Plugin | `plugins/entropicmem/` | Hermes `MemoryProvider`: 9 tools, 6 lifecycle hooks, config schema |
 | Graph server | `scripts/graph_server/server.py` | FastAPI: `/refresh` (always token-gated), `/api/note/{id}`, `/api/note/by-title/{title}`, `/api/search`, `/api/path`, `/health`; loopback bind enforced, Host allowlist, CSP, static or per-run token |
 | Static graph server | `plugins/entropicmem/scripts/graph_static.py` | stdlib server behind `graph serve`: `graph.html`/`graph.json` only, same bind rule, Host allowlist and CSP, no token |
 
@@ -151,13 +151,14 @@ The plugin's `_recall()` handler includes `why_retrieved` in each result dict (l
 
 ## Lifecycle hooks
 
-The plugin implements five Hermes memory-provider hooks, all deterministic (no LLM) and fail-soft (a hook failure logs and returns; it never breaks the host session):
+The plugin implements six Hermes memory-provider hooks, all deterministic (no LLM) and fail-soft (a hook failure logs and returns; it never breaks the host session):
 
 | Hook | What it does | Config keys |
 |------|--------------|-------------|
 | `on_memory_write` | Mirrors built-in `memory` tool writes into the engine (primary agent context only). | (always on) |
-| `on_session_switch` | Tracks session identity; resets prefetch caches and digest buffers on reset. | (always on) |
+| `on_session_switch` | Tracks session identity; resets prefetch caches and digest buffers on reset. A rewound switch (host `/undo`) enqueues a `retract_turns` job that soft-deletes the undone turn's turn-stamped memories as `retracted_by_undo` — restorable through `entropicmem_review`'s `restore`. | (always on) |
 | `on_session_end` | Flushes an extractive session digest into `episodes` (`ep_sess_{session_id}`, `INSERT OR REPLACE` = idempotent), then runs the regex extraction path into `pending_facts` (quarantine only; nothing auto-promotes). | `session_end_capture`, `session_extract_pending` |
+| `on_delegation` | Records a delegation as one redacted `delegation` episode (task capped at 500 chars, result at 1500; redaction before the cap) and, on v3 stores, queues extraction over it (`source=extracted_llm`, confidence capped at 0.6). | (always on) |
 | `on_turn_start` | Partial digest flush every N turns, no more often than the min interval, for always-on gateway sessions where `on_session_end` is rare. | `turn_cadence_flush_turns` (0 disables), `turn_cadence_min_interval_sec` |
 | `on_pre_compress` | Returns a standing-constraints bullet list for the compression summary prompt and durably checkpoints it as an `ep_precomp_{session_id}` episode tagged `source='pre_compress'`. Checkpoint API v2 fail-closed semantics: a non-empty return guarantees the checkpoint is persisted; on persist failure the error propagates so the host can keep the uncompressed transcript. Returns `""` when nothing salient. | (always on) |
 
