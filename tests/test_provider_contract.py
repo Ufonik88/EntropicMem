@@ -246,13 +246,18 @@ def test_the_surface_table_and_the_provider_agree():
     assert not problems, "\n".join(problems)
 
 
-def test_audit_reports_a_real_problem():
+def test_audit_reports_a_real_problem(monkeypatch):
     """The audit must be able to fail — an always-empty one proves nothing.
 
     Fed a stand-in class with a row missing and one shipped early, the way a
     provider that forgets a hook (or lands a deferred one) would look. Without
-    this, ``assert not audit(provider)`` passes against a broken auditor.
+    this, ``assert not audit(provider)`` passes against a broken auditor. The
+    "shipped early" direction needs a deferred row to exist, and EM-405 shipped
+    the last one (``on_delegation``), so the test plants a row of its own —
+    which is also the honest way to keep the audit's second branch covered.
     """
+    import dataclasses
+
     class MissingAHook:
         def name(self):
             return "stub"
@@ -261,15 +266,25 @@ def test_audit_reports_a_real_problem():
     assert problems, "an audit of a class missing rows must report them"
     assert any("initialize" in p for p in problems)
 
+    planted = dataclasses.replace(
+        next(s for s in surface.specs() if s.name == "on_session_switch"),
+        status=surface.DEFERRED,
+        deferred_to="EM-000",
+        defer_reason="planted by this test: a row shipped before its card",
+    )
+    monkeypatch.setattr(surface, "HOOK_SURFACE", surface.specs() + (planted,))
+
     class EarlyHook:
         def name(self):
             return "stub"
 
-        def on_delegation(self):  # deferred to EM-405
-            return {}
+        def on_session_switch(self, *args, **kwargs):
+            return None
 
     problems = surface.audit(EarlyHook())
-    assert any("on_delegation" in p for p in problems)
+    assert any(
+        "on_session_switch: deferred to EM-000 but implemented" in p for p in problems
+    ), "a row shipped before its card must be reported by the audit"
 
 
 def test_the_deferred_set_is_exactly_the_unimplemented_pinned_methods():

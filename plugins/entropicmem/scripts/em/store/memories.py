@@ -33,6 +33,7 @@ from .types import (
     Status,
     WriteResult,
     chat_in_scope,
+    check_deletion_reversal,
     check_transition,
     may_read_owner_only,
     row_is_owner_only,
@@ -611,7 +612,14 @@ class MemoryStore:
         current = row["status"]
         if current == status:
             return WriteResult(ok=True, id=memory_id, status=status, decision="noop_duplicate", reason_code="already_in_status")
-        check_transition(current, status, reason)
+        if current == "deleted" and status == "active":
+            # EM-405: the one reversal of a terminal status — ``review``'s
+            # restore of a *retraction*. §3.4 keeps ``deleted`` terminal in the
+            # transition table; this edge is gated on the row's own deletion
+            # record, so a forget can never be quietly undone.
+            check_deletion_reversal(current, status, reason, self._deletion_reason(memory_id))
+        else:
+            check_transition(current, status, reason)
 
         now = to_iso(utc_now())
         sets = ["status=?", "updated_at=?"]
@@ -646,6 +654,46 @@ class MemoryStore:
             self._enqueue_link(memory_id)
         seq = audit_append(self._conn, "set_status", actor, memory_id, {"from": current, "to": status, "reason": reason})
         return WriteResult(ok=True, id=memory_id, status=status, decision="updated", reason_code=reason, audit_seq=seq)
+
+    def _deletion_reason(self, memory_id: str) -> str:
+        """Why the *latest* deletion of ``memory_id`` happened, from its
+        version trail. Empty when the row was never deleted."""
+        row = self._conn.execute(
+            "SELECT change_reason FROM memory_versions WHERE memory_id=? AND status='deleted'"
+            " ORDER BY version DESC LIMIT 1",
+            (memory_id,),
+        ).fetchone()
+        return row["change_reason"] if row else ""
+
+    def retract_session(self, session_id: str, from_turn: int, *, actor: str) -> int:
+        """§4.1's rewound retraction: soft-delete the undone turn's live rows.
+
+        Every row the provider stamped with ``source_session = session_id`` and
+        ``source_turn >= from_turn`` that is still ``active`` takes the
+        ``active -> deleted`` edge with reason ``retracted_by_undo`` — audited
+        and versioned like any other status change, and reversible by
+        ``review``'s restore (the only reversible deletion; see
+        ``em.store.types``).
+
+        The quarantine is deliberately out of scope: pending candidates never
+        surface in recall and have their own TTL/discard path, and restoring a
+        retracted *pending* row as ``active`` would smuggle it past promotion.
+        Unstamped rows (``source_turn IS NULL``) are not attributable to a turn
+        and survive. Returns how many rows moved.
+        """
+        rows = self._conn.execute(
+            "SELECT id FROM memories WHERE source_session=? AND source_turn IS NOT NULL"
+            " AND source_turn>=? AND status='active'",
+            (session_id, int(from_turn)),
+        ).fetchall()
+        retracted = 0
+        for row in rows:
+            result = self.set_status(
+                row["id"], "deleted", actor=actor, reason="retracted_by_undo"
+            )
+            if result.ok:
+                retracted += 1
+        return retracted
 
     def get(self, id_or_prefix_or_legacy: str, *, scope: Scope | None = None) -> dict[str, Any] | None:
         """Look a memory up by full id, unique id prefix, or v2 legacy id.

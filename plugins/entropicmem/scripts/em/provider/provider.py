@@ -452,7 +452,7 @@ class EntropicMemProvider(ToolHandlers):
             },
             {
                 "key": "allow_agent_consolidate",
-                "description": "Allow entropicmem_consolidate to archive for real (confirm=true still required)",
+                "description": "Retired: the tool path previews only (entropicmem_review -> consolidate_preview); the real consolidate is CLI-only",
                 "default": False,
             },
             {
@@ -578,6 +578,8 @@ class EntropicMemProvider(ToolHandlers):
             self._hermes_home, self._config
         )
         self._memory_db.parent.mkdir(parents=True, exist_ok=True)
+        # EM-405: a restarted provider continues the session's turn sequence.
+        self._restore_turn_index(session_id)
 
     @fail_soft
     def unavailable_reason(self) -> str:
@@ -1021,6 +1023,11 @@ class EntropicMemProvider(ToolHandlers):
                     assistant_text,
                     session_id or self._session_id,
                     write_scope=ctx.write_scope(),
+                    # EM-405: captured at call time like the scope — the sync
+                    # worker can land after the NEXT turn's on_turn_start has
+                    # moved the counter, and this turn's candidates must carry
+                    # *this* turn's number.
+                    source_turn=self._current_turn(),
                 )
             except Exception as e:
                 logger.debug("EntropicMem auto-extract failed: %s", e)
@@ -1032,6 +1039,7 @@ class EntropicMemProvider(ToolHandlers):
         session_id: str,
         *,
         write_scope: Any = None,
+        source_turn: Optional[int] = None,
     ) -> None:
         """Background auto-extraction of durable facts from conversation text.
 
@@ -1057,6 +1065,11 @@ class EntropicMemProvider(ToolHandlers):
                         source="auto_extracted",
                         min_confidence=0.4,
                         promote=False,  # background extraction stays pending-only
+                        # One call shape for both engines: v3 stamps the turn on
+                        # the quarantined draft; the v2 engine accepts
+                        # ``source_turn`` and ignores it (no such column) — see
+                        # ``em.facade.contract``.
+                        source_turn=source_turn,
                     )
             except Exception:
                 pass  # Non-blocking; failures are silent
@@ -1432,7 +1445,21 @@ class EntropicMemProvider(ToolHandlers):
         rewound: bool = False,
         **kwargs,
     ) -> None:
+        """EM-405: the switch also carries the turn index.
+
+        ``rewound=True`` is /undo: the host removed the last exchange, so the
+        undone turn's writes have to go with it. The retraction is a **job** —
+        this thread only enqueues (one short transaction on a 30 ms budget) and
+        steps the counter back, so a second /undo reaches the turn before
+        instead of re-aiming at the last one. Every other switch re-points the
+        index at the new session and reloads its persisted position.
+        """
+        previous_session_id = self._session_id
         self._session_id = new_session_id
+        if rewound:
+            self._handle_rewind(previous_session_id or new_session_id)
+        else:
+            self._restore_turn_index(new_session_id)
         if reset:
             with self._prefetch_lock:
                 self._prefetch_cache = None
@@ -1441,6 +1468,72 @@ class EntropicMemProvider(ToolHandlers):
                 self._last_query = ""
                 self._session_turns = []
             self._last_cadence_flush = 0.0
+
+    @fail_soft
+    def on_delegation(
+        self,
+        task: str,
+        result: str,
+        *,
+        child_session_id: str = "",
+        **kwargs: Any,
+    ) -> None:
+        """§4.1's delegation row: the parent's record of one subagent run.
+
+        The evidence is one redacted ``delegation`` episode — task capped at
+        500 chars and result at 1500, redaction before the cap so a truncated
+        secret cannot slip past the detector. On a v3 store the hook then
+        enqueues one ``extract_session`` job over that episode, carrying
+        ``source=extracted_llm`` and the 0.6 confidence cap for
+        assistant-originated claims; the job family's handler lands with the
+        extraction work, and the episode is the evidence it will read. A v2
+        store gets the episode and nothing else — its engine ignores the
+        ``kind`` keyword (no kind column) and it has no queue.
+        """
+        if not self._writes_allowed():
+            return
+        if not (self._scripts_dir and self._memory_db):
+            return
+        task_text = self._delegation_text(task, 500)
+        result_text = self._delegation_text(result, 1500)
+        if not (task_text or result_text):
+            return
+        session_id = self._session_id or ""
+        parts = []
+        if task_text:
+            parts.append(f"Task: {task_text}")
+        if result_text:
+            parts.append(f"Result: {result_text}")
+
+        episode_id = ""
+        try:
+            self._host.ensure_scripts_on_path(self._scripts_dir)
+            with self._open_engine(scope=self._state.scope.write_scope()) as engine:
+                episode_id = engine.add_episode(
+                    title=(f"Delegation: {task_text}" if task_text else "Delegation")[:80],
+                    summary="\n\n".join(parts),
+                    source_session=session_id,
+                    importance=0.5,
+                    # One call shape for both engines: v3 stamps the episode
+                    # kind; the v2 engine accepts ``kind`` and ignores it (its
+                    # table has no kind column) — see ``em.facade.contract``.
+                    kind="delegation",
+                )
+        except Exception as e:
+            logger.debug("EntropicMem on_delegation episode failed: %s", e)
+            return
+
+        if episode_id and self._v3_store():
+            child = (child_session_id or "").strip()
+            self._enqueue_job(
+                "extract_session",
+                {
+                    "session_id": child or session_id,
+                    "episode_id": episode_id,
+                    "source": "extracted_llm",
+                    "confidence_cap": 0.6,
+                },
+            )
 
     # ── P1 Slice 2: lifecycle hooks (A1/A2/A5/C1) ─────────────────────────────
 
@@ -1504,6 +1597,10 @@ class EntropicMemProvider(ToolHandlers):
         filtering pass them, and the harness pins that they arrive.
         """
         try:
+            # EM-405: the turn sequence — bumped (and persisted on a v3 store)
+            # every turn, before the cadence early-returns below, because the
+            # turn's writes are stamped with it.
+            self._bump_turn_index()
             # §3.5's per-turn scope: applied every turn, before the cadence
             # early-returns below — a turn that flushes nothing still re-buckets.
             self._state.scope = self._state.scope.with_author(author_id, author_is_bot)
@@ -1649,6 +1746,13 @@ class EntropicMemProvider(ToolHandlers):
             self._prefetch_service = None
         if self._prefetch_store is not None:
             try:
+                # §4.1: checkpoint the WAL so a session end leaves the store
+                # compact. PASSIVE never blocks on readers — the service is
+                # already stopped, and waiting on a reader is not worth a stall.
+                self._prefetch_store.reader().execute("PRAGMA wal_checkpoint(PASSIVE)")
+            except Exception:
+                pass
+            try:
                 self._prefetch_store.close()
             except Exception:
                 pass
@@ -1677,6 +1781,140 @@ class EntropicMemProvider(ToolHandlers):
                 result = False
         self._prefetch_service_kind = result
         return result
+
+    # ── EM-405: the turn index + the v3 job producers ────────────────────────
+
+    def _restore_turn_index(self, session_id: str) -> None:
+        """Load ``meta['turn_index:<sid>']`` for *session_id* (v3 stores).
+
+        The counter is provider bookkeeping, not a durable memory write: it is
+        read at ``initialize`` and on every session switch, and a v2 store
+        simply keeps it in memory. Fail-soft, and deliberately **not** routed
+        through ``_v3_store()``: that probe caches per instance, and calling it
+        here — before the store file exists — would pin the whole session to
+        the v2 path. A read-only connection answers both questions honestly:
+        no file means "not resolved yet, retry on the next touch", and a store
+        without a ``meta`` table means "no counter to restore".
+        """
+        self._state.turn_index = 0
+        self._state.turn_index_session = ""
+        if not (session_id and self._memory_db):
+            return
+        if not Path(self._memory_db).is_file():
+            return
+        self._state.turn_index_session = session_id
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(f"file:{self._memory_db}?mode=ro", uri=True)
+            try:
+                row = conn.execute(
+                    "SELECT value FROM meta WHERE key=?", (f"turn_index:{session_id}",)
+                ).fetchone()
+            finally:
+                conn.close()
+            if row and row[0]:
+                self._state.turn_index = max(0, int(row[0]))
+        except Exception:
+            pass
+
+    def _persist_turn_index(self) -> None:
+        """UPSERT the counter (v3 stores only; fail-soft)."""
+        session_id = self._state.turn_index_session
+        if not (session_id and self._memory_db and self._v3_store()):
+            return
+        try:
+            from em.store.db import Store
+
+            store = Store(str(self._memory_db))
+            try:
+                with store.transaction() as conn:
+                    conn.execute(
+                        "INSERT INTO meta (key, value) VALUES (?,?)"
+                        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        (f"turn_index:{session_id}", str(self._state.turn_index)),
+                    )
+            finally:
+                store.close()
+        except Exception:
+            pass
+
+    def _bump_turn_index(self) -> None:
+        """One turn, one number: reload when the session moved, increment, persist."""
+        session_id = self._session_id or ""
+        if self._state.turn_index_session != session_id:
+            self._restore_turn_index(session_id)
+        self._state.turn_index += 1
+        self._persist_turn_index()
+
+    def _current_turn(self) -> Optional[int]:
+        """The turn number to stamp on a write, or None when no turn is known.
+
+        Restores from ``meta`` on first use after a session change, so a
+        provider driven without ``initialize`` having resolved the store (the
+        tests) or after a restart still attributes writes correctly.
+        """
+        session_id = self._session_id or ""
+        if self._state.turn_index_session != session_id:
+            self._restore_turn_index(session_id)
+        return self._state.turn_index or None
+
+    def _handle_rewind(self, session_id: str) -> None:
+        """§4.1's ``rewound`` reception: enqueue the retraction (v3 stores).
+
+        The turn that was just undone is ``turn_index`` — it was bumped when
+        that turn started. Enqueue ``retract_turns(session_id, from_turn)``,
+        step the counter back one (so a further /undo reaches the turn before,
+        not the one already gone) and persist. Nothing here touches memory
+        rows: the worker runs the job.
+        """
+        session_id = session_id or ""
+        if not session_id:
+            return
+        if self._state.turn_index_session != session_id:
+            self._restore_turn_index(session_id)
+        from_turn = self._state.turn_index
+        if from_turn <= 0:
+            return
+        self._enqueue_job("retract_turns", {"session_id": session_id, "from_turn": from_turn})
+        self._state.turn_index = from_turn - 1
+        self._state.turn_index_session = session_id
+        self._persist_turn_index()
+
+    def _enqueue_job(self, job_type: str, payload: Dict[str, Any]) -> None:
+        """Enqueue one v3 job (fail-soft; a v2 store has no queue).
+
+        The provider is a job *producer* here: the undo hook and the delegation
+        row hand work to the queue rather than do it on a hook thread.
+        """
+        if not (self._memory_db and self._v3_store()):
+            return
+        try:
+            from em.store.db import Store
+            from em.store.jobs import JobQueue
+
+            store = Store(str(self._memory_db))
+            try:
+                with store.transaction() as conn:
+                    JobQueue(conn).enqueue(job_type, payload)
+            finally:
+                store.close()
+        except Exception as e:
+            logger.debug("EntropicMem job enqueue (%s) failed: %s", job_type, e)
+
+    @staticmethod
+    def _delegation_text(text: str, cap: int) -> str:
+        """Redact, then cap — so a secret split by truncation is already gone."""
+        text = (text or "").strip()
+        if not text:
+            return ""
+        try:
+            from pii import redact_pii
+
+            text = redact_pii(text)
+        except Exception:
+            pass
+        return text[:cap]
 
     def _ensure_prefetch_service(self):
         """Lazily build the v3 ``PrefetchService`` (None on v2 stores).
@@ -1828,11 +2066,7 @@ HOOK_SURFACE: Tuple[HookSpec, ...] = (
     _spec("on_memory_write", AGENT, in_manifest=True),
     _spec("on_session_switch", AGENT_OR_BG, in_manifest=True),
     _spec("on_pre_compress", AGENT, in_manifest=True),
-    _spec("on_delegation", AGENT, status=DEFERRED, deferred_to="EM-405",
-          defer_reason=(
-              "EM-405's AC owns the delegation episode ('delegation creates an "
-              "episode'); the signature lands with the behaviour, not before"
-          )),
+    _spec("on_delegation", AGENT, in_manifest=True),
     _spec("on_session_end", AGENT_OR_BG, in_manifest=True),
     _spec("backup_paths", CLI),
     _spec("shutdown", CALLER),

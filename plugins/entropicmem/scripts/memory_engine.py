@@ -1838,6 +1838,7 @@ class MemoryEngine:
         source: str = "auto_extracted",
         min_confidence: float = 0.4,
         promote: bool = True,
+        source_turn: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Extract candidate facts from conversation text using heuristic patterns.
@@ -1851,6 +1852,11 @@ class MemoryEngine:
         pending promote <id>`) or discard_pending(). Returns the list of
         quarantined candidates ({id, content, domain, importance, tag,
         pending: True}).
+
+        ``source_turn`` (EM-405) is accepted for call-shape parity with the v3
+        facade and ignored: v2 rows carry no turn attribution, so the undo
+        retraction only has something to match on v3. The provider passes the
+        same keyword to both engines; see ``em.facade.contract``.
 
         This is a regex-based extraction — no LLM required.
         Designed for zero-cost, zero-latency background extraction.
@@ -2345,11 +2351,17 @@ class MemoryEngine:
         domain: str = "Knowledge",
         source: str = "agent",
         episode_id: Optional[str] = None,
+        kind: str = "",
     ) -> str:
         """Store a distilled episodic record (session summary / timeline entry).
 
         Episodes answer "when did X happen" — a timestamped timeline layer
         distinct from the semantic fact store. Returns the episode_id.
+
+        ``kind`` (EM-405) is accepted for call-shape parity with the v3 facade
+        and ignored: the v2 episodes table has no kind column — episode kinds
+        are a v3 concept (``em.store.episodes.EPISODE_KINDS``). The provider
+        passes the same keyword to both engines; see ``em.facade.contract``.
         """
         self._check_migration_lock()
         self._acquire_write_lock()

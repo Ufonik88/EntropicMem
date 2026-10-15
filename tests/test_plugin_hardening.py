@@ -172,7 +172,7 @@ def test_manifest_declares_registered_tools_and_hooks():
 
     expected_hooks = sorted([
         "on_memory_write", "on_session_switch", "on_session_end",
-        "on_turn_start", "on_pre_compress",
+        "on_turn_start", "on_pre_compress", "on_delegation",
     ])
     assert sorted(manifest.get("provides_hooks") or []) == expected_hooks
     # One declaration only: the old duplicate `hooks:` list was dropped at the

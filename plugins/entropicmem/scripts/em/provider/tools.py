@@ -500,6 +500,9 @@ class ToolHandlers:
             visibility=args.get("visibility") or "",
             source=source,
             source_session=self._session_id,
+            # EM-405: the turn this was stated in — the handle /undo's
+            # retraction (source_turn >= the undone turn) uses.
+            source_turn=self._current_turn(),
             tags=tuple(tags),
             status="active",
             legacy_id="" if write_scope.user else self._legacy_id(content),
@@ -1408,7 +1411,8 @@ class ToolHandlers:
                     result = memories.set_status(row["id"], "active", actor=actor, reason="restore")
                 except InvalidTransition:
                     return self._blocked_payload(
-                        f"cannot restore a {row['status']} memory (deleted is terminal)",
+                        f"cannot restore a {row['status']} memory — only a retraction is reversible"
+                        " (a forgotten memory is terminal)",
                         "not_restorable",
                     )
         finally:

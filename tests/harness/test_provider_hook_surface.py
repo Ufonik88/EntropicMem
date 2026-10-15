@@ -55,6 +55,9 @@ DRIVEN_DIRECTLY = {
         "add", "memory", "Acme bills through Globex"
     ),
     "on_session_switch": lambda prov: prov.on_session_switch("sess-harness-2", reset=True),
+    "on_delegation": lambda prov: prov.on_delegation(
+        "harness task", "harness result", child_session_id="sess-harness-child"
+    ),
     "on_session_end": lambda prov: prov.on_session_end(MESSAGES),
     "on_pre_compress": lambda prov: prov.on_pre_compress(MESSAGES),
     "backup_paths": lambda prov: prov.backup_paths(),

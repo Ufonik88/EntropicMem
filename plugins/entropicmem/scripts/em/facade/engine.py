@@ -806,6 +806,7 @@ class V3Engine:
         source: str = "auto_extracted",
         min_confidence: float = 0.4,
         promote: bool = True,
+        source_turn: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Regex extraction of candidate facts; no LLM and no new call.
 
@@ -814,6 +815,11 @@ class V3Engine:
         commits it over the ``pending -> active`` edge, which is what v2's
         separate promotion write did. One versioned row instead of v2's two,
         and the extraction record is the same row.
+
+        ``source_turn`` (EM-405) stamps the turn the text came from, so a
+        candidate carries the same ``source_session``/``source_turn``
+        attribution as the tool path and a promoted row from an undone turn is
+        retractable by the same ``retracted_by_undo`` contract.
         """
         combined = f"{user_text}\n{assistant_text}"
         if not combined.strip():
@@ -846,6 +852,7 @@ class V3Engine:
             stored = self._store_candidate(
                 content=content, domain=domain, importance=importance, tag=tag,
                 reason=reason, session_id=session_id, promote=promote,
+                source_turn=source_turn,
             )
             if stored is not None:
                 extracted.append(stored)
@@ -854,6 +861,7 @@ class V3Engine:
     def _store_candidate(
         self, *, content: str, domain: str, importance: float, tag: str,
         reason: str, session_id: str, promote: bool,
+        source_turn: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """Quarantine one extracted candidate, optionally promoting it."""
         draft = MemoryDraft(
@@ -863,6 +871,7 @@ class V3Engine:
             tags=(tag,),
             source="auto_extracted",
             source_session=session_id,
+            source_turn=source_turn,
             status="pending",
             pending_reason=reason,
             # No legacy_id: an extracted candidate is not a content-addressed
@@ -926,6 +935,7 @@ class V3Engine:
         domain: str = "Knowledge",
         source: str = "agent",
         episode_id: Optional[str] = None,
+        kind: str = "",
     ) -> str:
         """Store a distilled episodic record (session summary / timeline entry).
 
@@ -937,9 +947,12 @@ class V3Engine:
         episode is ``manual``, which keeps it out of a session's window
         numbering.
 
-        ``linked_fact_ids``, ``domain`` and ``source`` are accepted and
-        ignored: v3's ``episodes`` table has no column for them and giving it
-        one would mean a migration, which this chunk does not take.
+        ``kind`` (EM-405) selects the v3 §Episodes kind explicitly — e.g. the
+        ``delegation`` row — for callers that have one; the legacy
+        ``source_session``-means-``session`` mapping stays for the v2-era
+        call sites. ``linked_fact_ids``, ``domain`` and ``source`` are accepted
+        and ignored: v3's ``episodes`` table has no column for them and giving
+        it one would mean a migration, which this chunk does not take.
         """
         legacy = episode_id or ("ep_" + uuid.uuid4().hex[:12])
         fields = {
@@ -950,6 +963,7 @@ class V3Engine:
             "end_at": end_ts,
             "legacy_id": legacy,
         }
+        explicit_kind = (kind or "").strip()
         with self.store.transaction() as conn:
             store = EpisodeStore(conn)
             existing = conn.execute(
@@ -961,6 +975,11 @@ class V3Engine:
                     scope=self.scope, kind=existing["kind"],
                     session_id=existing["session_id"],
                     window_seq=existing["window_seq"], **fields,
+                )
+            if explicit_kind:
+                return store.add_episode(
+                    scope=self.scope, kind=explicit_kind,
+                    session_id=source_session, **fields,
                 )
             if source_session:
                 return store.add_episode(scope=self.scope, kind="session",

@@ -42,6 +42,14 @@ class ProviderState:
     last_recall_count: int = 0
     #: sha256 of the core block as issued by the last ``system_prompt_block``.
     core_baseline: str = ""
+    #: EM-405: the per-session turn counter. Incremented in ``on_turn_start``,
+    #: persisted to the v3 store's ``meta`` as ``turn_index:<sid>`` so a restart
+    #: continues the sequence, and stamped on the writes made during the turn
+    #: (``source_turn``) — which is what makes the rewound-turn retraction
+    #: (``source_turn >= turn``) find them.
+    turn_index: int = 0
+    #: The session ``turn_index`` belongs to; a mismatch means "reload".
+    turn_index_session: str = ""
 
     def writes_allowed(self) -> bool:
         """True only for the primary agent context.

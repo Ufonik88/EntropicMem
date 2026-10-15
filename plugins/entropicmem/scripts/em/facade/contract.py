@@ -26,10 +26,14 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Protocol, Sequence, runtime_checkable
 
 #: method -> (keyword arguments the provider passes, positional-arg counts seen).
-#: Generated from the provider source; see the module docstring.
+#: Generated from the provider source; see the module docstring. EM-405 added
+#: ``kind`` (add_episode) and ``source_turn`` (extract_and_store): one call
+#: shape reaches both engines, and the v2 engine accepts-and-ignores both
+#: because its schema has no episode-kind or turn column. A keyword only one
+#: implementation understood would not be callable through this contract.
 PROVIDER_CALLS: Dict[str, tuple[frozenset[str], frozenset[int]]] = {
     "add_episode": (
-        frozenset({"end_ts", "episode_id", "importance", "source", "source_session", "start_ts", "summary", "title"}),
+        frozenset({"end_ts", "episode_id", "importance", "kind", "source", "source_session", "start_ts", "summary", "title"}),
         frozenset({0}),
     ),
     "close": (frozenset(), frozenset({0})),
@@ -39,7 +43,7 @@ PROVIDER_CALLS: Dict[str, tuple[frozenset[str], frozenset[int]]] = {
     ),
     "discard_pending": (frozenset(), frozenset({1})),
     "extract_and_store": (
-        frozenset({"assistant_text", "min_confidence", "promote", "session_id", "source", "user_text"}),
+        frozenset({"assistant_text", "min_confidence", "promote", "session_id", "source", "source_turn", "user_text"}),
         frozenset({0}),
     ),
     "find_mirrored": (frozenset(), frozenset({1})),
@@ -243,6 +247,7 @@ class LegacyEngine(Protocol):
         source: str = "auto_extracted",
         min_confidence: float = 0.4,
         promote: bool = True,
+        source_turn: Optional[int] = None,
     ) -> List[Dict[str, Any]]: ...
 
     def prune_pending(self, older_than_days: int = 30) -> int: ...
@@ -260,6 +265,7 @@ class LegacyEngine(Protocol):
         domain: str = "Knowledge",
         source: str = "agent",
         episode_id: Optional[str] = None,
+        kind: str = "",
     ) -> str: ...
 
     def next_episode_wave(self, episode_base: str) -> int: ...

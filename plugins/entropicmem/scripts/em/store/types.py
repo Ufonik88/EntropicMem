@@ -43,7 +43,10 @@ TRANSITION_REASONS: dict[tuple[str, str], frozenset[str]] = {
     ("pending", "deleted"): frozenset({"ttl_expired", "discard"}),
     ("active", "superseded"): frozenset({"supersede", "update"}),
     ("active", "archived"): frozenset({"archive", "consolidate", "decay"}),
-    ("active", "deleted"): frozenset({"forget"}),
+    # ``retracted_by_undo`` (EM-405): the §4.1 rewound-turn retraction — a
+    # soft delete of the undone turn's live rows. It is a deletion like any
+    # other here; what makes it *reversible* is checked separately below.
+    ("active", "deleted"): frozenset({"forget", "retracted_by_undo"}),
     ("superseded", "active"): frozenset({"restore"}),
     ("superseded", "archived"): frozenset({"archive", "consolidate", "decay"}),
     ("superseded", "deleted"): frozenset({"forget", "purge"}),
@@ -70,6 +73,30 @@ def check_transition(current: str, target: str, reason: str = "") -> None:
         raise InvalidTransition(current, target, reason)
     allowed_reasons = TRANSITION_REASONS.get((current, target))
     if allowed_reasons and reason and reason not in allowed_reasons:
+        raise InvalidTransition(current, target, reason)
+
+
+# --- the one reversal of a terminal status (EM-405) ----------------------
+
+#: :data:`LEGAL_TRANSITIONS` keeps ``deleted`` terminal, as §3.4 draws it — and
+#: that is correct for every deletion the user asked for. The *retraction* the
+#: rewound-turn hook performs is different: the user undid a turn, not the
+#: memory, so ``review``'s restore must be able to bring the row back. The
+#: reversal is therefore not a table edge (that would make *every* deleted row
+#: restorable); it is checked against the row's own deletion record, so only a
+#: deletion that says ``retracted_by_undo`` is ever reversible.
+REVERSIBLE_DELETION_REASONS: frozenset[str] = frozenset({"retracted_by_undo"})
+
+
+def check_deletion_reversal(
+    current: str, target: str, reason: str, deletion_reason: str
+) -> None:
+    """Raise unless this is ``review`` restoring a *retracted* row."""
+    if current != "deleted" or target != "active":
+        raise InvalidTransition(current, target, reason)
+    if deletion_reason not in REVERSIBLE_DELETION_REASONS:
+        raise InvalidTransition(current, target, reason)
+    if reason and reason != "restore":
         raise InvalidTransition(current, target, reason)
 
 

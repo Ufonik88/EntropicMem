@@ -25,7 +25,7 @@ _V3_JOB_COLUMNS = frozenset({
     "created_at", "updated_at",
 })
 
-_KNOWN_TYPES = ("backup", "link", "embed", "embed_backfill")
+_KNOWN_TYPES = ("backup", "link", "embed", "embed_backfill", "retract_turns")
 
 
 def run_worker(
@@ -61,6 +61,10 @@ def run_worker(
         registry.register("backup", make_backup_handler(BackupManager(db_path)))
     if "link" in selected:
         registry.register("link", make_link_handler())
+    if "retract_turns" in selected:
+        from ..store.retract import make_retract_handler
+
+        registry.register("retract_turns", make_retract_handler())
     if "embed" in selected or "embed_backfill" in selected:
         from ..embeddings.jobs import make_embed_backfill_handler, make_embed_handler
         from ..embeddings.service import EmbeddingService
