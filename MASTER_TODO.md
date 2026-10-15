@@ -13,13 +13,18 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-14, against branch `main` at `31053df` — the fast-forward
-merge of **Chunk 33 (EM-403 slice 1: `PrefetchService` — §4.2's synchronous core,
-the card's AC green at warm p95 43 ms @ 50k, plus §3.6's IDF cache and `bm25`'s
-single bounded query)**, named deliberately instead of the tip. **All check-runs
-were green on that exact SHA, `identity-guard` included** (11 on the branch push,
-11 across the `main` push — 22 on the same `head_sha`). The branch is deleted; the
-remote carries `main` and `release/2.8.x` only.
+**Last reconciled:** 2026-10-15, against branch `main` at `007bb22` — the docs-only
+tip after the fast-forward merge of **Chunk 34 (EM-403 slice 2: `PrefetchService`'s
+async half — `precompute`, the coalescing worker queue, session topic state, the
+query embedding on the worker)** at `31053df` (code tip; **all 11 check-runs green
+on that exact SHA, `identity-guard` included**). That merge also carried the first
+half of **EM-403 slice 3** (the provider wiring, `f674146` + docs `55f85ce`, pushed
+directly to `main` — see the ledger and `NEXT_CHUNK.md` Part A for what it does,
+what it deliberately does not do, and the process record). This page names `007bb22`
+rather than any earlier merge deliberately: it is the tip this reconciliation was
+written against. **The branch `em-404-tools-split` (`3dcb35f`, EM-404 slice 1) is
+in flight and pushed** — not merged — and the remote now carries `main`,
+`em-404-tools-split` and `release/2.8.x`.
 
 ---
 
@@ -76,6 +81,15 @@ nothing changes. On a v3 store the facade serves the read half — and with
 `em.retrieval` in ranking and gate terms, rather than by the v2 scoring the
 facade otherwise borrows. That flag is what completes the cutover re-decision
 condition (a). The live store remains v2 and untouched.
+
+**EM-403's first two slices are merged and its provider half has begun.** On a v3
+store the provider builds the `PrefetchService` lazily (`None` on v2), routes
+`queue_prefetch` into its `precompute` (flag-gated as above, so dormant at the
+default-off), and surfaces the five `prefetch.*` metrics through `metrics()`. The
+synchronous `prefetch()` fact block still renders through the existing path on
+every store — the P0b byte-identity golden — so the service's synchronous serve
+path is proven at slice-leaf level (chunk 33: warm p95 43 ms @ 50k) and routing it
+through the provider is the next chunk.
 
 > **Live retrieval is lexical. Semantic retrieval is not shipped.** The EM-303
 > stack (backends, jobs, cache, cosine gate, MMR) is merged and measured, but
@@ -167,7 +181,29 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 30 | **`save_config` blank-home fix + the two hygiene corrections the EM-401 run surfaced** | **Done, merged** (`6646351`). `save_config(values, "")` resolved `Path("")` to `Path(".")` and merged `plugins.entropicmem` into the CWD's `config.yaml`, rewriting that file; it now refuses a blank home and raises (the fail-closed shape §4.1 asks for; the host always passes `str(get_hermes_home())`, so this is defence in depth). `.gitignore` covers `uv*.lock` so `git add -A` cannot sweep a stray lock file in again. `AGENTS.md`'s mutation rule records that a mutation must be restored from a **copy**, never `git checkout -- <file>`. 2 new tests; **2223 / 5 / 3** bare and **2225 / 3 / 3** with numpy on 3.10 and 3.12; ruff clean; 3 mutation checks red |
 | 31 | **EM-401 slice 2 — the provider moves into `em/provider/provider.py`** | **Done, merged** (`b8e170a`). `plugins/entropicmem/__init__.py` is a **145-line** host shell: `register` + a `MemoryProvider` subclass over `_HermesHost`, which injects the path/config resolvers, the P0a shadow read, the context-propagating thread factory, the host's bounded tool-error formatter and `RecallStatus`. `em/provider/provider.py` holds `EntropicMemProvider` (the whole provider; EM-404 later splits `tools.py`) plus the `ProviderHost` ABC. `em` imports no host and no plugin package — an AST guard pins that, another pins the 150-line shell. Six source-scanning guards now read the implementation. 3 new tests; **2226 / 5 / 3** bare and **2228 / 3 / 3** with numpy on 3.10 and 3.12; ruff clean; 8 mutation checks red |
 | 32 | **EM-402 — ScopeContext & identity (§3.5 scoping per turn)** | **Done, merged** (`7104bed` + docs `618c180` + the windows fix `2706a86`, ff-merged to `main` as `2706a86`; all 22 check-runs green on that SHA). `em/policy/scopes.py` resolves one `ScopeContext` from the init kwargs + config (`scope_mode`; EM-118's owner rule unchanged; `with_author` re-buckets per turn; bot authors never create user-scoped memories; `scope_key` for caches); the provider opens every engine under `to_scope()`/`write_scope()` — all reads/writes through one seam; `open_engine`/`V3Engine` accept the resolved `Scope`; the prefetch cache keys on `scope_key` + query (the cross-author block-replay leak is closed); `identity_signature()` lands (config-file only, mtime-cached, uninitialized-safe) and `HOOK_SURFACE`'s deferred set shrinks to `on_delegation`. **AC:** the group-chat harness (3 authors + bot) proves attribution and no cross-author leak including through the cache; the `multi_user` eval category reads **1.0** on its own isolation surface (`evals/datasets_multi_user/`, `as_user` turns; baseline `v3-multi-user.json`) — the frozen hard suite is byte-identical and its multi_user stays 0.90 lexical / 0.933 vector as recorded evidence (owner's isolation reading, 2026-10-13). 53 new tests; **2279 / 5 / 3** bare, **2281 / 3 / 3** with numpy, **2282 / 2 / 3** with the digest list; ruff clean; 21 mutation checks red |
-| 33 | **EM-403 slice 1 — `PrefetchService`, §4.2's synchronous core** | **Done, merged** (code `fde8f36` + docs `9f9ba0c`, ff-merged to `main` as `9f9ba0c`; all 22 check-runs green on that SHA). `em/provider/prefetch_service.py` (new) serves one turn per §4.2: the cache keyed `(session_id, scope_key, sha1(query), write_generation)` (in-process counter + the persistent read connection's `PRAGMA data_version` — measured: that pragma is per-connection, so the read connection must live across calls), the deadline with §4.2's generator priority order and `Retrieval.partial`, the per-generator **watchdog** on the service's one worker thread (a stuck generator is abandoned, so the 1.5 s hard cap holds for any generator; busy worker ⇒ fail-fast `partial`), §4.2's dedup rule exactly (6-turn window; score ≥ 0.8 re-shows after > 2 turns; pinned rows every 10), the `min(token_budget*4, 9000)` char cap, and the five `prefetch.*` metrics with a latency distribution. Also lands §3.6's IDF cache (`VocabularyCache`, keyed by `write_generation` — the recorded EM-301 gap) and `bm25`'s single bounded query (its paged form re-scored every FTS match per page: 78 ms vs 20 ms at 50k). **Nothing calls the service yet** — wiring is slice 3. **AC green (harness):** forced-slow generator 1.26 s partial; ≤ 9,000 chars; 50 turns replay 5,536 ≤ 13,500 tokens; cache-hit p95 0.04 ms; warm p95 **43 ms @ 50k**. 39 new tests; **2318 / 5 / 3** bare, **2320 / 3 / 3** with numpy, **2321 / 2 / 3** with the digest list; ruff clean; 29 mutation checks red |
+| 33 | **EM-403 slice 1 — `PrefetchService`, §4.2's synchronous core** | **Done, merged** (code `fde8f36` + docs `9f9ba0c`, ff-merged to `main` as `9f9ba0c`; all 22 check-runs green on that SHA). `em/provider/prefetch_service.py` (new) serves one turn per §4.2: the cache keyed `(session_id, scope_key, sha1(query), write_generation)` (in-process counter + the persistent read connection's `PRAGMA data_version` — measured: that pragma is per-connection, so the read connection must live across calls), the deadline with §4.2's generator priority order and `Retrieval.partial`, the per-generator **watchdog** on the service's one worker thread (a stuck generator is abandoned, so the 1.5 s hard cap holds for any generator; busy worker ⇒ fail-fast `partial`), §4.2's dedup rule exactly (6-turn window; score ≥ 0.8 re-shows after > 2 turns; pinned rows every 10), the `min(token_budget*4, 9000)` char cap, and the five `prefetch.*` metrics with a latency distribution. Also lands §3.6's IDF cache (`VocabularyCache`, keyed by `write_generation` — the recorded EM-301 gap) and `bm25`'s single bounded query (its paged form re-scored every FTS match per page: 78 ms vs 20 ms at 50k). **Nothing called the service when this chunk landed** — the wiring is slice 3, whose first half (`f674146`) is now on `main` (see below). **AC green (harness):** forced-slow generator 1.26 s partial; ≤ 9,000 chars; 50 turns replay 5,536 ≤ 13,500 tokens; cache-hit p95 0.04 ms; warm p95 **43 ms @ 50k**. 39 new tests; **2318 / 5 / 3** bare, **2320 / 3 / 3** with numpy, **2321 / 2 / 3** with the digest list; ruff clean; 29 mutation checks red |
+| 34 | **EM-403 slice 2 — `PrefetchService`'s async half** | **Done, merged** (code `8b30aa9`, lint `31053df` on branch `em-403-prefetch-async`; ff-merged to `main` as `31053df`; docs `007bb22`; **11/11 check-runs green on each exact SHA, `identity-guard` included**). `precompute` builds the candidate pool (pipeline top rows as `PackItem`s, `CANDIDATE_POOL_SIZE` 60) cached by `(session_id, scope_key)`; the coalescing worker queue (`queue.Queue(maxsize=8)`, newest-per-session identity supersede, oldest-drop on full, all counted) runs it off the prefetch path on one daemon thread through the `spawn_thread` seam; session topic state (rolling 5-turn entity window + α=0.5 EMA) feeds the configurable `TOPIC_ENTITY_BONUS` (0.05) soft signal — zero with no topic, never in the query text; **the query embedding is computed in `precompute` on the worker, never on the agent/prefetch thread and never when one was supplied**; `close()` joins worker/queue threads with a 2.0 s timeout and counts expired joins. 22 new tests (slice-2 pair + isolation/invariants); the suite then read **2343 / 3 / 3** on 3.12 at the merge (CI at the later `3dcb35f`: **2347 / 3 / 3**); ruff clean |
+
+**EM-403 slice 3's first half is on `main` without a chunk number — recorded here so
+it is neither forgotten nor mistaken for the whole card.** `f674146` (code, +90 lines
+in `em/provider/provider.py`) and `55f85ce` (its docs note) were committed onto `main`
+and pushed **directly to `origin/main`**: CI ran after the push and was green on both
+exact SHAs (`identity-guard` included), nothing red ever landed, and published history
+is untouched — but the branch-first workflow was not followed for those two commits.
+What it does: on a v3 store the provider lazily builds the `PrefetchService`
+(`_ensure_prefetch_service` — `Store.reader`'s persistent connection, provider `_spawn`
+seam, `prefetch_token_budget // 4 or 450` tokens, `prefetch_max_latency_ms` 1200
+default; `None` on a v2 store), routes `queue_prefetch` into
+`service.queue_precompute` **gated on `ENTROPICMEM_V3_RETRIEVAL=1` as well as the v3
+store** (the brief named the v3 store alone — a recorded, conservative deviation that
+keeps the enqueue dormant at the flag's default-off), and surfaces the five
+`prefetch.*` metrics through `metrics()` as `PrefetchMetrics.snapshot()`'s keys;
+shutdown closes service and store. What it does **not** do: the synchronous
+`prefetch()`'s fact block still renders through the existing path on every store
+(the P0b byte-identity golden is the reason), and it shipped **no tests, no CHANGELOG
+line (backfilled in this reconciliation), and no AC re-run through the wired
+provider**. The second half — route the sync fact block, wire-level tests, AC re-run —
+is the next chunk (below).
 **EM-211's acceptance criterion is met for every command except seven, and S2's
 exit criteria are close.** The provider (Chunk 9) and the CLI (Chunks 10.0–10.4)
 both select their engine by the store's `user_version`, so either one runs on a v3
@@ -180,27 +216,36 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing.** Chunk 33 (EM-403 slice 1 — `PrefetchService`, §4.2's synchronous
-core) is merged (`9f9ba0c`, ff from `9f9ba0c`) with **22/22 check-runs green on
-that exact SHA**, `identity-guard` included; the branch is deleted. The service
-is §4.2's synchronous prefetch as one measured component — cache keyed
-`(session_id, scope_key, sha1(query), write_generation)`, deadline + partial
-with the per-generator watchdog, §4.2's dedup rule, the 9,000-char hard cap, the
-five `prefetch.*` metrics, plus §3.6's IDF cache and `bm25`'s single bounded
-query — and **nothing calls it yet** (the wiring is slice 3). The card's AC is
-green: forced-slow generator 1.26 s partial; replay 5,536 ≤ 13,500 tokens; cache
-hit p95 0.04 ms; warm p95 **43 ms @ 50k**. Chunk 32 (EM-402) is merged
-(`2706a86`) with 22/22 green on that SHA. §3.5's scoping is live and per turn:
-the session's `ScopeContext` is re-bucketed by each turn's author, all provider
-reads and writes go through one scope seam, the prefetch cache is scope-keyed
-(the cross-author block-replay leak is closed), `identity_signature()` reads the
-config file only and is mtime-cached, the group-chat harness AC is green, and
-the `multi_user` eval category reads **1.0** on its isolation surface
-(`evals/datasets_multi_user/`). **Only after EM-403 does a query embedding reach
-the live path** (through `precompute` on the worker's thread, in the async
-slice — never on the agent/prefetch thread). The Marketplace entry is untouched (2.8.1 at `7e02412`).
-EM-411 remains planned and unbuilt; the promotion gate is recommended, awaiting
-the owner's confirmation. The cutover stays with the owner.
+**One branch, and it is a pure refactor: EM-404 slice 1 (`em-404-tools-split`,
+`3dcb35f`).** The seven tool schemas move verbatim out of `em/provider/provider.py`
+into `em/provider/tools.py` and are re-exported (behaviour unchanged; the provider
+file slims by 105 lines), a new empty `em/util` package is declared in
+`pyproject.toml` (nothing imports it yet — presumably slice 2's home), and
+`get_tool_schemas`/`handle_tool_call` keep their signatures. The branch is pushed
+and its CI is **green on a rerun of the exact SHA**: the first 3.12 run failed the
+numpy-gated 50k vector-search AC (`p95 29.77 ms > 25 ms`, 18 of 20 samples ≈14 ms —
+one noisy shared runner, the documented low-p50/high-max tell) and the rerun passed
+**2347 / 3 / 3**. **It still owes a CHANGELOG line before merge** (every card commit
+carries one); after that the merge is `git merge --ff-only` on green CI for `3dcb35f`.
+
+**`main` itself is settled: `007bb22`, all 11 check-runs green on that exact SHA.**
+It carries Chunk 33 (EM-403 slice 1, `9f9ba0c` — the synchronous core, nothing calls
+it), Chunk 34 (EM-403 slice 2, `31053df` — `precompute`, the coalescing worker queue,
+session topic state with the +0.05 soft signal, the query embedding computed on the
+worker, `close()`'s 2.0 s joins), and **the first half of EM-403 slice 3**
+(`f674146`): on a v3 store the provider lazily builds the `PrefetchService` (persistent
+read connection; `None` on v2 stores), routes `queue_prefetch` into
+`service.queue_precompute` — **gated on `ENTROPICMEM_V3_RETRIEVAL=1` as well as the
+v3 store**, so dormant at the flag's default-off — and surfaces the five
+`prefetch.*` metrics through `metrics()`; shutdown closes service and store. **What
+slice 3's first half does not do, recorded so it is not mistaken for done:** the
+synchronous `prefetch()` fact block still renders through the existing path on every
+store (the P0b byte-identity golden is the reason), and the wiring shipped **no
+tests, no CHANGELOG line (backfilled in this reconciliation), and no AC re-run
+through the wired provider** — that second half is the next chunk. Process record:
+`f674146` and its docs `55f85ce` were committed onto `main` and pushed directly,
+CI green on both exact SHAs post-push — the branch-first workflow was not followed
+for those two and the full record is in `NEXT_CHUNK.md` Part A.
 
 **P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
 from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed
@@ -396,35 +441,52 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**The next chunk is EM-403 slice 2 — the async half (`precompute`, the
-coalescing worker queue, session topic state, and the query embedding computed
-on the worker), planned in `NEXT_CHUNK.md` Part B; then slice 3 wires the
-service into the provider.** Chunk 33 (EM-403 slice 1 — `PrefetchService`, the
-synchronous core) is merged (`9f9ba0c`, 22/22 check-runs green on that SHA):
-§4.2's cache keyed `(session_id, scope_key, sha1(query), write_generation)`,
-deadline + partial with the per-generator watchdog, §4.2's dedup rule, the
-9,000-char hard cap, the five `prefetch.*` metrics, §3.6's IDF cache, `bm25`'s
-single bounded query — and the card's AC green (forced-slow 1.26 s partial;
-replay 5,536 ≤ 13,500; cache-hit p95 0.04 ms; warm p95 43 ms @ 50k). Nothing
-calls the service yet. Chunk 32 (EM-402) is merged (`2706a86`, 22/22 green):
-§3.5's `ScopeContext` is resolved once per session and re-bucketed per turn by
-the author trio, all provider reads/writes go through one scope seam, the
-cross-author prefetch-cache leak is closed, `identity_signature()` lands
-(config-file only, mtime-cached), the group-chat harness AC is green, and
-`multi_user` = **1.0** on its isolation surface (`evals/datasets_multi_user/`,
-`as_user` turns; owner's isolation reading 2026-10-13 — the frozen hard suite
-untouched, its multi_user still **0.90 lexical / 0.933 vector**, a cross-memory
-coreference gap scoping cannot fix). One recorded finding not changed: a
-`sensitive`-tier row is owner-only even to its own user under the pinned
-`row_is_owner_only` — stricter than §3.5's "plus their own"; owner's call.
+**Two chunks, in this order: (1) land EM-404 slice 1 — finished, pushed, green-on-rerun,
+and owing only its CHANGELOG line; (2) EM-403 slice 3's second half, the card's provider
+wiring — route the sync fact block through the service, with tests and the AC re-run.**
 
-**EM-403's brief is in `NEXT_CHUNK.md` Part B:** metrics
-`prefetch.latency_ms/cache_hit/partial/injected_count/tokens`, warm p95 ≤ 150 ms @
-50k, the cache-hit path ≤ 10 ms, a forced-slow generator returning within 1.5 s with
-a partial result, ≤ 9,000 chars, and cumulative replayed memory tokens over 50 turns
-≤ 50 × budget × 0.6 (dedup working). Live retrieval is still lexical. EM-411 stays
-test-first, unbuilt, default off. The cutover stays with the owner. P0's observable
-stays armed at `0.107143`.
+1. **Land `em-404-tools-split` (`3dcb35f`).** The seven tool schemas move verbatim into
+   `em/provider/tools.py` and are re-exported; `provider.py` slims by 105 lines; a new
+   empty `em/util` package is declared in `pyproject.toml`; `get_tool_schemas` /
+   `handle_tool_call` keep their signatures and behaviour is unchanged. CI on `3dcb35f`:
+   the first 3.12 run failed the numpy-gated 50k vector-search AC (p95 29.77 ms > 25 ms;
+   18 of 20 samples ≈14 ms — the documented low-p50/high-max shared-runner tell) and the
+   rerun of the same SHA passed **2347 / 3 / 3**. **Add the card's CHANGELOG line on the
+   branch, confirm green CI on the exact SHA, `git merge --ff-only`, delete the branch.**
+   Fold nothing else into it.
+2. **Then EM-403 slice 3's second half (chunk 35; brief in `NEXT_CHUNK.md` Part B).**
+   The first half (`f674146`, on `main`) builds the service lazily on v3 stores, routes
+   `queue_prefetch` (flag-gated) and surfaces the five `prefetch.*` metrics through
+   `metrics()`; the synchronous `prefetch()` fact block still renders through the
+   existing path on every store. The remaining half: route that fact block through
+   `PrefetchService.prefetch` on v3 stores — v2 stores must stay byte-identical, which
+   the `None`-on-v2 construction pins — plus wire-level tests (v2-unchanged, v3-wired,
+   the five metrics, shutdown), the CHANGELOG line this reconciliation backfilled, and
+   the AC harness **re-run through the wired provider**. Decide and record the gate
+   question: the first half gates the enqueue on `ENTROPICMEM_V3_RETRIEVAL=1` as well
+   as the v3 store, while the brief named the v3 store alone — keep the flag gate
+   (recommended: consistent with P0b, and the byte-identity pin needs the default-off
+   behaviour) or record why not.
+3. **Then EM-404's remaining slices** (tool handlers, EM-405 lifecycle) and EM-407
+   (typed config — the `gate.*`/`ranking.*` scalars stay unwired until it).
+
+**The card's AC is unchanged and remains the acceptance test:** warm p95 ≤ 150 ms @
+50k (43 ms at slice-leaf level); cache-hit path ≤ 10 ms (0.04 ms); a forced-slow
+generator returns within 1.5 s with a partial result (1.26 s); ≤ 9,000 chars;
+cumulative replayed memory tokens over 50 turns ≤ 50 × budget × 0.6 (5,536 ≤ 13,500).
+Live retrieval is still lexical; **nothing embeds on the agent/prefetch thread**;
+`ENTROPICMEM_V3_RETRIEVAL` stays off; CI's eval gate stays v2; `em/config.py` stays
+unwired. EM-411 stays test-first, unbuilt, default off. The cutover stays with the
+owner. P0's observable stays armed at `0.107143`.
+
+**Chunk 34 (slice 2) is merged** (`31053df`, ff; docs `007bb22`; 11/11 green on each
+exact SHA): `precompute`'s candidate pool cached by `(session_id, scope_key)`, the
+coalescing queue (`maxsize=8`, newest-per-session identity supersede, oldest-drop on
+full, drops/coalesces counted), topic state (rolling 5-turn entity window + α=0.5 EMA)
+feeding the configurable `TOPIC_ENTITY_BONUS` (0.05; zero with no topic, never query
+text), and the query embedding computed on the worker — never on the prefetch thread,
+never when one was supplied. Chunk 33 (slice 1, `9f9ba0c`) and Chunk 32 (EM-402,
+`2706a86`) are merged with their ACs green as previously recorded.
 
 **P0c's data is blocked on the environment, and the reason is now measured rather than
 assumed.** This box is not running EntropicMem at all: `~/.hermes/config.yaml` has **no
@@ -456,11 +518,11 @@ line there.**
    at short citations and do not wire `em/config.py` as a drive-by. Measure before
    any adapter switch: the 450-token budget can drop an id the current bullet
    emits.
-4. **Pre-flight:** `python -m pytest -q` gives **2326 passed / 5 skipped / 3 xfailed**
-   on **both Python 3.10 and 3.12** (CI's extra set: fastapi, httpx, cryptography, pyyaml).
-   `git merge-base --is-ancestor 4eb8097 HEAD` proves the base. A fresh venv without
-   those extras skips and fails tests that are green in CI — that is the environment,
-   not the tree.
+4. **Pre-flight:** `python -m pytest -q` gives **2347 passed / 3 skipped / 3 xfailed**
+   in CI (3.12 at `3dcb35f`, with the extra set fastapi/httpx/cryptography/pyyaml,
+   numpy, and the private digest list as the repository secret); this box's scratch
+   venv (`.venv311`, without those extras) reads **2270 / 16 / 3** — the environment,
+   not the tree. `git merge-base --is-ancestor 4eb8097 HEAD` proves the base.
 5. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
    `run list`, which can hand back a stale green.
 6. **The cutover decision is (a)+(b) complete and back with the owner.** Bring the
@@ -629,14 +691,20 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2326 passed / 5 skipped / 3 xfailed** |
+| Tests | `python -m pytest -q` | **2347 passed / 3 skipped / 3 xfailed** (CI, 3.12 at `3dcb35f`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The skip count is 3 on a machine without the
+`ENTROPICMEM_INDEX_DB` unset. **The 2347 / 3 / 3 figure is CI's** (extras + numpy +
+the private digest list as the repository secret) and is the reference a pre-flight
+run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
+cryptography/numpy) reads **2270 passed / 16 skipped / 3 xfailed** — the missing
+extras change what is collected and skipped, which is the environment, not the tree
+(0 failures locally; the one CI red on `3dcb35f` was the numpy-gated 50k AC flaking
+once, green on rerun of the same SHA). **The skip count is 3 on a machine without the
 private digest list and 2 with it** — read the pair, not either number alone.
 The total rises with every card; the expected figure is in
 [NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md)'s pre-flight, and a mismatch means stop
