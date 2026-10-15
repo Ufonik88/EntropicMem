@@ -13,20 +13,17 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-15, against branch `main` at `a5b613a` — the fast-forward
-merge of **Chunk 35 (EM-403 slice 3, second half: the provider's synchronous fact
-block routes through `PrefetchService.prefetch` on a v3 store, behind the v3-store
-**and** `ENTROPICMEM_V3_RETRIEVAL=1` gate; v2 stores byte-identical by construction;
-the card's AC re-run through the wired provider — warm p95 40.58 ms @ 50k)**, named
-deliberately instead of the docs tip that follows it. **All 11 check-runs were green
-on that exact SHA, `identity-guard` included**; branch `em-403-slice3-wiring` pushed
-`a5b613a` (code+tests+CHANGELOG) and this page reconciled in the docs commit on top.
-**Still open from item 1 of the previous report: the EM-404 slice-1 branch
-(`em-404-tools-split`, tip `84a555f`, CI green on that exact SHA) could not be
-ff-merged** — `main` had moved to `e4fd865`, so the ff-only aborted — **and the
-choice between rebasing its two commits onto `main` or merging `main` into it is
-still the owner's call** (nothing was rebased, merged, or forced). The remote carries
-`main`, `em-404-tools-split` and `release/2.8.x`.
+**Last reconciled:** 2026-10-15, against branch `main` at `381197f` — the **owner-chosen
+landing of EM-404 slice 1** (the tool schemas move to `em/provider/tools.py`,
+`3dcb35f` + `84a555f`): `main` was merged into `em-404-tools-split`, the only
+conflict (`CHANGELOG.md`) resolved keeping **both** entry sets — the EM-404 line on
+top, main's chunk-35 entries verbatim — the merged tree verified on this box
+(**bare 2288 / 16 / 3**; with the digest list **2289 / 15 / 3**; `ruff==0.16.2`
+clean), and `main` fast-forwarded to that exact SHA after **all 11 CI jobs were
+green on it** (the branch push, PR #8 and the main push each ran the job set; none
+red). PR #8 is recorded merged at the same SHA, the branch is deleted, and the
+remote carries `main` and `release/2.8.x`. Named deliberately instead of the docs
+tip that follows it.
 
 **A second reconciliation pass on 2026-10-15 (docs only, no product change) re-read
 all pages against the tree and corrected five stale classes:** the EM-404 slice-1
@@ -212,6 +209,16 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 34 | **EM-403 slice 2 — `PrefetchService`'s async half** | **Done, merged** (code `8b30aa9`, lint `31053df` on branch `em-403-prefetch-async`; ff-merged to `main` as `31053df`; docs `007bb22`; **11/11 check-runs green on each exact SHA, `identity-guard` included**). `precompute` builds the candidate pool (pipeline top rows as `PackItem`s, `CANDIDATE_POOL_SIZE` 60) cached by `(session_id, scope_key)`; the coalescing worker queue (`queue.Queue(maxsize=8)`, newest-per-session identity supersede, oldest-drop on full, all counted) runs it off the prefetch path on one daemon thread through the `spawn_thread` seam; session topic state (rolling 5-turn entity window + α=0.5 EMA) feeds the configurable `TOPIC_ENTITY_BONUS` (0.05) soft signal — zero with no topic, never in the query text; **the query embedding is computed in `precompute` on the worker, never on the agent/prefetch thread and never when one was supplied**; `close()` joins worker/queue threads with a 2.0 s timeout and counts expired joins. 22 new tests (slice-2 pair + isolation/invariants); the suite then read **2343 / 3 / 3** on 3.12 at the merge (CI at the later `3dcb35f`: **2347 / 3 / 3**); ruff clean |
 | 35 | **EM-403 slice 3, second half — the provider's sync fact block routes through the service** | **Done, merged** (code `a5b613a` + docs on branch `em-403-slice3-wiring`, ff; **11/11 check-runs green on the exact SHA, `identity-guard` included**). `prefetch()` serves the fact block from `PrefetchService.prefetch()` when the gate says so — **v3 store AND `ENTROPICMEM_V3_RETRIEVAL=1`** (the gate decision, with reasons, is written on `_prefetch_service_for_turn`; the brief named the v3 store alone). **v2 byte-identical by construction** (the service is `None` there; golden captured from `e4fd865` in a detached worktree, flag ON); flag-off v3 keeps the old path (P0b's off shape); a service failure falls back to the v2 path; `queue_prefetch` shares the one gate. `_turn_scope()` hands the service the **effective** scope (profile from `_profile_id or "default"` — the service reads the store directly, so a raw `to_scope()` would query the wrong profile). **A defect the wiring's shutdown test found and this chunk fixed:** `close()` joined the worker before posting its `None` sentinel, so every v3 session end paid the 2 s join timeout (measured 2011 ms) with a warning — sentinel first now, stuck generators still counted+logged. Recorded gaps on the wired path: no `touch_on_inject` bump, no v2 dedup window, no config-level source/domain filters (store-level §3.5 scoping still applies — pinned by a two-author isolation test). **P0b's flag-on test was rewritten deliberately** (its interim contract is superseded; the off-path tests are unchanged). AC re-run through the wired provider: forced-slow **1.261 s**; **7,648** chars; 50-turn replay **5,504** ≤ 13,500; cache-hit **p95 0.09 ms**; warm **p95 40.58 ms @ 50k**. 18 new tests; suite **2288 / 16 / 3** bare on 3.11, CI **2365 / 3 / 3**; ruff clean; **7 mutation checks, all red** |
 
+**EM-404 slice 1 is on `main` without a chunk number — recorded here so it is
+neither forgotten nor mistaken for its card's whole.** `381197f` is the ff of
+`3dcb35f` + `84a555f` (the owner chose merging `main` into the branch, 2026-10-15;
+the only conflict, `CHANGELOG.md`, kept both entry sets verbatim). The seven
+tool-schema constants move **verbatim** into `em/provider/tools.py` and are
+re-exported, so `get_tool_schemas()`/`handle_tool_call()` keep their signatures and
+behaviour is unchanged; `provider.py` slims by 105 lines; a new empty `em/util`
+package is declared in `pyproject.toml` (nothing imports it yet — slice 2's home).
+The branch was deleted and PR #8 is merged at the same SHA.
+
 **EM-403 slice 3's first half is on `main` without a chunk number — recorded here so
 it is neither forgotten nor mistaken for the whole card.** `f674146` (code, +90 lines
 in `em/provider/provider.py`) and `55f85ce` (its docs note) were committed onto `main`
@@ -244,17 +251,18 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**One branch, and it is blocked on the owner's decision, not on code:
-`em-404-tools-split` (`84a555f`, EM-404 slice 1 — tool schemas move to
-`em/provider/tools.py`).** Its CHANGELOG line landed as `84a555f` and CI is green on
-that exact SHA (11/11), but `git merge --ff-only` into `main` **aborted because
-`main` had moved** to `e4fd865` (the docs reconciliation), which the branch predates.
-Nothing was rebased, merged, or forced; the choice — rebase the branch's two commits
-onto `main`, or merge `main` into the branch — is the owner's call, and the branch is
-untouched and green either way.
+**Nothing — `em-404-tools-split` landed on `main` as `381197f` by the owner-chosen
+path (merge `main` into the branch, resolve, verify, ff-only).** The only conflict,
+`CHANGELOG.md`, kept **both** entry sets (the EM-404 slice-1 line on top; main's
+chunk-35 entries verbatim); the merged tree was verified on this box (bare
+**2288 / 16 / 3**; digest-list **2289 / 15 / 3**; `ruff==0.16.2` clean); all 11 CI
+jobs were green on the exact SHA (branch push, PR #8 and main push each ran the job
+set — none red). The branch is deleted and **PR #8 is merged at the same SHA**.
+**Next: EM-404 slice 2 (the tool handlers split).**
 
-**`main` is settled at the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code
-SHA).** It carries Chunks 33, 34 and the whole of EM-403 slice 3: on a v3 store the
+**`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
+and, on top, the EM-404 slice-1 landing (`381197f`; §5 has the record).** Chunks 33,
+34 and the whole of EM-403 slice 3 are on it: on a v3 store the
 provider builds the `PrefetchService` lazily, serves the **synchronous** fact block
 through `PrefetchService.prefetch()`, enqueues `queue_prefetch` into `precompute`, and
 surfaces the five `prefetch.*` metrics — all gated on `ENTROPICMEM_V3_RETRIEVAL=1` as
@@ -465,19 +473,14 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**Chunk 35 (EM-403 slice 3, second half) is merged (`a5b613a`, 11/11 green on that
-exact SHA), so EM-403 is complete.** The next chunk is EM-404's remainder, and one
-owner decision blocks the pieces.
+**EM-404 slice 1 is merged (`381197f`, all 11 CI jobs green on that exact SHA — the
+owner-chosen merge-into-branch landing of `3dcb35f` + `84a555f`), on top of the
+chunk-35 merge (`a5b613a`), so EM-403 is complete and the slice-1 landing is
+settled.**
 
-1. **The owner's decision first: how to land `em-404-tools-split` (`84a555f`).** Its
-   CHANGELOG line landed and CI is green on that exact SHA (11/11), but the ff-only
-   into `main` aborted because `main` had moved (`e4fd865`), which the branch predates.
-   The choice is (a) rebase the branch's two commits onto `main`, or (b) merge `main`
-   into the branch. Nothing was rebased, merged, or forced; the branch is untouched
-   and green either way.
-2. **Then EM-404 slice 2 — the tool handlers split** (`handle_tool_call`'s seven
-   branches move into `em/provider/tools.py` beside the schemas, one seam the tests
-   already scan), then EM-405 (lifecycle) and EM-407 (typed config — where
+1. **The next chunk: EM-404 slice 2 — the tool handlers split** (`handle_tool_call`'s
+   seven branches move into `em/provider/tools.py` beside the schemas, one seam the
+   tests already scan), then EM-405 (lifecycle) and EM-407 (typed config — where
    `em/config.py`'s tuned `gate.*`/`ranking.*` scalars finally reach call sites; they
    stay unwired until it). Follow the branch-first workflow end to end: tests +
    CHANGELOG, push, check-runs on the exact SHA, `git merge --ff-only`, delete.

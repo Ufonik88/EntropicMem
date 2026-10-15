@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-15 (second pass). **`main` is at `a5b613a` + docs (11/11 check-runs green on the exact SHA, `identity-guard` included), and EM-403 is complete:** Chunk 33 (slice 1, `9f9ba0c`), Chunk 34 (slice 2, ff-merged as `31053df`, docs `007bb22`), **Chunk 35 (slice 3, second half, `a5b613a`)** — the synchronous fact block routes through `PrefetchService.prefetch` on a v3 store, gated on the v3 store **and** `ENTROPICMEM_V3_RETRIEVAL=1` (the decision and its reasons are in Part A); v2 stores are byte-identical by construction (golden captured from `e4fd865` in a detached worktree); the wire-level tests and the **AC re-run through the wired provider** are green (warm p95 40.58 ms @ 50k, cache-hit 0.09 ms, forced-slow 1.261 s partial, 7,648 chars, 50-turn replay 5,504 ≤ 13,500). The first half (`f674146` + `55f85ce`, pushed **directly to `main`, CI green post-push on both exact SHAs) is recorded in Part A with everything it deliberately did not do. **In flight and blocked on the owner, not on code: `em-404-tools-split` at `84a555f` (EM-404 slice 1)** — CHANGELOG line landed, CI green on that exact SHA, but `git merge --ff-only` aborted because `main` had moved to `e4fd865`; nothing was rebased, merged, or forced, and the landing choice (rebase the two commits onto `main`, or merge `main` into the branch) is the owner's. **Next: that decision, then EM-404 slice 2 (tool handlers), then EM-405/EM-407.** **Live retrieval is lexical — and stays lexical whatever the flag does: the query embedding is unwired (`ensure_embedding_model` has no live caller; the service is built with no `embed_query`; the served path passes no `query_vector`), an open gap with no owning card, recorded 2026-10-15 in Part B — no semantic-retrieval claims before it.** **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
+**Updated:** 2026-10-15 (third pass — the EM-404 slice-1 landing). **`main` is at `381197f` — the owner-chosen landing of `em-404-tools-split` (Part B item 1 has the record: merge `main` into the branch, both `CHANGELOG.md` entry sets kept, merged tree verified — bare 2288/16/3, digest-list 2289/15/3, `ruff==0.16.2` clean — ff after all 11 CI jobs green on that exact SHA; branch deleted, PR #8 merged at the same SHA) — and EM-403 is complete:** Chunk 33 (slice 1, `9f9ba0c`), Chunk 34 (slice 2, ff-merged as `31053df`, docs `007bb22`), **Chunk 35 (slice 3, second half, `a5b613a`)** — the synchronous fact block routes through `PrefetchService.prefetch` on a v3 store, gated on the v3 store **and** `ENTROPICMEM_V3_RETRIEVAL=1` (the decision and its reasons are in Part A); v2 stores are byte-identical by construction (golden captured from `e4fd865` in a detached worktree); the wire-level tests and the **AC re-run through the wired provider** are green (warm p95 40.58 ms @ 50k, cache-hit 0.09 ms, forced-slow 1.261 s partial, 7,648 chars, 50-turn replay 5,504 ≤ 13,500). The first half (`f674146` + `55f85ce`, pushed **directly to `main`, CI green post-push on both exact SHAs) is recorded in Part A with everything it deliberately did not do. **Nothing is in flight; `em-404-tools-split` is deleted (landed `381197f`, PR #8 merged at the same SHA).** **Next chunk: EM-404 slice 2 (the tool handlers split), then EM-405/EM-407.** **Live retrieval is lexical — and stays lexical whatever the flag does: the query embedding is unwired (`ensure_embedding_model` has no live caller; the service is built with no `embed_query`; the served path passes no `query_vector`), an open gap with no owning card, recorded 2026-10-15 in Part B — no semantic-retrieval claims before it.** **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
 
 **Owner decisions in force — the order was re-set on 2026-10-08** (`REMAINING_PLAN.md` §9 item 6):
 1. **P0c — collect the shadow data.** The gating empirical step for the cutover. **Freeze before you look: do not fit a threshold to the sample, and report the raw distribution and the margin, not just a green light.** The observable is now fully armed, so a clean sample can conclude — it still needs the dev-line shadow on a host (the owner's machine is active).
@@ -385,14 +385,16 @@ warm p95 40.58 ms @ 50k; cache-hit 0.09 ms; forced-slow 1.261 s partial; 7,648 c
 
 **Next, in order:**
 
-1. **The owner's decision on `em-404-tools-split` (`84a555f`).** The CHANGELOG line
-   landed and CI is green on that exact SHA, but the ff-only into `main` aborted —
-   `main` had moved to `e4fd865`, which the branch predates. The choice is (a) rebase
-   the branch's two commits onto `main`, or (b) merge `main` into the branch; nothing
-   was rebased, merged, or forced, and the branch is green either way.
-2. **EM-404 slice 2 — the tool handlers split** (`handle_tool_call`'s seven branches
-   move into `em/provider/tools.py` beside the schemas slice 1 moved; the
-   source-scanning guards already read that file, so they lead the rewrite).
+1. **DONE (2026-10-15): the landing of `em-404-tools-split` (`84a555f`).** The owner
+   chose (b): merge `main` into the branch. It landed as `381197f` — only
+   `CHANGELOG.md` conflicted (both entry sets kept verbatim), the merged tree
+   verified (bare **2288 / 16 / 3**; digest-list **2289 / 15 / 3**;
+   `ruff==0.16.2` clean), all 11 CI jobs green on the exact SHA, `main` ff'd,
+   branch deleted, PR #8 merged at the same SHA. Nothing was rebased or forced.
+2. **Next chunk — EM-404 slice 2, the tool handlers split** (`handle_tool_call`'s
+   seven branches move into `em/provider/tools.py` beside the schemas slice 1
+   moved; the source-scanning guards already read that file, so they lead the
+   rewrite).
 3. **EM-405 (lifecycle) and EM-407 (typed config)** — where `em/config.py`'s tuned
    `gate.*`/`ranking.*` scalars finally reach call sites. They stay unwired until
    EM-407; do not wire them as a drive-by.
