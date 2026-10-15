@@ -50,8 +50,8 @@ discovered:
   nothing here embeds anything — a query with no caller-supplied vector still
   does no vector work (EM-403's guard).
 
-This module is stdlib-only (plan §3.2) and reads no config (``em/config.py``
-stays unwired, EM-407): every knob is a constructor parameter.
+This module is stdlib-only (plan §3.2) and reads no config itself: EM-407's
+loader supplies every knob at construction, one parameter each.
 """
 
 from __future__ import annotations
@@ -402,6 +402,11 @@ class PrefetchService:
         dedup_turns: int = DEFAULT_DEDUP_TURNS,
         constraint_repeat_turns: int = DEFAULT_CONSTRAINT_REPEAT_TURNS,
         is_trivial: Optional[Callable[[str], bool]] = None,
+        #: EM-407's §3.6 seams; None means "the pipeline's own defaults", so a
+        #: service built without config passes neither (EM-403's fakes see the
+        #: same call shape as before).
+        gate_config: Optional[Any] = None,
+        rank_weights: Optional[Any] = None,
         retrieve: Optional[Callable[..., Any]] = None,
         metrics: Optional[PrefetchMetrics] = None,
         embed_query: Optional[Callable[[str], Optional[Sequence[float]]]] = None,
@@ -417,6 +422,8 @@ class PrefetchService:
         self._dedup_turns = int(dedup_turns)
         self._constraint_repeat_turns = int(constraint_repeat_turns)
         self._is_trivial = is_trivial
+        self._gate_config = gate_config
+        self._rank_weights = rank_weights
         self._retrieve = pipeline_retrieve if retrieve is None else retrieve
         self._metrics = PrefetchMetrics() if metrics is None else metrics
         self._embed_query = embed_query or embedder or query_embedder
@@ -538,6 +545,16 @@ class PrefetchService:
             except Exception:  # noqa: BLE001 - closing twice is not a failure
                 pass
 
+    def _retrieval_kwargs(self) -> Dict[str, Any]:
+        """EM-407's §3.6 seams, passed only when set — a service built without
+        config calls ``retrieve`` exactly as it did before."""
+        kwargs: Dict[str, Any] = {}
+        if self._gate_config is not None:
+            kwargs["gate_config"] = self._gate_config
+        if self._rank_weights is not None:
+            kwargs["rank_weights"] = self._rank_weights
+        return kwargs
+
     def prefetch(
         self,
         query: str,
@@ -590,6 +607,7 @@ class PrefetchService:
                     generator_runner=self._run_generator,
                     idf_cache=self._idf_cache,
                     write_generation=generation,
+                    **self._retrieval_kwargs(),
                 )
                 items = load_pack_items(
                     conn, retrieval.rankings, predecessors=retrieval.predecessors
@@ -831,6 +849,7 @@ class PrefetchService:
                     embedding_model=model if vector else None,
                     idf_cache=self._idf_cache,
                     write_generation=generation,
+                    **self._retrieval_kwargs(),
                 )
             items = ()
             pinned: FrozenSet[str] = frozenset()

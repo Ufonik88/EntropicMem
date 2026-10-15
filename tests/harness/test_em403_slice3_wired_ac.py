@@ -171,7 +171,9 @@ def test_the_block_never_exceeds_9000_chars_through_the_provider(tmp_path):
     try:
         for n in range(12):
             _add(store, f"staging port fact {n}: " + "port detail " * 150)
-        # A budget far above the cap: the 9,000-char rule must be what stops it.
+        # A legacy budget far above the cap: EM-407 folds the character count to
+        # the typed rule's maximum (2,000 tokens) — the block still may not pass
+        # the 9,000-char rule, which is what this drives.
         provider = _provider(tmp_path, store, prefetch_token_budget=200_000)
         try:
             block = provider.prefetch("which staging port?")

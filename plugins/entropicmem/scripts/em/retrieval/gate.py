@@ -82,9 +82,10 @@ _TOKENIZE_RE = re.compile(r"tokenize\s*=\s*'([^']+)'")
 class GateConfig:
     """§3.6's ``gate.*`` thresholds.
 
-    There is no config module yet (EM-407 owns it), so these are the spec's
-    numbers as defaults the caller may override — the same shape as EM-301's
-    ``extra_stopwords`` and EM-304's ``RankWeights``.
+    These are the spec's numbers as defaults the caller may override; EM-407's
+    typed config supplies the calibrated values (EM-306) at the call sites —
+    the same shape as EM-301's ``extra_stopwords`` and EM-304's
+    ``RankWeights``.
     """
 
     min_coverage: float = GATE_MIN_COVERAGE

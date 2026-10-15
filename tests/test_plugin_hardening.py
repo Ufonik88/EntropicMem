@@ -386,13 +386,28 @@ def test_initialize_config_merge_precedence(tmp_path, monkeypatch):
     assert prov._config["prefetch_token_budget"] == SMART_CONTEXT_DEFAULTS["prefetch_token_budget"]
 
 
-def test_config_schema_denied_sources_default_matches_defaults():
+def test_config_schema_exposes_typed_keys_with_model_defaults():
+    """EM-407 replaced the flat v2 list with Appendix A's typed keys.
+
+    The security-relevant product defaults move with it: a guest sees no
+    People/Finance by default, and extracted content quarantines. Every default
+    comes from one model (``em.config.Config()``), so the wizard cannot drift
+    from the loader; the v2 knobs (``prefetch_denied_sources`` among them) stay
+    config-file-only and readable through ``load_plugin_config``.
+    """
+    from em.config import Config
+
+    defaults = Config()
     prov = EntropicMemMemoryProvider()
     schema = {s["key"]: s for s in prov.get_config_schema()}
-    default = schema["prefetch_denied_sources"]["default"]
-    assert default == SMART_CONTEXT_DEFAULTS["prefetch_denied_sources"]
-    # EM-115: product defaults deny only real content sources, not test scaffolding
-    assert default == ["auto_extracted", "test"]
+    assert schema["scope.guest_hidden_domains"]["default"] == ["People", "Finance"]
+    assert schema["scope.guest_hidden_domains"]["default"] == defaults.scope.guest_hidden_domains
+    assert schema["trust.injection_policy_extracted"]["default"] == "quarantine"
+    assert schema["trust.injection_policy_extracted"]["default"] == (
+        defaults.trust.injection_policy_extracted
+    )
+    assert schema["prefetch.token_budget"]["default"] == 450 == defaults.prefetch.token_budget
+    assert "prefetch_denied_sources" not in schema
 
 
 def test_save_config_refuses_a_blank_home_and_writes_nothing(tmp_path, monkeypatch):
@@ -422,20 +437,23 @@ def test_save_config_refuses_a_blank_home_and_writes_nothing(tmp_path, monkeypat
 
 
 def test_save_config_still_merges_into_a_real_home(tmp_path):
-    """The guard must not break the real path: other plugins are untouched."""
+    """The guard must not break the real path: other sections are untouched."""
     other = tmp_path / "config.yaml"
     other.write_text(
         "plugins:\n  homeassistant:\n    enabled: true\n", encoding="utf-8"
     )
     prov = EntropicMemMemoryProvider(config={})
-    prov.save_config({"min_relevance_score": 0.4}, str(tmp_path))
+    prov.save_config({"prefetch.token_budget": 800}, str(tmp_path))
 
     import yaml
 
     data = yaml.safe_load(other.read_text(encoding="utf-8"))
-    assert data["plugins"]["entropicmem"]["min_relevance_score"] == 0.4
-    # merge-only: a sibling plugin's section survives
+    # EM-407: wizard keys are dotted typed paths nested into memory.entropicmem
+    assert data["memory"]["entropicmem"]["prefetch"]["token_budget"] == 800
+    # merge-only: a sibling plugin's section survives, and the legacy block is
+    # not written to at all
     assert data["plugins"]["homeassistant"]["enabled"] is True
+    assert "entropicmem" not in data["plugins"]
 
 
 # ── Fix 9: prefetch cache keyed by enhanced-query hash ────────────────────────

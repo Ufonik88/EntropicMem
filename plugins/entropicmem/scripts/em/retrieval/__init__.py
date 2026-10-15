@@ -34,11 +34,12 @@ Recorded gaps, so nobody has to rediscover them:
   / last 48 h"; the 48 h window is implemented, and the session half needs a
   session id that EM-302's ``RetrievalContext`` does not carry.
 * **Config.** ``ranking.*`` (EM-304) and ``gate.*`` (EM-305) are dataclasses
-  carrying §3.6's numbers as overridable defaults. EM-306 committed tuned
-  scalars in ``em/config.py`` and **nothing here reads them** — they reach
-  call sites via EM-401–403, and the typed loader is EM-407. ``query.analyze``'s
-  ``extra_stopwords`` and §3.6's optional ``query_rewrite`` are in the same
-  position.
+  carrying the numbers as overridable defaults. EM-306 committed the tuned
+  scalars in ``em/config.py``; EM-407 built the typed loader over them, and the
+  provider passes the configured gate/rank objects into every flagged
+  ``retrieve`` — nothing under this package reads config itself.
+  ``query.analyze``'s ``extra_stopwords`` and §3.6's optional ``query_rewrite``
+  stay caller-supplied parameters.
 * **The eval adapter does not render (EM-307).** ``packer.load_pack_items`` and
   ``em.provider.render.render_retrieval`` turn a gated ``Retrieval`` — rankings
   plus the predecessors the collapse kept — into §3.6's block. The adapter

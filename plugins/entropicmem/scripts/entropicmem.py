@@ -365,6 +365,15 @@ def cmd_init(args) -> int:
     if skipped:
         print(f"  Skipped:    {', '.join(skipped)} (use --force to overwrite)")
     print(f"  Domains:    {', '.join(DEFAULT_DOMAINS)}")
+    print(
+        "\nOptional: keep background jobs (backup, consolidation) flowing — "
+        "add an hourly Hermes cron entry:"
+    )
+    print("  hermes cron create --schedule '0 * * * *' \\")
+    print(
+        "    --prompt 'Run the EntropicMem worker: python3 "
+        "~/.hermes/plugins/entropicmem/scripts/entropicmem.py worker run --once'"
+    )
     print("\nNext: entropicmem ingest <source>  or  entropicmem query \"topic\"")
     return 0
 

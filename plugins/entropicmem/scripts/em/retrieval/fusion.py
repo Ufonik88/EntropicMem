@@ -20,8 +20,8 @@ candidate sitting at rank 1, so ``rrf_n`` is "how close to a rank-1 hit in every
 active generator" — which is what makes the number comparable across queries.
 
 **Feature rerank**, also exactly §3.6, with every weight and half-life in
-:class:`RankWeights` (the spec's numbers; ``ranking.*`` config is EM-407's and the
-gap is recorded in ``em/retrieval/__init__.py``):
+:class:`RankWeights` (the spec's numbers as defaults; EM-407's ``ranking.*``
+config supplies EM-306's calibrated values through the provider):
 
     score    = 0.60*rrf_n + 0.15*importance + 0.10*recency + 0.10*confidence + 0.05*feedback
     recency  = 1.0                                  if decay_class == 'evergreen' or pinned

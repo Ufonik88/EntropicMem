@@ -23,7 +23,9 @@ and EM-402/EM-403 add the ScopeContext and the PrefetchService here.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -31,6 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from ..config import Config, config_schema_fields, load_config
 from ..policy.scopes import ScopeContext
 from .hooks import HOOK_BUDGETS, fail_soft
 from .identity import ConfigSignatureCache, default_signature
@@ -159,6 +162,21 @@ SMART_CONTEXT_DEFAULTS = {
 }
 
 
+def _nest_into(target: Dict[str, Any], dotted: str, value: Any) -> None:
+    """Set ``a.b.c`` inside ``target``, creating sections on the way (save_config)."""
+    parts = [part for part in dotted.split(".") if part]
+    if not parts:
+        return
+    node = target
+    for part in parts[:-1]:
+        child = node.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            node[part] = child
+        node = child
+    node[parts[-1]] = value
+
+
 class EntropicMemProvider(ToolHandlers):
     """The provider implementation, over the host glue :class:`ProviderHost` injects.
 
@@ -184,6 +202,13 @@ class EntropicMemProvider(ToolHandlers):
         self._host = host
         self._explicit_config = dict(config or {})
         self._config = {**SMART_CONTEXT_DEFAULTS, **self._explicit_config}
+        # EM-407: the typed config (Appendix A) is loaded by initialize() from
+        # §3.8's read order; until then the defaults stand, and the call sites
+        # see None — which is the pipeline's own default, not "unconfigured".
+        self._typed_config: Config = Config()
+        self._config_errors: Tuple[Any, ...] = ()
+        self._gate_config: Any = None
+        self._rank_weights: Any = None
         self._scripts_dir: Optional[Path] = None
         self._hermes_home: Optional[Path] = None
         self._profile_id: Optional[str] = None
@@ -289,216 +314,56 @@ class EntropicMemProvider(ToolHandlers):
 
     @fail_soft(fallback=lambda *a, **k: [])
     def get_config_schema(self) -> List[Dict[str, Any]]:
-        return [
-            {
-                "key": "vault_path",
-                "description": "EntropicMem vault directory",
-                "default": "~/.hermes/entropicmem/vault",
-            },
-            {
-                "key": "index_db",
-                "description": "Vault index SQLite path",
-                "default": "~/.hermes/entropicmem/index.db",
-            },
-            {
-                "key": "memory_db",
-                "description": "Memory engine SQLite path",
-                "default": "~/.hermes/entropicmem/memory.db",
-            },
-            # Smart Context Management
-            {
-                "key": "min_relevance_score",
-                "description": "Minimum combined relevance score for prefetch (0.0-1.0; absolute coverage-based since 2.8.0)",
-                "default": 0.35,
-            },
-            {
-                "key": "max_prefetch_results",
-                "description": "Maximum facts to inject per turn",
-                "default": 5,
-            },
-            {
-                "key": "prefetch_token_budget",
-                "description": "Maximum characters for prefetch context per turn",
-                "default": 1500,
-            },
-            {
-                "key": "dedup_window",
-                "description": "Don't repeat facts within N turns",
-                "default": 5,
-            },
-            {
-                "key": "enabled_domains",
-                "description": "List of domains to filter (empty = all)",
-                "default": [],
-            },
-            {
-                "key": "high_relevance_threshold",
-                "description": "Threshold for high-relevance facts (progressive disclosure)",
-                "default": 0.7,
-            },
-            {
-                "key": "medium_relevance_threshold",
-                "description": "Threshold for medium-relevance facts",
-                "default": 0.4,
-            },
-            {
-                "key": "context_window_turns",
-                "description": "Number of recent turns to consider for context",
-                "default": 3,
-            },
-            {
-                "key": "max_context_query_length",
-                "description": "Maximum length of context-enhanced query",
-                "default": 1000,
-            },
-            {
-                "key": "context_query_mode",
-                "description": "Enhanced query mode: 'current' (query only) or 'concat' (prior user turns)",
-                "default": "current",
-            },
-            {
-                "key": "progressive_disclosure",
-                "description": "Tiered relevance caps in prefetch (off by default since 2.8.0)",
-                "default": False,
-            },
-            {
-                "key": "cache_conversation_context",
-                "description": "Cache prefetch results with conversation awareness",
-                "default": True,
-            },
-            {
-                "key": "cache_ttl_seconds",
-                "description": "Cache TTL in seconds",
-                "default": 300,
-            },
-            # Phase 8: Auto-extraction
-            {
-                "key": "auto_extract_enabled",
-                "description": "Enable background fact extraction from conversation (regex-based, no LLM). Default off for security.",
-                "default": False,
-            },
-            # P1 Slice 2: lifecycle hooks (A1/A2/A5/C1)
-            {
-                "key": "session_end_capture",
-                "description": "Flush a session digest episode when a session ends (A1). Default on.",
-                "default": True,
-            },
-            {
-                "key": "turn_cadence_flush_turns",
-                "description": "Flush a partial session digest every N turns for always-on sessions (A5). 0 disables.",
-                "default": 40,
-            },
-            {
-                "key": "turn_cadence_min_interval_sec",
-                "description": "Minimum seconds between turn-cadence digest flushes (A5).",
-                "default": 1800,
-            },
-            {
-                "key": "session_extract_pending",
-                "description": "Run regex fact extraction at session end into pending/quarantine (C1). Default on.",
-                "default": True,
-            },
-            {
-                "key": "core_memory_writable",
-                "description": "Allow entropicmem_patch_core to modify Persona/User Profile. Default off.",
-                "default": False,
-            },
-            {
-                "key": "prefetch_denied_sources",
-                "description": "Fact sources excluded from prefetch injection",
-                "default": list(SMART_CONTEXT_DEFAULTS["prefetch_denied_sources"]),
-            },
-            {
-                "key": "reinforce_on_recall",
-                "description": "Reinforce a fact's importance each time it is recalled",
-                "default": SMART_CONTEXT_DEFAULTS["reinforce_on_recall"],
-            },
-            {
-                "key": "extraction_timeout",
-                "description": "Maximum seconds for background extraction per turn",
-                "default": 5.0,
-            },
-            # Phase 8: Core Memory
-            {
-                "key": "core_memory_enabled",
-                "description": "Enable Core Memory (Persona/User Profile) injection in prefetch",
-                "default": True,
-            },
-            # Phase 8: Temporal Decay
-            {
-                "key": "decay_enabled",
-                "description": "Enable temporal decay scoring for memory recall",
-                "default": True,
-            },
-            {
-                "key": "decay_half_life_days",
-                "description": "Half-life for memory decay in days",
-                "default": 90,
-            },
-            {
-                "key": "decay_floor",
-                "description": "Minimum decay factor for non-durable facts (they are never erased)",
-                "default": 0.5,
-            },
-            {
-                "key": "evergreen_domains",
-                "description": "Domains whose facts never decay (default: People)",
-                "default": ["People"],
-            },
-            {
-                "key": "touch_on_inject",
-                "description": "Bump last_accessed for injected facts via background write",
-                "default": True,
-            },
-            {
-                "key": "allow_agent_consolidate",
-                "description": "Retired: the tool path previews only (entropicmem_review -> consolidate_preview); the real consolidate is CLI-only",
-                "default": False,
-            },
-            {
-                "key": "core_inject_mode",
-                "description": "Where Core Memory is injected: system_prompt (default; prefetch carries only a change delta) | prefetch (legacy full block every turn)",
-                "default": "system_prompt",
-            },
-            {
-                "key": "owner_user_ids",
-                "description": "EM-118: gateway user_ids that own this profile; anyone else is a guest (empty = shared pool + one-time warning)",
-                "default": [],
-            },
-            {
-                "key": "guest_hidden_domains",
-                "description": "EM-118: domains never prefetched for guest users",
-                "default": ["People", "Finance"],
-            },
-            {
-                "key": "mirror.background_review",
-                "description": "EM-110: mirror built-in writes with write_origin=background_review (default off)",
-                "default": False,
-            },
-            {
-                "key": "locale_packs",
-                "description": "EM-115: opt-in locale packs for region-specific PII patterns (e.g. [\"za\"]); default scans generic patterns only",
-                "default": [],
-            },
-            {
-                "key": "reinforcement_boost",
-                "description": "Score boost per fact access (capped)",
-                "default": 0.1,
-            },
-        ]
+        """EM-407: Appendix A's typed keys — dotted, for the setup wizard.
+
+        The host treats keys as opaque strings and hands them back to
+        ``save_config``, which nests each one into ``memory.entropicmem``. The
+        legacy flat v2 keys this replaced stay readable: the §3.8 loader maps
+        them onto the typed paths, so an existing ``config.yaml`` keeps working.
+        """
+        host_type = {
+            "text": "text",
+            "select": "text",
+            "bool": "boolean",
+            "integer": "integer",
+            "number": "number",
+            "json": "json",
+        }
+        items: List[Dict[str, Any]] = []
+        for spec in config_schema_fields():
+            item: Dict[str, Any] = {
+                "key": spec["key"],
+                "description": spec["description"],
+                "default": spec["default"],
+                "type": host_type[spec["kind"]],
+            }
+            if spec["choices"]:
+                item["choices"] = list(spec["choices"])
+            if spec["minimum"] is not None:
+                item["minimum"] = spec["minimum"]
+            if spec["maximum"] is not None:
+                item["maximum"] = spec["maximum"]
+            items.append(item)
+        return items
 
     @fail_soft  # fail-closed: §4.1 — save_config raises on failure, visible to the setup UI
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
-        """Merge-only update of plugins.entropicmem — never clobber other plugins.
+        """Merge-only update of ``memory.entropicmem`` — never clobber anything else.
+
+        EM-407: wizard keys are dotted typed paths (``scope.mode``), nested into
+        the preferred ``memory.entropicmem`` block so a save round-trips through
+        ``initialize``'s §3.8 loader; ``memory.provider``, sibling plugins and
+        every other section survive untouched. The write is atomic (temp file +
+        ``replace``) and a failure **raises** — the host must see a failed
+        setup, which is why the old swallow-at-debug is gone.
 
         A blank ``hermes_home`` is **refused**, not resolved: ``Path("")`` is
-        ``Path(".")``, so an unguarded call would merge ``plugins.entropicmem``
-        into whatever ``config.yaml`` sits in the process working directory and
-        then rewrite that whole file (comments and layout included). The host
-        always passes ``str(get_hermes_home())``, which is never blank, so this
-        cannot fire in normal use — it is defence in depth, and it fails closed,
-        because guessing where to write a user's config is worse than not
-        writing it.
+        ``Path(".")``, so an unguarded call would merge into whatever
+        ``config.yaml`` sits in the process working directory and then rewrite
+        that whole file (comments and layout included). The host always passes
+        ``str(get_hermes_home())``, which is never blank, so this cannot fire in
+        normal use — it is defence in depth, and it fails closed, because
+        guessing where to write a user's config is worse than not writing it.
         """
         if not str(hermes_home or "").strip():
             raise ValueError(
@@ -506,29 +371,100 @@ class EntropicMemProvider(ToolHandlers):
                 "into the working directory"
             )
         config_path = Path(hermes_home) / "config.yaml"
-        try:
-            import yaml
+        import yaml
 
-            existing: dict = {}
-            if config_path.exists():
-                with open(config_path, encoding="utf-8-sig") as f:
-                    existing = yaml.safe_load(f) or {}
-            if not isinstance(existing, dict):
-                existing = {}
-            plugins = existing.setdefault("plugins", {})
-            if not isinstance(plugins, dict):
-                plugins = {}
-                existing["plugins"] = plugins
-            current = dict(plugins.get("entropicmem") or {})
-            current.update(values or {})
-            plugins["entropicmem"] = current
-            # atomic write
-            tmp = config_path.with_suffix(".yaml.tmp")
-            with open(tmp, "w", encoding="utf-8") as f:
-                yaml.safe_dump(existing, f, default_flow_style=False, sort_keys=False)
-            tmp.replace(config_path)
-        except Exception as e:
-            logger.debug("entropicmem save_config failed: %s", e)
+        existing: dict = {}
+        if config_path.exists():
+            with open(config_path, encoding="utf-8-sig") as f:
+                existing = yaml.safe_load(f) or {}
+        if not isinstance(existing, dict):
+            existing = {}
+        memory = existing.setdefault("memory", {})
+        if not isinstance(memory, dict):
+            memory = {}
+            existing["memory"] = memory
+        section = memory.get("entropicmem")
+        if not isinstance(section, dict):
+            section = {}
+        for key, value in (values or {}).items():
+            _nest_into(section, str(key), value)
+        memory["entropicmem"] = section
+        # atomic write
+        tmp = config_path.with_suffix(".yaml.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            yaml.safe_dump(existing, f, default_flow_style=False, sort_keys=False)
+        tmp.replace(config_path)
+
+    def _load_typed_config(self) -> None:
+        """EM-407: load Appendix A's typed config from §3.8's read order.
+
+        Defaults, then the host's merged view (``plugins.entropicmem``'s legacy
+        flat keys and the preferred nested ``memory.entropicmem`` — nested wins
+        inside the source), then the dashboard's flat JSON, then
+        ``ENTROPICMEM_*`` paths, then the constructor overrides tests use.
+        Invalid values are collected on ``self._config_errors`` (the future
+        ``doctor`` reads them), logged once per process, and the default — or
+        the last valid value — stands. Nothing raises.
+        """
+        loaded = load_config(
+            [
+                self._host.load_plugin_config(self._hermes_home) or {},
+                self._dashboard_config_source(),
+                self._env_path_source(),
+            ],
+            overrides=self._explicit_config,
+        )
+        self._typed_config = loaded.config
+        self._config_errors = loaded.errors
+        from ..retrieval.fusion import RankWeights
+        from ..retrieval.gate import GateConfig
+
+        cfg = loaded.config
+        #: The §3.6 seams the v3 call sites pass into ``retrieve``: built once
+        #: here, from the typed config, so every path reads the same numbers.
+        self._gate_config = GateConfig(
+            min_score=cfg.gate.min_score,
+            min_coverage=cfg.gate.min_coverage,
+            min_cosine=dict(cfg.gate.min_cosine),
+        )
+        self._rank_weights = RankWeights(
+            rrf=cfg.ranking.w_rrf,
+            importance=cfg.ranking.w_importance,
+            recency=cfg.ranking.w_recency,
+            confidence=cfg.ranking.w_confidence,
+            feedback=cfg.ranking.w_feedback,
+            standard_half_life_days=cfg.ranking.standard_half_life_days,
+            volatile_half_life_days=cfg.ranking.volatile_half_life_days,
+            standard_floor=cfg.ranking.standard_floor,
+        )
+        if loaded.errors and not getattr(self.__class__, "_config_errors_logged", False):
+            self.__class__._config_errors_logged = True
+            logger.warning(
+                "EntropicMem: %d config value(s) rejected; defaults kept — %s",
+                len(loaded.errors),
+                "; ".join(f"{e.key}: {e.message}" for e in loaded.errors),
+            )
+
+    def _dashboard_config_source(self) -> Dict[str, Any]:
+        """``$HERMES_HOME/entropicmem/config.json`` (flat_json), or ``{}``."""
+        path = self._hermes_home / "entropicmem" / "config.json"
+        if not path.is_file():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except Exception as exc:
+            logger.debug("EntropicMem: dashboard config unreadable: %s", exc)
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _env_path_source(self) -> Dict[str, str]:
+        """§3.8's env layer: ``ENTROPICMEM_*`` paths only, and they come last."""
+        pairs = (
+            ("ENTROPICMEM_VAULT_PATH", "paths.vault_path"),
+            ("ENTROPICMEM_MEMORY_DB", "paths.memory_db"),
+            ("ENTROPICMEM_INDEX_DB", "paths.index_db"),
+        )
+        return {key: os.environ[name] for name, key in pairs if os.environ.get(name)}
 
     @fail_soft
     def initialize(self, session_id: str, **kwargs) -> None:
@@ -547,6 +483,17 @@ class EntropicMemProvider(ToolHandlers):
             **self._host.load_plugin_config(self._hermes_home),
             **self._explicit_config,
         }
+        # EM-407: the typed config, loaded before the scripts gate so the §3.8
+        # sources, the gate/ranking seams and the error list exist even when the
+        # skill tree is missing (initialize still returns early below).
+        try:
+            self._load_typed_config()
+        except Exception as exc:  # config must never break initialize
+            logger.debug("EntropicMem: typed config load failed: %s", exc)
+            self._typed_config = Config()
+            self._config_errors = ()
+            self._gate_config = None
+            self._rank_weights = None
         self._scripts_dir = self._host.resolve_scripts_dir(self._hermes_home)
         # §3.5 (EM-402): resolve the session's ScopeContext from the host's
         # init kwargs + config. This is the one identity every read and write
@@ -569,13 +516,26 @@ class EntropicMemProvider(ToolHandlers):
         self._host.ensure_scripts_on_path(self._scripts_dir)
         # Vector embeddings are opt-in: sentence-transformers being importable
         # in the host venv is not consent to download a model (network egress).
+        # EM-407: the typed key (legacy ``embeddings_enabled`` maps onto it).
         try:
             import em_internal.embeddings as _embeddings
-            _embeddings.set_enabled(bool(self._config.get("embeddings_enabled", False)))
+            _embeddings.set_enabled(bool(self._typed_config.embeddings.enabled))
         except ImportError:
             pass
+        # EM-407: §3.8 puts the typed paths last (the env source is already in
+        # them), so they are what the host resolver receives — a value set in
+        # memory.entropicmem or the dashboard now beats the legacy flat key.
+        typed_paths = self._typed_config.paths
+        path_config = dict(self._config)
+        for flat_key, value in (
+            ("vault_path", typed_paths.vault_path),
+            ("memory_db", typed_paths.memory_db),
+            ("index_db", typed_paths.index_db),
+        ):
+            if value:
+                path_config[flat_key] = value
         self._vault_path, self._index_db, self._memory_db = self._host.resolve_paths(
-            self._hermes_home, self._config
+            self._hermes_home, path_config
         )
         self._memory_db.parent.mkdir(parents=True, exist_ok=True)
         # EM-405: a restarted provider continues the session's turn sequence.
@@ -1932,17 +1892,17 @@ class EntropicMemProvider(ToolHandlers):
 
         store = Store(str(self._memory_db))
         self._prefetch_store = store
-        try:
-            token_budget = int(
-                max(1, self._config.get("prefetch_token_budget", 1500) // 4 or 450)
-            )
-        except Exception:
-            token_budget = 450
+        # EM-407: the §4.2 parameters come from the typed config (the legacy
+        # ``prefetch_token_budget`` folded its character count into tokens, and
+        # ``prefetch_max_latency_ms`` maps straight across); the gate/ranking
+        # seams ride along so the service's ``retrieve`` calls carry them too.
         service = PrefetchService(
             connect=store.reader,
             spawn_thread=self._spawn,
-            token_budget=token_budget,
-            max_latency_ms=float(self._config.get("prefetch_max_latency_ms", 1200)),
+            token_budget=int(self._typed_config.prefetch.token_budget),
+            max_latency_ms=float(self._typed_config.prefetch.max_latency_ms),
+            gate_config=self._gate_config,
+            rank_weights=self._rank_weights,
             is_trivial=None,
         )
         self._prefetch_service = service
@@ -1985,6 +1945,10 @@ class EntropicMemProvider(ToolHandlers):
             hermes_home=self._hermes_home,
             pii_locales=self._config.get("locale_packs") or [],
             scope=scope if scope is not None else self._state.scope.to_scope(),
+            # EM-407: §3.6's configured scalars; the facade passes them into
+            # every flagged recall's ``retrieve`` call.
+            gate_config=self._gate_config,
+            rank_weights=self._rank_weights,
         )
 
     def _memory_engine(self):

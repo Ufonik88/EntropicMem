@@ -737,7 +737,16 @@ class ToolHandlers:
                 # The same single sequence the facade's flag-on recall, the eval
                 # adapter and the shadow read run — ``with_gate=True`` is §3.6
                 # in full.
-                outcome = retrieve(conn, scope=scope, query=query, with_gate=True)
+                outcome = retrieve(
+                    conn,
+                    scope=scope,
+                    query=query,
+                    with_gate=True,
+                    # EM-407: §3.6's configured scalars (EM-306's calibrated
+                    # defaults unless the user overrode them).
+                    gate_config=self._gate_config,
+                    rank_weights=self._rank_weights,
+                )
                 memories = MemoryStore(conn)
                 rows: List[Dict[str, Any]] = []
                 seen: set = set()

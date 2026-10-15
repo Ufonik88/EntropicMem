@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from ..store.migrations import LATEST
 from ..store.types import Scope
@@ -98,6 +98,11 @@ def open_engine(
     scope_chat: str = "",
     is_owner: bool = False,
     scope: Optional[Scope] = None,
+    # EM-407: §3.6's configured scalars; the v3 engine passes them into the
+    # flagged recall's ``retrieve`` call. A v2 store has no such seam and
+    # accepts (ignores) them, so callers can pass them unconditionally.
+    gate_config: Any = None,
+    rank_weights: Any = None,
 ):
     """Open the engine the store's schema calls for.
 
@@ -127,6 +132,8 @@ def open_engine(
             is_owner=is_owner,
             scope=scope,
             pii_locales=tuple(pii_locales or ()),
+            gate_config=gate_config,
+            rank_weights=rank_weights,
         )
 
     from memory_engine import MemoryEngine

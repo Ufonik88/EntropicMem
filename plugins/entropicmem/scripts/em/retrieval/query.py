@@ -7,7 +7,8 @@ The pipeline, in §3.6's order:
 
 Everything here is deterministic and stdlib-only. EM-302 consumes the result;
 EM-310 owns the *full* temporal grammar (this module handles the common shapes
-and says so); EM-407 owns the config that supplies ``extra_stopwords``.
+and says so); ``extra_stopwords`` stays a caller-supplied parameter — no config
+key owns it yet.
 
 Two gaps §3.6 names that have no source in this repo yet, both recorded rather
 than invented:

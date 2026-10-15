@@ -12,8 +12,8 @@ Two things are load-bearing here:
   summarising an in-flight session cannot be starved of its own transcript.
 
 Config note: ``older_than_days`` defaults to the plan's
-``privacy.transcript_retention_days`` of 30. The typed config module is EM-407,
-so the value is a parameter with that default rather than a config lookup here.
+``privacy.transcript_retention_days`` of 30, which EM-407's ``em.config`` also
+carries; the value stays a parameter here, filled by whoever prunes.
 """
 
 from __future__ import annotations

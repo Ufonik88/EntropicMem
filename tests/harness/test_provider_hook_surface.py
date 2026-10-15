@@ -61,7 +61,7 @@ DRIVEN_DIRECTLY = {
     "on_session_end": lambda prov: prov.on_session_end(MESSAGES),
     "on_pre_compress": lambda prov: prov.on_pre_compress(MESSAGES),
     "backup_paths": lambda prov: prov.backup_paths(),
-    "save_config": lambda prov, home: prov.save_config({"min_relevance_score": 0.4}, str(home)),
+    "save_config": lambda prov, home: prov.save_config({"prefetch.token_budget": 800}, str(home)),
     "shutdown": lambda prov, home: prov.shutdown(),
 }
 

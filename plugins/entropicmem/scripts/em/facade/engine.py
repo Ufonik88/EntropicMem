@@ -294,6 +294,10 @@ class V3Engine:
         is_owner: bool = False,
         scope: "Scope | None" = None,
         pii_locales: Sequence[str] = (),
+        # EM-407: §3.6's configured scalars, passed into every flagged recall's
+        # ``retrieve`` call when set; None keeps the pipeline's own defaults.
+        gate_config: Any = None,
+        rank_weights: Any = None,
     ) -> None:
         self.db_path = Path(db_path)
         self.store = Store(self.db_path)
@@ -301,6 +305,8 @@ class V3Engine:
         #: redaction uses the caller's packs. v2 took these on the engine; this
         #: is where the facade keeps the same contract.
         self.pii_locales = tuple(pii_locales or ())
+        self._gate_config = gate_config
+        self._rank_weights = rank_weights
         # Profile-wide by default (v2 had one owner per DB): the facade maps a
         # v2 profile onto Scope(profile=..., user="") — §3.5's profile-wide
         # read, which is also the owner context, so the default facade reads and
@@ -334,6 +340,17 @@ class V3Engine:
             )
         with self.store.writer() as conn:
             migrate(conn)
+
+    def _retrieval_kwargs(self) -> Dict[str, Any]:
+        """EM-407's §3.6 seams, passed only when set — a facade engine without
+        config (the eval adapters, the CLI) calls ``retrieve`` exactly as it did
+        before."""
+        kwargs: Dict[str, Any] = {}
+        if self._gate_config is not None:
+            kwargs["gate_config"] = self._gate_config
+        if self._rank_weights is not None:
+            kwargs["rank_weights"] = self._rank_weights
+        return kwargs
 
     # --- lifecycle ---------------------------------------------------------
 
@@ -639,7 +656,11 @@ class V3Engine:
         from ..retrieval.pipeline import retrieve
 
         outcome = retrieve(
-            self._reader(), scope=self.scope, query=query, with_gate=True
+            self._reader(),
+            scope=self.scope,
+            query=query,
+            with_gate=True,
+            **self._retrieval_kwargs(),
         )
         store = MemoryStore(self._reader())
         facts: List[Any] = []
