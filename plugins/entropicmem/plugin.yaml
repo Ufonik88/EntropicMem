@@ -9,12 +9,14 @@ author: Ufonik
 # maintainer's request.)
 provides_tools:
   - entropicmem_remember
-  - entropicmem_recall
-  - entropicmem_query
-  - entropicmem_patch_core
+  - entropicmem_search
+  - entropicmem_update
+  - entropicmem_forget
+  - entropicmem_timeline
+  - entropicmem_entity
+  - entropicmem_profile
+  - entropicmem_review
   - entropicmem_stats
-  - entropicmem_get
-  - entropicmem_consolidate
 provides_hooks:
   - on_memory_write
   - on_session_switch

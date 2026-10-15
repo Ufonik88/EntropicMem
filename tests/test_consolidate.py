@@ -147,8 +147,8 @@ class TestArchiveRoundTrip:
 
 
 class TestConsolidateToolGate:
-    """EM-108: entropicmem_consolidate stays dry-run unless confirm=true AND
-    config allow_agent_consolidate is enabled (default false)."""
+    """EM-108/EM-404: the tool's consolidate is pinned to review's dry-run
+    preview — a real run is CLI-only, so no tool call can archive memory."""
 
     def _provider(self, make_provider, home_a, **cfg):
         from fake_host import FakeHost
@@ -173,7 +173,10 @@ class TestConsolidateToolGate:
         assert result["dry_run"] is True
         assert result["archived"] == 0
 
-    def test_real_run_with_confirm_and_opt_in(self, make_provider, home_a):
+    def test_tool_run_is_pinned_to_the_preview_even_with_opt_in(self, make_provider, home_a):
+        """EM-404: the alias maps to review(action=consolidate_preview); a real
+        run stays CLI-only, so ``allow_agent_consolidate`` cannot archive
+        through the tool and the write-shaped arguments are reported ignored."""
         provider, host = self._provider(
             make_provider, home_a, allow_agent_consolidate=True,
         )
@@ -182,5 +185,8 @@ class TestConsolidateToolGate:
             {"dry_run": False, "confirm": True, "max_age_days": 0},
         ))
         host.shutdown()
-        assert result["dry_run"] is False
-        assert result["archived"] == 1
+        assert result["dry_run"] is True
+        assert result["archived"] == 0
+        warnings = " ".join(result.get("warnings", []))
+        assert "dry_run" in warnings and "confirm" in warnings
+        assert result["deprecated_tool"] == "entropicmem_consolidate"

@@ -29,17 +29,21 @@ SCRIPTS = REPO / "plugins" / "entropicmem" / "scripts"
 PROVIDER = SCRIPTS / "em" / "provider" / "provider.py"
 TOOLS = SCRIPTS / "em" / "provider" / "tools.py"
 
-#: Every method slice 2 moved, and the module-level names that went with them.
+#: Every method the tool surface owns, and the module-level names that went
+#: with them. EM-404's validation slice replaced the seven-tool surface with
+#: Appendix B's nine, so the pins list the nine handlers.
 TOOL_METHODS = {
     "get_tool_schemas",
     "handle_tool_call",
     "_remember",
-    "_recall",
-    "_query",
-    "_patch_core",
+    "_search",
+    "_update",
+    "_forget",
+    "_timeline",
+    "_entity",
+    "_profile",
+    "_review",
     "_stats",
-    "_get",
-    "_consolidate",
 }
 MODULE_NAMES = {"_tool_call_failed", "_screen_for_injection"}
 
@@ -92,7 +96,18 @@ def test_tools_defines_the_whole_tool_surface():
         for target in node.targets
         if isinstance(target, ast.Name)
     }
-    assert {"REMEMBER_SCHEMA", "INJECTION_WARNING"} <= assigned
+    assert {
+        "ENTITY_SCHEMA",
+        "FORGET_SCHEMA",
+        "INJECTION_WARNING",
+        "PROFILE_SCHEMA",
+        "REMEMBER_SCHEMA",
+        "REVIEW_SCHEMA",
+        "SEARCH_SCHEMA",
+        "STATS_SCHEMA",
+        "TIMELINE_SCHEMA",
+        "UPDATE_SCHEMA",
+    } <= assigned
 
 
 def test_the_screen_function_has_one_implementation():
@@ -141,9 +156,11 @@ def test_handle_tool_call_never_raises_on_junk_args():
     provider = EntropicMemMemoryProvider(config={})
     rng = random.Random(404)
     tool_names = [
-        "entropicmem_remember", "entropicmem_recall", "entropicmem_query",
-        "entropicmem_patch_core", "entropicmem_stats", "entropicmem_get",
-        "entropicmem_consolidate", "not_a_tool", "",
+        "entropicmem_remember", "entropicmem_search", "entropicmem_update",
+        "entropicmem_forget", "entropicmem_timeline", "entropicmem_entity",
+        "entropicmem_profile", "entropicmem_review", "entropicmem_stats",
+        "entropicmem_recall", "entropicmem_get", "entropicmem_query",
+        "entropicmem_patch_core", "entropicmem_consolidate", "not_a_tool", "",
     ]
     junk = ["", None, 7, 3.14, True, ["x"], {"k": "v"}, "   ", "a" * 5000]
     keys = ["content", "query", "importance", "id", "dry_run", "junk"]

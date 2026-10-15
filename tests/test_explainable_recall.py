@@ -246,14 +246,17 @@ def test_plugin_recall_output_includes_why_retrieved():
         prov._session_id = "test_session"
         prov._memory_db.parent.mkdir(parents=True, exist_ok=True)
 
-        # Seed a fact via _remember
-        remember_args = {"content": "EntropicMem stores durable facts in SQLite", "domain": "Knowledge"}
-        prov._remember(remember_args)
+        # Seed a fact via the remember tool
+        prov.handle_tool_call(
+            "entropicmem_remember",
+            {"content": "EntropicMem stores durable facts in SQLite"},
+        )
 
-        # Now recall
-        recall_args = {"query": "EntropicMem SQLite", "limit": 3}
-        result_json = prov._recall(recall_args)
-        result = json.loads(result_json)
+        # Now search
+        result = json.loads(prov.handle_tool_call(
+            "entropicmem_search",
+            {"query": "EntropicMem SQLite", "limit": 3},
+        ))
 
         assert "results" in result, f"Recall should have 'results' key; got {list(result.keys())}"
         for r in result["results"]:

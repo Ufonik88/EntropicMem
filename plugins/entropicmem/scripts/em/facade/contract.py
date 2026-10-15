@@ -37,6 +37,7 @@ PROVIDER_CALLS: Dict[str, tuple[frozenset[str], frozenset[int]]] = {
         frozenset({"confirm", "dry_run", "evergreen_domains", "max_age_days", "min_access_count"}),
         frozenset({0}),
     ),
+    "discard_pending": (frozenset(), frozenset({1})),
     "extract_and_store": (
         frozenset({"assistant_text", "min_confidence", "promote", "session_id", "source", "user_text"}),
         frozenset({0}),
@@ -44,8 +45,19 @@ PROVIDER_CALLS: Dict[str, tuple[frozenset[str], frozenset[int]]] = {
     "find_mirrored": (frozenset(), frozenset({1})),
     "forget": (frozenset({"confirm"}), frozenset({1})),
     "get_fact": (frozenset(), frozenset({1})),
+    "get_versions": (frozenset(), frozenset({1})),
+    "list_episodes": (
+        frozenset({"from_date", "limit", "to_date"}),
+        frozenset({0}),
+    ),
+    "list_pending": (frozenset({"limit"}), frozenset({0})),
     "next_episode_wave": (frozenset(), frozenset({1})),
     "prune_pending": (frozenset({"older_than_days"}), frozenset({0})),
+    "promote_pending": (frozenset(), frozenset({1})),
+    "recall_episodes": (
+        frozenset({"from_date", "limit", "to_date"}),
+        frozenset({1}),
+    ),
     "recall_hybrid": (
         frozenset({"auto_reinforce", "expand_links", "fts_weight", "top_k", "vec_weight"}),
         frozenset({1}),
@@ -173,8 +185,28 @@ class LegacyEngine(Protocol):
     ) -> str: ...
 
     def get_fact(self, entropic_id: str) -> Optional[FactView]: ...
+    def get_versions(self, entropic_id: str) -> List[Dict[str, Any]]: ...
     def find_mirrored(self, needle: Optional[str]) -> Optional[str]: ...
     def forget(self, entropic_id: str, *, confirm: bool = False) -> bool: ...
+    def recall_episodes(
+        self,
+        query: str,
+        *,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]: ...
+    def list_episodes(
+        self,
+        *,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        domain: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]: ...
+    def list_pending(self, limit: int = 50) -> List[Dict[str, Any]]: ...
+    def promote_pending(self, pending_id: str, *, actor: Optional[str] = None) -> Optional[str]: ...
+    def discard_pending(self, pending_id: str) -> bool: ...
     def touch(self, fact_ids: Sequence[str]) -> int: ...
     def stats(self) -> dict: ...
 

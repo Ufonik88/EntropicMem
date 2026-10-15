@@ -137,20 +137,28 @@ def test_query_tool_end_to_end(tmp_path):
     provider._vault_path = vault_path
     provider._index_db = index_path
     provider._scripts_dir = SCRIPTS
+    provider._memory_db = tmp_path / "memory.db"
 
-    out = provider._query({"query": "launch windows", "top_k": 5})
+    out = provider.handle_tool_call("entropicmem_query", {"query": "launch windows", "top_k": 5})
     payload = json.loads(out)
-    assert "error" not in payload, f"_query returned error: {payload}"
+    assert "error" not in payload, f"entropicmem_query returned error: {payload}"
     titles = [r["title"] for r in payload["results"]]
     assert any("Launch Windows" in t for t in titles), titles
-    # contract: hits carry citation fields
+    # contract: hits carry citation fields (note_id/snippet are the one-minor-
+    # version aliases for the v3 surface's id/content)
     first = payload["results"][0]
-    for key in ("note_id", "title", "path", "domain", "snippet"):
+    for key in ("id", "note_id", "title", "path", "domain", "content", "snippet"):
         assert key in first, f"missing citation field: {key}"
 
 
-def test_query_tool_empty_query_errors():
+def test_query_tool_empty_query_returns_no_results(tmp_path):
     plugin_mod = _load_plugin_module()
     provider = plugin_mod.EntropicMemMemoryProvider(config={})
-    out = provider._query({"query": "   "})
-    assert "error" in json.loads(out)
+    provider._scripts_dir = SCRIPTS
+    provider._memory_db = tmp_path / "memory.db"
+    out = provider.handle_tool_call("entropicmem_query", {"query": "   "})
+    payload = json.loads(out)
+    # EM-404: the v3 search contract answers an empty query with an empty
+    # result set (not an error) when there is nothing to search on.
+    assert "error" not in payload
+    assert payload["results"] == []

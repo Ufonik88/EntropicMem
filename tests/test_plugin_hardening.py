@@ -97,13 +97,19 @@ def test_non_primary_contexts_skip_all_write_paths(tmp_path, context):
     with pytest.raises(RuntimeError):
         prov.on_pre_compress(msgs, require_checkpoint=True)
 
-    # explicit write tools refuse
-    out = json.loads(prov.handle_tool_call("entropicmem_remember", {"content": "x"}))
-    assert "error" in out
-    out = json.loads(
-        prov.handle_tool_call("entropicmem_consolidate", {"dry_run": False, "confirm": True})
-    )
-    assert "error" in out
+    # explicit write tools refuse with §4.4's reason code (EM-404: the
+    # consolidate alias is a read-only preview now, so the write spread is the
+    # nine-tool surface's write half)
+    for tool, args in (
+        ("entropicmem_remember", {"content": "x"}),
+        ("entropicmem_update", {"id": "x", "content": "y"}),
+        ("entropicmem_forget", {"id": "x"}),
+        ("entropicmem_profile", {"action": "patch", "target": "persona", "old_text": "a"}),
+        ("entropicmem_review", {"action": "promote", "id": "x"}),
+    ):
+        out = json.loads(prov.handle_tool_call(tool, args))
+        assert "error" in out, (tool, out)
+        assert out.get("reason_code") == "writes_disabled", (tool, out)
 
     # nothing was ever written durably
     assert not Path(prov._memory_db).exists()
@@ -162,7 +168,7 @@ def test_manifest_declares_registered_tools_and_hooks():
     registered_tools = sorted(s["name"] for s in prov.get_tool_schemas())
     declared_tools = sorted(manifest.get("provides_tools") or [])
     assert declared_tools == registered_tools
-    assert len(declared_tools) == 7
+    assert len(declared_tools) == 9
 
     expected_hooks = sorted([
         "on_memory_write", "on_session_switch", "on_session_end",
@@ -198,7 +204,9 @@ def test_recall_and_get_payloads_screened(tmp_path):
         eid = eng.remember(BEACON, domain="Knowledge", importance=0.9)
         eng.remember("Budget review is on Friday.", domain="Finance", importance=0.5)
 
-    out = json.loads(prov._recall({"query": "deploy notes", "limit": 5}))
+    out = json.loads(
+        prov.handle_tool_call("entropicmem_search", {"query": "deploy notes", "limit": 5})
+    )
     assert out["results"], "expected at least one recall hit"
     flagged = [r for r in out["results"] if r["id"] == eid]
     assert flagged, "poisoned fact missing from recall payload"
@@ -208,19 +216,21 @@ def test_recall_and_get_payloads_screened(tmp_path):
     for r in out["results"]:
         assert ("injection_flagged" in r) and isinstance(r["injection_flagged"], bool)
 
-    got = json.loads(prov._get({"entropic_id": eid}))
-    assert got["injection_flagged"] is True
-    assert INJECTION_WARNING in got["content"]
-    assert "attacker.example" in got["content"]
+    got = json.loads(prov.handle_tool_call("entropicmem_search", {"ids": [eid]}))
+    fetch = got["results"][0]
+    assert fetch["injection_flagged"] is True
+    assert INJECTION_WARNING in fetch["content"]
+    assert "attacker.example" in fetch["content"]
 
 
 def test_get_payload_benign_fact_unmarked(tmp_path):
     prov = _make_provider(tmp_path)
     with MemoryEngine(tmp_path / "memory.db") as eng:
         eid = eng.remember("Budget review is on Friday.", domain="Finance")
-    got = json.loads(prov._get({"entropic_id": eid}))
-    assert got["injection_flagged"] is False
-    assert INJECTION_WARNING not in got["content"]
+    got = json.loads(prov.handle_tool_call("entropicmem_search", {"ids": [eid]}))
+    fetch = got["results"][0]
+    assert fetch["injection_flagged"] is False
+    assert INJECTION_WARNING not in fetch["content"]
 
 
 def test_prefetch_core_memory_screened(tmp_path):

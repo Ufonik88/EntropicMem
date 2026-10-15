@@ -739,6 +739,44 @@ class MemoryStore:
                 versions.append(dict(version))
         return versions
 
+    def predecessors(self, memory_id: str) -> list[dict[str, Any]]:
+        """The rows this memory replaced, newest first (walks ``superseded_by``).
+
+        ``history()`` returns version snapshots; this returns the *rows* the
+        supersede chain points back to — what ``search(include_history=True)``
+        shows next to the current memory, with the fields a caller renders.
+        Bounded: 50 rows, because a chain that long is a data problem, not a
+        result.
+        """
+        if self._conn.execute("SELECT 1 FROM memories WHERE id=?", (memory_id,)).fetchone() is None:
+            return []
+        out: list[dict[str, Any]] = []
+        seen: set[str] = {memory_id}
+        frontier = [memory_id]
+        while frontier and len(out) < 50:
+            nxt: list[str] = []
+            for current in frontier:
+                for found in self._conn.execute(
+                    "SELECT * FROM memories WHERE superseded_by=?", (current,)
+                ):
+                    row = dict(found)
+                    if row["id"] in seen:
+                        continue
+                    seen.add(row["id"])
+                    out.append(row)
+                    nxt.append(row["id"])
+            frontier = nxt
+        return out
+
+    def record_feedback(
+        self, memory_id: str, *, session_id: str, signal: str, note: str = ""
+    ) -> None:
+        """Record one ``review.feedback`` signal (EM-404's §4.4 surface)."""
+        self._conn.execute(
+            "INSERT INTO feedback (memory_id, session_id, signal, note, ts) VALUES (?, ?, ?, ?, ?)",
+            (memory_id, session_id, signal, note, to_iso(utc_now())),
+        )
+
     def touch(self, ids: list[str], *, field: Literal["accessed", "injected"]) -> None:
         """Bump access counters in one statement. No audit: not a fact change.
 

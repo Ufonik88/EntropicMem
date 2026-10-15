@@ -33,14 +33,29 @@ def _prefetch(provider, query="the user lives in cape town near the mountain"):
     return provider.prefetch(query)
 
 
+def _seed(provider, content, *, stamp_sensitivity=None, **kw):
+    """Seed through the v2 engine directly: the v3 tool surface no longer takes
+    domain/sensitivity (EM-404's Appendix B), but EM-118's prefetch exclusions
+    must still hold for rows that carry them. A tier the write policy refuses
+    (secret) is stamped onto the stored row: the filter must hold for rows that
+    carry the tier, whatever path wrote them."""
+    from memory_engine import MemoryEngine
+
+    with MemoryEngine(provider._memory_db) as engine:
+        fact_id = engine.remember(content=content, **kw)
+        if stamp_sensitivity:
+            engine.db.execute(
+                "UPDATE facts SET sensitivity=? WHERE id=?", (stamp_sensitivity, fact_id)
+            )
+            engine.db.commit()
+        return fact_id
+
+
 class TestGuestPrefetchExclusions:
     def test_guest_never_gets_owner_people_facts(self, make_provider, home_a):
         owner, host_o = _provider(make_provider, home_a, OWNER)
-        owner.handle_tool_call(
-            "entropicmem_remember",
-            {"content": "The user lives in Cape Town near the mountain",
-             "domain": "People", "importance": 0.9},
-        )
+        _seed(owner, "The user lives in Cape Town near the mountain",
+              domain="People", importance=0.9)
         host_o.shutdown()
 
         guest, host_g = _provider(make_provider, home_a, GUEST)
@@ -50,27 +65,18 @@ class TestGuestPrefetchExclusions:
 
     def test_owner_unaffected(self, make_provider, home_a):
         owner, host_o = _provider(make_provider, home_a, OWNER)
-        owner.handle_tool_call(
-            "entropicmem_remember",
-            {"content": "The user lives in Cape Town near the mountain",
-             "domain": "People", "importance": 0.9},
-        )
+        _seed(owner, "The user lives in Cape Town near the mountain",
+              domain="People", importance=0.9)
         block = _prefetch(owner)
         host_o.shutdown()
         assert "Cape Town" in block, f"owner lost their own fact: {block}"
 
     def test_guest_never_gets_sensitive_or_secret(self, make_provider, home_a):
         owner, host_o = _provider(make_provider, home_a, OWNER)
-        owner.handle_tool_call(
-            "entropicmem_remember",
-            {"content": "The deployment signing token rotates quarterly on friday",
-             "domain": "Work", "importance": 0.9, "sensitivity": "secret"},
-        )
-        owner.handle_tool_call(
-            "entropicmem_remember",
-            {"content": "The vendor negotiation ceiling is forty thousand rand",
-             "domain": "Work", "importance": 0.9, "sensitivity": "sensitive"},
-        )
+        _seed(owner, "The deployment signing token rotates quarterly on friday",
+              domain="Work", importance=0.9, stamp_sensitivity="secret")
+        _seed(owner, "The vendor negotiation ceiling is forty thousand rand",
+              domain="Work", importance=0.9, sensitivity="sensitive")
         host_o.shutdown()
 
         guest, host_g = _provider(make_provider, home_a, GUEST)
