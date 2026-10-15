@@ -34,13 +34,17 @@ python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py init
 
 | Tool | Purpose |
 |------|---------|
-| `entropicmem_remember` | Store a durable fact (policy + PII sanitized) |
-| `entropicmem_recall` | Search facts, FTS5 + hybrid vector fusion, `why_retrieved` on every hit |
-| `entropicmem_query` | Hybrid vault retrieval with citations (wikilinks + FTS) |
-| `entropicmem_patch_core` | Surgical Persona / User Profile edits (opt-in via `core_memory_writable`) |
+| `entropicmem_remember` | Store a durable memory (policy + PII sanitized) |
+| `entropicmem_search` | Search memories/episodes/notes/shared facts by query or `ids`, `why` on every hit |
+| `entropicmem_update` | Correct a stored memory in place (v3 store) |
+| `entropicmem_forget` | Forget by id, or preview matching candidates and confirm with a token |
+| `entropicmem_timeline` | Episodes by time window, optionally matched against a query |
+| `entropicmem_entity` | Entity card: aliases, links and relations (v3 store) |
+| `entropicmem_profile` | Read or patch Core Memory (Persona / User Profile; patching is opt-in via `core_memory_writable`) |
+| `entropicmem_review` | Pending-item review: list/promote/discard, restore, and consolidate preview |
 | `entropicmem_stats` | Memory statistics: fact count, domain distribution, DB path |
-| `entropicmem_get` | Retrieve a single stored fact by `entropic_id` |
-| `entropicmem_consolidate` | Archive old, low-access facts (gated) |
+
+The legacy names (`recall`, `query`, `patch_core`, `get`, `consolidate`) route through an alias map for one minor version; their responses carry `deprecated_tool`.
 
 ## Hooks
 

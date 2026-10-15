@@ -1,6 +1,6 @@
 # EntropicMem: next steps (one chunk at a time)
 
-**Updated:** 2026-10-15 (fourth pass — the EM-404 slice-2 landing). **`main` is at `e5e54ef` — the branch-first landing of `em-404-handlers-split` (Part B item 2 has the record: the handlers move onto `ToolHandlers`, 5 new tests, all 11 CI jobs green on that exact SHA — CI's 3.12 count 2370/3/3, this box 2293/16/3 bare and 2294/15/3 with the digest list — then `git merge --ff-only`; branch deleted) — on top of the slice-1 landing (`381197f`, the owner-chosen merge-into-branch path, Part B item 1) — and EM-403 is complete:** Chunk 33 (slice 1, `9f9ba0c`), Chunk 34 (slice 2, ff-merged as `31053df`, docs `007bb22`), **Chunk 35 (slice 3, second half, `a5b613a`)** — the synchronous fact block routes through `PrefetchService.prefetch` on a v3 store, gated on the v3 store **and** `ENTROPICMEM_V3_RETRIEVAL=1` (the decision and its reasons are in Part A); v2 stores are byte-identical by construction (golden captured from `e4fd865` in a detached worktree); the wire-level tests and the **AC re-run through the wired provider** are green (warm p95 40.58 ms @ 50k, cache-hit 0.09 ms, forced-slow 1.261 s partial, 7,648 chars, 50-turn replay 5,504 ≤ 13,500). The first half (`f674146` + `55f85ce`, pushed **directly to `main`, CI green post-push on both exact SHAs) is recorded in Part A with everything it deliberately did not do. **Nothing is in flight; `em-404-handlers-split` is deleted (landed `e5e54ef`).** **Next chunk: EM-404's validation slice — the card's remaining Spec/AC — then EM-405/EM-407.** **Live retrieval is lexical — and stays lexical whatever the flag does: the query embedding is unwired (`ensure_embedding_model` has no live caller; the service is built with no `embed_query`; the served path passes no `query_vector`), an open gap with no owning card, recorded 2026-10-15 in Part B — no semantic-retrieval claims before it.** **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
+**Updated:** 2026-10-15 (fifth pass — the EM-404 validation-slice landing, which completes the card). **`main` is at `5000942` — the branch-first landing of `em-404-validation-slice` (Part A's last record has the detail: the nine-tool v3 surface of Appendix B on both stores, §4.4 argument handling, the legacy-name alias map; 176 new tests; all 11 CI jobs green on that exact SHA — CI's 3.12 count 2546/3/3, this box 2469/16/3 bare and 2470/15/3 with the digest list — then `git merge --ff-only`; branch deleted) — on top of the slice-2 landing (`e5e54ef`), the slice-1 landing (`381197f`, the owner-chosen merge-into-branch path) and the chunk-35 merge (`a5b613a`). EM-403 and EM-404 are complete:** Chunk 33 (slice 1, `9f9ba0c`), Chunk 34 (slice 2, ff-merged as `31053df`, docs `007bb22`), **Chunk 35 (slice 3, second half, `a5b613a`)** — the synchronous fact block routes through `PrefetchService.prefetch` on a v3 store, gated on the v3 store **and** `ENTROPICMEM_V3_RETRIEVAL=1` (the decision and its reasons are in Part A); v2 stores are byte-identical by construction (golden captured from `e4fd865` in a detached worktree); the wire-level tests and the **AC re-run through the wired provider** are green (warm p95 40.58 ms @ 50k, cache-hit 0.09 ms, forced-slow 1.261 s partial, 7,648 chars, 50-turn replay 5,504 ≤ 13,500). The first half (`f674146` + `55f85ce`, pushed **directly to `main`, CI green post-push on both exact SHAs) is recorded in Part A with everything it deliberately did not do. **Nothing is in flight; `em-404-validation-slice` is deleted (landed `5000942`).** **Next chunk: EM-405 (lifecycle), then EM-407 (typed config).** **Live retrieval is lexical — and stays lexical whatever the flag does: the query embedding is unwired (`ensure_embedding_model` has no live caller; the service is built with no `embed_query`; the served path passes no `query_vector`), an open gap with no owning card, recorded 2026-10-15 in Part B — no semantic-retrieval claims before it.** **EM-411 (capture on idle & compaction)** follows EM-406, spec ready in plan §6.3, test-first and default off. P0c's data is still blocked on the owner's host. The cutover stays the owner's call.
 
 **Owner decisions in force — the order was re-set on 2026-10-08** (`REMAINING_PLAN.md` §9 item 6):
 1. **P0c — collect the shadow data.** The gating empirical step for the cutover. **Freeze before you look: do not fit a threshold to the sample, and report the raw distribution and the margin, not just a green light.** The observable is now fully armed, so a clean sample can conclude — it still needs the dev-line shadow on a host (the owner's machine is active).
@@ -373,18 +373,98 @@ bound.
 - 13 wire-level tests (`tests/unit/test_em403_slice3_wiring.py`) + the card's AC re-run through the wired provider (`tests/harness/test_em403_slice3_wired_ac.py`): forced-slow generator **1.261 s** (< 1.5) with `partial` and earlier rows served; block **7,648 chars** (≤ 9,000); 50-turn replay **5,504** replayed tokens ≤ 13,500 (first turn 344 > 0.6 × budget); cache-hit **p95 0.09 ms** (≤ 10, 20/20 hits); warm **p95 40.58 ms** @ 50k (p50 39.44, max 42.07; ≤ 150).
 - Suite **2288 / 16 / 3** bare on 3.11 (was 2270 / 16 / 3), CI **2365 / 3 / 3** on `a5b613a`; `ruff==0.16.2` clean; the privacy digest guard clean **in place** (2289 / 15 / 3). **7 mutation checks, all red, each restored from a copy:** the gate removed (4 unit + all 4 runnable AC tests), the gate inverted (8), `_turn_scope` back to the raw scope (4), the service built on v2 stores (3), the fallback removed (1), the close sentinel reordered (1, with the 2 s stall visible), and the AC harness re-run under the gate removal.
 
-## Part B: next — **EM-404's validation slice (the card's remainder), then EM-405/EM-407**
+## Part A (continued): EM-404's validation slice — the nine-tool v3 surface (Appendix B) on both stores. **DONE, MERGED (2026-10-15, `5000942`; branch-first, 11/11 check-runs green on the exact SHA)**
 
-**EM-403 is complete.** Slices 1 and 2 are merged (`9f9ba0c`, `31053df`), and chunk 35
-(`a5b613a`) closed slice 3: the synchronous fact block routes through the service on a
-v3 store behind the v3-store **and** flag gate (the decision and its reasons are in the
-Part A record), the wire-level tests and the AC re-run are green, and v2 is
-byte-identical by construction. The card's AC, verified **through the wired provider**:
-warm p95 40.58 ms @ 50k; cache-hit 0.09 ms; forced-slow 1.261 s partial; 7,648 chars;
-50-turn replay 5,504 ≤ 13,500. **EM-404's two file-move slices are also on
-`main` now** — slice 1 (schemas) as `381197f`, slice 2 (handlers) as `e5e54ef` —
-so the tool surface lives in `em/provider/tools.py`, composed into the provider as
-`ToolHandlers`; the card's behavioural Spec/AC is the validation slice below.
+### What landed
+
+- **The nine tools, Appendix B verbatim.** `em/provider/tools.py` is rewritten:
+  `remember`/`search`/`update`/`forget`/`timeline`/`entity`/`profile`/`review`/
+  `stats`, schemas verbatim — the surface test pins exactly what the appendix pins
+  (property sets, required lists, the description set; `search` has **no** `required`
+  key and no descriptions on `query`/`ids`/`kinds`/`time_from`/`time_to`/`limit`,
+  because the appendix gives none). `plugin.yaml`'s `provides_tools` goes **7 → 9**
+  (manifest coherence, pinned).
+- **The five legacy names route for one minor version** through `LEGACY_ALIASES`:
+  `recall`→`search`, `get`→`search(ids=[…])`, `query`→`search(sources=["notes"])`
+  with `top_k`→`limit`, `patch_core`→`profile(action="patch")`, `consolidate`→
+  `review(action="consolidate_preview")` — the last is **forced**, so no stored tool
+  call can archive (the real run stays CLI-only) and the ignored write-shaped args
+  (`dry_run`/`confirm`/`max_age_days`) come back as warnings. Every response, errors
+  included, carries `"deprecated_tool": "<old name>"`; legacy-only arguments come
+  back as ignored-argument warnings.
+- **§4.4's argument handling** lives in the new `em/util/jsonschema_lite.py`:
+  types and enums are **hard errors** naming the argument, the expected shape and
+  what arrived; `maxLength`/`maxItems` **cap** with a warning; `minimum`/`maximum`
+  **clamp** with a warning; unknown arguments are **dropped** with a warning; JSON
+  `null` reads as "not provided"; booleans are never integers. One deliberate
+  deviation from the old `test_query_tool_empty_query_errors`: an empty query on the
+  `query` alias returns `{"results": []}` (the renamed test pins the new answer).
+- **The write gate and the token flow.** Writes in non-primary contexts answer
+  `{"ok": false, …, "reason_code": "writes_disabled"}` before touching disk — the
+  frozen reason-code set is `invalid_arguments | writes_disabled |
+  confirmation_required | not_found | needs_v3_store | guest_forbidden |
+  not_restorable | blocked`, and store reason codes pass through. `forget` by id is
+  immediate (`set_status deleted`, reason `forget`); by query it previews candidates
+  and returns `confirm_token = sha1(",".join(sorted(ids)) + session)[:10]` with
+  `expires_in_seconds: 300`, **single-use** under the frozen clock; applying it
+  forgets by id, an invalid or expired token answers `confirmation_required`, and
+  the preview is allowed in a non-primary context while the apply is not. Deleted
+  rows read as missing, never as results.
+- **`search`'s four sources.** `memories` (scope + status through the store),
+  `episodes` (`EpisodeStore.search_episodes`/`engine.recall_episodes`), `notes`
+  (the composed vault retrieval) and `shared` (raw sqlite reads); `include_history`
+  walks the bounded supersede chain (the new `MemoryStore.predecessors`) with
+  `why: ["history"]`; results carry `id`, `short_id`, `kind`, `content`,
+  `valid_from`/`valid_to`, `status`, `score`, `why` **plus** the one-minor-version
+  legacy keys (`relevance_score`, `why_retrieved`, `entropic_id`, `note_id`,
+  `snippet`) so existing consumers keep parsing. v2 stores answer `needs_v3_store`
+  for `update`/`entity`/`review`'s `restore`/`feedback`.
+- **Two store additions + the contract table.** `MemoryStore.predecessors` (the
+  bounded chain walk) and `MemoryStore.record_feedback`;
+  `em/facade/contract.py`'s `PROVIDER_CALLS`/`LegacyEngine` grew six recorded calls
+  (`get_versions`, `list_episodes`, `list_pending`, `promote_pending`,
+  `discard_pending`, `recall_episodes`).
+- **Deliberately not rewritten, recorded instead:** the provider's system prompt
+  still names the legacy aliases (they route for one minor version; the block's
+  rewrite is owed — **EM-409, System prompt: policy + core, is the natural home**),
+  and `allow_agent_consolidate`'s config-schema description still says the tool can
+  archive — it can only preview now; a one-line tidy on EM-405's branch.
+
+### Evidence
+
+- **176 new tests** — `tests/unit/test_em404_jsonschema_lite.py` (22: every
+  keyword and message shape), `tests/unit/test_em404_tool_surface.py` (107:
+  Appendix B verbatim, `provides_tools` coherence, alias and reason-code contracts,
+  the card's fuzz half), `tests/unit/test_em404_tool_behaviour.py` (47: both stores
+  — writes, the four sources, history, forget tokens under the frozen clock, review
+  actions, entity cards, profile patch, timeline, stats, screening).
+- Suite **2469 / 16 / 3** bare and **2470 / 15 / 3** with the digest list in place;
+  CI's 3.12 count **2546 / 3 / 3** on `5000942`; `ruff==0.16.2` clean. **17 of 18
+  mutation checks red**, each restored from a copy; the one survivor — the query
+  path's deleted-row filter — is unreachable black-box (`candidates.py` gates every
+  memory generator on `status='active'`), stays as the ranking→read race guard, and
+  the reachable ids path is pinned by `test_forget_by_id_marks_deleted`.
+- Deliberate contract updates, each the changed surface's own claim: `plugin.yaml` +
+  its hardening pin; the slice-2 layout pins; `test_plugin_hardening` (write spread
+  by `reason_code`; recall/get read `search` rows); `test_plugin_imports` (citation
+  fields, the empty-query answer); `test_explainable_recall` (via
+  `handle_tool_call`); `test_consolidate` (preview-only); `test_privacy_guard`
+  (engine-direct seeds; the secret tier stamped onto the stored row so the EM-118
+  filter is genuinely exercised, not trivially passed by a blocked write).
+
+## Part B: next — **EM-405 (lifecycle), then EM-407 (typed config)**
+
+**EM-403 and EM-404 are complete.** EM-403's slices 1 and 2 are merged (`9f9ba0c`,
+`31053df`) and chunk 35 (`a5b613a`) closed slice 3: the synchronous fact block routes
+through the service on a v3 store behind the v3-store **and** flag gate (the decision
+and its reasons are in the Part A record), the wire-level tests and the AC re-run are
+green, and v2 is byte-identical by construction — the card's AC, verified **through
+the wired provider**: warm p95 40.58 ms @ 50k; cache-hit 0.09 ms; forced-slow 1.261 s
+partial; 7,648 chars; 50-turn replay 5,504 ≤ 13,500. **EM-404 closed with the
+validation slice (`5000942`):** the tool surface is the nine v3 tools of Appendix B
+in `em/provider/tools.py`, the five legacy names route through the alias map for one
+minor version, and the card's Spec/AC is pinned by 176 tests — the Part A record
+above has the full detail.
 
 **Next, in order:**
 
@@ -410,16 +490,28 @@ so the tool surface lives in `em/provider/tools.py`, composed into the provider 
    decorator (an uninitialized provider returns before touching args), so the belt
    pin was written to kill it, and does. Landed by the branch-first path: push, all
    11 CI jobs green on the exact SHA, `git merge --ff-only`, branch deleted. **Not
-   the whole card:** the behavioural Spec/AC — argument validation with helpful
-   errors (`em/util/jsonschema_lite.py`), the legacy-name alias map, `forget`'s
-   confirmation-token flow, `search`'s
-   `ids`/`kinds`/`sources`/`time_range`/`include_history`/`limit` fields, and
-   `reason_code: writes_disabled` — is the validation slice below.
-3. **Next chunk — the EM-404 validation slice** (the card's remaining Spec/AC,
-   listed under item 2).
-4. **Then EM-405 (lifecycle) and EM-407 (typed config)** — where `em/config.py`'s
-   tuned `gate.*`/`ranking.*` scalars finally reach call sites. They stay unwired
-   until EM-407; do not wire them as a drive-by.
+   the whole card — fulfilled by item 3 below:** the behavioural Spec/AC (argument
+   validation, the legacy-name alias map, `forget`'s confirmation-token flow,
+   `search`'s field set, `reason_code: writes_disabled`) landed as the validation
+   slice.
+3. **DONE (2026-10-15): the EM-404 validation slice (`5000942`) — the card
+   completes.** The nine-tool surface of Appendix B on both stores,
+   `em/util/jsonschema_lite.py`'s §4.4 argument handling, the alias map, the write
+   gate, `forget`'s single-use token and `search`'s four sources; 176 new tests;
+   bare **2469 / 16 / 3**, digest-list **2470 / 15 / 3**; **17 of 18 mutation checks
+   red** (the survivor recorded); landed by the branch-first path (push, all 11 CI
+   jobs green on the exact SHA, `git merge --ff-only`, branch deleted). Full record:
+   the Part A section above.
+4. **Next chunk — EM-405 (lifecycle)**: the `on_delegation` row; retraction on
+   rewind (`on_session_switch`'s `rewound` reception soft-deletes memories with
+   `source_session = sid AND source_turn >= turn` via a `retract_turns` job, audit
+   `retracted_by_undo`, and `review`'s `restore` can undo); `turn_index` kept per
+   session and persisted in `meta` as `turn_index:<sid>` so restarts keep counting;
+   `recall_status`; `shutdown` within 2 s with a running job. AC: harness scenarios —
+   `/undo` removes a memory stated in the undone turn, delegation creates an episode,
+   shutdown within 2 s. **Then EM-407 (typed config)** — where `em/config.py`'s tuned
+   `gate.*`/`ranking.*` scalars finally reach call sites. They stay unwired until
+   EM-407; do not wire them as a drive-by.
 
 **Open gap recorded 2026-10-15 (surfaced by the reconciliation pass; no owning card):
 the query embedding is still unwired.** EM-403 is complete and deliberately did not
@@ -614,20 +706,21 @@ Guards that stay in force: **do not wire `em/config.py`** outside its owning car
 - **The lesson for arming, and it is a real one:** the shadow's miss rate is a **v3-vs-v2** quantity, so it is only interpretable where v2's own injections are mostly *correct* — i.e. on a real store, not on filler. Note also the **unit mismatch** to state explicitly in whichever commit arms the ceiling: the bound is derived from a **v2-vs-truth** rate (`1 − recall@5` on the holdout) but applied to a **v3-vs-v2** ratio. That is a defensible policy ("v3 may drop no more of v2's hits than v2 itself misses against truth") but it is not an identity, and it must not be written as one.
 - **The miss ceiling is armed now, so a clean sample can read `met`** — the `cannot conclude` shape was the un-armed era's expected reading; the report still names every dimension and its margin, and a violation still outranks a short sample.
 
-### Step 2 — the next card: **EM-404's remainder**, after the owner's landing decision
+### Step 2 — the next card: **EM-405 (lifecycle)**
 
 **The order is the owner's (2026-10-08): EM-401–403 first, EM-411 after EM-406.**
-**EM-401, EM-402 and all of EM-403 are now complete and merged** (`b8e170a`;
-`2706a86`; slices 1–3 at `9f9ba0c`, `31053df`, `a5b613a`), and **both EM-404
-file-move slices have landed** — slice 1 by the owner's landing choice (`381197f`),
-slice 2 by the branch-first path (`e5e54ef`; Part B item 2). **What remains of the
-card is the validation slice** (Part B item 3: `em/util/jsonschema_lite.py`
-validation, the alias map, `forget`'s confirmation flow, `search`'s field set,
-`reason_code`), then EM-405 (lifecycle) and EM-407 (typed config — where the tuned
-`gate.*`/`ranking.*`
-scalars finally reach call sites; they stay unwired until it). EM-411 (capture on idle
-& compaction, requested by the owner 2026-10-09) stays planned, test-first, default off
-(plan §6.3).
+**EM-401–403 and EM-404 are now complete and merged** (`b8e170a`; `2706a86`;
+slices 1–3 at `9f9ba0c`, `31053df`, `a5b613a`; EM-404 at `381197f`, `e5e54ef` and
+the validation slice `5000942`, which completed the card — Part B items 1–3).
+**The next chunk is EM-405 (lifecycle):** §4.1's `sync_turn`/`on_session_end`/
+`on_turn_start` cadence rows, the `on_delegation` row, `on_session_switch`'s
+`rewound` retraction (`retract_turns`; soft-delete `source_session = sid AND
+source_turn >= turn`, audit `retracted_by_undo`, `review`'s `restore` can undo),
+`recall_status`, `shutdown` (≤ 2 s with a running job) and `turn_index`
+persistence (`meta` key `turn_index:<sid>`), then EM-407 (typed config — where the
+tuned `gate.*`/`ranking.*` scalars finally reach call sites; they stay unwired
+until it). EM-411 (capture on idle & compaction, requested by the owner 2026-10-09)
+stays planned, test-first, default off (plan §6.3).
 
 ### Step 3 — the pre-flight count guard. **DONE, MERGED (2026-10-08, hygiene chunk)**
 
@@ -664,7 +757,7 @@ suite, and **stop and report on a mismatch** instead of assuming the older numbe
 ### Pre-flight
 
 1. `main` must be at `4eb8097` or later: `git merge-base --is-ancestor 4eb8097 main`.
-2. **Baseline:** `pytest -q` gives **2370 passed, 3 skipped, 3 xfailed** in CI — measured 2026-10-15 on Python 3.12 at `e5e54ef`, with CI's extra set (fastapi, httpx, cryptography, pyyaml), numpy, and the private digest list as the repository secret; that is the figure the three pages' counters now state, and a pre-flight run is checked against it. On this box's scratch venv (`.venv311`, without fastapi/httpx/cryptography/numpy) the same command reads **2293 passed, 16 skipped, 3 xfailed** with zero failures — the missing extras change what is collected and skipped, which is the environment, not the tree (and with the digest list pointed in place the privacy skip becomes a pass: **2294 / 15 / 3**). The documented skip families are unchanged: the two internal-ops script tests (`test_v2_1_8.py`, `test_v2_2_0.py`), the two numpy-gated tests (pass with numpy, and `tests/test_vector_ci_guard.py` fails if that install or either gated test disappears), and the private digest-list privacy test (skips with no list configured, passes with one, and **fails closed** under `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list). The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo).
+2. **Baseline:** `pytest -q` gives **2546 passed, 3 skipped, 3 xfailed** in CI — measured 2026-10-15 on Python 3.12 at `5000942`, with CI's extra set (fastapi, httpx, cryptography, pyyaml), numpy, and the private digest list as the repository secret; that is the figure the three pages' counters now state, and a pre-flight run is checked against it. On this box's scratch venv (`.venv311`, without fastapi/httpx/cryptography/numpy) the same command reads **2469 passed, 16 skipped, 3 xfailed** with zero failures — the missing extras change what is collected and skipped, which is the environment, not the tree (and with the digest list pointed in place the privacy skip becomes a pass: **2470 / 15 / 3**). The documented skip families are unchanged: the two internal-ops script tests (`test_v2_1_8.py`, `test_v2_2_0.py`), the two numpy-gated tests (pass with numpy, and `tests/test_vector_ci_guard.py` fails if that install or either gated test disappears), and the private digest-list privacy test (skips with no list configured, passes with one, and **fails closed** under `ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1` with no list). The list is not at the default path on this box but **is** at `~/Documents/EntropicMem Dev docs/privacy-digests.txt`: point `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at it **in place** (never copy it into the repo).
 3. **Re-measure from the code, not this file:** `_shadow.py` (`PROMOTION`, `MISS_CEILING_RULE`, `evaluate`, `read_log`, `render`, `main`), `scripts/shadow_collect.py`, `em/facade/engine.py` (`v3_retrieval_enabled`, `_recall_from_v3`), `em/retrieval/pipeline.py`, `em/retrieval/candidates.py` (`vector`), `em/embeddings/` (`backends`, `service`, `jobs`, `cache`), `em/store/embeddings.py`, `em/config.py`, `evals/tune.py`, `em/retrieval/gate.py` (`load_rows`' pinned input), `evals/` (`runner`, `metrics`, `adapters/engine_v3.py`), `.github/workflows/test.yml`.
 4. **Verify CI with the check-runs API on the commit**, and read `head_sha`.
 

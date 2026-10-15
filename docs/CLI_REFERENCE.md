@@ -33,7 +33,7 @@ All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd
 | `history <entropic_id>` | Show fact version snapshots |
 | `consolidate [--max-age-days N] [--min-access-count N] [--dry-run] --confirm` | Archive old, low-access facts to `facts_archive` (default 90 days; `--confirm` required to archive) |
 
-**Explainable recall:** `recall` (and the `entropicmem_recall` plugin tool) returns a `why_retrieved` field on every hit, a deterministic list of reason tokens (`exact`, `fts`, `vector`, `recency`, `importance`, `triple`, `domain`). See [MEMORY_MODEL.md](MEMORY_MODEL.md).
+**Explainable recall:** `recall` (and the `entropicmem_search` plugin tool, legacy alias `entropicmem_recall`) returns a `why_retrieved` field on every hit, a deterministic list of reason tokens (`exact`, `fts`, `vector`, `recency`, `importance`, `triple`, `domain`). See [MEMORY_MODEL.md](MEMORY_MODEL.md).
 
 ## Episodic memory & triples
 

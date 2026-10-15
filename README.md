@@ -153,12 +153,12 @@ plugins:
 | `session_extract_pending` | `true` | Run quarantine-first extraction at session end |
 | `core_memory_enabled` | `true` | Inject Core Memory (Persona / User Profile); where is set by `core_inject_mode` |
 | `core_inject_mode` | `system_prompt` | `system_prompt`: Core Memory goes into the system prompt once and prefetch carries only a change delta; `prefetch`: legacy full block every turn |
-| `core_memory_writable` | `false` | Allow `entropicmem_patch_core` to modify Core Memory |
+| `core_memory_writable` | `false` | Allow `entropicmem_profile` to modify Core Memory (legacy alias `entropicmem_patch_core`) |
 | `prefetch_denied_sources` | `["auto_extracted", "test"]` | Fact source tags excluded from prefetch (add your own internal tags in config) |
 | `locale_packs` | `[]` | Opt-in region-specific PII patterns (e.g. `["za"]`); empty scans the generic patterns only |
 | `owner_user_ids` | `[]` | Gateway `user_id`s that own this profile; any other user runs in guest mode (no `sensitive`/`secret` facts, no `guest_hidden_domains`). Empty = shared pool with a one-time warning. Interim guard, not full per-user isolation |
 | `guest_hidden_domains` | `["People", "Finance"]` | Domains never prefetched for guest users |
-| `allow_agent_consolidate` | `false` | Let the `entropicmem_consolidate` tool archive for real (`confirm=true` still required); otherwise the tool is dry-run only |
+| `allow_agent_consolidate` | `false` | Previously let the `entropicmem_consolidate` tool archive for real; the tool path previews only now (`entropicmem_review` → `consolidate_preview`), so the real consolidate stays CLI-only (`entropicmem consolidate --confirm`) |
 | `mirror.background_review` | `false` | Also mirror built-in `memory` writes whose origin is `background_review` |
 | `extraction_timeout` | `5.0` | Maximum seconds for background extraction per turn |
 | `decay_enabled` | `true` | Temporal decay scoring in recall |
@@ -183,7 +183,7 @@ Five cooperating layers, full model in [docs/MEMORY_MODEL.md](docs/MEMORY_MODEL.
 | **Index** | `~/.hermes/entropicmem/index.db` | Vault FTS5 + graph edges for retrieval |
 | **Graph** | `export/graph.html` | D3 galaxy visualizer |
 
-**Explainable recall:** every `recall()`, `recall_with_relevance()`, and `recall_hybrid()` hit carries a `why_retrieved` field, a deterministic list of reason tokens (`exact`, `fts`, `vector`, `recency`, `importance`, `triple`, `domain`; the LIKE fallback path also reports `fts`) so you can audit why a fact surfaced. The `entropicmem_recall` tool exposes it in its JSON output.
+**Explainable recall:** every `recall()`, `recall_with_relevance()`, and `recall_hybrid()` hit carries a `why_retrieved` field, a deterministic list of reason tokens (`exact`, `fts`, `vector`, `recency`, `importance`, `triple`, `domain`; the LIKE fallback path also reports `fts`) so you can audit why a fact surfaced. The `entropicmem_search` tool exposes it in its JSON output (`why`; the legacy `why_retrieved` key and the `entropicmem_recall` alias name are kept for one minor version).
 
 **Recall benchmark:** run `PYTHONPATH="plugins/entropicmem/scripts" python3 benchmarks/run_recall_bench.py` to measure `precision@5` and `MRR` against a frozen 98-fact corpus with 20 probes. CI enforces a floor (`precision@5 >= 0.50`, `MRR >= 0.50`).
 
@@ -212,7 +212,7 @@ memory:
   provider: entropicmem
 ```
 
-- **Interactive tools:** `entropicmem_remember`, `entropicmem_recall`, `entropicmem_query`, `entropicmem_patch_core`, `entropicmem_stats`, `entropicmem_get`, `entropicmem_consolidate`, plus the built-in `memory` tool.
+- **Interactive tools (nine):** `entropicmem_remember`, `entropicmem_search`, `entropicmem_update`, `entropicmem_forget`, `entropicmem_timeline`, `entropicmem_entity`, `entropicmem_profile`, `entropicmem_review`, `entropicmem_stats`, plus the built-in `memory` tool. The legacy names (`entropicmem_recall`, `entropicmem_query`, `entropicmem_patch_core`, `entropicmem_get`, `entropicmem_consolidate`) route through an alias map for one minor version and report `deprecated_tool` in their responses.
 - **Prefetch injection:** relevant facts are prefetched into `<memory-context>` each turn. These are system-injected context, not user input.
 - **Lifecycle hooks (5):** `on_memory_write` mirrors built-in `memory` tool writes into the engine; `on_session_switch` tracks session state and resets caches; `on_session_end` writes an extractive session digest episode (idempotent per session) and runs quarantine-first extraction; `on_turn_start` flushes a partial digest every N turns for always-on sessions; `on_pre_compress` checkpoints a standing-constraints digest before context compression (fail-closed checkpoint API v2). Config under `plugins.entropicmem` (`session_end_capture`, `turn_cadence_flush_turns`, `turn_cadence_min_interval_sec`, `session_extract_pending`), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Cron:** Hermes cron runs execute with memory writes disabled; persist durable facts through the CLI or the MemoryEngine API (deterministic, no LLM), never through interactive memory tools.

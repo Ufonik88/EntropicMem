@@ -125,7 +125,7 @@ Prefetch (system-injected `<memory-context>`) runs the same retrieval pipeline u
 
 ## Plugin boundary (what the plugin does NOT do)
 
-The MemoryProvider returns a prefetch string and exposes tools over the engine modules. It does not monkeypatch Hermes core, does not rewrite prompt or system-prompt modules, and `entropicmem_patch_core` patches vault Markdown (Persona/User Profile) only, never Hermes Python source. Writes from subagent, cron, and flush agent contexts are skipped by contract. Hermes core errors should not be attributed to the plugin without verification; trace the full data path before concluding a single cause.
+The MemoryProvider returns a prefetch string and exposes tools over the engine modules. It does not monkeypatch Hermes core, does not rewrite prompt or system-prompt modules, and `entropicmem_profile` patches vault Markdown (Persona/User Profile) only, never Hermes Python source. Writes from subagent, cron, and flush agent contexts are skipped by contract. Hermes core errors should not be attributed to the plugin without verification; trace the full data path before concluding a single cause.
 
 ## Multi-profile isolation
 

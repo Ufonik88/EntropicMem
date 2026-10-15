@@ -20,7 +20,7 @@ Within L2, three complementary memory kinds live in `memory.db`:
 
 Embeddings (`embeddings` table) attach 384-dim vectors to facts and enable hybrid FTS+vector recall when `sentence-transformers` is installed **and** embeddings are enabled (`embeddings_enabled: true` in the provider config, or `ENTROPICMEM_EMBEDDINGS=1` for the CLI). They are off by default because building the model downloads it from Hugging Face on first use. Stored vectors are kept when embeddings are off; recall then uses FTS5 only.
 
-**Explainable recall:** every `StoredFact` returned by `recall()`, `recall_with_relevance()`, `recall_hybrid()`, and the plugin's `entropicmem_recall` tool carries a `why_retrieved: list[str|dict]` field. This additive field lists deterministic reason tokens explaining why the fact was surfaced:
+**Explainable recall:** every `StoredFact` returned by `recall()`, `recall_with_relevance()`, `recall_hybrid()`, and the plugin's `entropicmem_search` tool (legacy alias `entropicmem_recall`) carries a `why_retrieved: list[str|dict]` field. This additive field lists deterministic reason tokens explaining why the fact was surfaced:
 
 | Token | Meaning |
 |-------|---------|

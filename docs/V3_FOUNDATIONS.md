@@ -15,7 +15,9 @@ Hermes provider  plugins/entropicmem/__init__.py   <- thin host shell since EM-4
 em.provider     provider.py: the provider class (hooks; composes tools.py's
                 ToolHandlers) over ProviderHost, the injected host seam; hooks.py:
                 fail_soft + budgets; tools.py: the tool schemas + handlers
-                (EM-404's two slices); render.py
+                (EM-404: the nine-tool v3 surface of Appendix B, the legacy alias
+                map, and §4.4 argument validation via em.util/jsonschema_lite.py);
+                render.py
         |
         v
 em.facade  (EM-211)       contract.py: the exact API + behaviours the provider relies on
@@ -65,6 +67,9 @@ em.store                  the storage core; every module takes a connection the 
   backup.py    EM-210     BackupManager: verified snapshots of memory + index, rotation, guarded restore
 em.clock                  the only source of time and ids (freezable in tests)
 em.config                 EM-306's calibrated scalars (committed; not yet read by call sites)
+em.util                   jsonschema_lite: §4.4's tool-argument validation (types and
+                          enums fatal, maxLength/maxItems capped, numeric bounds
+                          clamped, unknown args dropped; EM-404's validation slice)
 ```
 
 `em.*` is standard-library only. It never imports the Hermes host or the provider, and never reads `HERMES_HOME`; paths are passed in.
@@ -248,7 +253,7 @@ These are decisions the writes chunk made that are not obvious from the signatur
   vector that leaves count, max rowid and the generation unchanged is not
   re-read until the cache resets; every `put_embedding` write is seen.
 - **Wiring `EntityLinker`.** Run it from a job (`link:<memory_id>:<version>`), not inside `MemoryStore.add`, to keep entity work out of the write transaction.
-- **EM-401 slice 1 — the hook skeleton, merged (`db7c24f`, code `f8af1a9`).** `em/provider/hooks.py` owns `fail_soft` and the §4.1 budget table (`HOOK_BUDGETS`); `em/provider/state.py` owns `ProviderState` (session id, agent context, last recall count, core baseline — no identity: scoping is EM-402's privacy decision and belongs to its own card); `em/provider/provider.py` owns the §4.1 `HOOK_SURFACE` table, whose `audit()` the contract test asserts is empty. **A hook must be wrapped, and four of them are fail-closed:** `FAIL_CLOSED_HOOKS` (in `hooks.py`) re-raises for `on_pre_compress`, `initialize`, `save_config` and `backup_paths`, because §4.6 counts *any* non-raising `on_pre_compress` return as a checkpoint that landed — a swallowed failure would claim a persist that never happened. That is a deliberate strengthening of the card's "except `on_pre_compress` under `require_checkpoint`", and the repo's own fail-closed test (`test_pre_compress_fails_closed_when_checkpoint_persist_fails`, which expects a raise **without** `require_checkpoint` too) is what pins it. The catch logs the exception **type** at ERROR and the detail at DEBUG, never the message: a tool handler's message can carry the user's text. **The provider class has not moved** out of `plugins/entropicmem/__init__.py` — the move is the next slice, and EM-402/EM-403 follow it. *(Superseded 2026-10-10 by EM-401 slice 2, `b8e170a`: the shell is a 145-line host shell; and EM-404's two slices moved the tool schemas and handlers into `em/provider/tools.py`. Recorded 2026-10-15.)*
+- **EM-401 slice 1 — the hook skeleton, merged (`db7c24f`, code `f8af1a9`).** `em/provider/hooks.py` owns `fail_soft` and the §4.1 budget table (`HOOK_BUDGETS`); `em/provider/state.py` owns `ProviderState` (session id, agent context, last recall count, core baseline — no identity: scoping is EM-402's privacy decision and belongs to its own card); `em/provider/provider.py` owns the §4.1 `HOOK_SURFACE` table, whose `audit()` the contract test asserts is empty. **A hook must be wrapped, and four of them are fail-closed:** `FAIL_CLOSED_HOOKS` (in `hooks.py`) re-raises for `on_pre_compress`, `initialize`, `save_config` and `backup_paths`, because §4.6 counts *any* non-raising `on_pre_compress` return as a checkpoint that landed — a swallowed failure would claim a persist that never happened. That is a deliberate strengthening of the card's "except `on_pre_compress` under `require_checkpoint`", and the repo's own fail-closed test (`test_pre_compress_fails_closed_when_checkpoint_persist_fails`, which expects a raise **without** `require_checkpoint` too) is what pins it. The catch logs the exception **type** at ERROR and the detail at DEBUG, never the message: a tool handler's message can carry the user's text. **The provider class has not moved** out of `plugins/entropicmem/__init__.py` — the move is the next slice, and EM-402/EM-403 follow it. *(Superseded 2026-10-10 by EM-401 slice 2, `b8e170a`: the shell is a 145-line host shell; and EM-404's two slices moved the tool schemas and handlers into `em/provider/tools.py`, and its validation slice (`5000942`) rewrote that surface to Appendix B's nine tools with §4.4 validation in `em/util/jsonschema_lite.py`. Recorded 2026-10-15.)*
 - **Session capture: what exists and what EM-411 adds.** The v2 provider already
   captures on `on_session_end` (`session_end_capture`) and on a turn cadence
   (`turn_cadence_flush_turns`/`turn_cadence_min_interval_sec`); `on_pre_compress`

@@ -13,19 +13,19 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-15, against branch `main` at `e5e54ef` — the
-**branch-first landing of EM-404 slice 2** (the tool handlers move onto
-`em/provider/tools.py`'s `ToolHandlers` mixin, which the provider composes as a
-base class; the shared injection screen stays **one** implementation the provider
-imports back, and the six source-scanning guards that read behaviour now read both
-implementation files — deliberately): the tree was verified on this box
-(**bare 2293 / 16 / 3**; with the digest list **2294 / 15 / 3**; `ruff==0.16.2`
-clean) and `main` fast-forwarded to that exact SHA after **all 11 CI jobs were
-green on it** (the branch push and the main push each ran the job set; none red —
-CI's 3.12 count is **2370 / 3 / 3**). The branch is deleted, and the remote carries
-`main` and `release/2.8.x`. Named deliberately instead of the docs tip that
-follows it. Before it: the **owner-chosen landing of EM-404 slice 1** (`381197f`,
-`3dcb35f` + `84a555f`; the record is in §5).
+**Last reconciled:** 2026-10-15, against branch `main` at `5000942` — the
+**branch-first landing of EM-404's validation slice, which completes the card**
+(Appendix B's nine tools on both stores, `em/util/jsonschema_lite.py`'s §4.4
+argument handling, the legacy-name alias map, `forget`'s confirmation-token flow,
+`search`'s id/kind/source/time/history fields, and `reason_code:
+writes_disabled`): the tree was verified on this box (**bare 2469 / 16 / 3**; with
+the digest list **2470 / 15 / 3**; `ruff==0.16.2` clean) and `main`
+fast-forwarded to that exact SHA after **all 11 CI jobs were green on it** (the
+branch push and the main push each ran the job set; none red — CI's 3.12 count is
+**2546 / 3 / 3**). The branch is deleted, and the remote carries `main` and
+`release/2.8.x`. Named deliberately instead of the docs tip that follows it.
+Before it: the **slice-2 landing** (`e5e54ef`) and the **owner-chosen landing of
+slice 1** (`381197f`, `3dcb35f` + `84a555f`; the record is in §5).
 
 **A second reconciliation pass on 2026-10-15 (docs only, no product change) re-read
 all pages against the tree and corrected five stale classes:** the EM-404 slice-1
@@ -220,8 +220,9 @@ re-exported, so `get_tool_schemas()`/`handle_tool_call()` keep their signatures 
 behaviour is unchanged; `provider.py` slims by 105 lines; a new empty `em/util`
 package is declared in `pyproject.toml` (nothing imports it yet — **not** slice 2's
 home: that slice landed in `em/provider/tools.py`; `em/util` waits for the card's
-validation work — recorded 2026-10-15). The branch was deleted and PR #8 is merged
-at the same SHA.
+validation work — recorded 2026-10-15; **fulfilled: the validation slice landed
+`em/util/jsonschema_lite.py` at `5000942`**). The branch was deleted and PR #8 is
+merged at the same SHA.
 
 **EM-404 slice 2 is on `main` without a chunk number either — the handlers move,
 and the card still has a remainder.** `e5e54ef` carries `get_tool_schemas`,
@@ -237,7 +238,35 @@ slices — it is the validation slice, next:** argument validation with helpful
 errors (`em/util/jsonschema_lite.py`), the legacy-name alias map, `forget`'s
 confirmation-token flow, `search`'s `ids`/`kinds`/`sources`/`time_range`/
 `include_history`/`limit` fields, and `reason_code: writes_disabled` (the current
-code returns a message string).
+code returns a message string). **Fulfilled — the validation slice landed as
+`5000942`; its record follows.**
+
+**EM-404's validation slice landed on `main` without a chunk number either — and it
+completes the card.** `5000942` carries `em/provider/tools.py` rewritten to
+Appendix B's nine tools
+(`remember`/`search`/`update`/`forget`/`timeline`/`entity`/`profile`/`review`/
+`stats`), `em/util/jsonschema_lite.py` (types and enums fatal with field-naming
+messages; `maxLength`/`maxItems` capped; numeric bounds clamped; unknown args
+dropped with a warning; JSON `null` read as "not provided"; bools never integers),
+`LEGACY_ALIASES` (the five legacy names route for one minor version; every response,
+errors included, carries `"deprecated_tool"`), the write gate (`reason_code:
+writes_disabled` in non-primary contexts — the code returns the reason now, not a
+message string), `forget`'s single-use `sha1(ids+session)[:10]` token (5 minutes;
+the query preview lists candidates, applying forgets by id) and `search`'s four
+sources (`memories|episodes|notes|shared`, including the composed-note and
+shared-fact paths). 176 new tests (22 / 107 / 47); suite **2469 / 16 / 3** bare (was
+2293 / 16 / 3) and **2470 / 15 / 3** with the digest list in place; `ruff==0.16.2`
+clean; **17 of 18 mutation checks red**, each restored from a copy — the one
+survivor (the query path's deleted-row filter, kept as the ranking→read race guard)
+is recorded in the CHANGELOG, and the reachable ids path is pinned by
+`test_forget_by_id_marks_deleted`. Deliberate contract updates to six existing test
+files and `plugin.yaml` (`provides_tools` 7 → 9); `em/facade/contract.py`'s table
+grew six recorded calls. **Two gaps recorded, not hidden:** the provider's system
+prompt still names the legacy aliases (they route for one minor version; the
+rewrite of that block is owed and **EM-409, System prompt: policy + core, is the
+natural home**), and `allow_agent_consolidate`'s config-schema description still
+says the tool can archive — it can only preview now; the string is a one-line tidy
+on EM-405's branch.
 
 **EM-403 slice 3's first half is on `main` without a chunk number — recorded here so
 it is neither forgotten nor mistaken for the whole card.** `f674146` (code, +90 lines
@@ -271,17 +300,16 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing — `em-404-handlers-split` landed on `main` as `e5e54ef` by the
+**Nothing — `em-404-validation-slice` landed on `main` as `5000942` by the
 branch-first path (code + tests + CHANGELOG committed, pushed, all 11 CI jobs green
 on that exact SHA, then `git merge --ff-only`; the branch is deleted).** The tree
-was verified on this box (bare **2293 / 16 / 3**; digest-list **2294 / 15 / 3**;
+was verified on this box (bare **2469 / 16 / 3**; digest-list **2470 / 15 / 3**;
 `ruff==0.16.2` clean). Its record is in §5, START HERE, and the note above.
-**Next: EM-404's validation slice (the card's remaining Spec/AC), then EM-405
-(lifecycle) and EM-407 (typed config).**
+**Next: EM-405 (lifecycle) and EM-407 (typed config).**
 
 **`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
-and, on top, the EM-404 slice-1 landing (`381197f`) and slice 2 (`e5e54ef`; §5 has
-both records).** Chunks 33,
+and, on top, the EM-404 landings — slice 1 (`381197f`), slice 2 (`e5e54ef`) and the
+validation slice (`5000942`; §5 has all three records).** Chunks 33,
 34 and the whole of EM-403 slice 3 are on it: on a v3 store the
 provider builds the `PrefetchService` lazily, serves the **synchronous** fact block
 through `PrefetchService.prefetch()`, enqueues `queue_prefetch` into `precompute`, and
@@ -493,21 +521,19 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**EM-404 slice 2 is merged (`e5e54ef`, all 11 CI jobs green on that exact SHA — the
-branch-first landing of `em-404-handlers-split`: code + tests + CHANGELOG, push,
-check-runs, `git merge --ff-only`, branch deleted), on top of the slice-1 landing
-(`381197f`) and the chunk-35 merge (`a5b613a`). The tool surface is fully split:
-schemas (slice 1) and handlers (slice 2) live in `em/provider/tools.py`, composed
-into the provider as `ToolHandlers`.**
+**EM-404's validation slice is merged (`5000942`, all 11 CI jobs green on that
+exact SHA — the branch-first landing of `em-404-validation-slice`: code + tests +
+CHANGELOG, push, check-runs, `git merge --ff-only`, branch deleted), on top of the
+slice-2 landing (`e5e54ef`), the slice-1 landing (`381197f`) and the chunk-35 merge
+(`a5b613a`). The tool surface is the nine v3 tools of Appendix B on both stores;
+the five legacy names route through the alias map for one minor version. **EM-404
+is complete.**
 
-1. **The next chunk: EM-404's validation slice — the card's remaining Spec/AC**
-   (argument validation with helpful errors via `em/util/jsonschema_lite.py`, the
-   legacy-name alias map, `forget`'s confirmation-token flow, `search`'s
-   `ids`/`kinds`/`sources`/`time_range`/`include_history`/`limit` fields, and
-   `reason_code: writes_disabled`), then EM-405 (lifecycle) and EM-407 (typed
-   config — where `em/config.py`'s tuned `gate.*`/`ranking.*` scalars finally reach
-   call sites; they stay unwired until it). Follow the branch-first workflow end to
-   end: tests + CHANGELOG, push, check-runs on the exact SHA, `git merge --ff-only`,
+1. **The next chunk: EM-405 (lifecycle) — the `on_delegation` row, retraction on
+   rewind, and `turn_index` persistence — then EM-407 (typed config — where
+   `em/config.py`'s tuned `gate.*`/`ranking.*` scalars finally reach call sites;
+   they stay unwired until it).** Follow the branch-first workflow end to end:
+   tests + CHANGELOG, push, check-runs on the exact SHA, `git merge --ff-only`,
    delete.
 
 **The card's AC, verified through the wired provider (chunk 35):** warm p95
@@ -554,10 +580,10 @@ line there.**
    observable is fully armed now, so a clean sample can conclude; until (a) exists, the
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
-3. **Pre-flight:** `python -m pytest -q` gives **2370 passed / 3 skipped / 3 xfailed**
-   in CI (3.12 at `e5e54ef`, with the extra set fastapi/httpx/cryptography/pyyaml,
+3. **Pre-flight:** `python -m pytest -q` gives **2546 passed / 3 skipped / 3 xfailed**
+   in CI (3.12 at `5000942`, with the extra set fastapi/httpx/cryptography/pyyaml,
    numpy, and the private digest list as the repository secret); this box's scratch
-   venv (`.venv311`, without those extras) reads **2293 / 16 / 3** — the environment,
+   venv (`.venv311`, without those extras) reads **2469 / 16 / 3** — the environment,
    not the tree. `git merge-base --is-ancestor 4eb8097 HEAD` proves the base.
 4. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
    `run list`, which can hand back a stale green.
@@ -731,17 +757,17 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2370 passed / 3 skipped / 3 xfailed** (CI, 3.12 at `e5e54ef`) |
+| Tests | `python -m pytest -q` | **2546 passed / 3 skipped / 3 xfailed** (CI, 3.12 at `5000942`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2370 / 3 / 3 figure is CI's** (extras + numpy +
+`ENTROPICMEM_INDEX_DB` unset. **The 2546 / 3 / 3 figure is CI's** (extras + numpy +
 the private digest list as the repository secret) and is the reference a pre-flight
 run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
-cryptography/numpy) reads **2293 passed / 16 skipped / 3 xfailed** — the missing
+cryptography/numpy) reads **2469 passed / 16 skipped / 3 xfailed** — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the one CI red on `3dcb35f` was the numpy-gated 50k AC flaking
 once, green on rerun of the same SHA). **The skip count is 3 on a machine without the
@@ -785,7 +811,10 @@ because it is irreversible or public:
   store, with the owner present.
 - **The tool rename** `entropicmem_patch_core` →
   `entropicmem_patch_core_memory`, which ships only with a release that re-pins
-  the catalog.
+  the catalog. *(Note 2026-10-15: the dev line's v3 surface names the tool
+  `entropicmem_profile`, with `entropicmem_patch_core` as its one-minor-version
+  alias — EM-404, `5000942` — so the catalog ask is in the owner's hands for the
+  next re-pin.)*
 - **Nothing else at the moment.** The merge blocker that used to sit here is
   cleared: Chunks 5 and 6 are on `main` at `e25db32` with green CI on that exact
   SHA (verified via the check-run `headSha`, not assumed).

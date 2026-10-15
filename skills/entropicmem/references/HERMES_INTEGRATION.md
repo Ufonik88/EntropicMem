@@ -34,9 +34,10 @@ memory:
   provider: entropicmem
 ```
 
-Tools: `entropicmem_remember`, `entropicmem_recall`, `entropicmem_query`,
-`entropicmem_patch_core`, `entropicmem_stats`, `entropicmem_get`,
-`entropicmem_consolidate`.  
+Tools: `entropicmem_remember`, `entropicmem_search`, `entropicmem_update`,
+`entropicmem_forget`, `entropicmem_timeline`, `entropicmem_entity`,
+`entropicmem_profile`, `entropicmem_review`, `entropicmem_stats` (the legacy
+names route through an alias map for one minor version).  
 Built-in `memory` tool writes are mirrored into the memory engine.  
 See `plugins/entropicmem/README.md`.
 
