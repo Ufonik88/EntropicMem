@@ -659,14 +659,16 @@ class EntropicMemProvider:
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         if query:
             self._last_query = query[:2000]
-        service = self._ensure_prefetch_service()
-        from em.facade.engine import v3_retrieval_enabled
-
-        if service is not None and query and v3_retrieval_enabled():
+        # The same gate the sync path uses (chunk 35): v3 store AND the flag.
+        # ``_ensure_prefetch_service`` still builds the service on a v3 store
+        # either way, so ``metrics()`` works with the flag off; only the
+        # enqueue is gated.
+        service = self._prefetch_service_for_turn()
+        if service is not None and query:
             try:
                 service.queue_precompute(
                     query, session_id=session_id or self._session_id or "",
-                    scope=self._state.scope.to_scope() if hasattr(self._state.scope, "to_scope") else None,
+                    scope=self._turn_scope(),
                 )
             except Exception:
                 pass
@@ -679,6 +681,12 @@ class EntropicMemProvider:
         User Profile edits show up immediately); only the fact block is
         cached, keyed by the enhanced-query hash — the enhanced query carries
         recent conversation turns, so the key is conversation-aware.
+
+        EM-403 slice 3 (chunk 35): on a v3 store with ``ENTROPICMEM_V3_RETRIEVAL=1``
+        the fact block is served by §4.2's ``PrefetchService`` — its own cache,
+        dedup, hard cap and the five ``prefetch.*`` metrics. Every other store /
+        flag combination takes the path below unchanged, and a service failure
+        falls back to it, so v2 behaviour is byte-identical by construction.
         """
         q = (query or self._last_query or "").strip()
         if not q or not self._scripts_dir or not self._memory_db:
@@ -698,20 +706,46 @@ class EntropicMemProvider:
             # Phase 2.3: Build context-aware query — also the cache key input
             enhanced_query = self._build_context_query(q)
 
+            # EM-403 slice 3: the §4.2 service's turn, when the gate says so.
+            # ``served`` is True only for a service call that *returned* — an
+            # empty block from the service is an answer, not a failure.
             fact_block: Optional[str] = None
-            use_cache = self._config.get("cache_conversation_context", True)
-            if use_cache:
-                hit = self._check_cache(enhanced_query)
-                if hit is not None:
-                    fact_block, injected = hit
-                    self._state.note_recall(injected)
-            if fact_block is None:
-                self._state.note_recall(0)
-                fact_block = self._build_fact_block(enhanced_query)
-                if use_cache:
-                    self._store_cache(
-                        enhanced_query, fact_block, self._state.last_recall_count
+            served = False
+            service = self._prefetch_service_for_turn()
+            if service is not None:
+                try:
+                    result = service.prefetch(
+                        enhanced_query,
+                        scope=self._turn_scope(),
+                        session_id=session_id or self._session_id or "",
                     )
+                    fact_block = result.text
+                    # §4.1: recall_status() must reflect the LAST prefetch — the
+                    # count the service's pack/cap left, same as the v2 path.
+                    self._state.note_recall(result.injected_count)
+                    served = True
+                except Exception as e:
+                    # Fail soft onto the v2 smart-context path: on a v3 store it
+                    # is always available (P0b's off path), so a broken service
+                    # costs a debug line, never the turn's memory.
+                    logger.debug(
+                        "EntropicMem PrefetchService failed, falling back to the v2 path: %s", e
+                    )
+
+            if not served:
+                use_cache = self._config.get("cache_conversation_context", True)
+                if use_cache:
+                    hit = self._check_cache(enhanced_query)
+                    if hit is not None:
+                        fact_block, injected = hit
+                        self._state.note_recall(injected)
+                if fact_block is None:
+                    self._state.note_recall(0)
+                    fact_block = self._build_fact_block(enhanced_query)
+                    if use_cache:
+                        self._store_cache(
+                            enhanced_query, fact_block, self._state.last_recall_count
+                        )
 
             blocks = [b for b in (core_block, fact_block) if b]
             response = "\n\n".join(blocks)
@@ -721,6 +755,60 @@ class EntropicMemProvider:
         except Exception as e:
             logger.debug("EntropicMem prefetch failed: %s", e)
             return ""
+
+    def _turn_scope(self) -> Any:
+        """The effective store-level ``Scope`` for this turn (or ``None``).
+
+        Not ``ScopeContext.to_scope()`` alone. The facade engine resolves the
+        **profile** from ``profile_id`` (explicit > coerced ``'default'``) and
+        takes only the user/chat/owner halves from a passed scope —
+        ``em/facade/engine.py``'s "a passed scope can never make rows and reads
+        disagree about which profile they belong to". The service reads the
+        store directly rather than through the engine, so it must be handed
+        that same effective scope or it would query a profile no rows live in
+        (``agent_identity`` is usually empty; the store's rows are in
+        ``_profile_id or 'default'``).
+        """
+        from em.store.types import Scope
+
+        scope = getattr(self._state, "scope", None)
+        to_scope = getattr(scope, "to_scope", None)
+        base = to_scope() if callable(to_scope) else None
+        if base is None:
+            return None
+        return Scope(
+            profile=self._profile_id or "default",
+            user=base.user,
+            chat=base.chat,
+            chat_type=base.chat_type,
+            author=base.author,
+            is_owner=base.is_owner,
+        )
+
+    def _prefetch_service_for_turn(self):
+        """``PrefetchService`` for this turn, or ``None`` — the chunk-35 gate.
+
+        **The gate decision (written down per the chunk's requirement): the
+        service path requires BOTH a v3 store AND
+        ``ENTROPICMEM_V3_RETRIEVAL=1``.** The card's brief named the v3 store
+        alone; the flag is kept alongside it for two reasons. (1) P0b
+        consistency: every other v3-read switch in this provider — the facade's
+        ranking path — is flag-gated, and a prefetch that moved on the store
+        version alone would split the provider's v3 behaviour across two
+        different triggers. (2) The byte-identity pin needs default-off: P0b's
+        golden and this chunk's v2 tests assert the *un-wired* output, and a
+        store-version-only gate would flip the served block for every v3 store
+        the day it was migrated — the owner's cutover act — with no separate
+        switch to verify it under. The cost of the flag is that the wiring stays
+        dormant until the owner flips it, which is exactly the direction this
+        card should fail in. **The flag's default is not touched here.**
+        """
+        service = self._ensure_prefetch_service()
+        if service is None:
+            return None
+        from em.facade.engine import v3_retrieval_enabled
+
+        return service if v3_retrieval_enabled() else None
 
     def _spawn_shadow(self, query: str, response: str) -> None:
         """P0: run S3 over the shadow copy, **after** the response exists and off the turn path.
