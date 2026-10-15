@@ -384,14 +384,18 @@ def test_f005_uses_spawn_context_thread():
     with one named-daemon fallback inside ``_spawn`` itself) (F-005b, H3/EM-103).
 
     EM-401: ``_spawn`` and the provider itself moved out of the plugin package
-    into ``em/provider/provider.py``; the guard reads its new home.
+    into ``em/provider/provider.py``; EM-404 slice 2 moved the tool handlers
+    into ``em/provider/tools.py``, and a bare spawn there would be the same
+    defect — so both files are counted.
     """
     impl = Path("plugins/entropicmem/scripts/em/provider/provider.py")
     if not impl.is_file():
         impl = Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "scripts" / "em" / "provider" / "provider.py"
+    tools_impl = impl.with_name("tools.py")
     text = impl.read_text(encoding="utf-8")
+    tools_text = tools_impl.read_text(encoding="utf-8")
     needle = "threading.Thread("
-    total = text.count(needle)
+    total = text.count(needle) + tools_text.count(needle)
     spawn_at = text.find("def _spawn(")
     assert spawn_at != -1, "EntropicMemMemoryProvider._spawn is missing (F-005b, H3/EM-103)"
     body = text[spawn_at:]

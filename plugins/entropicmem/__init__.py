@@ -47,11 +47,11 @@ from ._backend import (
 bootstrap_scripts_path()
 
 from em.provider.provider import (  # noqa: E402
-    INJECTION_WARNING,
     SMART_CONTEXT_DEFAULTS,
     EntropicMemProvider,
     ProviderHost,
 )
+from em.provider.tools import INJECTION_WARNING  # noqa: E402
 
 __all__ = [
     "EntropicMemMemoryProvider", "INJECTION_WARNING", "MemoryProvider",

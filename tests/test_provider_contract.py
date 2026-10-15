@@ -353,6 +353,9 @@ def test_the_surface_covers_the_pins_optional_hooks():
 
 PLUGIN_INIT = REPO / "plugins" / "entropicmem" / "__init__.py"
 PROVIDER_IMPL = SCRIPTS / "em" / "provider" / "provider.py"
+# EM-404 slice 2: the tool surface is the other file of the implementation, so
+# the no-host rule below covers both.
+TOOLS_IMPL = SCRIPTS / "em" / "provider" / "tools.py"
 
 
 def test_the_plugin_package_is_a_thin_host_shell():
@@ -383,20 +386,21 @@ def test_the_provider_implementation_imports_no_host():
     """
     import ast
 
-    tree = ast.parse(PROVIDER_IMPL.read_text(encoding="utf-8"))
     offending = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            offending += [
-                alias.name
-                for alias in node.names
-                if alias.name.split(".")[0] in ("agent", "plugins", "tools")
-            ]
-        elif isinstance(node, ast.ImportFrom) and node.level == 0:
-            root = (node.module or "").split(".")[0]
-            if root in ("agent", "plugins", "tools"):
-                offending.append(node.module)
+    for path in (PROVIDER_IMPL, TOOLS_IMPL):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                offending += [
+                    alias.name
+                    for alias in node.names
+                    if alias.name.split(".")[0] in ("agent", "plugins", "tools")
+                ]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                root = (node.module or "").split(".")[0]
+                if root in ("agent", "plugins", "tools"):
+                    offending.append(node.module)
     assert not offending, (
-        f"em.provider.provider imports the host or the plugin package: {offending} — "
-        "the dependency is injected through ProviderHost instead"
+        f"em.provider implementation imports the host or the plugin package: "
+        f"{offending} — the dependency is injected through ProviderHost instead"
     )

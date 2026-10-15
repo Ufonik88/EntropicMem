@@ -294,20 +294,26 @@ def test_the_provider_builds_engines_only_through_the_helper():
 
     Nine inline ``MemoryEngine(...)`` sites were routed through ``_open_engine``
     in Chunk 9. The provider must not construct an engine itself again, or that
-    site would bypass the version check and could migrate a v2 store.
+    site would bypass the version check and could migrate a v2 store. EM-404
+    slice 2 split the tool handlers into ``tools.py``, which is part of the same
+    implementation — so both files are scanned.
     """
     # EM-401: the implementation moved into em/provider/provider.py.
+    # EM-404 slice 2: the tool handlers into em/provider/tools.py.
     provider = SCRIPTS / "em" / "provider" / "provider.py"
-    tree = ast.parse(provider.read_text(encoding="utf-8"))
-    raw = [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "MemoryEngine"
-    ]
+    tools = SCRIPTS / "em" / "provider" / "tools.py"
+    raw = []
+    for path in (provider, tools):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        raw += [
+            f"{path.name}:{node.lineno}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "MemoryEngine"
+        ]
     assert not raw, (
-        f"MemoryEngine(...) constructed directly at lines {raw}; route it through "
+        f"MemoryEngine(...) constructed directly at {raw}; route it through "
         "_open_engine() so the store version decides the engine"
     )
     assert "_open_engine" in provider.read_text(encoding="utf-8"), (

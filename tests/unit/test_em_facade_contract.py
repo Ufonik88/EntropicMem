@@ -22,9 +22,13 @@ if str(SCRIPTS) not in sys.path:
 from em.facade import contract  # noqa: E402
 
 # EM-401: the provider implementation moved out of the plugin package into
-# ``em/provider/provider.py``; this guard follows it, because engine calls are
-# what the contract table pins.
-PROVIDER = SCRIPTS / "em" / "provider" / "provider.py"
+# ``em/provider/provider.py``; EM-404 slice 2 moved the tool handlers (and the
+# engine calls inside them) into ``em/provider/tools.py``. This guard follows
+# both, because engine calls are what the contract table pins.
+PROVIDER_FILES = (
+    SCRIPTS / "em" / "provider" / "provider.py",
+    SCRIPTS / "em" / "provider" / "tools.py",
+)
 
 
 def _implementations():
@@ -38,31 +42,38 @@ def _implementations():
 
 
 def _scan_provider() -> tuple[dict, set]:
-    """(calls, attributes) on any name called ``engine`` in the provider."""
-    tree = ast.parse(PROVIDER.read_text(encoding="utf-8"))
+    """(calls, attributes) on any name called ``engine`` in the implementation.
+
+    Scans both files of the split (EM-401's provider file and EM-404 slice 2's
+    tools file) and unions the results — the contract is about the
+    implementation, not about which module a call sits in.
+    """
     calls: dict[str, tuple[set, set]] = {}
-    called_nodes = set()
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "engine"
-        ):
-            kw, npos = calls.setdefault(node.func.attr, (set(), set()))
-            if any(k.arg is None for k in node.keywords):
-                raise AssertionError(f"engine.{node.func.attr}(**kwargs) defeats the contract scan")
-            kw.update(k.arg for k in node.keywords)
-            npos.add(len(node.args))
-            called_nodes.add(id(node.func))
-    attrs = {
-        node.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "engine"
-        and id(node) not in called_nodes
-    }
+    attrs: set = set()
+    for path in PROVIDER_FILES:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        called_nodes = set()
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "engine"
+            ):
+                kw, npos = calls.setdefault(node.func.attr, (set(), set()))
+                if any(k.arg is None for k in node.keywords):
+                    raise AssertionError(f"engine.{node.func.attr}(**kwargs) defeats the contract scan")
+                kw.update(k.arg for k in node.keywords)
+                npos.add(len(node.args))
+                called_nodes.add(id(node.func))
+        attrs |= {
+            node.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "engine"
+            and id(node) not in called_nodes
+        }
     return calls, attrs
 
 
