@@ -41,6 +41,21 @@ the **EM-404 validation slice** (`5000942`, which completes that card), the
 **slice-2 landing** (`e5e54ef`) and the **owner-chosen landing of slice 1**
 (`381197f`, `3dcb35f` + `84a555f`; the records are in §5).
 
+**Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
+on the exact SHA, on top of the docs record `a74707a`): the guard's drift
+telemetry, the `EM-412` approval, and two watch items.** The 50k numpy guard now
+emits **every window's p95** as a warning on every run — green included — so
+drift that stays under the assertion is visible over time, and the **3.13 leg's
+pass rate is under watch for the next 20 runs (2/2 green so far: `dc3c77a`,
+`a74707a`)**. The query-embedding card was **approved the same day as `EM-412`**
+in this tracker, with four owner edits: a per-call timeout with hard fail-soft to
+lexical and a per-session embed-count log for the optional, possibly-paid
+`openai_compat` backend; stale-model skips logged at debug and surfaced in the
+search diagnostics; a fifth mutation (a raising embedder still returns the
+lexical result; the exception never reaches the caller); and the EM id assigned
+here. **Counts quoted in docs are read from the CI-equivalent 3.12 venv with
+CI's extras and the digest list installed — not the bare box venv.**
+
 **A second reconciliation pass on 2026-10-15 (docs only, no product change) re-read
 all pages against the tree and corrected five stale classes:** the EM-404 slice-1
 row (**its CHANGELOG line landed as `84a555f`**; the ff-only aborted because `main`
@@ -630,7 +645,12 @@ data against the observable fixed in advance.
 
 **Both conditions are met, so the cutover decision is back with the owner.** The
 evidence, all recorded above: (b) the adapter's numbers, and (a) P0b's measured turn-path
-cost. Nothing about the live store has moved.
+cost. Nothing about the live store has moved. **One more decision rides this cutover,
+per the owner (2026-10-16):** the adapter-defaults unification — the eval adapter's
+`None` default taking EM-306's calibration — with both holdout numbers: **mrr 0.86508
+under the spec defaults vs 0.88095 under the calibrated values** (dev 0.918477/0.91667
+vs 0.919087/0.9187; recall and noise equal in both). It is explicitly **not** S4 work;
+the split's pin test stays in force.
 
 **The shadow's own honesty, so its numbers cannot be over-read:** the copy lags, so
 divergence is a **lower bound**; v3's path has no query embedding wired, so its
@@ -750,7 +770,9 @@ line there.**
 4. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
    `run list`, which can hand back a stale green.
 5. **The cutover decision is (a)+(b) complete and back with the owner.** Bring the
-   evidence and the recommendation; do not switch the live store.
+   evidence and the recommendation; do not switch the live store. One decision rides
+   it: the **adapter-defaults unification** — holdout mrr **0.86508 spec** vs
+   **0.88095 calibrated** — explicitly not unified in S4.
 
 ### What is next — the owner's priority order
 
@@ -762,7 +784,7 @@ The owner set the order explicitly; do not reorder it without asking.
 | **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py`, and the armed miss ceiling) | It was the next buildable chunk and it unblocks P0c's reading | **DONE (`4a2b25e`)** — holdout reported, defaults committed, ceiling armed at `0.107143` |
 | **3** | **EM-307 — packer and renderer** | §3.6's block, fed by a real retrieval | **DONE, merged (`7d6a22e`).** A gated retrieval renders; the adapter does not call it, and the provider's served block **is** this render on the wired path (chunk 35). EM-303 shipped after it |
 | **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | **DONE, merged (`3439b77`):** backends, jobs, model identity, cache (50k p95 3.86 ms); follow-ups `42e16c7`, precision `6d9bf3b`, observability `60f0d67`. **The vector path is complete and never fed a live query — row 5's note** |
-| **5** | **EM-401–403 — the provider layer (hooks, scopes, the wired `PrefetchService`)**, then EM-411 | Moves the v3 core onto the live path behind the flag; EM-411 follows it | **All complete and merged** (`db7c24f`+`b8e170a`; `2706a86`; `9f9ba0c`+`31053df`+`a5b613a`). **What the series expected and did not deliver, recorded 2026-10-15: the query embedding** — the provider never calls `ensure_embedding_model` and embeds nothing, so live retrieval stays lexical even wired; **that wiring needs a card, the owner's to place.** EM-411 after EM-406, spec ready below |
+| **5** | **EM-401–403 — the provider layer (hooks, scopes, the wired `PrefetchService`)**, then EM-411 | Moves the v3 core onto the live path behind the flag; EM-411 follows it | **All complete and merged** (`db7c24f`+`b8e170a`; `2706a86`; `9f9ba0c`+`31053df`+`a5b613a`). **What the series expected and did not deliver, recorded 2026-10-15: the query embedding** — the provider never calls `ensure_embedding_model` and embeds nothing, so live retrieval stays lexical even wired; **that wiring is `EM-412` (approved 2026-10-16; implementation follows the S4 sequence).** EM-411 after EM-406, spec ready below |
 | **—** | **P3 — the cutover** | Both re-decision conditions are met in code | **Held: the owner decides; the agent brings it** |
 
 **The owner's order was re-set on 2026-10-08** (this table): P0c first as the gating
@@ -771,9 +793,10 @@ empirical step — now blocked only on a host, with the observable armed — the
 `3439b77`**: search, MMR, backends, jobs and the cache). Since then EM-404
 (validation, `5000942`), EM-405 (lifecycle, `e483d43`) and EM-407 (the typed
 config, `2b21ad1` — the chunk that seated EM-306's scalars at the call sites)
-landed. **The next chunk's order is the owner's to set**; the candidates are the
-query-embedding wiring card (recorded 2026-10-15, no owning card) and the
-remaining S4 cards (EM-406, EM-408, EM-409, EM-410). P1 is done and P3 stays
+landed, and the hardening pull (`dc3c77a`) with its guard-visibility follow-up
+(`56dc588`). **The next chunk's order is the owner's (2026-10-16): EM-406, then
+EM-411, then the rest of S4 by dependency**; the query-embedding wiring card is
+`EM-412`, approved, and follows the S4 sequence. P1 is done and P3 stays
 with the owner. Do not reorder without asking.
 
 **P0b's shape, as landed — serve prefetch from S3 on a v3 store:**

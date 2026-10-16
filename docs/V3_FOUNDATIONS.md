@@ -278,7 +278,10 @@ These are decisions the writes chunk made that are not obvious from the signatur
   spec — a split pinned as deliberate on 2026-10-16 (`dc3c77a`) by
   `test_the_default_adapter_keeps_the_spec_and_the_runtime_ships_the_calibration`,
   which names both owners and the divergence (rrf 0.60→0.50, importance
-  0.15→0.25; gate identical); CI's eval gate stays v2.
+  0.15→0.25; gate identical); CI's eval gate stays v2. Unifying them — the
+  adapter default taking the calibration — rides the cutover, with both holdout
+  numbers recorded (mrr **0.86508** under spec vs **0.88095** calibrated; owner,
+  2026-10-16) and is explicitly **not** S4 work.
 - **Session capture: what exists and what EM-411 adds.** The v2 provider already
   captures on `on_session_end` (`session_end_capture`) and on a turn cadence
   (`turn_cadence_flush_turns`/`turn_cadence_min_interval_sec`); `on_pre_compress`

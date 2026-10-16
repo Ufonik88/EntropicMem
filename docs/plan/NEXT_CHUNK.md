@@ -649,19 +649,32 @@ setup) and whole-file last-write-wins under racing saves. Five new wiring tests
 (refusal-before-write ×2, typed write + legacy fold, locked destination, racing
 savers behind a barrier) plus two `validate_values` unit tests.
 
-**5. The query-embedding card was drafted for approval; no implementation
+**5. The query-embedding card is approved as `EM-412`; no implementation
 started.** The card (scope, acceptance tests, mutation checks, rollback flag, the
 notes on the optional backend stack and the paid OpenAI-compatible backend) was
-brought to the owner on 2026-10-16; S4 proceeds in the owner's order — **EM-406,
-then EM-411, then the rest by dependency** — while the card awaits approval.
+brought to the owner on 2026-10-16 and **approved the same day with four edits:**
+(i) `openai_compat` gets a per-call timeout with hard fail-soft to lexical on
+timeout or error, and a per-session embed-count log so paid usage is visible;
+(ii) stale-model skips log their count at debug and surface in the search
+diagnostics; (iii) a fifth mutation — an embedder that raises must still return
+the lexical result, the exception never reaching the caller; (iv) the EM id,
+assigned in the tracker (**EM-412**). S4 proceeds in the owner's order —
+**EM-406, then EM-411, then the rest by dependency** — and `EM-412` follows the
+S4 sequence. **One risk item landed with it (`56dc588`):** every 50k-guard
+window's p95 is now emitted as a warning on every run (green included) so drift
+stays visible, and the 3.13 leg's pass rate is under watch for the next 20 runs
+(2/2 green so far: `dc3c77a`, `a74707a`); docs counts are quoted from the
+CI-equivalent 3.12 venv (extras + digest list), not the bare box venv.
 
 **Evidence:** 8 new tests (the guard test was rewritten, not added); suite
 **2549 / 16 / 3** bare and **2550 / 15 / 3** with the digest list on 3.11,
 **2627 / 2 / 3** on CI-equivalent 3.12; CI **2626 / 3 / 3** on the landing SHA
 with **11/11 checks green** (the 3.13 leg included); `ruff==0.16.2` clean on
-CI's paths.
+CI's paths. **Follow-up (`56dc588`, 2026-10-16):** the guard now warns with every
+window's p95 on each run, the `EM-412` approval is recorded, and the box counts
+are quoted from the CI-equivalent venv.
 
-## Part B: next — **EM-406 (checkpoint v2 / evidence archive)** — the owner's S4 order stands: **EM-406, then EM-411, then the rest by dependency** (EM-403/404/405/407 complete; the query-embedding card is drafted and awaits the owner's approval)
+## Part B: next — **EM-406 (checkpoint v2 / evidence archive)** — the owner's S4 order stands: **EM-406, then EM-411, then the rest by dependency** (EM-403/404/405/407 complete; the query-embedding card is approved as `EM-412` and follows the S4 sequence)
 
 **EM-403, EM-404, EM-405 and EM-407 are complete.** EM-403's slices 1 and 2 are merged (`9f9ba0c`,
 `31053df`) and chunk 35 (`a5b613a`) closed slice 3: the synchronous fact block routes
@@ -745,13 +758,7 @@ has the full detail.
    `windows-import` yaml gate; all 11 CI jobs green on the exact SHA,
    `git merge --ff-only`, branch deleted). Full record: the Part A section
    above.
-6. **Next chunk — the owner's to place.** The candidates, all recorded: the
-   **query-embedding wiring card** (the open gap below — it needs a card before
-   it can be scheduled) and the remaining S4 cards — **EM-406** (checkpoint v2 /
-   evidence archive; **EM-411 follows it**), **EM-408** (CLI), **EM-409**
-   (system prompt — the natural home of the owed alias rewrite), **EM-410**
-   (cron & worker integration). Whatever is chosen: branch-first, tests first,
-   one CHANGELOG line, check-runs on the exact SHA, `git merge --ff-only`.
+6. **Next chunk — EM-406 (checkpoint v2 / evidence archive), the owner's 2026-10-16 order: EM-406, then EM-411, then the rest of S4 by dependency.** The remaining S4 cards: **EM-408** (CLI), **EM-409** (system prompt — the natural home of the owed alias rewrite), **EM-410** (cron & worker integration). The **query-embedding wiring card is approved as `EM-412`** (the open gap below) and follows the S4 sequence. Whatever is chosen: branch-first, tests first, one CHANGELOG line, check-runs on the exact SHA, `git merge --ff-only`.
 
 **Open gap recorded 2026-10-15 (surfaced by the reconciliation pass; no owning card):
 the query embedding is still unwired.** EM-403 is complete and deliberately did not
@@ -956,8 +963,7 @@ Guards that stay in force: **no drive-by `em/config.py` wiring** (EM-407 landed 
 `2b21ad1`, and the hardening pull at `dc3c77a` — Part B items 1–5).
 **The next chunk is EM-406 (checkpoint v2 / evidence archive) — the owner's S4
 order: EM-406, then EM-411, then the rest by dependency.** The
-**query-embedding wiring card** (the open gap above) is **drafted (2026-10-16)
-and awaits the owner's approval before any implementation**; after EM-411 the
+**query-embedding wiring card** (the open gap above) is **approved as `EM-412` (2026-10-16) and follows the S4 sequence after the S4 order**; after EM-411 the
 rest of S4 follows by dependency — **EM-408** (CLI), **EM-409** (system prompt —
 the natural home of the owed alias rewrite), **EM-410** (cron & worker
 integration). Whatever is chosen: branch-first, tests first, one CHANGELOG
