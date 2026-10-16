@@ -20,11 +20,27 @@ A Hermes Agent memory provider and skill delivering a complete, standalone knowl
 | **Memory engine** | Durable facts with FTS5 search, dedup, versioning, audit log, quarantine |
 | **Episodic memory** | Session summaries with time-windowed recall |
 | **Knowledge triples** | Subject, predicate, object graph with neighbors, paths, inconsistency checks |
-| **Embeddings** | Optional `all-MiniLM-L6-v2` vectors with hybrid FTS and vector recall. Opt-in (`embeddings_enabled: true`), because first use downloads the model |
+| **Embeddings** | Optional `all-MiniLM-L6-v2` vectors with hybrid FTS and vector recall. Opt-in (`embeddings_enabled: true`), because first use downloads the model. The v3 line adds a fail-soft query-embedding seam behind `embeddings.enabled` (EM-412) |
 | **Vault** | Human-browsable, linked, domain-organized Markdown notes |
 | **Index** | Vault FTS5 plus graph edges powering cited retrieval |
 | **Visual graph** | Self-contained D3 galaxy HTML export with lazy wikilink resolution |
 | **MemoryProvider plugin** | 9 `entropicmem_*` tools and 6 lifecycle hooks wired into Hermes |
+
+## The v3 Line (In Development)
+
+The storage and retrieval core is being rebuilt under `plugins/entropicmem/scripts/em/` (schema v3, typed config). It lands behind flags and v3 stores; the v2 path above is unchanged until the owner-gated cutover. What has landed so far:
+
+| Card | What it is |
+|------|------------|
+| **EM-407** | Typed config (`em/config.py`): one defaults source for the provider, the CLI and the dashboard schema |
+| **EM-212** | Plugin namespace isolation: the six shared-name engine modules moved under `em_internal/` |
+| **EM-303** | Embedding backends, async embedding jobs and the vector cache: `fastembed` / `sentence-transformers` / `openai_compat`, model identity in `meta.embedding_model`, stale-model skips surfaced in search diagnostics |
+| **EM-410** | Cron & worker: the provider runs a background `JobWorker` — gated on `jobs.run_in_primary` / `jobs.run_in_cron`, bounded by `jobs.cron_budget_s`, held off while a turn's prefetch is in flight |
+| **EM-412** | Query embedding wired into the v3 read paths behind `embeddings.enabled`: one fail-soft seam (`em/embeddings/query.py`) serves the tool search path, `PrefetchService` and the facade's flag-on recall |
+
+**How the query-embedding seam works (EM-412).** The provider builds one `QueryEmbedder` per session — only when `embeddings.enabled` is on and the store is v3 — and hands it to the three read sites. Every call runs the backend on a short-lived daemon thread the seam joins for at most `timeout_s`, **default 20 s** (matching `openai_compat`'s per-call socket timeout, so the local backends gain the hard bound they shipped without). A raise, a timeout or an unavailable service returns `None` and the caller serves the lexical result — hard fail-soft, so an embed can neither break nor stall a search. A call arriving while a previous embed is still running past its bound fast-fails instead of queueing behind it, so a hung backend costs one bound, not one per search. Calls are counted per session and summarized at `shutdown`, so a potentially paid backend's usage stays visible. With the flag off — or on a v2 store — no backend is selected and the served paths are byte-identical.
+
+Status and what's next: [MASTER_TODO.md](MASTER_TODO.md) and [docs/plan/REMAINING_PLAN.md](docs/plan/REMAINING_PLAN.md).
 
 ## Screenshots
 
@@ -169,6 +185,12 @@ plugins:
 | `touch_on_inject` | `true` | Bump `last_accessed` for injected facts (background write) |
 | `reinforcement_boost` | `0.1` | Score boost per fact access (capped) |
 | `reinforce_on_recall` | `false` | Bump access count on recall hits |
+| `embeddings.enabled` | `false` | v3 line: opt the query-embedding seam into the read paths (EM-412); off = byte-identical v2 behavior |
+| `embeddings.backend` | `auto` | v3 line: `auto` (first available), `fastembed`, `sentence_transformers`, `openai_compat`, `none` |
+| `embeddings.model` | `BAAI/bge-small-en-v1.5` | v3 line: the embedding model; switching it queues an `embed_backfill` job |
+| `jobs.run_in_primary` | `true` | v3 line: run the background `JobWorker` in the primary process (EM-410) |
+| `jobs.run_in_cron` | `true` | v3 line: run the `JobWorker` from the cron worker |
+| `jobs.cron_budget_s` | `120` | v3 line: wall-clock budget for one cron job run (5–3600) |
 
 Smart context details (how relevance scoring, dedup, and progressive disclosure work): [skills/entropicmem/references/HERMES_INTEGRATION.md](skills/entropicmem/references/HERMES_INTEGRATION.md).
 
@@ -237,6 +259,7 @@ EntropicMem's memory engine, vault and Hermes integration run locally and make n
 | What | When | Where it connects |
 |---|---|---|
 | Vector embeddings | only with `embeddings_enabled: true` (provider) or `ENTROPICMEM_EMBEDDINGS=1` (CLI), or the CLI's `query --semantic` | first use downloads `all-MiniLM-L6-v2` from Hugging Face |
+| v3 query embedding | with `embeddings.enabled` on a v3 store (EM-412) | first use downloads the configured model (default `BAAI/bge-small-en-v1.5`) from Hugging Face |
 | `ingest <url>` | when you ingest a URL | that URL, and redirects only to validated public hosts (never loopback, private or metadata addresses) |
 | Graph HTML (`graph export`) | when you open the exported file | the browser loads D3 (d3js.org), marked (cdn.jsdelivr.net) and fonts (fonts.googleapis.com, fonts.gstatic.com) |
 | `graph serve` / graph server | when you start it | none outbound; serves on loopback only by default |
@@ -252,7 +275,7 @@ Also: the shared publish store lives at `$HERMES_HOME/entropicmem-shared/` (the 
 - **Episodes are stored but not recalled.** Session digests land in the timeline, but `recall()` does not surface them yet (Sprint 3).
 - **Validator warnings.** `hermes plugins validate` prints two "declared but not registered" warnings for `provides_tools`/`provides_hooks`. They are kept on purpose: the Hermes catalog review verifies the plugin against those lists, and the warnings come from the validator not seeing tools a MemoryProvider exposes through `get_tool_schemas()`.
 
-These are pinned by strict `xfail` tests in `tests/regressions/test_findings_v27.py`, which will start failing (xpass) once each is fixed.
+These are pinned by strict `xfail` tests in `tests/regressions/test_findings_v27.py`, which will start failing (xpass) once each is fixed. On the v3 line, semantic retrieval (EM-303), episodes in recall and async prefetch (EM-403) have landed; per-user isolation remains open.
 
 ## Documentation
 
