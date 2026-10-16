@@ -12,8 +12,9 @@ search diagnostics.
 One group per claim:
 
 * **the seam** — ``QueryEmbedder`` passes vectors through, hard fail-softs
-  (raise / timeout / unavailable service), counts, and logs the session
-  summary only when the session actually embedded.
+  (raise / timeout / unavailable service), counts, logs the session summary
+  only when the session actually embedded, and cuts a stuck backend off at
+  its own wall-clock bound (later calls fast-fail until it finishes).
 * **the sites** — a fake backend's vector reaches ``retrieve`` at each of
   the three sites, and the LRU snapshot is consulted once per owner type.
 * **the flag** — off ⇒ no backend is even selected, no vector is passed, no
@@ -35,6 +36,7 @@ import logging
 import socket
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -262,6 +264,72 @@ def test_query_embedder_session_summary_profiles_paid_usage(caplog):
         if "query embeddings this session" in r.getMessage()
     ]
     assert lines and "1 call(s)" in lines[-1] and "s9" in lines[-1]
+
+
+class _BlockingService:
+    """An embed that starts (recorded) and then never returns until released."""
+
+    def __init__(self):
+        self.started = 0
+        self.started_event = threading.Event()
+        self.release = threading.Event()
+
+    def embed_query(self, text):
+        self.started += 1
+        self.started_event.set()
+        self.release.wait(timeout=10.0)
+        return [1.0, 0.0, 0.0]
+
+
+def _wait_out_the_stuck_thread(embedder, timeout=5.0):
+    """After ``release`` is set: wait until the stuck daemon thread exits."""
+    deadline = time.monotonic() + timeout
+    thread = embedder._inflight
+    while thread is not None and thread.is_alive():
+        assert time.monotonic() < deadline, "the released embed thread did not finish"
+        time.sleep(0.01)
+
+
+def test_a_stuck_embed_is_cut_off_at_the_seam_bound():
+    """The seam's own clock: a backend that ships without one is still bounded."""
+    service = _BlockingService()
+    embedder = QueryEmbedder(service, session_id="s1", timeout_s=0.2)
+    try:
+        started = time.monotonic()
+        assert embedder("hello") is None
+        elapsed = time.monotonic() - started
+    finally:
+        service.release.set()
+    assert service.started_event.wait(timeout=5.0), "the embed ran on the seam thread"
+    assert service.started == 1
+    assert (embedder.calls, embedder.embedded, embedder.failed) == (1, 0, 1)
+    assert elapsed >= 0.15, "the cut-off waited for the bound"
+    assert elapsed < 5.0, "and it was bounded, not hung"
+    _wait_out_the_stuck_thread(embedder)
+
+
+def test_a_call_while_a_stuck_embed_runs_fast_fails_and_recovers():
+    service = _BlockingService()
+    embedder = QueryEmbedder(service, session_id="s1", timeout_s=0.5)
+    try:
+        assert embedder("hello") is None  # the first call pays the bound
+        started = time.monotonic()
+        assert embedder("hello") is None  # the second must not queue behind it
+        assert time.monotonic() - started < 0.4
+    finally:
+        service.release.set()
+    assert service.started == 1, "the second call never reached the backend"
+    assert (embedder.calls, embedder.embedded, embedder.failed) == (2, 0, 2)
+    _wait_out_the_stuck_thread(embedder)
+    assert embedder("hello") == [1.0, 0.0, 0.0], "a released backend embeds again"
+    assert (embedder.calls, embedder.embedded, embedder.failed) == (3, 1, 2)
+
+
+def test_the_seam_bound_defaults_to_the_openai_compat_per_call_timeout():
+    from em.embeddings.backends import OpenAICompatBackend
+
+    backend = OpenAICompatBackend("http://127.0.0.1:9")
+    assert QueryEmbedder(_FakeService()).timeout_s == backend.timeout == 20.0
 
 
 def test_openai_compat_timeout_is_per_call_and_fails_soft(monkeypatch, tmp_path):
