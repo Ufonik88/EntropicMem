@@ -275,7 +275,10 @@ These are decisions the writes chunk made that are not obvious from the signatur
   the v3 facade pass them into `retrieve(gate_config=, rank_weights=)`** — the
   seam EM-305/EM-306 left open; `gate.min_cosine` is a duplicated literal
   pinned to `GATE_MIN_COSINE` (no import). The adapter's defaults remain the
-  spec; CI's eval gate stays v2.
+  spec — a split pinned as deliberate on 2026-10-16 (`dc3c77a`) by
+  `test_the_default_adapter_keeps_the_spec_and_the_runtime_ships_the_calibration`,
+  which names both owners and the divergence (rrf 0.60→0.50, importance
+  0.15→0.25; gate identical); CI's eval gate stays v2.
 - **Session capture: what exists and what EM-411 adds.** The v2 provider already
   captures on `on_session_end` (`session_end_capture`) and on a turn cadence
   (`turn_cadence_flush_turns`/`turn_cadence_min_interval_sec`); `on_pre_compress`
@@ -350,7 +353,8 @@ These are decisions the writes chunk made that are not obvious from the signatur
   `RankWeights` from the typed config and the provider's call sites pass it into
   `retrieve`. `fusion.RankWeights` still carries the spec's numbers as the
   *class* default a caller may override, and the eval adapter's defaults remain
-  the spec. Do not invent a second config system.
+  the spec (pinned as deliberate, 2026-10-16). Do not invent a second config
+  system.
 - **`superseded_note` renders from a gated retrieval (EM-304 → EM-305 → EM-307),
   and since chunk 35 the wired served path prints it too.** The collapse still
   emits the flag.

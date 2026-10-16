@@ -13,27 +13,33 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-15, against branch `main` at `2b21ad1` — the
-**branch-first landing of EM-407's typed config, which completes the card**
-(Appendix A's typed model in `em/config.py`; §3.8's loader precedence — the
-host's merged `plugins.entropicmem`/`memory.entropicmem` view, the dashboard's
-`flat_json` at `$HERMES_HOME/entropicmem/config.json`, `ENTROPICMEM_*` paths
-only, constructor overrides; validation errors collected, logged once, defaults
-kept; the typed `get_config_schema()`; `save_config` nesting into
-`memory.entropicmem` atomically; the `plugins/entropicmem/config_schema.py`
-`flat_json` entry; and **EM-306's calibrated `gate.*`/`ranking.*` scalars
-reaching the call sites** — the search tool, the `PrefetchService` and the v3
-facade all pass `retrieve(gate_config=, rank_weights=)` now): the tree was
-verified on this box (**bare 2541 / 16 / 3**; with the digest list
-**2542 / 15 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
-SHA after **all 11 CI jobs were green on it** (the branch push and the main push
-each ran the job set; none red — CI's 3.12 count is **2618 / 3 / 3**). The branch
-is deleted, and the remote carries `main` and `release/2.8.x`. Named deliberately
-instead of the docs tip that follows it. Before it: the **EM-405 lifecycle
-slice** (`e483d43`, which completes that card), the **EM-404 validation slice**
-(`5000942`, which completes that card), the **slice-2 landing** (`e5e54ef`) and
-the **owner-chosen landing of slice 1** (`381197f`, `3dcb35f` + `84a555f`; the
-records are in §5).
+**Last reconciled:** 2026-10-16, against branch `main` at `dc3c77a` — the
+**branch-first landing of the EM-407 hardening pull: the owner's verification
+queue in four landed items** (`em-407-hardening`: the 50k numpy AC guard now
+reads the **best of five** 20-probe windows — the 2026-10-15 3.13-leg flap
+(single-window p95 31.61 ms from one stalled window) is fixed by statistic, not
+filed as a flake, and a real regression still fails every window; **`save_config`
+validates every key before anything touches disk** — unknown keys refused, legacy
+spellings folded as the loader folds them — writes through a per-call `mkstemp`
+temp, keeps the destination's mode, cleans up on failure, and documents the
+Windows locked-destination contract; **the spec/calibration default split is
+pinned as deliberate** — the eval adapter's `None` default is the pipeline's spec
+defaults, the provider ships EM-306's calibration (`w_rrf` 0.60→0.50,
+`w_importance` 0.15→0.25; gate values identical) — the 77-test count gap is
+per-module named, and the query-embedding card is drafted and awaiting approval;
+8 new tests): the tree was verified on this box (**bare 2549 / 16 / 3**; with
+the digest list **2550 / 15 / 3**; `ruff==0.16.2` clean) and `main`
+fast-forwarded to that exact SHA after **all 11 CI jobs were green on it** —
+CI's 3.12 count is **2626 / 3 / 3**. The branch is deleted, and the remote
+carries `main` and `release/2.8.x`. Named deliberately instead of the docs tip
+that follows it. Before it: **EM-407's typed config** (`2b21ad1`, the
+branch-first landing that completed the card — Appendix A's typed model in
+`em/config.py`, §3.8's loader, the typed schema/save pair, and EM-306's
+calibrated scalars reaching the search tool, the `PrefetchService` and the v3
+facade), the **EM-405 lifecycle slice** (`e483d43`, which completes that card),
+the **EM-404 validation slice** (`5000942`, which completes that card), the
+**slice-2 landing** (`e5e54ef`) and the **owner-chosen landing of slice 1**
+(`381197f`, `3dcb35f` + `84a555f`; the records are in §5).
 
 **A second reconciliation pass on 2026-10-15 (docs only, no product change) re-read
 all pages against the tree and corrected five stale classes:** the EM-404 slice-1
@@ -44,7 +50,8 @@ the service feeds `retrieval.predecessors` into `load_pack_items`), the
 `gate.*`/`ranking.*` expectation (**EM-401–403 landed without wiring them; EM-407
 was the named owner — resolved 2026-10-15: EM-407 landed (`2b21ad1`), the
 provider passes the typed `GateConfig`/`RankWeights` at every call site, and the
-eval adapter's own defaults remain the spec**), and the finding this pass records
+eval adapter's own defaults remain the spec — a split pinned as deliberate on
+2026-10-16, `dc3c77a`**), and the finding this pass records
 loudest: **the query
 embedding is not wired — `ensure_embedding_model` has no caller outside
 `em/embeddings/jobs.py`, the service is built with no `embed_query`, and the
@@ -130,7 +137,22 @@ provider.** Appendix A's model and §3.8's loader are `em/config.py`'s; the type
 live; and **EM-306's calibrated `gate.*`/`ranking.*` scalars reach the call
 sites** — the search tool, the `PrefetchService` and the v3 facade all pass
 `retrieve(gate_config=, rank_weights=)`. The eval adapter's defaults remain the
-spec (the CI eval gate stays v2 by EM-306's call).
+spec (the CI eval gate stays v2 by EM-306's call) — a split pinned as deliberate
+by the hardening pull.
+
+**The EM-407 hardening pull landed (2026-10-16, `dc3c77a`).** The 50k numpy AC
+guard now reads the **best of five** 20-probe windows (the 2026-10-15 3.13-leg
+flap fixed by statistic; a real regression still fails every window);
+`save_config` validates every input against the typed rules **before anything
+touches disk** — unknown keys refused, legacy spellings folded as the loader
+folds them — writes through a per-call `mkstemp` temp, preserves the
+destination's mode, and cleans up on failure; and the spec/calibration split is
+pinned by
+`test_the_default_adapter_keeps_the_spec_and_the_runtime_ships_the_calibration`.
+The counts reconcile per module (67 fastapi + 7 cryptography + 2 numpy + 1
+privacy = the 77-passed gap; the commands sit in the pre-flight). The
+query-embedding card is drafted and awaiting the owner's approval; EM-406 is
+next in the owner's S4 order (EM-411 follows it).
 
 > **Live retrieval is lexical. Semantic retrieval is not shipped.** The EM-303
 > stack (backends, jobs, cache, cosine gate, MMR) is merged and measured, but
@@ -419,18 +441,18 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing — `em-407-typed-config` landed on `main` as `2b21ad1` by the
-branch-first path (two commits: `0f38fbf` the card and `2b21ad1` the
-windows-import gate; code + tests + CHANGELOG, pushed, all 11 CI jobs green on
-that exact SHA, then `git merge --ff-only`; the branch is deleted).** The tree
-was verified on this box (bare **2541 / 16 / 3**; digest-list **2542 / 15 / 3**;
-`ruff==0.16.2` clean). Its record is in §5, START HERE, and the note above.
-**Next: the owner's to place — the query-embedding wiring card (the open gap of
-2026-10-15; it needs a card before it can be scheduled), or one of the remaining
-S4 cards: EM-406 (checkpoint v2 / evidence archive — EM-411 follows it),
-EM-408 (CLI), EM-409 (system prompt — the natural home of the owed alias
-rewrite), EM-410 (cron & worker integration). P0c's data still waits on the
-owner's host.**
+**Nothing — the EM-407 hardening pull landed on `main` as `dc3c77a` by the
+branch-first path (four commits: the guard's best-of-five statistic, the
+spec/calibration pin + seam docstrings, `save_config` validation and per-call
+temps, and the CHANGELOG; pushed, all 11 CI jobs green on that exact SHA, then
+`git merge --ff-only`; the branch is deleted).** The tree was verified on this
+box (bare **2549 / 16 / 3**; digest-list **2550 / 15 / 3**; `ruff==0.16.2`
+clean). Its record is in §5, START HERE, and the note above.
+**Next: EM-406 (checkpoint v2 / evidence archive) — the owner's S4 order: EM-406,
+then EM-411, then the rest by dependency — EM-408 (CLI), EM-409 (system prompt —
+the natural home of the owed alias rewrite), EM-410 (cron & worker integration) —
+while the query-embedding wiring card (drafted 2026-10-16) awaits the owner's
+approval before implementation. P0c's data still waits on the owner's host.**
 
 **`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
 and, on top, the EM-404 landings — slice 1 (`381197f`), slice 2 (`e5e54ef`) and the
@@ -715,11 +737,16 @@ line there.**
    observable is fully armed now, so a clean sample can conclude; until (a) exists, the
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
-3. **Pre-flight:** `python -m pytest -q` gives **2618 passed / 3 skipped / 3 xfailed**
-   in CI (3.12 at `2b21ad1`, with the extra set fastapi/httpx/cryptography/pyyaml,
-   numpy, and the private digest list as the repository secret); this box's scratch
-   venv (`.venv311`, without those extras) reads **2541 / 16 / 3** — the environment,
-   not the tree. `git merge-base --is-ancestor 4eb8097 HEAD` proves the base.
+3. **Pre-flight:** the counts, each the command's own output — CI's `test` job
+   (3.12): `pytest -q tests/` → **2626 passed / 3 skipped / 3 xfailed** (measured
+   2026-10-16 at `dc3c77a`, with the extra set fastapi/httpx/cryptography/pyyaml,
+   numpy, and the private digest list as the repository secret); this box bare:
+   `.venv311/bin/python -m pytest -q` → **2549 / 16 / 3**; with the digest list
+   in place: `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… .venv311/bin/python -m pytest -q`
+   → **2550 / 15 / 3** — the environment, not the tree. The 77-passed gap is
+   per-module accounted in NEXT_CHUNK's pre-flight (67 fastapi + 7 cryptography
+   + 2 numpy + 1 privacy). `git merge-base --is-ancestor 4eb8097 HEAD` proves
+   the base.
 4. **Two commits** (code, then docs), then **check-runs on the exact SHA** — not
    `run list`, which can hand back a stale green.
 5. **The cutover decision is (a)+(b) complete and back with the owner.** Bring the
@@ -903,20 +930,21 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2618 passed / 3 skipped / 3 xfailed** (CI, 3.12 at `2b21ad1`) |
+| Tests | `python -m pytest -q` | **2626 passed / 3 skipped / 3 xfailed** (CI, 3.12 at `dc3c77a`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2618 / 3 / 3 figure is CI's** (extras + numpy +
+`ENTROPICMEM_INDEX_DB` unset. **The 2626 / 3 / 3 figure is CI's** (extras + numpy +
 the private digest list as the repository secret) and is the reference a pre-flight
 run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
-cryptography/numpy) reads **2541 passed / 16 skipped / 3 xfailed** — the missing
+cryptography/numpy) reads **2549 passed / 16 skipped / 3 xfailed** — the missing
 extras change what is collected and skipped, which is the environment, not the tree
-(0 failures locally; the one CI red on `3dcb35f` was the numpy-gated 50k AC flaking
-once, green on rerun of the same SHA). **The skip count is 3 on a machine without the
+(0 failures locally; the 50k AC's reds — on `3dcb35f` and the 2026-10-15 3.13 leg —
+are now fixed by statistic: the guard reads the best of five windows, `dc3c77a`).
+**The skip count is 3 on a machine without the
 private digest list and 2 with it** — read the pair, not either number alone.
 The total rises with every card; the expected figure is in
 [NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md)'s pre-flight, and a mismatch means stop

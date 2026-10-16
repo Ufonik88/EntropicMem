@@ -58,6 +58,10 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "cdfcd83": "upstream commit in NousResearch/hermes-agent, not this repo",
     # Not a SHA at all: the date in the `rollback/pre-s1-20260924` tag name.
     "20260924": "not a SHA: the date in the rollback/pre-s1-20260924 tag name",
+    # GitHub Actions ids, not commits: the EM-407 hardening record cites the failing
+    # 2026-10-15 3.13-leg job and its run so the flap stays checkable (NEXT_CHUNK Part A).
+    "116561640133": "GitHub Actions job id, not a commit: the 2026-10-15 guard flap",
+    "38775407380": "GitHub Actions run id, not a commit: the 2026-10-15 guard flap",
 }
 
 #: Sanity floors: the scan must keep seeing a real corpus, or a broken regex or glob
