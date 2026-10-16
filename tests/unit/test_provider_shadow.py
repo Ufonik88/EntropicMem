@@ -286,7 +286,7 @@ def test_run_writes_a_line_carrying_the_staleness_bound_and_the_caveat(
     assert line["v3_only"] == []
     assert line["copy_age_s"] == 0.0 and line["copy_refreshed"] is True
     assert line["stale"] is False
-    assert "EM-303" in line["caveat"] and "LOWER BOUND" in line["caveat"]
+    assert "no query embedding" in line["caveat"] and "LOWER BOUND" in line["caveat"]
 
     written = [json.loads(row) for row in log.read_text().splitlines()]
     assert written == [line], "one line per turn"
