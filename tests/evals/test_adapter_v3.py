@@ -160,6 +160,37 @@ def test_the_adapter_passes_calibration_overrides_through():
         strict.shutdown()
 
 
+def test_the_default_adapter_keeps_the_spec_and_the_runtime_ships_the_calibration():
+    """One owner each, deliberately different — pinned so neither drifts roles.
+
+    The adapter without arguments passes ``None`` into the pipeline, and ``None``
+    means ``gate.DEFAULT_GATE`` / ``fusion.DEFAULT_RANK_WEIGHTS`` — the plan's spec
+    table, i.e. the numbers the pre-EM-407 pipeline ran, which is what the frozen
+    suites and the committed baselines measure. The provider builds from
+    ``em.config`` (see ``test_the_tool_search_path_passes_the_configured_scalars``):
+    EM-306's calibrated scalars. At default config the two diverge exactly at
+    ``ranking.w_rrf`` 0.60→0.50 and ``ranking.w_importance`` 0.15→0.25 (the gate
+    values are identical), measured on the hard dev+holdout split in
+    ``evals/results/tune-hard-4eb8097.json``. Unifying them — the adapter default
+    taking the calibration — is cutover work, not a drive-by; this pin fails if
+    either side's numbers move without the other being revisited.
+    """
+    from em.config import GATE_MIN_COVERAGE, GATE_MIN_SCORE, RANKING_IMPORTANCE, RANKING_RRF
+    from em.retrieval import fusion, gate
+
+    adapter = engine_v3.EngineV3Adapter()
+    try:
+        assert adapter._gate_config is None, "the adapter keeps no private defaults"
+        assert adapter._rank_weights is None, "the adapter keeps no private defaults"
+        spec = fusion.RankWeights()
+        assert (spec.rrf, spec.importance) == (0.60, 0.15), "the plan's spec table"
+        assert (RANKING_RRF, RANKING_IMPORTANCE) == (0.50, 0.25), "EM-306's calibration"
+        assert gate.DEFAULT_GATE.min_score == GATE_MIN_SCORE == 0.30
+        assert gate.DEFAULT_GATE.min_coverage == GATE_MIN_COVERAGE == 0.34
+    finally:
+        adapter.shutdown()
+
+
 def test_shutdown_is_idempotent(adapter):
     handle = adapter.load(_scenario(noise=0))
     adapter.finish(handle)

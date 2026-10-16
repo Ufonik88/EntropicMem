@@ -125,9 +125,13 @@ def retrieve(
     ``now`` defaults to the wall clock; pass one to make a run reproducible.
 
     ``gate_config`` and ``rank_weights`` are the **calibration seam** (EM-306): the
-    tune harness passes candidates through the real pipeline rather than a copy of it.
-    ``None`` — what the provider and the eval adapter pass — means the spec defaults,
-    so nothing about the shipped path changes until the config is wired (EM-401–403).
+    tune harness passes candidates through the real pipeline rather than a copy of
+    it. ``None`` means the spec dataclass defaults (``gate.DEFAULT_GATE`` /
+    ``fusion.DEFAULT_RANK_WEIGHTS``) — the eval adapter keeps that path on purpose,
+    so the frozen suites and baselines measure the plan's numbers. The provider
+    resolves its defaults from ``em.config`` (EM-407) and passes them explicitly:
+    the shipped default is EM-306's calibration, and the split is pinned in
+    ``tests/evals/test_adapter_v3.py``.
 
     ``query_vector`` and ``embedding_model`` are EM-303's seam. Both default to
     ``None``, and then the vector generator does not run and the gate's cosine

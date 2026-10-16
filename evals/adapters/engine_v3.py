@@ -81,8 +81,12 @@ class EngineV3Adapter(AdapterBase):
         # sentence-transformers / an OpenAI-compatible endpoint is configured);
         # tests inject a deterministic one.
         self.disable_embeddings = disable_embeddings
-        # EM-306's calibration seam: the tune harness builds one adapter per candidate.
-        # ``None`` — what every other caller passes — is the spec defaults.
+        # EM-306's calibration seam: the tune harness builds one adapter per
+        # candidate. ``None`` — what every other caller passes — walks into the
+        # pipeline's spec defaults on purpose: the frozen suites and the committed
+        # baselines measure the plan's numbers, while the provider ships EM-306's
+        # calibration from ``em.config``. The split is pinned by
+        # test_the_default_adapter_keeps_the_spec_and_the_runtime_ships_the_calibration.
         self._gate_config = gate_config
         self._rank_weights = rank_weights
         self._embedding_service = embedding_service
