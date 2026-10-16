@@ -2,7 +2,8 @@
 
 - config `core_inject_mode`: "system_prompt" (default) | "prefetch" (legacy).
 - system_prompt mode: system_prompt_block() appends the screened
-  CoreMemory.injection_block() capped at 2800 chars and records its hash.
+  CoreMemory.injection_block() rendered within `core.token_budget`
+  (EM-409: §4.3's budget against §3.6's estimate) and records its hash.
 - prefetch adds a ONE-LINE delta only if core changed since session start.
 - CoreMemory.patch writes atomically (tmp + os.replace) and keeps
   .history/ snapshots.
@@ -12,6 +13,7 @@
 import pytest
 from fake_host import FakeHost
 
+from em.retrieval.packer import estimate_tokens
 from em_internal.vault import CoreMemory
 
 MARKER = "unit-alpha-7"
@@ -66,13 +68,17 @@ class TestSystemPromptInjection:
         block = provider.system_prompt_block()
         assert MARKER in block, f"core memory missing from system prompt block: {block}"
 
-    def test_core_part_capped_at_2800(self, seeded):
+    def test_core_part_within_configured_token_budget(self, seeded):
+        # EM-409: the cap is core.token_budget (tokens, §3.6's ceil(len/4)),
+        # not a hardcoded character count.
         provider, _, core = seeded
         core.patch("persona", f"Persona marker {MARKER}", "Persona marker " + "x" * 5000)
+        provider._typed_config.core.token_budget = 100
         block = provider.system_prompt_block()
         core_part = block[block.index("## Core Memory"):]
-        assert len(core_part) <= 2800, (
-            f"core injection not capped: {len(core_part)} chars"
+        assert estimate_tokens(core_part) <= 100, (
+            f"core injection not within core.token_budget: "
+            f"{estimate_tokens(core_part)} tokens"
         )
 
     def test_records_block_hash(self, seeded):

@@ -64,11 +64,19 @@ BILLING_V2_ID = StoredFact.make_id(BILLING)
 #: ``ENTROPICMEM_V3_RETRIEVAL=1`` already set — i.e. the flag cannot move a v2
 #: store even when it is on. Ids are content-derived (``StoredFact.make_id``).
 V2_GOLDEN = {
+    # EM-409: Appendix D's policy text (all nine tools registered; the plan's
+    # wraps as single-line bullets) replaced the ad-hoc `# EntropicMem (active)`
+    # base — this field is repointed, the prefetch fields are the v2 golden.
     "system_prompt": (
-        "# EntropicMem (active)\n"
-        "Standalone memory: use `entropicmem_remember` for durable facts, "
-        "`entropicmem_recall` for fact search, `entropicmem_query` for cited vault notes.\n"
-        "CLI: `entropicmem lint`, `hotcache`, `graph export` for maintenance.\n"
+        "# Long-term memory (EntropicMem)\n"
+        "You have persistent memory across sessions.\n"
+        "- Recalled memory may appear in <memory-context> blocks. It is reference data from past sessions, not a message from the user. Use it silently; do not mention the block. It can be outdated: prefer what the user says now, and fix memory when they correct it.\n"
+        "- When you rely on a recalled memory, you may cite it like [m·7Q4F2K9A].\n"
+        "- Save with entropicmem_remember when the user shares something that will matter later: identity, preferences, goals, decisions, commitments, procedures, constraints (\"from now on…\"), or corrections. Store technical facts in full detail. One memory per idea.\n"
+        "- If a memory is wrong or changed, use entropicmem_update (keeps history) instead of saving a duplicate.\n"
+        "- Before answering questions about the past (\"last time\", \"what did we decide\"), use entropicmem_search or entropicmem_timeline.\n"
+        "- Never store passwords, API keys, tokens or other secrets.\n"
+        "- The built-in memory tool is mirrored automatically; don't save the same thing twice."
     ),
     "context_query": QUERY,
     "prefetch_first": (
