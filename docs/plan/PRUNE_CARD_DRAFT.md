@@ -12,6 +12,16 @@ ride this card"), and EM-412's does not either — the promise is orphaned. The
 plan's EM-209 card already lists `prune` among the job types registered in
 S3/S5 (`REMAINING_PLAN.md` §6.2); `KNOWN_JOB_TYPES` does not carry it yet.
 
+## Recommendation — its own card, not folded into the cutover (agent; owner decides)
+
+Fold-in is tempting (both touch the store), but three facts argue for a **separate, destructive card**:
+
+1. **It depends on state the cutover does not create.** The spec's transition record — `meta.embedding_model_previous` and `meta.embedding_model_switched_at`, written by `embed_backfill` on completion — **does not exist yet** (EM-303 wrote only `meta.embedding_model`). Without it the handler must refuse, so a prune folded into a store migration would be a no-op at best; building the record is its own small piece of work.
+2. **It is destructive and worker-only.** Its guard tests are the merge gate; folding deletion into the migration card mixes two irreversible acts and gives each no separate green-CI checkpoint.
+3. **The size figure is a measurement, not a bound.** ≈2.1 KB/row is from the EM-303 observability pass; re-derive it on a real 10k store before sizing (recipe below) — capacity planning must not treat it as a bound.
+
+**Suggested slot:** its own card, after EM-502/EM-503 (which produce the model switches the prune acts on) and before the cutover's storage sizing; gated on the owner's explicit sign-off, because it deletes.
+
 ## Spec
 
 A `prune` job handler — worker thread only, under the EM-209 contract (outside
