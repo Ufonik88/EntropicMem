@@ -569,6 +569,59 @@ def load_config(
     return ConfigLoad(config=config, errors=tuple(errors))
 
 
+def validate_values(values: Mapping[str, Any]) -> Tuple[Dict[str, Any], List[ConfigError]]:
+    """Validate a save before anything touches disk; returns ``(coerced, errors)``.
+
+    ``save_config`` writes exactly the surface :func:`load_config` reads: the
+    typed dotted keys, plus the legacy flat spellings :data:`LEGACY_KEY_MAP`
+    carries (the ``prefetch_token_budget`` unit fold included), with the dotted
+    spelling beating its legacy twin inside one call. Same coercion as the
+    loader, so what lands in ``config.yaml`` is what the next load makes of it.
+    Unknown keys are errors here — the loader ignores them silently, but the save
+    path must not file a user's setup under a key nothing reads. Never raises.
+    """
+    errors: List[ConfigError] = []
+    direct: Dict[str, Any] = {}
+    legacy: Dict[str, Any] = {}
+    for raw_key in sorted(values, key=str):
+        original = values[raw_key]
+        key = str(raw_key)
+        target = LEGACY_KEY_MAP.get(key)
+        if target is not None:
+            value = original
+            transform = LEGACY_TRANSFORMS.get(key)
+            if transform is not None:
+                try:
+                    value = transform(value)
+                except Exception:
+                    errors.append(
+                        ConfigError(
+                            key=key,
+                            value=original,
+                            message="expected the legacy character count",
+                        )
+                    )
+                    continue
+            folded, why = _validate(RULES[target], value)
+            if why is not None:
+                errors.append(ConfigError(key=key, value=original, message=why))
+                continue
+            legacy[target] = folded
+            continue
+        rule = RULES.get(key)
+        if rule is None:
+            errors.append(ConfigError(key=key, value=original, message="unknown key"))
+            continue
+        coerced, why = _validate(rule, value=original)
+        if why is not None:
+            errors.append(ConfigError(key=key, value=original, message=why))
+            continue
+        direct[key] = coerced
+    merged = dict(legacy)
+    merged.update(direct)  # the dotted spelling wins, as it does at load
+    return merged, errors
+
+
 # --- the curated schema -------------------------------------------------------
 
 #: The user-facing subset ``get_config_schema()`` renders — the card's ten

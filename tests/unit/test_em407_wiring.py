@@ -9,10 +9,11 @@ One group per claim:
 * **``get_config_schema`` is typed** — dotted keys with
   ``type``/``choices``/``minimum``/``maximum``, and there is no ``post_setup``
   (it would replace the host wizard and skip saving ``memory.provider``).
-* **``save_config`` nests into ``memory.entropicmem``** — atomically, with every
-  other key untouched, and it round-trips through the next ``initialize``. A
-  write failure raises: the host must see a failed setup, and the old
-  swallow-at-debug is gone.
+* **``save_config`` nests into ``memory.entropicmem``** — validated before
+  anything touches disk (unknown keys and invalid values are refused), written
+  atomically through a private temp file with every other key untouched, and it
+  round-trips through the next ``initialize``. A write failure raises: the host
+  must see a failed setup, and the old swallow-at-debug is gone.
 * **the tuned scalars reach the v3 call sites** — the tool search path, the
   ``PrefetchService``, and the facade's flag-on recall each pass the configured
   ``gate_config``/``rank_weights`` into ``retrieve``; a service or engine built
@@ -123,6 +124,11 @@ def _provider_with_v3_store(tmp_path: Path, db: Path, config: dict | None = None
     provider._memory_db = db
     provider._spawn = _spawn
     return provider
+
+
+def _temp_leftovers(home: Path) -> list[str]:
+    """Names of any temp file a save left in *home* (none, on every path)."""
+    return sorted(p.name for p in home.iterdir() if p.name.startswith(".config.yaml."))
 
 
 # --- initialize: the §3.8 sources -------------------------------------------
@@ -327,6 +333,150 @@ def test_save_config_raises_when_the_atomic_replace_fails(tmp_path, monkeypatch)
     assert yaml.safe_load(config.read_text(encoding="utf-8")) == {
         "memory": {"provider": "entropicmem"}
     }
+    assert _temp_leftovers(tmp_path) == [], "a failed replace must take its temp with it"
+
+
+@needs_yaml
+def test_save_config_rejects_invalid_values_before_any_write(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text("memory:\n  provider: entropicmem\n", encoding="utf-8")
+    before = config.read_bytes()
+    provider = EntropicMemMemoryProvider(config={})
+
+    with pytest.raises(ValueError) as excinfo:
+        provider.save_config(
+            {"gate.min_score": 2.0, "prefetch.token_budget": "many"}, str(tmp_path)
+        )
+    message = str(excinfo.value)
+    assert "gate.min_score" in message and "prefetch.token_budget" in message
+    assert "expected" in message, "the message must say why, per key"
+    assert config.read_bytes() == before, "a refused save leaves the file untouched"
+    assert _temp_leftovers(tmp_path) == [], "a refusal must not create a temp file"
+
+
+@needs_yaml
+def test_save_config_rejects_unknown_keys_before_any_write(tmp_path):
+    """A typo must fail the save, not write a key nothing reads."""
+    provider = EntropicMemMemoryProvider(config={})
+    with pytest.raises(ValueError, match="gate.min_scoer"):
+        provider.save_config({"gate.min_scoer": 0.2}, str(tmp_path))
+    assert not (tmp_path / "config.yaml").exists(), "a refusal must not create the file"
+    assert _temp_leftovers(tmp_path) == []
+
+
+@needs_yaml
+def test_save_config_writes_typed_values_and_folds_legacy_spellings(tmp_path):
+    provider = EntropicMemMemoryProvider(config={})
+    provider.save_config(
+        {"prefetch_token_budget": 3200, "core.writable_by_agent": "true"}, str(tmp_path)
+    )
+
+    import yaml
+
+    config = tmp_path / "config.yaml"
+    data = yaml.safe_load(config.read_text(encoding="utf-8"))
+    section = data["memory"]["entropicmem"]
+    # the legacy character count folds through §4.2's ÷4, exactly as at load
+    assert section["prefetch"]["token_budget"] == 800
+    assert section["core"]["writable_by_agent"] is True, "strings coerce to typed values"
+
+    # …and the dotted spelling beats its legacy twin inside one save, as at load
+    provider.save_config(
+        {"prefetch_token_budget": 4800, "prefetch.token_budget": 700}, str(tmp_path)
+    )
+    data = yaml.safe_load(config.read_text(encoding="utf-8"))
+    assert data["memory"]["entropicmem"]["prefetch"]["token_budget"] == 700
+
+
+@needs_yaml
+def test_a_locked_destination_fails_closed_and_leaves_no_temp(tmp_path, monkeypatch):
+    """The Windows shape: ``replace`` against a held-open destination raises
+    ``PermissionError``; the original survives, the temp goes, the host sees it."""
+    config = tmp_path / "config.yaml"
+    config.write_text("memory:\n  provider: entropicmem\n", encoding="utf-8")
+    before = config.read_bytes()
+    provider = EntropicMemMemoryProvider(config={})
+
+    real_replace = Path.replace
+
+    def locked_replace(self, target):
+        if Path(target).name == "config.yaml":
+            raise PermissionError("the process cannot access the file")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", locked_replace)
+    with pytest.raises(PermissionError):
+        provider.save_config({"scope.mode": "profile"}, str(tmp_path))
+
+    assert config.read_bytes() == before
+    assert _temp_leftovers(tmp_path) == []
+
+
+@needs_yaml
+def test_concurrent_saves_use_private_temps_and_whole_file_last_writer_wins(tmp_path, monkeypatch):
+    """Two savers race: each must dump to its own temp file, and the file a
+    reader sees must be exactly one whole save — never a mix of the two."""
+    import threading
+
+    import yaml as yaml_mod
+
+    config = tmp_path / "config.yaml"
+    config.write_text("memory:\n  provider: entropicmem\n", encoding="utf-8")
+
+    barrier = threading.Barrier(2, timeout=10)
+    real_dump = yaml_mod.safe_dump
+
+    def dump_after_barrier(data, stream, **kw):
+        # Both writers have read the original by now; releasing them together
+        # overlaps the dumps, which is where a shared temp path would tear.
+        barrier.wait()
+        return real_dump(data, stream, **kw)
+
+    monkeypatch.setattr(yaml_mod, "safe_dump", dump_after_barrier)
+
+    seen_temps: list[str] = []
+    real_replace = Path.replace
+
+    def recording_replace(self, target):
+        seen_temps.append(Path(self).name)
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", recording_replace)
+
+    provider = EntropicMemMemoryProvider(config={})
+    failures: list[BaseException] = []
+
+    def save(values):
+        try:
+            provider.save_config(values, str(tmp_path))
+        except BaseException as exc:  # pragma: no cover — a torn write's symptom
+            failures.append(exc)
+
+    threads = [
+        threading.Thread(target=save, args=({"scope.mode": "profile"},)),
+        threading.Thread(target=save, args=({"prefetch.token_budget": 900},)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+
+    assert failures == []
+    assert len(set(seen_temps)) == 2, f"writers shared a temp path: {seen_temps}"
+    data = yaml_mod.safe_load(config.read_text(encoding="utf-8"))
+    expected_scope = {
+        "memory": {
+            "provider": "entropicmem",
+            "entropicmem": {"scope": {"mode": "profile"}},
+        }
+    }
+    expected_budget = {
+        "memory": {
+            "provider": "entropicmem",
+            "entropicmem": {"prefetch": {"token_budget": 900}},
+        }
+    }
+    assert data in (expected_scope, expected_budget), f"torn or mixed write: {data}"
 
 
 # --- the tuned scalars reach the call sites ---------------------------------

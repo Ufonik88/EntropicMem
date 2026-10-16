@@ -26,6 +26,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import stat
+import tempfile
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -33,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from ..config import Config, config_schema_fields, load_config
+from ..config import Config, config_schema_fields, load_config, validate_values
 from ..policy.scopes import ScopeContext
 from .hooks import HOOK_BUDGETS, fail_soft
 from .identity import ConfigSignatureCache, default_signature
@@ -352,10 +354,25 @@ class EntropicMemProvider(ToolHandlers):
 
         EM-407: wizard keys are dotted typed paths (``scope.mode``), nested into
         the preferred ``memory.entropicmem`` block so a save round-trips through
-        ``initialize``'s §3.8 loader; ``memory.provider``, sibling plugins and
-        every other section survive untouched. The write is atomic (temp file +
-        ``replace``) and a failure **raises** — the host must see a failed
-        setup, which is why the old swallow-at-debug is gone.
+        ``initialize``'s §3.8 loader; legacy flat spellings are accepted the way
+        the load path accepts them (units folded the same way). ``memory.provider``,
+        sibling plugins and every other section survive untouched.
+
+        Validation happens **before anything touches disk**: every key must be
+        one the typed surface reads and every value must meet its rule, and a
+        refusal raises ``ValueError`` naming every problem with the file left
+        exactly as it was. Unknown keys are refused too — the loader would ignore
+        them, and filing a user's setup under a key nothing reads is worse than a
+        visible setup error.
+
+        The write is atomic and per-call: a private temp file in the same
+        directory, ``Path.replace`` (``os.replace`` underneath — atomic on POSIX
+        and Windows), and the temp file removed if anything fails. On Windows a
+        destination another process holds open raises ``PermissionError``; the
+        original survives and the host sees a failed setup. Two saves racing are
+        safe — each writes its own temp file, so no reader ever sees a torn file
+        — and the later whole-file replace wins (last-write-wins, not a
+        field-level merge of the racing saves).
 
         A blank ``hermes_home`` is **refused**, not resolved: ``Path("")`` is
         ``Path(".")``, so an unguarded call would merge into whatever
@@ -370,7 +387,13 @@ class EntropicMemProvider(ToolHandlers):
                 "entropicmem: save_config needs a hermes_home; refusing to write "
                 "into the working directory"
             )
-        config_path = Path(hermes_home) / "config.yaml"
+        coerced, errors = validate_values(values or {})
+        if errors:
+            detail = "; ".join(f"{e.key}: {e.message}" for e in errors)
+            raise ValueError(f"entropicmem: save_config rejected value(s): {detail}")
+
+        home = Path(hermes_home)
+        config_path = home / "config.yaml"
         import yaml
 
         existing: dict = {}
@@ -386,14 +409,24 @@ class EntropicMemProvider(ToolHandlers):
         section = memory.get("entropicmem")
         if not isinstance(section, dict):
             section = {}
-        for key, value in (values or {}).items():
+        for key, value in coerced.items():
             _nest_into(section, str(key), value)
         memory["entropicmem"] = section
-        # atomic write
-        tmp = config_path.with_suffix(".yaml.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            yaml.safe_dump(existing, f, default_flow_style=False, sort_keys=False)
-        tmp.replace(config_path)
+
+        # One private temp per call: concurrent savers cannot share a path (and
+        # so cannot tear each other's dump), and a failed write leaves nothing.
+        fd, tmp_name = tempfile.mkstemp(dir=str(home), prefix=".config.yaml.", suffix=".tmp")
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.safe_dump(existing, f, default_flow_style=False, sort_keys=False)
+            if config_path.exists():
+                # mkstemp creates 0600; keep whatever mode the file already had.
+                os.chmod(tmp, stat.S_IMODE(config_path.stat().st_mode))
+            tmp.replace(config_path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def _load_typed_config(self) -> None:
         """EM-407: load Appendix A's typed config from §3.8's read order.

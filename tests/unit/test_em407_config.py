@@ -312,6 +312,27 @@ def test_an_invalid_later_value_does_not_clobber_a_valid_earlier_one():
     assert [e.key for e in loaded.errors] == ["prefetch.token_budget"]
 
 
+def test_validate_values_coerces_known_keys_and_names_every_problem():
+    """The save path's gate: the loader's surface, and all problems at once."""
+    coerced, errors = em_config.validate_values(
+        {
+            "prefetch.token_budget": "777",
+            "prefetch_token_budget": 4800,  # legacy spelling + fold; the dotted one wins
+            "gate.min_scoer": 0.2,  # a typo is refused, not written
+            "gate.min_score": 2.0,  # out of range
+        }
+    )
+    assert coerced == {"prefetch.token_budget": 777}
+    assert [e.key for e in errors] == ["gate.min_scoer", "gate.min_score"]
+    assert all(e.message for e in errors)
+
+
+def test_validate_values_folds_the_legacy_character_budget():
+    coerced, errors = em_config.validate_values({"prefetch_token_budget": 3200})
+    assert errors == []
+    assert coerced == {"prefetch.token_budget": 800}
+
+
 def test_dashboard_strings_coerce_to_typed_values():
     loaded = load_config(
         [
