@@ -13,7 +13,7 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-16, against branch `main` at `637a269` — the
+**Last reconciled:** 2026-10-16, against branch `main` at `6578cf6` — the caveat-audit follow-up atop the
 **branch-first landing of EM-412's query-embedding wiring** (`em-412-query-embedding`:
 the query embedding is wired into the v3 read paths behind `embeddings.enabled` —
 one fail-soft **`QueryEmbedder`** seam (`em/embeddings/query.py`) built lazily by
@@ -27,10 +27,10 @@ for another model, `Retrieval.diagnostics` carries them, and the search payload 
 `diagnostics` only when non-empty; cosine stays off; flag-off and v2 paths
 byte-identical; 15 new tests; **7 mutation checks all red**). The tree
 was verified on this box (**bare
-2623 / 16 / 3**; with the digest list **2624 / 15 / 3**; CI-equivalent 3.12
-**2701 / 2 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
+2627 / 16 / 3**; with the digest list **2628 / 15 / 3**; CI-equivalent 3.12
+**2704 / 2 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
 SHA after **all 11 CI jobs were green on it** — CI's 3.12 count is
-**2699 / 4 / 3**. Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
+**2703 / 4 / 3**. Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
 `initialize` starts the background **`JobWorker`** on v3 stores — primary
 sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
 (default true), bounded there by a `jobs.cron_budget_s` (default 120) timer
@@ -962,14 +962,14 @@ line there.**
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
 3. **Pre-flight:** the counts, each the command's own output — CI's `test` job
-   (3.12): `pytest -q tests/` → **2699 passed / 4 skipped / 3 xfailed** (read
-   2026-10-16 from the job log at `637a269`, with the extra set
+   (3.12): `pytest -q tests/` → **2703 passed / 4 skipped / 3 xfailed** (read
+   2026-10-16 from the job log at `6578cf6`, with the extra set
    fastapi/httpx/cryptography/pyyaml, numpy, and the private digest list as the
    repository secret); this box bare: `.venv311/bin/python -m pytest -q` →
-   **2623 / 16 / 3**; with the digest list in place:
+   **2627 / 16 / 3**; with the digest list in place:
    `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… .venv311/bin/python -m pytest -q`
-   → **2624 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
-   → **2701 / 2 / 3** — the environment, not the tree. The 77-passed gap is
+   → **2628 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
+   → **2704 / 2 / 3** — the environment, not the tree. The 77-passed gap is
    per-module accounted in NEXT_CHUNK's pre-flight (67 fastapi + 7 cryptography
    + 2 numpy + 1 privacy). `git merge-base --is-ancestor 4eb8097 HEAD` proves
    the base.
@@ -1163,17 +1163,17 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2699 passed / 4 skipped / 3 xfailed** (CI, 3.12 at `637a269`) |
+| Tests | `python -m pytest -q` | **2703 passed / 4 skipped / 3 xfailed** (CI, 3.12 at `6578cf6`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2699 / 4 / 3 figure is CI's** (extras + numpy +
+`ENTROPICMEM_INDEX_DB` unset. **The 2703 / 4 / 3 figure is CI's** (extras + numpy +
 the private digest list as the repository secret) and is the reference a pre-flight
 run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
-cryptography/numpy) reads **2623 passed / 16 skipped / 3 xfailed** — the missing
+cryptography/numpy) reads **2627 passed / 16 skipped / 3 xfailed** — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the 50k AC's reds — on `3dcb35f` and the 2026-10-15 3.13 leg —
 are now fixed by statistic: the guard reads the best of five windows, `dc3c77a`).
