@@ -21,6 +21,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import time
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -279,7 +280,9 @@ def test_50k_vectors_search_p95_under_25ms_with_numpy(tmp_path):
     # stall on a shared runner fails a single window wholesale: 2026-10-15 CI read
     # 13 samples at 9–13 ms then 23.6–113 ms (p95 31.61 ms), a runner stall, not a
     # pipeline regression. A genuine regression inflates every window, so the best
-    # window keeps the AC's force while a transient stall says nothing.
+    # window keeps the AC's force while a transient stall says nothing — which is
+    # exactly why every window's p95 is emitted below, on green runs included, so
+    # drift that stays under the assertion is still visible over time.
     window_p95s = []
     slowest = 0.0
     for window in range(5):
@@ -299,6 +302,15 @@ def test_50k_vectors_search_p95_under_25ms_with_numpy(tmp_path):
         samples.sort()
         window_p95s.append(samples[int(0.95 * len(samples)) - 1])
     best = min(window_p95s)
+    # Drift telemetry, not a warning about the result: pytest prints the warnings
+    # summary on every run, green or red, so the five window p95s accumulate in
+    # CI logs and a slow creep shows up before any window trips the assertion.
+    warnings.warn(
+        "50k numpy search guard — window p95s (ms): "
+        + ", ".join(f"{p:.2f}" for p in window_p95s)
+        + f"; best {best:.2f}",
+        stacklevel=1,
+    )
     assert best < 25.0, (
         f"50k search: no window held p95 < 25 ms — best {best:.2f} ms, "
         f"windows {[round(p, 2) for p in window_p95s]}, slowest probe {slowest:.2f} ms"
