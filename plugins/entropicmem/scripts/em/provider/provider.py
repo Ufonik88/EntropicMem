@@ -1617,22 +1617,35 @@ class EntropicMemProvider(ToolHandlers):
     def on_pre_compress(
         self, messages: List[Dict[str, Any]], require_checkpoint: bool = False, **kwargs
     ) -> str:
-        """A2: extract standing constraints before Hermes compresses context.
+        """A2 + EM-406: archive the evidence, hand a bounded handoff back.
 
-        Returns a bounded bullet list for the compression summary prompt
-        ("" when nothing salient) and durably checkpoints it as an episode
-        tagged ``source='pre_compress'`` so constraints stay recallable after
-        the transcript is gone.
+        Checkpoint API v2 (``pre_compress_checkpoint_api_version = 2``). The
+        host wraps this call: in best-effort mode an escaping exception is
+        swallowed there, under ``require_checkpoint=True`` it keeps the
+        uncompressed transcript. Nothing salient returns "".
 
-        Checkpoint API v2 fail-closed semantics
-        (``pre_compress_checkpoint_api_version = 2``): a non-empty return
-        GUARANTEES the constraints episode (idempotent
-        ``ep_precomp_{session_id}``) is already persisted; when extraction or
-        the checkpoint persist fails, the failure propagates instead of
-        silently shipping uncheckpointed text — with ``require_checkpoint=True``
-        the host then keeps the uncompressed transcript (strict-mode failure
-        propagation). Nothing salient needs no checkpoint and returns "";
-        non-primary ``agent_context`` skips the write entirely (raising under
+        **v3 stores — the §4.6 checkpoint (EM-406).** Evidence is archived
+        first: every user/assistant message into ``transcript_chunks``
+        (``source='precompress'``, content-addressed, so a retried compression
+        inserts nothing; non-user/assistant rows are never evidence, list
+        content is flattened by the shared EM-101 normaliser, and a
+        tool-calls-only assistant row carries no prose and so no chunk). Then
+        one ``precompress`` episode carries the deterministic handoff —
+        constraints / decisions / open loops / currently pinned constraints in
+        scope, ≤1,500 chars, no LLM (``session_digest.build_handoff``) — keyed
+        by the evidence fingerprint so a retried compression converges onto
+        its window instead of opening a second one, and both halves commit in
+        one transaction. A non-empty return GUARANTEES both committed;
+        nothing salient returns "" with the evidence still persisted. A
+        checkpoint failure propagates under ``require_checkpoint=True`` and
+        otherwise logs and returns "" — never a silent "".
+
+        **v2 stores — unchanged.** The v2 schema has no ``transcript_chunks``,
+        so the checkpoint stays the A2 constraints episode (idempotent
+        ``ep_precomp_{session_id}``), exactly as before EM-406; the cutover
+        upgrades it.
+
+        Non-primary ``agent_context`` skips the write entirely (raising under
         ``require_checkpoint`` so no uncheckpointed success is claimed).
         """
         if not self._writes_allowed():
@@ -1646,6 +1659,30 @@ class EntropicMemProvider(ToolHandlers):
                 raise RuntimeError("entropicmem: pre-compress checkpoint unavailable (not initialized)")
             return ""
         self._host.ensure_scripts_on_path(self._scripts_dir)
+        if self._memory_db_is_v3():
+            return self._pre_compress_checkpoint_v3(messages, require_checkpoint)
+        return self._pre_compress_constraints_v2(messages)
+
+    def _memory_db_is_v3(self) -> bool:
+        """Fresh read-only v3 peek — the same decision ``_open_engine`` makes.
+
+        Deliberately not ``_v3_store()``: that probe caches per instance, and
+        a probe before the store file exists would pin the session to the v2
+        path (see ``_restore_turn_index``). Read-only, never migrates.
+        """
+        try:
+            from em.facade.select import V3, store_kind
+
+            return store_kind(self._memory_db) == V3
+        except Exception:
+            return False
+
+    def _pre_compress_constraints_v2(self, messages: List[Dict[str, Any]]) -> str:
+        """The v2-store checkpoint, unchanged since A2.
+
+        EM-406 keeps it for stores without ``transcript_chunks``: one
+        constraints episode, idempotent by the deterministic episode id.
+        """
         from session_digest import extract_constraints, precompress_episode_id
 
         constraints = extract_constraints(messages)
@@ -1663,6 +1700,51 @@ class EntropicMemProvider(ToolHandlers):
                 importance=0.7,
             )
         return constraints
+
+    def _pre_compress_checkpoint_v3(
+        self, messages: List[Dict[str, Any]], require_checkpoint: bool
+    ) -> str:
+        """The §4.6 checkpoint on a v3 store (EM-406).
+
+        Fail-closed per the checkpoint contract: any failure raises under
+        ``require_checkpoint=True`` and otherwise logs and returns "" — the
+        best-effort shape the card pins, with the failure never silent.
+        """
+        from session_digest import (
+            build_handoff,
+            handoff_fingerprint,
+            precompress_episode_id,
+        )
+
+        evidence = [
+            m
+            for m in (messages or [])
+            if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+        ]
+        sid = self._session_id or ""
+        try:
+            with self._open_engine(scope=self._state.scope.write_scope()) as engine:
+                handoff = build_handoff(
+                    evidence, pinned=engine.pinned_constraints(limit=10)
+                )
+                engine.archive_pre_compress(
+                    evidence,
+                    session_id=sid,
+                    title=f"Pre-compress handoff for session {sid or 'unknown'}"[:120],
+                    summary=handoff,
+                    importance=0.7,
+                    episode_id=(
+                        f"{precompress_episode_id(sid)}_{handoff_fingerprint(evidence)}"
+                        if handoff
+                        else ""
+                    ),
+                )
+        except Exception as exc:
+            logger.debug("entropicmem: pre-compress checkpoint failed: %s", exc)
+            if require_checkpoint:
+                raise
+            return ""
+        return handoff
 
     def _flush_session_digest(self, messages: List[Dict[str, Any]], *, reason: str) -> None:
         """Write an extractive session digest episode (+ C1 pending extraction).

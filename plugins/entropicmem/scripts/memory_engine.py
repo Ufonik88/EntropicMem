@@ -2393,6 +2393,34 @@ class MemoryEngine:
         self.audit("episode_add", fact_id=eid, detail=f"domain={domain};source={source}")
         return eid
 
+    def pinned_constraints(self, *, limit: int = 10) -> List[str]:
+        """v3-only (EM-406): the v2 schema has no pinned memory column.
+
+        The §4.6 checkpoint runs on v3 stores; the provider's v2 path keeps
+        the constraints-episode behaviour and never reaches this call. Bindable
+        so the engine contract stays one shape; raising keeps a mis-routed
+        call from silently dropping evidence.
+        """
+        raise RuntimeError("pinned_constraints requires a v3 store")
+
+    def archive_pre_compress(
+        self,
+        messages,
+        *,
+        session_id: str,
+        title: str,
+        summary: str = "",
+        importance: float = 0.7,
+        episode_id: str = "",
+    ):
+        """v3-only (EM-406): v2 has no ``transcript_chunks`` to archive into.
+
+        The provider's v2 path keeps the A2 constraints checkpoint and never
+        reaches this call; raising keeps a mis-routed call from silently
+        dropping the evidence a non-empty checkpoint return promises.
+        """
+        raise RuntimeError("archive_pre_compress requires a v3 store")
+
     def next_episode_wave(self, episode_base: str) -> int:
         """Next cadence wave number for a session (EM-112, L5).
 

@@ -12,9 +12,10 @@ Pure stdlib: no network, no LLM, no host state.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from textutil import message_text as _message_text  # shared EM-101 normaliser
 
@@ -30,6 +31,18 @@ _MARKERS = re.compile(
     r"\b(always|never|remember|do not|don't|must|avoid|prefer\w*)\b",
     re.IGNORECASE,
 )
+
+# EM-406 handoff markers (§4.6 step 3). The constraints set is the A2 set plus
+# the plan's three phrases; decisions and open loops get their own. A sentence
+# is classified by its first match in the order constraints → decisions → open
+# loops, so "agreed: we must ship X" lands as a constraint, deterministically.
+_CONSTRAINT_MARKERS = re.compile(
+    r"\b(always|never|remember|do not|don't|must|avoid|prefer\w*"
+    r"|from now on|going forward|make sure)\b",
+    re.IGNORECASE,
+)
+_DECISION_MARKERS = re.compile(r"\b(we decided|let's go with|agreed)\b", re.IGNORECASE)
+_LOOP_MARKERS = re.compile(r"\b(TODO|next step|remind me|follow up)\b", re.IGNORECASE)
 
 _WS = re.compile(r"\s+")
 
@@ -200,3 +213,90 @@ def extract_constraints(
             lines.append(line)
             total += len(line) + 1
     return "\n".join(lines)[:max_chars]
+
+
+def build_handoff(
+    messages: Optional[List[Dict[str, Any]]],
+    *,
+    pinned: Optional[Sequence[str]] = None,
+    max_chars: int = 1500,
+) -> str:
+    """§4.6's deterministic pre-compress handoff (EM-406). No LLM, no network.
+
+    Scans user + assistant turns for standing constraints (the A2 markers plus
+    "from now on" / "going forward" / "make sure"), decisions ("we decided",
+    "let's go with", "agreed") and open loops ("TODO", "next step", "remind
+    me", "follow up"). Each sentence lands in the first group it matches;
+    duplicates are dropped case-insensitively; ``pinned`` (the scope's active
+    pins, resolved by the caller) comes last. The whole text is bounded to
+    ``max_chars`` by dropping from the tail — pinned first, constraints never
+    — and "" means nothing was salient.
+    """
+    groups: List[Tuple[str, List[str]]] = [
+        ("Constraints:", []),
+        ("Decisions:", []),
+        ("Open loops:", []),
+    ]
+    pinned_items: List[str] = []
+    seen: set = set()
+
+    def _take(bucket: List[str], sentence: str) -> None:
+        key = sentence.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        bucket.append(sentence)
+
+    matchers = (
+        (_CONSTRAINT_MARKERS, groups[0][1]),
+        (_DECISION_MARKERS, groups[1][1]),
+        (_LOOP_MARKERS, groups[2][1]),
+    )
+    for _role, text in _turns(messages):
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
+            s = sentence.strip()
+            if len(s) < 8 or len(s) > 240:
+                continue
+            for pattern, bucket in matchers:
+                if pattern.search(s):
+                    _take(bucket, s)
+                    break
+    for item in pinned or ():
+        s = (item or "").strip()
+        if s:
+            _take(pinned_items, s)
+
+    blocks: List[List[str]] = [
+        [header, *[f"- {s}" for s in bucket]] for header, bucket in groups if bucket
+    ]
+    if pinned_items:
+        blocks.append(["Pinned:", *[f"- {s}" for s in pinned_items]])
+
+    lines: List[str] = []
+    total = 0
+    for block in blocks:
+        header, bullets = block[0], block[1:]
+        # A header only lands with at least one bullet under it; once the
+        # budget stops a block it stops the whole handoff (priority order:
+        # constraints, decisions, open loops, pinned).
+        if total + len(header) + 1 + len(bullets[0]) + 1 > max_chars:
+            break
+        lines.append(header)
+        total += len(header) + 1
+        for bullet in bullets:
+            if total + len(bullet) + 1 > max_chars:
+                return "\n".join(lines)
+            lines.append(bullet)
+            total += len(bullet) + 1
+    return "\n".join(lines)
+
+
+def handoff_fingerprint(messages: Optional[List[Dict[str, Any]]]) -> str:
+    """sha256[:12] of the normalised (role, text) evidence sequence (EM-406).
+
+    The episode key suffix for the pre-compress handoff: a retried compression
+    of the same evidence produces the same fingerprint and converges onto the
+    same ``precompress`` window, while new evidence opens the next one.
+    """
+    payload = "\x1f".join(f"{role}\x1e{text}" for role, text in _turns(messages))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]

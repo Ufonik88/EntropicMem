@@ -31,10 +31,21 @@ from typing import Any, Dict, List, Optional, Protocol, Sequence, runtime_checka
 #: shape reaches both engines, and the v2 engine accepts-and-ignores both
 #: because its schema has no episode-kind or turn column. A keyword only one
 #: implementation understood would not be callable through this contract.
+#:
+#: EM-406 adds two v3-only entries — ``pinned_constraints`` and
+#: ``archive_pre_compress``. Their v2 implementations raise deliberately (no
+#: pinned column, no ``transcript_chunks`` to archive evidence in), and the
+#: provider reaches them only on the v3 branch of ``on_pre_compress``; raising
+#: rather than accepting-and-ignoring keeps a mis-routed call from silently
+#: dropping the evidence a non-empty checkpoint return promises.
 PROVIDER_CALLS: Dict[str, tuple[frozenset[str], frozenset[int]]] = {
     "add_episode": (
         frozenset({"end_ts", "episode_id", "importance", "kind", "source", "source_session", "start_ts", "summary", "title"}),
         frozenset({0}),
+    ),
+    "archive_pre_compress": (
+        frozenset({"episode_id", "importance", "session_id", "summary", "title"}),
+        frozenset({1}),
     ),
     "close": (frozenset(), frozenset({0})),
     "consolidate": (
@@ -56,6 +67,7 @@ PROVIDER_CALLS: Dict[str, tuple[frozenset[str], frozenset[int]]] = {
     ),
     "list_pending": (frozenset({"limit"}), frozenset({0})),
     "next_episode_wave": (frozenset(), frozenset({1})),
+    "pinned_constraints": (frozenset({"limit"}), frozenset({0})),
     "prune_pending": (frozenset({"older_than_days"}), frozenset({0})),
     "promote_pending": (frozenset(), frozenset({1})),
     "recall_episodes": (
@@ -269,6 +281,19 @@ class LegacyEngine(Protocol):
     ) -> str: ...
 
     def next_episode_wave(self, episode_base: str) -> int: ...
+
+    def pinned_constraints(self, *, limit: int = 10) -> List[str]: ...
+
+    def archive_pre_compress(
+        self,
+        messages: Sequence[Any],
+        *,
+        session_id: str,
+        title: str,
+        summary: str = "",
+        importance: float = 0.7,
+        episode_id: str = "",
+    ) -> Dict[str, Any]: ...
 
     def consolidate(
         self,

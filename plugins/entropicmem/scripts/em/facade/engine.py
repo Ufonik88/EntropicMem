@@ -986,26 +986,118 @@ class V3Engine:
         }
         explicit_kind = (kind or "").strip()
         with self.store.transaction() as conn:
-            store = EpisodeStore(conn)
-            existing = conn.execute(
-                "SELECT id, session_id, kind, window_seq FROM episodes WHERE legacy_id=?",
-                (legacy,),
-            ).fetchone()
-            if existing is not None:
-                return store.upsert_episode(
-                    scope=self.scope, kind=existing["kind"],
-                    session_id=existing["session_id"],
-                    window_seq=existing["window_seq"], **fields,
+            return self._write_episode(
+                conn,
+                legacy=legacy,
+                fields=fields,
+                explicit_kind=explicit_kind,
+                source_session=source_session,
+            )
+
+    def _write_episode(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        legacy: str,
+        fields: Dict[str, Any],
+        explicit_kind: str,
+        source_session: str,
+    ) -> str:
+        """One episode row inside a caller-owned transaction.
+
+        Shared by :meth:`add_episode` and :meth:`archive_pre_compress` so the
+        legacy-id convergence rule has exactly one implementation: an existing
+        ``legacy_id`` row is replaced in place (v2's ``INSERT OR REPLACE``
+        behaviour the provider's idempotent re-fires depend on); otherwise an
+        explicit kind wins, then ``source_session`` means ``session``, then
+        ``manual``.
+        """
+        store = EpisodeStore(conn)
+        existing = conn.execute(
+            "SELECT id, session_id, kind, window_seq FROM episodes WHERE legacy_id=?",
+            (legacy,),
+        ).fetchone()
+        if existing is not None:
+            return store.upsert_episode(
+                scope=self.scope, kind=existing["kind"],
+                session_id=existing["session_id"],
+                window_seq=existing["window_seq"], **fields,
+            )
+        if explicit_kind:
+            return store.add_episode(
+                scope=self.scope, kind=explicit_kind,
+                session_id=source_session, **fields,
+            )
+        if source_session:
+            return store.add_episode(scope=self.scope, kind="session",
+                                     session_id=source_session, **fields)
+        return store.add_episode(scope=self.scope, kind="manual", **fields)
+
+    def pinned_constraints(self, *, limit: int = 10) -> List[str]:
+        """The §4.6 handoff's "currently pinned constraints in scope" (EM-406).
+
+        The same row set the ``pinned`` retrieval generator serves — active
+        rows with ``pinned=1`` or ``kind='constraint'`` — read through the one
+        §3.5 scope rule, so another user's pins can never leak into a handoff;
+        newest first, bounded. Contents only: the handoff is text.
+        """
+        from ..retrieval.candidates import scope_sql
+
+        clause, params = scope_sql(self.scope, table="m")
+        sql = (
+            "SELECT m.content AS content FROM memories m "
+            "WHERE m.status = 'active' AND (m.pinned = 1 OR m.kind = 'constraint') "
+            "AND " + clause + " ORDER BY m.pinned DESC, m.updated_at DESC LIMIT ?"
+        )
+        rows = self._reader().execute(sql, (*params, int(limit))).fetchall()
+        return [row["content"] for row in rows if row["content"]]
+
+    def archive_pre_compress(
+        self,
+        messages: Sequence[Any],
+        *,
+        session_id: str,
+        title: str,
+        summary: str = "",
+        importance: float = 0.7,
+        episode_id: str = "",
+    ) -> Dict[str, Any]:
+        """§4.6's checkpoint write (EM-406): evidence + handoff, one transaction.
+
+        Every message lands in ``transcript_chunks`` under
+        ``source='precompress'`` — content-addressed, so a retried compression
+        inserts nothing — and, when ``summary`` is non-empty, one
+        ``precompress`` episode carries the handoff; keying it by
+        ``episode_id`` (the caller's evidence fingerprint) makes a retry
+        converge onto its window instead of opening a second one. One
+        transaction holds both halves, so a non-empty provider return implies
+        both committed. An empty ``summary`` still persists the evidence and
+        returns an empty episode id. Returns
+        ``{"new_chunks": int, "episode_id": str}``.
+        """
+        new_chunks = 0
+        episode = ""
+        legacy = episode_id or ("ep_" + uuid.uuid4().hex[:12])
+        with self.store.transaction() as conn:
+            new_chunks = EpisodeStore(conn).upsert_chunks(
+                session_id or "", list(messages or []), source="precompress"
+            )
+            if summary:
+                episode = self._write_episode(
+                    conn,
+                    legacy=legacy,
+                    fields={
+                        "title": title,
+                        "summary": summary,
+                        "importance": importance,
+                        "start_at": None,
+                        "end_at": None,
+                        "legacy_id": legacy,
+                    },
+                    explicit_kind="precompress",
+                    source_session=session_id,
                 )
-            if explicit_kind:
-                return store.add_episode(
-                    scope=self.scope, kind=explicit_kind,
-                    session_id=source_session, **fields,
-                )
-            if source_session:
-                return store.add_episode(scope=self.scope, kind="session",
-                                         session_id=source_session, **fields)
-            return store.add_episode(scope=self.scope, kind="manual", **fields)
+        return {"new_chunks": new_chunks, "episode_id": episode}
 
     def consolidate(
         self,
