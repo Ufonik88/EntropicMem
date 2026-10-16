@@ -232,6 +232,9 @@ class EntropicMemProvider(ToolHandlers):
         self._prefetch_service = None
         self._prefetch_store = None
         self._prefetch_service_kind: Optional[bool] = None
+        # EM-412: the provider's one query-embedding seam (built lazily when
+        # ``embeddings.enabled`` is on and the store is v3; ``None`` otherwise).
+        self._query_embedding = None
         # EM-410: the background job worker (started by initialize on v3
         # stores — primary, or cron when ``jobs.run_in_cron``) and the event
         # it holds off on while a prefetch is in flight.
@@ -582,6 +585,10 @@ class EntropicMemProvider(ToolHandlers):
         self._memory_db.parent.mkdir(parents=True, exist_ok=True)
         # EM-405: a restarted provider continues the session's turn sequence.
         self._restore_turn_index(session_id)
+        # EM-412: the query-embedding wiring — one shared fail-soft seam for
+        # the read paths (built lazily by ``_query_embedder``), and the
+        # model-switch backfill when ``embeddings.enabled`` is on.
+        self._queue_embedding_backfill()
         # EM-410: §4.1's worker threads — a ``JobWorker`` in primary sessions,
         # and in cron when ``jobs.run_in_cron`` (bounded by
         # ``jobs.cron_budget_s``); none in subagent/flush.
@@ -1911,6 +1918,10 @@ class EntropicMemProvider(ToolHandlers):
 
     @fail_soft
     def shutdown(self) -> None:
+        # EM-412: one line with the session's query-embedding usage (skipped
+        # when zero), so a potentially paid backend's count is visible.
+        if self._query_embedding is not None:
+            self._query_embedding.log_summary()
         # EM-410: stop the job worker before any store it holds closes. The
         # wait is bounded: a wedged handler must not stall session teardown.
         self._jobs_stop.set()
@@ -2287,6 +2298,7 @@ class EntropicMemProvider(ToolHandlers):
         # ``prefetch_token_budget`` folded its character count into tokens, and
         # ``prefetch_max_latency_ms`` maps straight across); the gate/ranking
         # seams ride along so the service's ``retrieve`` calls carry them too.
+        query_embedder = self._query_embedder()
         service = PrefetchService(
             connect=store.reader,
             spawn_thread=self._spawn,
@@ -2295,9 +2307,74 @@ class EntropicMemProvider(ToolHandlers):
             gate_config=self._gate_config,
             rank_weights=self._rank_weights,
             is_trivial=None,
+            # EM-412: the async precompute half embeds the query on the
+            # service's worker thread (never the prefetch thread); ``None``
+            # with the flag off keeps this path byte-identical.
+            embed_query=query_embedder,
+            embedding_model=(query_embedder.model if query_embedder is not None else None),
         )
         self._prefetch_service = service
         return service
+
+    def _query_embedder(self):
+        """EM-412's shared, fail-soft query-embedding seam, or ``None``.
+
+        Built lazily — one ``QueryEmbedder`` per provider (per session, so
+        the paid-usage count is one number) — and only when
+        ``embeddings.enabled`` is on and the store is v3. Construction needs
+        no backend: a box without one still gets the seam, whose
+        ``embed_query`` returns ``None`` and every site then serves lexical.
+        """
+        if self._query_embedding is not None:
+            return self._query_embedding
+        try:
+            if not (self._scripts_dir and self._memory_db):
+                return None
+            embeddings = getattr(self._typed_config, "embeddings", None)
+            if embeddings is None or not bool(embeddings.enabled):
+                return None
+            if not self._v3_store():
+                return None
+            from em.embeddings.query import QueryEmbedder
+            from em.embeddings.service import EmbeddingService
+
+            service = EmbeddingService(
+                str(self._memory_db),
+                preference=(embeddings.backend or "auto"),
+                model=(embeddings.model or None),
+            )
+            self._query_embedding = QueryEmbedder(
+                service, session_id=self._session_id or ""
+            )
+            return self._query_embedding
+        except Exception as exc:  # noqa: BLE001 - a missing extra never breaks a session
+            logger.debug("EntropicMem: query embedding setup failed: %s", exc)
+            return None
+
+    def _queue_embedding_backfill(self) -> None:
+        """EM-412: queue ``embed_backfill`` when the configured model differs.
+
+        ``ensure_embedding_model`` makes it one queued job per model and is a
+        no-op once the meta row records it; without a backend the job itself
+        returns without recording, so a later run — after the optional
+        package is installed — still sees the switch. Flag-gated with the
+        rest of the query-embedding wiring.
+        """
+        embedder = self._query_embedder()
+        if embedder is None:
+            return
+        try:
+            from em.embeddings.jobs import ensure_embedding_model
+            from em.store.db import Store
+
+            store = Store(str(self._memory_db))
+            try:
+                with store.writer() as conn:
+                    ensure_embedding_model(conn, embedder.model)
+            finally:
+                store.close()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("EntropicMem: embed_backfill queue skipped: %s", exc)
 
     def _start_job_workers(self) -> None:
         """EM-410: start this provider's background job worker, once.
@@ -2390,6 +2467,9 @@ class EntropicMemProvider(ToolHandlers):
         self._host.ensure_scripts_on_path(self._scripts_dir)
         from em.facade.select import open_engine
 
+        # EM-412: the flag-on recall embeds its query; ``None`` with the flag
+        # off (or on a v2 store) leaves the call exactly as before.
+        embedder = self._query_embedder()
         return open_engine(
             self._memory_db,
             # Not `or "default"`: `MemoryEngine.profile_id()` resolves
@@ -2405,6 +2485,8 @@ class EntropicMemProvider(ToolHandlers):
             # every flagged recall's ``retrieve`` call.
             gate_config=self._gate_config,
             rank_weights=self._rank_weights,
+            embed_query=embedder,
+            embedding_model=(embedder.model if embedder is not None else ""),
         )
 
     def _memory_engine(self):

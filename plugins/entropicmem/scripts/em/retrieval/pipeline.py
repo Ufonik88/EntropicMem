@@ -77,6 +77,10 @@ class Retrieval:
     #: The generators the deadline skipped, in run order (an abandoned call is
     #: named too — its results were discarded).
     generators_skipped: Tuple[str, ...] = ()
+    #: EM-412: the vector readers' observations for this pass (per owner type:
+    #: coverage, stale exclusions, rows skipped for another model) — the
+    #: search diagnostics. Empty unless a query vector ran.
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def ids(self) -> List[str]:
@@ -174,6 +178,7 @@ def retrieve(
         raise ValueError(f"unknown generators: {unknown!r}")
 
     results: Dict[str, List[Any]] = {}
+    diagnostics: Dict[str, Any] = {}
     skipped: List[str] = []
     partial = False
     for index, name in enumerate(order):
@@ -185,6 +190,9 @@ def retrieve(
             deadline=deadline,
             query_vector=vector,
             embedding_model=embedding_model if vector else None,
+            # EM-412: one dict shared by every generator, so the vector
+            # readers' observations land in this call's diagnostics.
+            diagnostics=diagnostics,
         )
         if context.out_of_time():
             skipped = list(order[index:])
@@ -219,6 +227,7 @@ def retrieve(
             rows=rows,
             partial=partial,
             generators_skipped=tuple(skipped),
+            diagnostics=dict(diagnostics),
         )
 
     texts = {key: info.text for key, info in rows.items()}
@@ -267,6 +276,7 @@ def retrieve(
             rows=rows,
             partial=partial,
             generators_skipped=tuple(skipped),
+            diagnostics=dict(diagnostics),
         )
 
     survivors = gated.survivors
@@ -309,4 +319,5 @@ def retrieve(
         predecessors=noted,
         partial=partial,
         generators_skipped=tuple(skipped),
+        diagnostics=dict(diagnostics),
     )

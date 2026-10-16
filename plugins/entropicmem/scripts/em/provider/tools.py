@@ -625,6 +625,9 @@ class ToolHandlers:
             query = ""
         missing: List[str] = []
         results: List[Dict[str, Any]] = []
+        # EM-412: the search diagnostics the v3 sources fill in (the vector
+        # readers' observations); only added to the payload when non-empty.
+        diagnostics: Dict[str, Any] = {}
         try:
             self._host.ensure_scripts_on_path(self._scripts_dir)
             if ids:
@@ -636,7 +639,14 @@ class ToolHandlers:
                     try:
                         results.extend(
                             self._search_source(
-                                source, query, kinds, time_from, time_to, include_history, limit
+                                source,
+                                query,
+                                kinds,
+                                time_from,
+                                time_to,
+                                include_history,
+                                limit,
+                                diagnostics=diagnostics,
                             )
                         )
                     except Exception as exc:
@@ -651,6 +661,8 @@ class ToolHandlers:
             payload["missing"] = missing
         if warnings:
             payload["warnings"] = warnings
+        if diagnostics:
+            payload["diagnostics"] = diagnostics
         return json.dumps(payload)
 
     def _search_source(
@@ -662,10 +674,12 @@ class ToolHandlers:
         time_to: str,
         include_history: bool,
         limit: int,
+        diagnostics: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         if source == "memories":
             return self._search_memories_by_query(
-                query, kinds, time_from, time_to, include_history, limit
+                query, kinds, time_from, time_to, include_history, limit,
+                diagnostics=diagnostics,
             )
         if source == "episodes":
             return self._search_episodes(query, time_from, time_to, limit)
@@ -721,7 +735,14 @@ class ToolHandlers:
         return rows, missing
 
     def _search_memories_by_query(
-        self, query: str, kinds: List[str], time_from: str, time_to: str, include_history: bool, limit: int
+        self,
+        query: str,
+        kinds: List[str],
+        time_from: str,
+        time_to: str,
+        include_history: bool,
+        limit: int,
+        diagnostics: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         if self._v3_store():
             from ..retrieval.candidates import OWNER_TYPE_MEMORY
@@ -734,6 +755,15 @@ class ToolHandlers:
             try:
                 conn = store.reader()
                 scope = self._state.scope.to_scope()
+                # EM-412: the flag-gated query embedding, fail-soft inside the
+                # seam; ``None`` (off, unavailable, or failed) passes exactly
+                # the pre-wiring call shape and serves the lexical ranking.
+                embedder = self._query_embedder()
+                vector = None
+                model = None
+                if embedder is not None:
+                    vector = embedder(query)
+                    model = embedder.model
                 # The same single sequence the facade's flag-on recall, the eval
                 # adapter and the shadow read run — ``with_gate=True`` is §3.6
                 # in full.
@@ -746,7 +776,11 @@ class ToolHandlers:
                     # defaults unless the user overrode them).
                     gate_config=self._gate_config,
                     rank_weights=self._rank_weights,
+                    query_vector=vector,
+                    embedding_model=model,
                 )
+                if diagnostics is not None and getattr(outcome, "diagnostics", None):
+                    diagnostics.update(outcome.diagnostics)
                 memories = MemoryStore(conn)
                 rows: List[Dict[str, Any]] = []
                 seen: set = set()

@@ -30,6 +30,7 @@ __all__ = [
     "VECTOR_MIN_COVERAGE",
     "count_active_memories",
     "count_episodes",
+    "count_other_model_vectors",
     "count_stale_vectors",
     "cosine",
     "load_memory_vectors",
@@ -250,6 +251,40 @@ def count_stale_vectors(
             " WHERE emb.owner_type = 'memory' AND emb.model = ?"
             "   AND m.status = 'active'"
             "   AND emb.content_hash <> '' AND emb.content_hash <> m.content_hash"
+            "   AND " + scope_clause
+        )
+    row = conn.execute(sql, (model, *scope_params)).fetchone()
+    return int(row["n"]) if row is not None else 0
+
+
+def count_other_model_vectors(
+    conn: sqlite3.Connection,
+    *,
+    owner_type: str = "memory",
+    model: str,
+    scope_clause: str,
+    scope_params: Sequence[object],
+) -> int:
+    """Rows in scope carrying a vector for some model **other than** ``model``.
+
+    Those rows are skipped by the vector load, which reads exactly ``model``
+    — the model-switch case while a backfill has not caught up. EM-412's
+    observable: the search diagnostics count them per query, so a quiet
+    recall drop from a switch is visible where the user is looking.
+    """
+    if not model:
+        return 0
+    if owner_type == "episode":
+        sql = (
+            "SELECT COUNT(*) AS n FROM embeddings emb JOIN episodes e ON e.id = emb.owner_id"
+            " WHERE emb.owner_type = 'episode' AND emb.model <> ?"
+            "   AND " + scope_clause
+        )
+    else:
+        sql = (
+            "SELECT COUNT(*) AS n FROM embeddings emb JOIN memories m ON m.id = emb.owner_id"
+            " WHERE emb.owner_type = 'memory' AND emb.model <> ?"
+            "   AND m.status = 'active'"
             "   AND " + scope_clause
         )
     row = conn.execute(sql, (model, *scope_params)).fetchone()

@@ -298,6 +298,11 @@ class V3Engine:
         # ``retrieve`` call when set; None keeps the pipeline's own defaults.
         gate_config: Any = None,
         rank_weights: Any = None,
+        # EM-412: the flag-gated, fail-soft query-embedding seam — the
+        # provider's ``QueryEmbedder``. ``None`` (the default, and always on a
+        # v2 store) leaves every read exactly as it was.
+        embed_query: Any = None,
+        embedding_model: str = "",
     ) -> None:
         self.db_path = Path(db_path)
         self.store = Store(self.db_path)
@@ -307,6 +312,8 @@ class V3Engine:
         self.pii_locales = tuple(pii_locales or ())
         self._gate_config = gate_config
         self._rank_weights = rank_weights
+        self._embed_query = embed_query
+        self._embedding_model = str(embedding_model or "")
         # Profile-wide by default (v2 had one owner per DB): the facade maps a
         # v2 profile onto Scope(profile=..., user="") — §3.5's profile-wide
         # read, which is also the owner context, so the default facade reads and
@@ -655,12 +662,22 @@ class V3Engine:
         from ..retrieval.fusion import legacy_tokens
         from ..retrieval.pipeline import retrieve
 
+        # EM-412: the flag-on recall embeds the query (hard fail-soft inside
+        # the seam), and the vector reaches ``retrieve`` only when one came
+        # back — an unavailable or failing embedder serves the lexical
+        # ranking byte-for-byte, as does the flag off (``embed_query=None``).
+        kwargs = self._retrieval_kwargs()
+        if self._embed_query is not None:
+            vector = self._embed_query(query)
+            if vector is not None and self._embedding_model:
+                kwargs["query_vector"] = vector
+                kwargs["embedding_model"] = self._embedding_model
         outcome = retrieve(
             self._reader(),
             scope=self.scope,
             query=query,
             with_gate=True,
-            **self._retrieval_kwargs(),
+            **kwargs,
         )
         store = MemoryStore(self._reader())
         facts: List[Any] = []

@@ -43,7 +43,7 @@ import sqlite3
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ..clock import to_iso
 from ..embeddings.cache import cached_vectors, search_vectors
@@ -51,6 +51,7 @@ from ..store.embeddings import (
     VECTOR_MIN_COVERAGE,
     count_active_memories,
     count_episodes,
+    count_other_model_vectors,
     count_stale_vectors,
 )
 from ..store.types import OWNER_ONLY_TIERS, Scope, may_read_owner_only
@@ -255,6 +256,11 @@ class RetrievalContext:
     #: nothing and does not embed. EM-303 forbids an embedding call here.
     query_vector: Optional[Tuple[float, ...]] = None
     embedding_model: Optional[str] = None
+    #: EM-412's search diagnostics: what this pass's vector readers observed
+    #: (coverage, stale exclusions, rows skipped for another model). The
+    #: pipeline builds one context per generator and passes the **same** dict
+    #: to all of them, so a caller reads everything from one place.
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
 
     def k(self, generator: str) -> int:
         """The row cap for ``generator`` — its limit, else §3.6's default."""
@@ -401,6 +407,23 @@ def vector(ctx: RetrievalContext) -> List[Candidate]:
     _log_vector_coverage(
         "memory", model, coverage=coverage, usable=entry.count, active=active, stale=stale
     )
+    other_model = count_other_model_vectors(
+        ctx.conn, owner_type="memory", model=model, scope_clause=clause, scope_params=params
+    )
+    if other_model:
+        log.debug(
+            "vector[memory] model=%s: %d vector(s) for another model skipped",
+            model,
+            other_model,
+        )
+    ctx.diagnostics.setdefault("vector", {})["memory"] = {
+        "model": model,
+        "coverage": coverage,
+        "usable": entry.count,
+        "active": active,
+        "stale_excluded": stale,
+        "other_model_skipped": other_model,
+    }
     if active <= 0 or coverage < VECTOR_MIN_COVERAGE:
         return []
     if ctx.out_of_time():
@@ -518,6 +541,23 @@ def _episode_vector_candidates(ctx: RetrievalContext) -> List[Candidate]:
     _log_vector_coverage(
         "episode", model, coverage=coverage, usable=entry.count, active=active, stale=stale
     )
+    other_model = count_other_model_vectors(
+        ctx.conn, owner_type="episode", model=model, scope_clause=clause, scope_params=params
+    )
+    if other_model:
+        log.debug(
+            "vector[episode] model=%s: %d vector(s) for another model skipped",
+            model,
+            other_model,
+        )
+    ctx.diagnostics.setdefault("vector", {})["episode"] = {
+        "model": model,
+        "coverage": coverage,
+        "usable": entry.count,
+        "active": active,
+        "stale_excluded": stale,
+        "other_model_skipped": other_model,
+    }
     if active <= 0 or coverage < VECTOR_MIN_COVERAGE:
         return []
     ranked = search_vectors(

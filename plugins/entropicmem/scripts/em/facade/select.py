@@ -103,6 +103,11 @@ def open_engine(
     # accepts (ignores) them, so callers can pass them unconditionally.
     gate_config: Any = None,
     rank_weights: Any = None,
+    # EM-412: the facade's flag-on recall embeds its query when a seam is
+    # passed (the provider's flag-gated ``QueryEmbedder``); the v2 engine has
+    # no such path and ignores the pair.
+    embed_query: Any = None,
+    embedding_model: str = "",
 ):
     """Open the engine the store's schema calls for.
 
@@ -134,6 +139,8 @@ def open_engine(
             pii_locales=tuple(pii_locales or ()),
             gate_config=gate_config,
             rank_weights=rank_weights,
+            embed_query=embed_query,
+            embedding_model=embedding_model,
         )
 
     from memory_engine import MemoryEngine
