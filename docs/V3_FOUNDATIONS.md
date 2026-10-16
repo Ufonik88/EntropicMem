@@ -27,7 +27,12 @@ em.provider     provider.py: the provider class (hooks; composes tools.py's
                 (tool-name bullets only for registered tools) with Core within
                 core.token_budget; EM-410: initialize starts the
                 prefetch-gated JobWorker over the shared em/jobs/registry.py
-                builder; render.py
+                builder; EM-412: the provider builds one fail-soft QueryEmbedder
+                (em/embeddings/query.py) when embeddings.enabled is on and the
+                store is v3, passes query_vector/embedding_model into retrieve
+                at the tool search path, PrefetchService and the facade's
+                flag-on recall, and queues the model-switch embed_backfill;
+                render.py
         |
         v
 em.facade  (EM-211)       contract.py: the exact API + behaviours the provider relies on
@@ -255,12 +260,13 @@ These are decisions the writes chunk made that are not obvious from the signatur
   under the same 50% coverage gate and the pipeline hands their cosines to the
   gate, so EM-307's renderer prints a vector-only episode under "Recent
   episodes" — episode vectors are no longer write-only. **What was still
-  absent (recorded 2026-10-15; both now carded or landed):** the **provider**
+  absent (recorded 2026-10-15; both now landed):** the **provider**
   did not embed a query — EM-401–403 all landed without wiring it, and
   EM-407 wired the config, not the embedder (`ensure_embedding_model` has no
   caller outside `em/embeddings/jobs.py`), so
   even the wired v3+flag path scores lexical/entity/episodic — **that wiring
-  is carded as `EM-412` (approved 2026-10-16)**; and capture on
+  landed as `EM-412` (`637a269`, 2026-10-16; the fail-soft seam,
+  initialize's `ensure_embedding_model`, the vector into `retrieve`)**; and capture on
   idle/compaction was **planned as EM-411** — **landed 2026-10-16
   (`fe5e53b`)**: the window ledger and the three seals, gated off until
   EM-502 (**no host idle hook exists** in the pinned contract, so idle is
@@ -322,9 +328,11 @@ These are decisions the writes chunk made that are not obvious from the signatur
   the caller supplies a query vector and a model (`retrieve(query_vector=,
   embedding_model=)`). MMR uses a cosine-then-Jaccard pairwise similarity in the
   same mode. The backends, the `embed` jobs and the numpy cache are merged;
-  the query embedding exists in the **eval adapter** only (when a suite allows
-  embeddings) — the provider never wires one, an open gap recorded 2026-10-15
-  (now carded as `EM-412`, approved 2026-10-16 — the next chunk).
+  the query embedding exists in the **eval adapter** (when a suite allows
+  embeddings) and, since **EM-412** (`637a269`, 2026-10-16), in the provider
+  behind `embeddings.enabled` — a fail-soft `QueryEmbedder` seam wired at the
+  tool search path, `PrefetchService` and the facade's flag-on recall (the open
+  gap recorded 2026-10-15, closed; flag off ⇒ no embed call, byte-identical).
   `em/retrieval/__init__.py` records it.
 - **§3.6's IDF cache has no key, and its cache key is the reason (EM-301).** §3.6
   says the IDF table is "cached per `write_generation`". **Nothing in the store
