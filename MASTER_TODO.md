@@ -274,9 +274,7 @@ the embedding-maintenance prune the EM-303 observability pass promised to
 EM-410 ("the prune runs as a job under EM-410's maintenance pass":
 non-current-model vector rows pruned after a completed backfill for the
 current model plus a 7-day grace, then vacuum) — the master-plan card's
-Spec/AC carry no prune, so it did not ride this landing and stays outstanding
-(it did not ride EM-412 either — that card carries no prune; proposed: a
-dedicated follow-up or the owner's re-slot). The record is in §5, START HERE and `NEXT_CHUNK.md` Part A.
+Spec/AC carry no prune, so it did not ride this landing — **drafted** as `docs/plan/PRUNE_CARD_DRAFT.md` for the owner's slotting decision (fold into the cutover or its own card). The record is in §5, START HERE and `NEXT_CHUNK.md` Part A.
 
 **EM-409 landed (2026-10-16, `a472748`), completing the system-prompt card.**
 `system_prompt_block()` no longer opens with the ad-hoc `# EntropicMem (active)`
@@ -652,8 +650,9 @@ box (bare **2623 / 16 / 3**; digest-list **2624 / 15 / 3**; CI-equivalent 3.12
 **2701 / 2 / 3**; `ruff==0.16.2` clean). Its record is in §5, START HERE, and
 the note above. **No chunk is queued** — the S4 sequence the owner set is
 complete (EM-406 → EM-411 → EM-408 → EM-409 → EM-410 → EM-412) and the
-recorded-owed candidates are the EM-303 prune follow-up, `_shadow.py`'s
-printed-caveat one-liner and the adapter/eval gate (rides the cutover). P0c's
+recorded-owed candidates are the EM-303 prune follow-up (drafted in
+`docs/plan/PRUNE_CARD_DRAFT.md`), `_shadow.py`'s printed-caveat one-liner
+(fixed in `26265ef`) and the adapter/eval gate (rides the cutover). P0c's
 data still waits on the owner's host.**
 
 **`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
@@ -1050,7 +1049,7 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   owner-approved migration if ever wanted, never a silent rewrite. Reversible: no
   migration, no rewrite of existing rows. Full reasoning, including the outbox
   consumer analysis, in [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
-* **The `_shadow.py` report's own printed caveat is stale and needs a one-line fix card (found 2026-10-15, docs pass):** it says "no vectors or cosine until EM-303", but EM-303 merged — the reason the shadow's v3 scores carry no vectors is that the *shadow* feeds its v3 side no query embedding (the provider's wiring landed as EM-412, `637a269`; `_shadow.py` was deliberately out of that card's scope). The substance ("not an apples-to-apples quality comparison") still holds; **the string was recorded, not fixed — still owed.**
+* **The `_shadow.py` report's own printed caveat is stale and needs a one-line fix card (found 2026-10-15, docs pass):** it says "no vectors or cosine until EM-303", but EM-303 merged — the reason the shadow's v3 scores carry no vectors is that the *shadow* feeds its v3 side no query embedding (the provider's wiring landed as EM-412, `637a269`; `_shadow.py` was deliberately out of that card's scope). The substance ("not an apples-to-apples quality comparison") still holds — the shadow's v3 scores stay lexical/entity/episodic by construction, because its v3 side is fed no query embedding (EM-412's wiring stops at the live read path). The printed caveat was **fixed in `26265ef`** to say so; divergence is still a lower bound because the copy lags.
 * **`vector` is complete (EM-303, merged `3439b77`; follow-ups merged `42e16c7`).**
   Search, MMR, backends, jobs, model identity and the cache
   are merged. The follow-ups: `EpisodeStore` enqueues `embed` jobs and the jobs
@@ -1310,7 +1309,7 @@ Each is a deliberate, recorded decision. The full table with reasons is in
   See the access note under [Open blockers](#open-blockers) for what it can and
   cannot do.
 - **The v2 engine is still the live path.** Editing `em/` changes nothing a user
-  sees until the wiring chunk.
+  sees until the owner-gated v3 cutover.
 - **`memory_engine.py` is the v2 reference, not a shim yet** (about 3,000 lines;
   don't trust a line number quoted anywhere). At
   3.0 it becomes a shim over the facade — which is why the facade imports v2's
