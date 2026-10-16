@@ -23,9 +23,11 @@ What this module guarantees, and how each is checked rather than asserted:
   it is, so **divergence here is a lower bound**, and it will read as "v3 is fine"
   when the truth is "the copy is old". The age is on every line, and ``stale`` marks
   the lines that exceed the bound.
-* v3 scores today are **lexical, entity and episodic only** — no vector generator and
-  no cosine support condition until EM-303. Divergence numbers are therefore **not**
-  an apples-to-apples quality comparison against v2, and the line says so.
+* v3 scores here are **lexical, entity and episodic only** — the shadow's v3 side
+  is fed no query embedding (the provider's EM-412 wiring does not reach the
+  shadow copy), so the vector generator and the cosine condition stay inert.
+  Divergence numbers are therefore **not** an apples-to-apples quality
+  comparison against v2, and the line says so.
 """
 
 from __future__ import annotations
@@ -56,8 +58,9 @@ _DEFAULT_DIR = "entropicmem-shadow"
 
 #: What a divergence report must carry, because neither bias can be designed away.
 CAVEAT = (
-    "v3 scores are lexical/entity/episodic only (no vectors or cosine until EM-303), "
-    "and divergence is a LOWER BOUND because the copy lags"
+    "v3 scores are lexical/entity/episodic only (the shadow's v3 side is fed no"
+    " query embedding, so vectors and the cosine condition stay inert), and"
+    " divergence is a LOWER BOUND because the copy lags"
 )
 
 #: The promotion observable, **fixed before any data is collected** so the threshold
