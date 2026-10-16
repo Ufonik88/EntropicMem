@@ -13,8 +13,30 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-16, against branch `main` at `a472748` — the
-**branch-first landing of EM-409's system prompt** (`em-409-system-prompt`: the
+**Last reconciled:** 2026-10-16, against branch `main` at `874b3d4` — the
+**branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
+`initialize` starts the background **`JobWorker`** on v3 stores — primary
+sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
+(default true), bounded there by a `jobs.cron_budget_s` (default 120) timer
+firing the worker's stop event, and none in subagent/flush — with the handler
+set from the new shared builder **`em/jobs/registry.py`** (`KNOWN_JOB_TYPES` =
+backup/link/embed/embed_backfill/retract_turns; the `worker run` CLI now
+delegates to it, so the two workers cannot drift; the formation types stay
+absent for EM-502), and **`JobWorker.run(…, gate=)`** holds off claiming while
+the provider's shared `_prefetch_in_flight` event is raised — the whole
+`prefetch()` call, cleared in a `finally` so a raising service clears it too,
+re-checked every 50 ms; concurrency is 1 by construction (one daemon thread,
+one job per claim — the card's `jobs.max_concurrent=1`); a missing store file
+starts nothing and leaves the `_v3_store()` probe cache unpinned (the EM-405
+probe hazard); `shutdown` stops the worker before any store it holds closes;
+and cron's card promises are pinned: tool writes answer `writes_disabled` and
+prefetch still serves; 17 new tests; **13 mutation checks all red**). The tree
+was verified on this box (**bare
+2608 / 16 / 3**; with the digest list **2609 / 15 / 3**; CI-equivalent 3.12
+**2686 / 2 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
+SHA after **all 11 CI jobs were green on it** — CI's 3.12 count is
+**2684 / 4 / 3** (the host-static pin still skips in CI). Before it: **the
+branch-first landing of EM-409's system prompt** (`em-409-system-prompt`: the
 block now renders **Appendix D's policy text** word for word, with the
 tool-name bullets conditional on the tools the provider actually registers —
 the search-the-past bullet names whichever of `entropicmem_search` /
@@ -25,11 +47,7 @@ from the prompt; the Core Memory pair now renders **within
 `_core_memory_block()`, so the system prompt, the legacy full-block prefetch
 mode, the changed-core delta and its baseline hash all share it, and the
 hardcoded `[:2800]` slice is gone); 8 new tests; **8 mutation checks all
-red**). The tree was verified on this box (**bare
-2591 / 16 / 3**; with the digest list **2592 / 15 / 3**; CI-equivalent 3.12
-**2669 / 2 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
-SHA after **all 11 CI jobs were green on it** — CI's 3.12 count is
-**2667 / 4 / 3** (the host-static pin still skips in CI). Before it: **the
+red**). Before that: **the
 branch-first landing of EM-408's `hermes entropicmem …` mount** (`em-408-cli`:
 the shared argparse tree in `em/cli/parser.py`, the host mount in
 `plugins/entropicmem/cli.py` parsing into `entropicmem_command` so the host's
@@ -78,10 +96,10 @@ on the exact SHA, on top of the docs record `a74707a`): the guard's drift
 telemetry, the `EM-412` approval, and two watch items.** The 50k numpy guard now
 emits **every window's p95** as a warning on every run — green included — so
 drift that stays under the assertion is visible over time, and the **3.13 leg's
-pass rate is under watch for the next 20 runs (15/15 green so far: `dc3c77a`,
+pass rate is under watch for the next 20 runs (18/18 green so far: `dc3c77a`,
 `a74707a`, `56dc588`, `6e86c98`, `5cfe82a`, `f7950d3` ×2, `fe5e53b` ×2,
-`59bde57`, `def39cc` ×2, `e89471b` and `a472748` ×2 —
-every push since the watch began, branch and main runs alike)**. The query-embedding card was **approved the same day as `EM-412`**
+`59bde57`, `def39cc` ×2, `e89471b`, `a472748` ×2, `98a9f87` and
+`874b3d4` ×2 — every push since the watch began, branch and main runs alike)**. The query-embedding card was **approved the same day as `EM-412`**
 in this tracker, with four owner edits: a per-call timeout with hard fail-soft to
 lexical and a per-session embed-count log for the optional, possibly-paid
 `openai_compat` backend; stale-model skips logged at debug and surfaced in the
@@ -201,9 +219,49 @@ pinned by
 The counts reconcile per module (67 fastapi + 7 cryptography + 2 numpy + 1
 privacy = the 77-passed gap; the commands sit in the pre-flight). The
 query-embedding card is **approved the same day as `EM-412`** — the follow-up
-landing's note above records the four owner edits; **EM-409 has landed**
-(`a472748` — the note below; EM-408, EM-411 and EM-406 preceded it), and the
-next chunk is **EM-410** (cron & worker integration).
+landing's note above records the four owner edits; **EM-410 has landed**
+(`874b3d4` — the note below; EM-409, EM-408, EM-411 and EM-406 preceded it),
+and the next chunk is **EM-412** (the query-embedding wiring).
+
+**EM-410 landed (2026-10-16, `874b3d4`), completing the cron & worker card.**
+`initialize` now starts the background **`JobWorker`** on v3 stores — primary
+sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
+(default true, bounded by a `jobs.cron_budget_s` (default 120) timer firing the
+worker's stop event), none in subagent/flush — through the host's
+`spawn_context_thread` (the provider's `_spawn`). The handler set comes from the
+new shared builder **`em/jobs/registry.py`** (`KNOWN_JOB_TYPES` =
+backup/link/embed/embed_backfill/retract_turns; `build_registry(db_path, *,
+types=None)`), and `entropicmem worker run` now delegates to it, so the CLI
+worker and the in-process worker cannot drift on the set; the formation types
+stay absent while `BUILT_FORMATION_HANDLERS` ships empty for EM-502. **Low
+priority, one at a time:** concurrency is 1 by construction — one daemon thread
+per provider, one job per claim (the card's `jobs.max_concurrent=1`) — and
+`JobWorker.run` gains a **gate**: while the provider's shared
+`_prefetch_in_flight` `threading.Event` is raised, the worker holds off
+claiming, so background work never competes with a live turn's retrieval. The
+gate is raised for the whole `prefetch()` call and cleared in a `finally`, so a
+raising service clears it too; the gated loop re-checks every 50 ms, and a job
+already running is never interrupted. **First-run safety:** a missing store
+file starts nothing *and* leaves the `_v3_store()` probe cache untouched —
+probing a not-yet-created file would create it, read version 0 and pin the
+whole session to the v2 path (the same reasoning as EM-405's
+`_restore_turn_index`) — pinned both ways. `shutdown` stops the worker before
+any store it holds closes (bounded 3 s wait), cancels the cron timer, and
+closes the worker's own store; a worker that cannot start is a debug line,
+never an `initialize` failure. Cron's other card promises were shipped
+behaviour and are now pinned: tool writes answer `writes_disabled` with no row
+written, and prefetch still serves. 17 new tests
+(`tests/unit/test_em410_cron_worker.py` — 15 — plus the two gate-loop tests in
+`test_em_jobs.py`); **13 mutation checks all red**; suite **2608 / 16 / 3**
+bare, **2609 / 15 / 3** with the digest list, **2686 / 2 / 3** CI-equivalent
+3.12; CI **2684 / 4 / 3**; `ruff==0.16.2` clean. **Recorded as still owed:**
+the embedding-maintenance prune the EM-303 observability pass promised to
+EM-410 ("the prune runs as a job under EM-410's maintenance pass":
+non-current-model vector rows pruned after a completed backfill for the
+current model plus a 7-day grace, then vacuum) — the master-plan card's
+Spec/AC carry no prune, so it did not ride this landing and stays outstanding
+(proposed: EM-412's design pass or a dedicated follow-up; the owner may
+re-slot). The record is in §5, START HERE and `NEXT_CHUNK.md` Part A.
 
 **EM-409 landed (2026-10-16, `a472748`), completing the system-prompt card.**
 `system_prompt_block()` no longer opens with the ad-hoc `# EntropicMem (active)`
@@ -570,16 +628,15 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing — EM-409's system prompt landed on `main` as `a472748` by the
-branch-first path (`77d60a6` tests + `d2db5be` implementation + `a472748`
+**Nothing — EM-410's cron & worker landed on `main` as `874b3d4` by the
+branch-first path (`71ed16f` tests + `44085d0` implementation + `874b3d4`
 CHANGELOG; pushed, all 11 CI jobs green on the exact SHA, then
 `git merge --ff-only`; the branch is deleted).** The tree was verified on this
-box (bare **2591 / 16 / 3**; digest-list **2592 / 15 / 3**; CI-equivalent 3.12
-**2669 / 2 / 3**; `ruff==0.16.2` clean). Its record is in §5, START HERE, and
-the note above. **Next: EM-410 (cron & worker integration)** — the owner's S4
-order; EM-406, EM-411 and EM-408 preceded EM-409. The query-embedding wiring
-card is approved as `EM-412` (2026-10-16) and follows the S4 sequence.
-P0c's data still waits on the owner's host.**
+box (bare **2608 / 16 / 3**; digest-list **2609 / 15 / 3**; CI-equivalent 3.12
+**2686 / 2 / 3**; `ruff==0.16.2` clean). Its record is in §5, START HERE, and
+the note above. **Next: EM-412 (the query-embedding wiring)** — approved
+2026-10-16, following the S4 sequence the owner set (EM-406, EM-411, EM-408,
+EM-409 and EM-410 all landed). P0c's data still waits on the owner's host.**
 
 **`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
 and, on top, the EM-404 landings — slice 1 (`381197f`), slice 2 (`e5e54ef`) and the
@@ -804,10 +861,10 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**EM-409 is merged (`a472748`, all 11 CI jobs green on the exact SHA — the
-branch-first landing of `em-409-system-prompt`: tests first, implementation,
+**EM-410 is merged (`874b3d4`, all 11 CI jobs green on the exact SHA — the
+branch-first landing of `em-410-cron-worker`: tests first, implementation,
 CHANGELOG, push, check-runs, `git merge --ff-only`, branch deleted), on top of
-EM-408's CLI mount (`def39cc`), EM-411's
+EM-409's system prompt (`a472748`), EM-408's CLI mount (`def39cc`), EM-411's
 window capture (`fe5e53b`, with its same-day floor correction
 `em-411-floor-correction`), the EM-406
 checkpoint v2 (`6e86c98`, merged the same day), the EM-407 pair (`2b21ad1` typed config — Appendix A's typed model, §3.8's
@@ -818,20 +875,21 @@ slice (`e483d43`, which completes that card), the EM-404 validation slice
 (`5000942`, which completes that card — the nine v3 tools of Appendix B on both
 stores, the five legacy names routing for one minor version), the slice-2
 landing (`e5e54ef`), the slice-1 landing (`381197f`) and the chunk-35 merge
-(`a5b613a`). **EM-406, EM-407, EM-408, EM-409 and EM-411 are complete.**
+(`a5b613a`). **EM-406, EM-407, EM-408, EM-409, EM-410 and EM-411 are complete.**
 
-1. **The next chunk is EM-410** — the owner's 2026-10-16 order:
-   EM-406 (landed `6e86c98`), EM-411 (landed `fe5e53b`), EM-408 (landed
-   `def39cc`), EM-409 (landed `a472748`), then the rest. In order: **EM-410**
-   (cron & worker integration: prefetch read-only in cron with writes
-   disabled, the JobWorker under `jobs.run_in_cron` bounded by
-   `jobs.cron_budget_s`, and the primary-session worker pausing while a
-   prefetch is in flight); the
-   **query-embedding wiring card is approved as
-   `EM-412`** (the open gap below) and follows the S4 sequence; and **P0c's
-   data**, still blocked on the owner's host (item 2 below). Whatever is
-   chosen, follow the branch-first workflow end to end: tests + CHANGELOG,
-   push, check-runs on the exact SHA, `git merge --ff-only`, delete.
+1. **The next chunk is EM-412** — the query-embedding wiring, approved
+   2026-10-16 with the four owner edits (a per-call `openai_compat` timeout
+   with hard fail-soft to lexical and a per-session embed-count log; stale
+   model skips at debug and in the search diagnostics; a fifth mutation
+   pinning that a raising embedder still returns the lexical result): an
+   `embed_query` for the `PrefetchService`, `ensure_embedding_model` at
+   initialize, and a vector handed to `retrieve` at the v3 call sites,
+   reusing the existing optional backends (no new dependency). The owner's
+   2026-10-16 S4 order ran EM-406 → EM-411 → EM-408 → EM-409 → EM-410 (all
+   landed; `874b3d4` is the latest), and **P0c's data** (item 2 below) still
+   waits on the owner's host. Whatever is chosen, follow the branch-first
+   workflow end to end: tests + CHANGELOG, push, check-runs on the exact SHA,
+   `git merge --ff-only`, delete.
 
 **EM-403's AC, verified through the wired provider (chunk 35):** warm p95
 **40.58 ms** @ 50k (p50 39.44, max 42.07); cache-hit **p95 0.09 ms**; forced-slow
@@ -880,14 +938,14 @@ line there.**
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
 3. **Pre-flight:** the counts, each the command's own output — CI's `test` job
-   (3.12): `pytest -q tests/` → **2667 passed / 4 skipped / 3 xfailed** (read
-   2026-10-16 from the job log at `a472748`, with the extra set
+   (3.12): `pytest -q tests/` → **2684 passed / 4 skipped / 3 xfailed** (read
+   2026-10-16 from the job log at `874b3d4`, with the extra set
    fastapi/httpx/cryptography/pyyaml, numpy, and the private digest list as the
    repository secret); this box bare: `.venv311/bin/python -m pytest -q` →
-   **2591 / 16 / 3**; with the digest list in place:
+   **2608 / 16 / 3**; with the digest list in place:
    `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… .venv311/bin/python -m pytest -q`
-   → **2592 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
-   → **2669 / 2 / 3** — the environment, not the tree. The 77-passed gap is
+   → **2609 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
+   → **2686 / 2 / 3** — the environment, not the tree. The 77-passed gap is
    per-module accounted in NEXT_CHUNK's pre-flight (67 fastapi + 7 cryptography
    + 2 numpy + 1 privacy). `git merge-base --is-ancestor 4eb8097 HEAD` proves
    the base.
@@ -908,7 +966,7 @@ The owner set the order explicitly; do not reorder it without asking.
 | **2** | **P2 / EM-306 — calibration harness** (`evals tune`, `em/config.py`, and the armed miss ceiling) | It was the next buildable chunk and it unblocks P0c's reading | **DONE (`4a2b25e`)** — holdout reported, defaults committed, ceiling armed at `0.107143` |
 | **3** | **EM-307 — packer and renderer** | §3.6's block, fed by a real retrieval | **DONE, merged (`7d6a22e`).** A gated retrieval renders; the adapter does not call it, and the provider's served block **is** this render on the wired path (chunk 35). EM-303 shipped after it |
 | **4** | **EM-303 — vectors: the gate's cosine condition, MMR's embedding path** | The remaining quality lever behind the gate, and the only thing that moves `hard/ageing` off 0.733 | **DONE, merged (`3439b77`):** backends, jobs, model identity, cache (50k p95 3.86 ms); follow-ups `42e16c7`, precision `6d9bf3b`, observability `60f0d67`. **The vector path is complete and never fed a live query — row 5's note** |
-| **5** | **EM-401–403 — the provider layer (hooks, scopes, the wired `PrefetchService`)**, then EM-406 → EM-411 | Moves the v3 core onto the live path behind the flag; EM-406 (checkpoint v2) and EM-411 follow it | **All complete and merged** (`db7c24f`+`b8e170a`; `2706a86`; `9f9ba0c`+`31053df`+`a5b613a`). **What the series expected and did not deliver, recorded 2026-10-15: the query embedding** — the provider never calls `ensure_embedding_model` and embeds nothing, so live retrieval stays lexical even wired; **that wiring is `EM-412` (approved 2026-10-16; implementation follows the S4 sequence).** **EM-406 landed (`6e86c98`, checkpoint v2 complete); EM-411 landed (`fe5e53b` — the window capture, gated off until EM-502's handler and caps); EM-408 landed (`def39cc` — the `hermes entropicmem …` mount and the shared tree's `stats` shortcut); EM-409 landed (`a472748` — Appendix D's policy, the conditional tool lines, Core within `core.token_budget`); EM-410 next** |
+| **5** | **EM-401–403 — the provider layer (hooks, scopes, the wired `PrefetchService`)**, then EM-406 → EM-411 | Moves the v3 core onto the live path behind the flag; EM-406 (checkpoint v2) and EM-411 follow it | **All complete and merged** (`db7c24f`+`b8e170a`; `2706a86`; `9f9ba0c`+`31053df`+`a5b613a`). **What the series expected and did not deliver, recorded 2026-10-15: the query embedding** — the provider never calls `ensure_embedding_model` and embeds nothing, so live retrieval stays lexical even wired; **that wiring is `EM-412` (approved 2026-10-16; the next chunk).** **EM-406 landed (`6e86c98`, checkpoint v2 complete); EM-411 landed (`fe5e53b` — the window capture, gated off until EM-502's handler and caps); EM-408 landed (`def39cc` — the `hermes entropicmem …` mount and the shared tree's `stats` shortcut); EM-409 landed (`a472748` — Appendix D's policy, the conditional tool lines, Core within `core.token_budget`); EM-410 landed (`874b3d4` — the provider's prefetch-gated `JobWorker` over the shared `em/jobs/registry.py` builder, completing the cron & worker card); EM-412 next** |
 | **—** | **P3 — the cutover** | Both re-decision conditions are met in code | **Held: the owner decides; the agent brings it** |
 
 **The owner's order was re-set on 2026-10-08** (this table): P0c first as the gating
@@ -918,10 +976,11 @@ empirical step — now blocked only on a host, with the observable armed — the
 (validation, `5000942`), EM-405 (lifecycle, `e483d43`) and EM-407 (the typed
 config, `2b21ad1` — the chunk that seated EM-306's scalars at the call sites)
 landed, the hardening pull (`dc3c77a`) with its guard-visibility follow-up
-(`56dc588`), EM-406 (`6e86c98`) and EM-411 (`fe5e53b`). **The next chunk's
-order is the owner's (2026-10-16): EM-406 (landed), EM-411 (landed), then the
-rest of S4 by dependency**; the query-embedding wiring card is `EM-412`, approved, and follows
-the S4 sequence. P1 is done and P3 stays with the owner. Do not reorder without
+(`56dc588`), EM-406 (`6e86c98`), EM-411 (`fe5e53b`), EM-408 (`def39cc`),
+EM-409 (`a472748`) and EM-410 (`874b3d4`). **The next chunk is `EM-412` (the
+query-embedding wiring), approved 2026-10-16 — the S4 order the owner set ran
+EM-406 → EM-411 → EM-408 → EM-409 → EM-410, all landed.** P1 is done and P3
+stays with the owner. Do not reorder without
 asking.
 
 **P0b's shape, as landed — serve prefetch from S3 on a v3 store:**
@@ -1078,17 +1137,17 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2667 passed / 4 skipped / 3 xfailed** (CI, 3.12 at `a472748`) |
+| Tests | `python -m pytest -q` | **2684 passed / 4 skipped / 3 xfailed** (CI, 3.12 at `874b3d4`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2667 / 4 / 3 figure is CI's** (extras + numpy +
+`ENTROPICMEM_INDEX_DB` unset. **The 2684 / 4 / 3 figure is CI's** (extras + numpy +
 the private digest list as the repository secret) and is the reference a pre-flight
 run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
-cryptography/numpy) reads **2591 passed / 16 skipped / 3 xfailed** — the missing
+cryptography/numpy) reads **2608 passed / 16 skipped / 3 xfailed** — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the 50k AC's reds — on `3dcb35f` and the 2026-10-15 3.13 leg —
 are now fixed by statistic: the guard reads the best of five windows, `dc3c77a`).
