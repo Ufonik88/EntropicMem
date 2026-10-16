@@ -526,6 +526,8 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 - **Graph server: startup/shutdown hooks migrated from the deprecated `@app.on_event` to a `lifespan` handler** (S1 follow-up). Same behaviour: the non-loopback bind refusal, the per-run token file write and its shutdown cleanup are unchanged; the EM-114 security tests were updated to drive the lifespan and stay green.
 - **`tests/test_phase11.py` tar extraction passes `filter="data"`** where supported (Python ≥ 3.12), matching the product import path and silencing the 3.13 deprecation warning. Test-only.
 
+- **EM-412 follow-up: the shadow report's stale caveat now says why vectors stay inert.** `_shadow.py`'s printed `CAVEAT` said "no vectors or cosine until EM-303", but EM-303 shipped — the real reason the shadow's v3 side carries no vectors is that it is fed no query embedding (EM-412's wiring stops at the live read path). Updated the one-line string and the docstring, and `tests/unit/test_provider_shadow.py` pins the new wording; an audit-pointer sweep across `MASTER_TODO.md`, `REMAINING_PLAN.md` and `NEXT_CHUNK.md` records the fix, points the EM-303 prune follow-up at the drafted `docs/plan/PRUNE_CARD_DRAFT.md`, and drops the stale `EM-212` xfail note that flipped green in Chunk 8.
+
 ## [2.8.1] - 2026-09-27
 
 A safety patch for the Marketplace release. It carries the fixes from the Hermes catalog review of 2.8.0 (NousResearch/hermes-agent#122476), plus small S1 follow-ups. No new features. The only behaviour change users will notice: vector embeddings are now opt-in (see Security).
