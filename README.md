@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/logo.png" width="320" alt="EntropicMem logo: a luminous network of connected nodes around a glowing core, with dissolving particles on one edge">
+</p>
+
 # EntropicMem: Standalone Agent Memory System
 
 > A self-contained knowledge engine for Hermes Agent. SQLite memory, Markdown vault, visual graph, and a 35-command knowledge loop. Install from the Hermes plugin catalog or via `/learn`.
