@@ -13,7 +13,7 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-16, against branch `main` at `9370ce6` — the supersession end-to-end test atop the §11 drift-guard follow-up on the
+**Last reconciled:** 2026-10-16, against branch `main` at `2a6a892` — EM-501's formation LLM backend atop the supersession end-to-end test on the
 **branch-first landing of EM-412's query-embedding wiring** (`em-412-query-embedding`:
 the query embedding is wired into the v3 read paths behind `embeddings.enabled` —
 one fail-soft **`QueryEmbedder`** seam (`em/embeddings/query.py`) built lazily by
@@ -27,10 +27,10 @@ for another model, `Retrieval.diagnostics` carries them, and the search payload 
 `diagnostics` only when non-empty; cosine stays off; flag-off and v2 paths
 byte-identical; 15 new tests; **7 mutation checks all red**). The tree
 was verified on this box (**bare
-2631 / 16 / 3**; with the digest list **2632 / 15 / 3**; CI-equivalent 3.12
-**2709 / 2 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
+2641 / 16 / 3**; with the digest list **2642 / 15 / 3**; CI-equivalent 3.12
+**2719 / 2 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
 SHA after **all 11 CI jobs were green on it**; the current tree's CI 3.12 count
-is **2707 / 4 / 3** (read at `9370ce6`). Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
+is **2717 / 4 / 3** (read at `2a6a892`). Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
 `initialize` starts the background **`JobWorker`** on v3 stores — primary
 sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
 (default true), bounded there by a `jobs.cron_budget_s` (default 120) timer
@@ -642,19 +642,18 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing in flight — the supersession end-to-end test landed on `main` as
-`9370ce6` by the branch-first path (`9370ce6` was the test commit; pushed, all 11
-CI jobs green on the exact SHA, then `git merge --ff-only`; the branch is
-deleted), closing the 2026-10-15 coverage gap that EM-502/EM-503 were told to
-build on.** The tree was verified on this box (bare **2631 / 16 / 3**;
-digest-list **2632 / 15 / 3**; CI-equivalent 3.12 **2709 / 2 / 3**;
-`ruff==0.16.2` clean). Its record is in §5, START HERE, and the note above.
-**No chunk is queued** — the S4 sequence the owner set is complete (EM-406 →
-EM-411 → EM-408 → EM-409 → EM-410 → EM-412), the supersession gap is closed, and
-the remaining recorded-owed candidates are the EM-303 prune follow-up (drafted
-in `docs/plan/PRUNE_CARD_DRAFT.md`; recommendation: its own card), the
-adapter/eval gate (rides the cutover), and S5 (scoped in plan §6.4, not
-started). P0c's data still waits on the owner's host.**
+**Nothing in flight — EM-501, the formation LLM backend layer, landed on `main`
+as `2a6a892` by the branch-first path (`54d0a81` test (red) + `2a6a892`
+implementation; pushed, all 11 CI jobs green on the exact SHA, then
+`git merge --ff-only`; the branch is deleted).** The tree was verified on this
+box (bare **2641 / 16 / 3**; digest-list **2642 / 15 / 3**; CI-equivalent 3.12
+**2719 / 2 / 3**; `ruff==0.16.2` clean). Its record is in §5, START HERE, and
+the note above. **S5 is now the active sprint: EM-501 is done and EM-502
+(extraction) is the next card, then EM-503 (reconciliation), per the owner's
+2026-10-16 order.** The remaining recorded-owed candidates stay: the EM-303 prune
+follow-up (own-card recommendation in `docs/plan/PRUNE_CARD_DRAFT.md`) and the
+adapter/eval gate (decision recorded in plan §9 item 4). P0c's data still waits
+on the owner's host.**
 
 **`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
 and, on top, the EM-404 landings — slice 1 (`381197f`), slice 2 (`e5e54ef`) and the
@@ -786,6 +785,15 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   series left unwired** (see the open-gap bullets below): the provider never calls
   `ensure_embedding_model` and embeds nothing, so even the wired path scores
   lexical/entity/episodic.
+- **EM-501 landed (2026-10-16, `2a6a892`): the formation LLM backend layer
+  (§3.7).** `em/formation/llm.py` — four backends (the host's auxiliary client,
+  an openai-compat urllib client, `none`, and `auto`'s selection order), the
+  tiny-validator parse (malformed or schema-violating JSON is `None`), per-task
+  timeouts, a 5-consecutive-failure/10-minute **circuit breaker** with one probe,
+  and the sliding hourly **cost guard** (`formation.max_llm_calls_per_hour`).
+  Hard fail-soft and counted; `wrap_transcript`/`UNTRUSTED_TRANSCRIPT_NOTE` carry
+  §3.7's untrusted-data rule; the three host auxiliary-task keys register from
+  the shell (guarded). 10 tests; 7 mutation checks red. Next: EM-502.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
   identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
   test that prints its full distribution, a document-control guard that
@@ -963,14 +971,14 @@ line there.**
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
 3. **Pre-flight:** the counts, each the command's own output — CI's `test` job
-   (3.12): `pytest -q tests/` → **2707 passed / 4 skipped / 3 xfailed** (read
-   2026-10-16 from the job log at `9370ce6`, with the extra set
+   (3.12): `pytest -q tests/` → **2717 passed / 4 skipped / 3 xfailed** (read
+   2026-10-16 from the job log at `2a6a892`, with the extra set
    fastapi/httpx/cryptography/pyyaml, numpy, and the private digest list as the
    repository secret); this box bare: `.venv311/bin/python -m pytest -q` →
-   **2631 / 16 / 3**; with the digest list in place:
+   **2641 / 16 / 3**; with the digest list in place:
    `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… .venv311/bin/python -m pytest -q`
-   → **2632 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
-   → **2709 / 2 / 3** — the environment, not the tree. The 77-passed gap is
+   → **2642 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
+   → **2719 / 2 / 3** — the environment, not the tree. The 77-passed gap is
    per-module accounted in NEXT_CHUNK's pre-flight (67 fastapi + 7 cryptography
    + 2 numpy + 1 privacy). `git merge-base --is-ancestor 4eb8097 HEAD` proves
    the base.
@@ -1153,6 +1161,11 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   needs a session id `RetrievalContext` does not carry; EM-211's seven CLI
   refusals each name the card that lifts them. Draft cards in
   [plan §6.4](docs/plan/REMAINING_PLAN.md).
+* **`diversity.render_superseded_note` has no product caller (found 2026-10-16
+  while mutation-testing the supersession e2e card).** The provider renders its
+  own `was:` note (`em/provider/render.py`), so the diversity function is
+  exercised only by its own unit tests — one of the two note renderers is dead
+  weight. Fold or delete it in a small follow-up; recorded, not fixed.
 
 ### The v3 cutover — **both conditions met; the owner decides**
 
@@ -1174,17 +1187,17 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2707 passed / 4 skipped / 3 xfailed** (CI, 3.12 at `9370ce6`) |
+| Tests | `python -m pytest -q` | **2717 passed / 4 skipped / 3 xfailed** (CI, 3.12 at `2a6a892`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2707 / 4 / 3 figure is CI's** (extras + numpy +
+`ENTROPICMEM_INDEX_DB` unset. **The 2717 / 4 / 3 figure is CI's** (extras + numpy +
 the private digest list as the repository secret) and is the reference a pre-flight
 run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
-cryptography/numpy) reads **2631 passed / 16 skipped / 3 xfailed** — the missing
+cryptography/numpy) reads **2641 passed / 16 skipped / 3 xfailed** — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the 50k AC's reds — on `3dcb35f` and the 2026-10-15 3.13 leg —
 are now fixed by statistic: the guard reads the best of five windows, `dc3c77a`).
