@@ -130,9 +130,14 @@ class EmbeddingsConfig:
 
 @dataclass
 class FormationConfig:
-    """`formation.*` — memory formation policy (§3.7)."""
+    """`formation.*` — memory formation policy (§3.7).
 
-    mode: str = "session"
+    ``mode`` ships ``off``: capture stays inert until EM-502's extraction
+    handler and volume caps exist (EM-411's call, recorded there); ``session``
+    and ``realtime`` become meaningful with that card.
+    """
+
+    mode: str = "off"
     realtime_every_turns: int = 6
     llm: str = "auto"
     auto_commit_min_confidence: float = 0.75
@@ -143,6 +148,13 @@ class FormationConfig:
     insights_auto_commit: bool = False
     max_llm_calls_per_hour: int = 60
     pending_ttl_days: int = 30
+    #: EM-411: the idle seal gap and the window floor. An idle gap past
+    #: ``idle_after_sec`` seals the previous window; a sealed window under
+    #: **both** floor values enqueues nothing (it is still sealed, so its
+    #: content cannot leak into the next window).
+    idle_after_sec: int = 900
+    min_window_turns: int = 2
+    min_window_chars: int = 200
 
 
 @dataclass
@@ -295,6 +307,9 @@ RULES: Mapping[str, Rule] = {
         choices=("off", "session", "realtime"),
     ),
     "formation.realtime_every_turns": Rule("integer", "Realtime cadence (turns)", "Run realtime formation every N turns.", minimum=1, maximum=100),
+    "formation.idle_after_sec": Rule("integer", "Idle seal gap (seconds)", "Seal the previous window after this much idle time.", minimum=1, maximum=86400),
+    "formation.min_window_turns": Rule("integer", "Window floor (turns)", "Idle-sealed windows under this many turns are dropped.", minimum=1, maximum=100),
+    "formation.min_window_chars": Rule("integer", "Window floor (characters)", "Idle-sealed windows under this many characters are dropped.", minimum=1, maximum=100000),
     "formation.llm": Rule(
         "select", "Formation LLM", "Which LLM serves formation.",
         choices=("auto", "hermes", "openai_compat", "none"),

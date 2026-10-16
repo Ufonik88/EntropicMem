@@ -108,8 +108,11 @@ def test_defaults_are_appendix_a_with_em306_owning_the_tuned_numbers():
     assert cfg.embeddings.enabled is False
     assert cfg.embeddings.backend == "auto"
     assert cfg.embeddings.model == "BAAI/bge-small-en-v1.5"
-    assert cfg.formation.mode == "session"
+    assert cfg.formation.mode == "off"
     assert cfg.formation.realtime_every_turns == 6
+    assert cfg.formation.idle_after_sec == 900
+    assert cfg.formation.min_window_turns == 2
+    assert cfg.formation.min_window_chars == 200
     assert cfg.formation.llm == "auto"
     assert cfg.formation.auto_commit_min_confidence == 0.75
     assert cfg.formation.auto_commit_kinds == [

@@ -984,6 +984,13 @@ class EntropicMemProvider(ToolHandlers):
         # P1 Slice 2 (A1/A5): bounded per-session turn buffer for digest flushes.
         if user_text or assistant_text:
             author = {"author": turn_author} if turn_author is not None else {}
+            # EM-411: the window ledger — restore on a session switch, then
+            # count this turn's messages toward the unsealed window. The
+            # counts survive the buffer's 400-message trim and a restart.
+            session = self._session_id or ""
+            if self._state.window_session != session:
+                self._restore_window_ledger(session)
+            counted = (1 if user_text else 0) + (1 if assistant_text else 0)
             with self._prefetch_lock:
                 if user_text:
                     self._session_turns.append(
@@ -995,6 +1002,10 @@ class EntropicMemProvider(ToolHandlers):
                     )
                 if len(self._session_turns) > 400:
                     del self._session_turns[:-400]
+                self._state.window_seq += counted
+                self._state.window_turns += counted
+                self._state.window_chars += len(user_text) + len(assistant_text)
+            self._persist_window_ledger()
 
         # Auto-extract facts from conversation (non-blocking, regex-based)
         if self._config.get("auto_extract_enabled", False) and self._memory_db and self._scripts_dir:
@@ -1580,6 +1591,10 @@ class EntropicMemProvider(ToolHandlers):
         no more often than ``turn_cadence_min_interval_sec`` (default 1800).
         0 turns disables. Fail-soft.
 
+        EM-411: every turn start also checks the idle gap — a gap past
+        ``formation.idle_after_sec`` seals the previous window and (past the
+        floor) enqueues its extraction, before the cadence early-returns.
+
         The author trio is §4.1's signature: a shared session carries several
         participants, so a provider keying durable state on identity must read
         it per turn. EM-402 (ScopeContext) is where the values are used: the
@@ -1590,6 +1605,18 @@ class EntropicMemProvider(ToolHandlers):
         filtering pass them, and the harness pins that they arrive.
         """
         try:
+            # EM-411: the idle seal — a gap since the last turn start seals
+            # the previous window before the cadence check (or when cadence
+            # is disabled entirely); the floor's two knobs keep a two-line
+            # exchange after a break from burning an extraction.
+            if self._state.window_session != (self._session_id or ""):
+                self._restore_window_ledger(self._session_id or "")
+            now = time.time()
+            last = self._state.last_turn_ts
+            self._state.last_turn_ts = now
+            idle_after = self._typed_config.formation.idle_after_sec
+            if last and idle_after and (now - last) >= idle_after:
+                self._seal_window("idle", floor=True)
             # EM-405: the turn sequence — bumped (and persisted on a v3 store)
             # every turn, before the cadence early-returns below, because the
             # turn's writes are stamped with it.
@@ -1610,6 +1637,10 @@ class EntropicMemProvider(ToolHandlers):
                 return
             self._last_cadence_flush = now
             self._flush_session_digest(turns, reason="cadence")
+            # EM-411: the cadence flush is a seal too — same key space, so a
+            # window the idle trigger (or the compressor) also covers
+            # collapses onto one job.
+            self._seal_window("cadence")
         except Exception as e:
             logger.debug("EntropicMem on_turn_start failed: %s", e)
 
@@ -1744,6 +1775,10 @@ class EntropicMemProvider(ToolHandlers):
             if require_checkpoint:
                 raise
             return ""
+        # EM-411: the compaction seal — post-commit and fail-soft: the window
+        # the archive just persisted becomes one extract_window job (when
+        # capture is on), and an enqueue failure cannot fail the checkpoint.
+        self._seal_window("compaction")
         return handoff
 
     def _flush_session_digest(self, messages: List[Dict[str, Any]], *, reason: str) -> None:
@@ -1956,11 +1991,170 @@ class EntropicMemProvider(ToolHandlers):
         self._state.turn_index_session = session_id
         self._persist_turn_index()
 
-    def _enqueue_job(self, job_type: str, payload: Dict[str, Any]) -> None:
+    # ── EM-411: the window ledger and the seal (idle / cadence / compaction) ─
+
+    def _restore_window_ledger(self, session_id: str) -> None:
+        """Load the per-session window ledger from the v3 store's ``meta``.
+
+        Mirrors ``_restore_turn_index``: a read-only connection answers both
+        questions honestly (no file means "not resolved yet, retry on the next
+        touch"; no ``meta`` row means "nothing sealed yet"), and it is
+        deliberately **not** routed through ``_v3_store()`` — that probe
+        caches per instance, and a call before the store file exists would pin
+        the session to the v2 path. Fail-soft.
+        """
+        self._state.window_seq = 0
+        self._state.window_sealed = 0
+        self._state.window_turns = 0
+        self._state.window_chars = 0
+        self._state.window_session = session_id
+        self._state.last_turn_ts = 0.0
+        if not (session_id and self._memory_db):
+            return
+        if not Path(self._memory_db).is_file():
+            return
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(f"file:{self._memory_db}?mode=ro", uri=True)
+            try:
+                row = conn.execute(
+                    "SELECT value FROM meta WHERE key=?", (f"window:{session_id}",)
+                ).fetchone()
+            finally:
+                conn.close()
+            if row and row[0]:
+                seq, sealed, turns, chars = (
+                    int(part) for part in str(row[0]).split(":")
+                )
+                self._state.window_seq = max(0, seq)
+                self._state.window_sealed = max(0, min(sealed, seq))
+                self._state.window_turns = max(0, turns)
+                self._state.window_chars = max(0, chars)
+        except Exception:
+            pass
+
+    def _persist_window_ledger(self) -> None:
+        """UPSERT the ledger (v3 stores only; fail-soft)."""
+        session_id = self._state.window_session
+        if not (session_id and self._memory_db and self._v3_store()):
+            return
+        try:
+            from em.store.db import Store
+
+            store = Store(str(self._memory_db))
+            try:
+                with store.transaction() as conn:
+                    conn.execute(
+                        "INSERT INTO meta (key, value) VALUES (?,?)"
+                        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        (
+                            f"window:{session_id}",
+                            f"{self._state.window_seq}:{self._state.window_sealed}"
+                            f":{self._state.window_turns}:{self._state.window_chars}",
+                        ),
+                    )
+            finally:
+                store.close()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _formation_handler_ready(job_type: str) -> bool:
+        """True when this build registers a handler for *job_type* (EM-411).
+
+        The second half of the capture gate: ``formation.mode`` decides
+        whether capture is configured on, this decides whether the work has a
+        consumer. The build ships the set empty — EM-502 adds
+        ``"extract_window"`` together with the handler that serves it — so
+        the queue never fills with work nothing can run.
+        """
+        try:
+            from em.jobs import BUILT_FORMATION_HANDLERS
+
+            return job_type in BUILT_FORMATION_HANDLERS
+        except Exception:
+            return False
+
+    def _seal_window(self, reason: str, *, floor: bool = False) -> Optional[str]:
+        """EM-411: seal the unsealed window and enqueue its extraction.
+
+        The boundary is recorded at seal time — the ledger advances and
+        persists here, even when the enqueue itself fails (that window's
+        extraction is lost, which is no worse than the checkpoint-only
+        behaviour, and the alternative is a retry storm). The job key
+        ``extract:window:{session}:{start}-{end}`` is what makes a
+        *recomputed* range converge onto the one queued row (the queue is
+        idempotent by dedupe key); the ledger is what stops a live process
+        from sealing the same content twice.
+
+        ``floor=True`` (the idle trigger) drops windows under
+        ``formation.min_window_turns`` or ``formation.min_window_chars`` —
+        **both** must be met — while still sealing them. Returns the dedupe
+        key when a job was handed to the queue, else ``None`` (mode off, no
+        handler, a v2 store, nothing unsealed, a floored window, or a failed
+        enqueue).
+        """
+        formation = self._typed_config.formation
+        if str(formation.mode or "off") == "off":
+            return None
+        if not self._formation_handler_ready("extract_window"):
+            return None
+        if not (self._memory_db and self._v3_store()):
+            return None
+        session_id = self._session_id or ""
+        if not session_id:
+            return None
+        if self._state.window_session != session_id:
+            self._restore_window_ledger(session_id)
+        with self._prefetch_lock:
+            start = self._state.window_sealed + 1
+            end = self._state.window_seq
+            if end < start:
+                return None
+            below_floor = floor and (
+                self._state.window_turns < formation.min_window_turns
+                or self._state.window_chars < formation.min_window_chars
+            )
+            self._state.window_sealed = end
+            self._state.window_turns = 0
+            self._state.window_chars = 0
+        self._persist_window_ledger()
+        if below_floor:
+            return None
+        key = f"extract:window:{session_id}:{start}-{end}"
+        try:
+            self._enqueue_job(
+                "extract_window",
+                {
+                    "session_id": session_id,
+                    "seq_start": start,
+                    "seq_end": end,
+                    "reason": reason,
+                },
+                dedupe_key=key,
+            )
+        except Exception as e:
+            # Belt to ``_enqueue_job``'s own fail-soft: a failing producer
+            # must never fail the checkpoint or a turn start.
+            logger.debug("EntropicMem window seal enqueue failed: %s", e)
+            return None
+        return key
+
+    def _enqueue_job(
+        self,
+        job_type: str,
+        payload: Dict[str, Any],
+        *,
+        dedupe_key: Optional[str] = None,
+    ) -> None:
         """Enqueue one v3 job (fail-soft; a v2 store has no queue).
 
-        The provider is a job *producer* here: the undo hook and the delegation
-        row hand work to the queue rather than do it on a hook thread.
+        The provider is a job *producer* here: the undo hook, the delegation
+        row and EM-411's window seals hand work to the queue rather than do it
+        on a hook thread. ``dedupe_key`` makes the enqueue idempotent — one
+        key, one row — which is what lets several triggers converge on one
+        window extraction.
         """
         if not (self._memory_db and self._v3_store()):
             return
@@ -1971,7 +2165,7 @@ class EntropicMemProvider(ToolHandlers):
             store = Store(str(self._memory_db))
             try:
                 with store.transaction() as conn:
-                    JobQueue(conn).enqueue(job_type, payload)
+                    JobQueue(conn).enqueue(job_type, payload, dedupe_key=dedupe_key)
             finally:
                 store.close()
         except Exception as e:

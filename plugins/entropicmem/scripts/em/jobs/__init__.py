@@ -14,7 +14,15 @@ from .worker import (
     default_worker_id,
 )
 
+#: Formation job types whose handlers this build actually carries. The
+#: provider only enqueues a window extraction when ``"extract_window"`` is in
+#: here (EM-411's second capture gate): a build without the handler must not
+#: queue work nothing can run. EM-502 adds ``"extract_window"`` together with
+#: the handler that serves it.
+BUILT_FORMATION_HANDLERS: frozenset[str] = frozenset()
+
 __all__ = [
+    "BUILT_FORMATION_HANDLERS",
     "HandlerRegistry",
     "JobContext",
     "JobWorker",
