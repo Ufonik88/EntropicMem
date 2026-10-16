@@ -295,3 +295,96 @@ def test_master_todo_does_not_overstate_a_commit_as_merged() -> None:
                 f"the chunk {number} row claims Done while In flight says it is "
                 "unmerged. Write 'Done (committed, not merged)'."
             )
+
+
+#: `REMAINING_PLAN.md` §11's "State as of" rows that name commits this branch
+#: has. The **Released version** row is deliberately excluded: it names the
+#: `v2.8.1` tag `7e02412`, which lives on `release/2.8.x` and is *not* an
+#: ancestor of `main` — checking it here would fail on a correct tree.
+_S11_MAIN_ROWS = (
+    "Development line",
+    "Last landed chunk",
+    "In flight",
+    "Next piece of development",
+    "Stage",
+)
+
+#: A backticked lowercase-hex token of commit length.
+_SHA_TOKEN = re.compile(r"`([0-9a-f]{7,40})`")
+
+
+def _remaining_plan_section_11() -> str:
+    text = (REPO / "docs" / "plan" / "REMAINING_PLAN.md").read_text(encoding="utf-8")
+    assert "## 11. Picking this up" in text, (
+        "REMAINING_PLAN.md lost its §11 cold-start page; the state SHAs live there"
+    )
+    return text.split("## 11. Picking this up", 1)[1].split("\n## ", 1)[0]
+
+
+def _section_11_row(section: str, name: str) -> str:
+    hits = [ln for ln in section.splitlines() if ln.startswith(f"| **{name}**")]
+    assert len(hits) == 1, (
+        f"REMAINING_PLAN.md §11: row {name!r} matched {len(hits)} lines, expected exactly "
+        "one. If the wording moved, move the row name — do not drop the check."
+    )
+    return hits[0]
+
+
+def _is_ancestor(sha: str, ref: str = "HEAD") -> bool:
+    return subprocess.run(
+        ["git", "merge-base", "--is-ancestor", sha, ref],
+        cwd=REPO,
+        capture_output=True,
+    ).returncode == 0
+
+
+def test_every_remaining_plan_state_sha_is_a_real_ancestor_of_head() -> None:
+    """The `MASTER_TODO` reconciled SHA was guarded; §11's other cells were not.
+
+    Every commit ``main``'s state rows name must exist and be an ancestor of this
+    branch. A row that names a commit from another line, or a token that was
+    mistyped, makes the cold-start page describe a state this branch never had.
+    """
+    section = _remaining_plan_section_11()
+    checked = 0
+    for name in _S11_MAIN_ROWS:
+        for sha in _SHA_TOKEN.findall(_section_11_row(section, name)):
+            exists = subprocess.run(
+                ["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+                cwd=REPO,
+                capture_output=True,
+            ).returncode == 0
+            assert exists, f"§11 row {name!r} cites {sha}, which is not a commit"
+            assert _is_ancestor(sha), (
+                f"§11 row {name!r} cites {sha}, which is not an ancestor of HEAD; a "
+                "state row may only name commits this branch has"
+            )
+            checked += 1
+    assert checked >= 10, f"§11 SHA scan found only {checked} tokens; the row anchors drifted"
+
+
+def test_the_development_line_does_not_lag_a_landing_the_page_records() -> None:
+    """The exact gap the 2026-10-16 audit found and nothing compared.
+
+    §11's **Development line** row still said `874b3d4` (EM-410) after EM-412
+    landed as `637a269`. Every SHA in that stale row is still a real ancestor, so
+    the existence/ancestry check above passes it too — what slipped was the
+    *relationship*. Pin it: the line must be at least as new as every landing the
+    same page records in its **Last landed chunk** row.
+    """
+    section = _remaining_plan_section_11()
+    dev_row = _section_11_row(section, "Development line")
+    match = re.search(r"`main` at `([0-9a-f]{7,40})`", dev_row)
+    assert match, "§11's Development line must read: `main` at `<sha>`"
+    dev = match.group(1)
+    assert _is_ancestor(dev), f"§11's Development line names {dev}, not an ancestor of HEAD"
+
+    landings = list(
+        dict.fromkeys(_SHA_TOKEN.findall(_section_11_row(section, "Last landed chunk")))
+    )
+    assert len(landings) >= 5, f"§11's landing row cites only {len(landings)} commits"
+    lagging = [sha for sha in landings if not _is_ancestor(sha, dev)]
+    assert not lagging, (
+        f"§11's Development line ({dev}) lags landings the same page records: {lagging}. "
+        "Move the line to the newest landing shown there."
+    )
