@@ -143,3 +143,6 @@ def register_memory_provider(ctx) -> None:
 def register(ctx) -> None:
     """General plugin loader entry point."""
     register_memory_provider(ctx)
+    from em.formation.llm import register_auxiliary_tasks
+
+    register_auxiliary_tasks(ctx)
