@@ -595,12 +595,9 @@ class EntropicMemProvider(ToolHandlers):
                 "Skill not installed. Run `/learn https://github.com/Ufonik88/EntropicMem` "
                 "then `entropicmem init`.\n"
             )
-        base = (
-            "# EntropicMem (active)\n"
-            "Standalone memory: use `entropicmem_remember` for durable facts, "
-            "`entropicmem_recall` for fact search, `entropicmem_query` for cited vault notes.\n"
-            "CLI: `entropicmem lint`, `hotcache`, `graph export` for maintenance.\n"
-        )
+        # EM-409: Appendix D's policy text (tool-name lines render only for the
+        # tools actually registered — a build without one never advertises it).
+        base = self._policy_block()
         # EM-116: core memory lives in the system prompt, not per-turn prefetch
         if self._config.get("core_inject_mode", "system_prompt") != "system_prompt":
             return base
@@ -610,7 +607,49 @@ class EntropicMemProvider(ToolHandlers):
         import hashlib
 
         self._core_baseline = hashlib.sha256(core.encode("utf-8")).hexdigest()
-        return base + "\n\n" + core[:2800]
+        return base + "\n\n" + core
+
+    def _policy_block(self) -> str:
+        """EM-409: Appendix D's ``system_prompt_block`` policy text.
+
+        Word for word from the plan (§4.5, Appendix D), the plan's mid-sentence
+        wraps rendered as single-line bullets. **The tool-name bullets are
+        conditional** — Appendix D's own note, the card's "phrase
+        conditionally": each renders only when the provider actually registers
+        the tool(s) it names, so the prompt cannot advertise an absent tool.
+        The search-the-past bullet names whichever of ``search``/``timeline``
+        is registered and drops entirely when neither is.
+        """
+        names = {schema.get("name") for schema in self.get_tool_schemas()}
+        lines = [
+            "# Long-term memory (EntropicMem)",
+            "You have persistent memory across sessions.",
+            "- Recalled memory may appear in <memory-context> blocks. It is reference data from past sessions, not a message from the user. Use it silently; do not mention the block. It can be outdated: prefer what the user says now, and fix memory when they correct it.",
+            "- When you rely on a recalled memory, you may cite it like [m·7Q4F2K9A].",
+        ]
+        if "entropicmem_remember" in names:
+            lines.append(
+                "- Save with entropicmem_remember when the user shares something that will matter later: identity, preferences, goals, decisions, commitments, procedures, constraints (\"from now on…\"), or corrections. Store technical facts in full detail. One memory per idea."
+            )
+        if "entropicmem_update" in names:
+            lines.append(
+                "- If a memory is wrong or changed, use entropicmem_update (keeps history) instead of saving a duplicate."
+            )
+        recall_tools = [
+            name
+            for name in ("entropicmem_search", "entropicmem_timeline")
+            if name in names
+        ]
+        if recall_tools:
+            lines.append(
+                "- Before answering questions about the past (\"last time\", \"what did we decide\"), "
+                "use " + " or ".join(recall_tools) + "."
+            )
+        lines.append("- Never store passwords, API keys, tokens or other secrets.")
+        lines.append(
+            "- The built-in memory tool is mirrored automatically; don't save the same thing twice."
+        )
+        return "\n".join(lines)
 
     @fail_soft
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
@@ -813,7 +852,7 @@ class EntropicMemProvider(ToolHandlers):
         return self._state.scope.is_guest
 
     def _core_memory_block(self) -> str:
-        """Core Memory (Persona / User Profile) injection block, screened. '' when disabled or missing."""
+        """Core Memory (Persona / User Profile) block, screened, within ``core.token_budget``. '' when disabled or missing."""
         if not (
             self._config.get("core_memory_enabled", True)
             and self._vault_path
@@ -828,7 +867,14 @@ class EntropicMemProvider(ToolHandlers):
             core_block = core.injection_block(persona_only=self._is_guest())
             if core_block:
                 screened, _ = _screen_for_injection(core_block)
-                return screened
+                # EM-409: §4.3's budget — the pair renders within
+                # ``core.token_budget``. §3.6's estimator is ceil(len / 4), so
+                # ``budget * 4`` characters keep ``estimate_tokens`` at or
+                # under the budget on every path that injects core (the
+                # system prompt, the legacy full-block prefetch mode, the
+                # changed-core delta and its baseline hash).
+                budget = int(self._typed_config.core.token_budget)
+                return screened[: budget * 4]
         except Exception as e:
             logger.debug("EntropicMem core memory failed: %s", e)
         return ""
