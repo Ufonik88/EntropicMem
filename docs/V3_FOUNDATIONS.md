@@ -248,14 +248,17 @@ These are decisions the writes chunk made that are not obvious from the signatur
   episode read path:** `candidates.episodic` appends vector-ranked episodes
   under the same 50% coverage gate and the pipeline hands their cosines to the
   gate, so EM-307's renderer prints a vector-only episode under "Recent
-  episodes" — episode vectors are no longer write-only. **What is still
-  absent — and now has no owning card (recorded 2026-10-15):** the **provider**
-  does not embed a query — EM-401–403 all landed without wiring it, and
+  episodes" — episode vectors are no longer write-only. **What was still
+  absent (recorded 2026-10-15; both now carded or landed):** the **provider**
+  did not embed a query — EM-401–403 all landed without wiring it, and
   EM-407 wired the config, not the embedder (`ensure_embedding_model` has no
   caller outside `em/embeddings/jobs.py`), so
-  even the wired v3+flag path scores lexical/entity/episodic; and capture
-  on idle/compaction is **planned as EM-411** (plan §6.3; **no host idle hook
-  exists** in the pinned contract, so idle is defined behaviourally).
+  even the wired v3+flag path scores lexical/entity/episodic — **that wiring
+  is carded as `EM-412` (approved 2026-10-16)**; and capture on
+  idle/compaction was **planned as EM-411** — **landed 2026-10-16
+  (`fe5e53b`)**: the window ledger and the three seals, gated off until
+  EM-502 (**no host idle hook exists** in the pinned contract, so idle is
+  defined behaviourally).
   **Recorded deviation:** the cache keys by scope and loads through
   `scope_sql` instead of the card's "pre-computed id→scope arrays (mask)" —
   a numpy copy of the §3.5 owner rule is a second definition of a privacy
@@ -282,16 +285,27 @@ These are decisions the writes chunk made that are not obvious from the signatur
   adapter default taking the calibration — rides the cutover, with both holdout
   numbers recorded (mrr **0.86508** under spec vs **0.88095** calibrated; owner,
   2026-10-16) and is explicitly **not** S4 work.
-- **Session capture: what exists and what EM-411 adds.** The v2 provider already
-  captures on `on_session_end` (`session_end_capture`) and on a turn cadence
+- **Session capture: landed as EM-411 (`f7950d3`, then the floor correction
+  `fe5e53b`).** The v2 provider already captured on `on_session_end`
+  (`session_end_capture`) and on a turn cadence
   (`turn_cadence_flush_turns`/`turn_cadence_min_interval_sec`); `on_pre_compress`
-  checkpoints standing constraints only. There is **no host `idle` event** — the
-  hook contract has `on_turn_start`, `on_session_end` and `on_pre_compress`.
-  EM-411 makes compaction capture real (enqueue `extract_window` over EM-406's
-  persisted precompress chunks, dedupe per session+window) and defines idle
-  behaviourally (a turn gap ≥ `formation.idle_after_sec` seals the window).
-  Do not invent an idle event; if a future host adds one, wire it to the same
-  enqueue.
+  checkpointed standing constraints only. EM-411 adds the **window ledger**
+  (per-session, persisted to the v3 `meta` on `window:<sid>`; restored on the
+  first hook of a session, so ranges never repeat) and seals the unsealed
+  transcript range from **three triggers under one dedupe key**
+  `extract:window:{sid}:{start}-{end}`: the cadence flush, an idle gap, and the
+  post-commit compaction enqueue over EM-406's persisted precompress evidence
+  (fail-soft; never on the checkpoint's critical path). The idle trigger is
+  **behavioural** — there is **no host `idle` event** (the hook contract has
+  `on_turn_start`, `on_session_end` and `on_pre_compress`) — and floored per
+  §6.3's letter: a gap ≥ `formation.idle_after_sec` (900 s) at `on_turn_start`
+  seals the previous window, and the window enqueues when it holds **at least
+  `formation.min_window_turns` (2) turns or `formation.min_window_chars` (200)
+  characters**; one under both is still sealed. Do not invent an idle event; if
+  a future host adds one, wire it to the same enqueue. The enqueues are
+  **inert in this build**: `formation.mode` ships `off` and
+  `em.jobs.BUILT_FORMATION_HANDLERS` is empty until EM-502 registers the
+  handler and its caps decide the flip.
 - **§3.5's `visibility` half is implemented (Chunk 13) — write stamp *and* read guard, agent-proposed and internal only.** Two row conditions, one definition: `em.store.types.row_is_owner_only` returns True for a `sensitive`/`secret` tier **or** for a *profile-wide* row (`scope_user=''`) stamped `visibility='user'`; `_in_scope` and `candidates.scope_sql` both call it, and the chat dimension goes through `chat_in_scope` the same way. The write side derives `MemoryDraft.visibility` from the scope (`'profile'` profile-wide, `'user'` otherwise, explicit preserved) — **and the direction matters**: the read clause alone would have hidden every profile-wide memory from non-owners. **Reversible: no migration, no rewrite of existing rows**, so a code revert is the whole story; rows written while it is live keep their stamp, which is why a revert restores future behaviour rather than history. It is in no release and needs the owner's explicit approval before one. **`MemoryStore.list` deliberately keeps `scope_user=?` exact** — a scoped caller can only receive rows already scoped to them, so the profile-wide rules govern rows it cannot return; that is why the Chunk 7.2 note is not a leak. See the `## Recorded deviations` note on publication below.
 - **§3.5's chat half now lives in one place (Chunk 11, EM-302).** `scope_chat IN (<chat>, '')` was already emitted by `MemoryStore.list` but not by the row predicate `_in_scope`. `em.store.types.chat_in_scope` is now the single decision, called by `_in_scope` and rendered into SQL by `scope_sql`; a no-op while `scope.chat` is empty (every caller today). The scope cross-check matrix includes chat rows, so the two forms cannot drift again.
 - **EM-302's `vector` generator landed, in full (EM-303).** `candidates.vector`
