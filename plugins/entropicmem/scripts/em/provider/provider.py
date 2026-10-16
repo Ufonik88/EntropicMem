@@ -985,8 +985,9 @@ class EntropicMemProvider(ToolHandlers):
         if user_text or assistant_text:
             author = {"author": turn_author} if turn_author is not None else {}
             # EM-411: the window ledger — restore on a session switch, then
-            # count this turn's messages toward the unsealed window. The
-            # counts survive the buffer's 400-message trim and a restart.
+            # count this turn toward the unsealed window: one conversation
+            # turn (``counted`` messages) and its text length. The counts
+            # survive the buffer's 400-message trim and a restart.
             session = self._session_id or ""
             if self._state.window_session != session:
                 self._restore_window_ledger(session)
@@ -1003,7 +1004,7 @@ class EntropicMemProvider(ToolHandlers):
                 if len(self._session_turns) > 400:
                     del self._session_turns[:-400]
                 self._state.window_seq += counted
-                self._state.window_turns += counted
+                self._state.window_turns += 1
                 self._state.window_chars += len(user_text) + len(assistant_text)
             self._persist_window_ledger()
 
@@ -2088,9 +2089,10 @@ class EntropicMemProvider(ToolHandlers):
         idempotent by dedupe key); the ledger is what stops a live process
         from sealing the same content twice.
 
-        ``floor=True`` (the idle trigger) drops windows under
-        ``formation.min_window_turns`` or ``formation.min_window_chars`` —
-        **both** must be met — while still sealing them. Returns the dedupe
+        ``floor=True`` (the idle trigger) drops a window only when it holds
+        neither floor — under ``formation.min_window_turns`` turns **and**
+        under ``formation.min_window_chars`` characters; either floor admits
+        the window. A dropped window is still sealed. Returns the dedupe
         key when a job was handed to the queue, else ``None`` (mode off, no
         handler, a v2 store, nothing unsealed, a floored window, or a failed
         enqueue).
@@ -2114,7 +2116,7 @@ class EntropicMemProvider(ToolHandlers):
                 return None
             below_floor = floor and (
                 self._state.window_turns < formation.min_window_turns
-                or self._state.window_chars < formation.min_window_chars
+                and self._state.window_chars < formation.min_window_chars
             )
             self._state.window_sealed = end
             self._state.window_turns = 0

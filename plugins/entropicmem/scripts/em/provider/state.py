@@ -56,9 +56,10 @@ class ProviderState:
     #: ``window_sealed + 1 .. window_seq``. Persisted to the v3 store's
     #: ``meta`` as ``window:<sid>`` so a restart continues the sequence —
     #: ranges never repeat, which is what the queue's one-key-one-row rule
-    #: needs. ``window_turns``/``window_chars`` are the unsealed window's
-    #: size for the idle floor; ``last_turn_ts`` is when ``on_turn_start``
-    #: last ran (idle detection; not persisted).
+    #: needs. ``window_turns`` counts the unsealed window's conversation
+    #: turns (one per ``sync_turn`` with content), ``window_chars`` its text
+    #: length — the two idle-floor dimensions; ``last_turn_ts`` is when
+    #: ``on_turn_start`` last ran (idle detection; not persisted).
     window_seq: int = 0
     window_sealed: int = 0
     window_turns: int = 0

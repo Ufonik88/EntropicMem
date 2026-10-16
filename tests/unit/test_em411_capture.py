@@ -10,10 +10,11 @@ Three §6.3 behaviours land here:
   compression collapse onto that one queued row, because the queue is
   idempotent by dedupe key — one key means one row.
 * **the idle floor.** A gap under ``formation.idle_after_sec`` is not a seal;
-  a sealed window under ``formation.min_window_turns`` *or*
-  ``formation.min_window_chars`` enqueues nothing (both floors must be met),
-  so a two-line exchange after a break does not burn an extraction. A floored
-  window is still sealed — its content cannot leak into the next window.
+  a sealed window enqueues only when it holds at least
+  ``formation.min_window_turns`` turns *or* ``formation.min_window_chars``
+  characters — under both floors it enqueues nothing, so "resume and say
+  hello" does not spend a job. A floored window is still sealed — its content
+  cannot leak into the next window.
 * **the gates and the soft edges.** Capture is v3-only and ships inert:
   enqueues happen only when ``formation.mode != "off"`` and this build carries
   an ``extract_window`` handler (it carries none until EM-502 registers one);
@@ -45,7 +46,7 @@ from memory_engine import MemoryEngine  # noqa: E402
 
 SESSION = "sess-em411"
 IDLE_AFTER = 60.0
-LONG = "x" * 150  # two of these clear min_window_chars (200)
+LONG = "x" * 150  # one sync_turn(LONG, LONG) is 300 chars — clears the character floor
 
 
 # --- fixtures ---------------------------------------------------------------
@@ -277,7 +278,7 @@ def test_the_window_ledger_survives_a_restart_and_continues_the_sequence(
 # --- the idle floor ---------------------------------------------------------
 
 
-def test_an_idle_gap_below_the_character_floor_enqueues_nothing_and_still_seals(
+def test_an_idle_gap_under_both_floors_enqueues_nothing_and_still_seals(
     tmp_path, monkeypatch
 ):
     db = _v3_db(tmp_path)
@@ -286,10 +287,10 @@ def test_an_idle_gap_below_the_character_floor_enqueues_nothing_and_still_seals(
     provider = _capture(monkeypatch, tmp_path, db)
     try:
         provider.on_turn_start(1, "hi")
-        provider.sync_turn("hi", "hey there")  # two turns, eleven characters
+        provider.sync_turn("hi", "hey there")  # one turn, eleven characters
         clock.t += IDLE_AFTER + 1
         provider.on_turn_start(2, "next question")
-        assert _jobs(db) == [], "a floored window must not burn an extraction"
+        assert _jobs(db) == [], "a window under both floors must not burn an extraction"
 
         # A floored window is sealed anyway: its content cannot leak into
         # the next window's range.
@@ -303,17 +304,37 @@ def test_an_idle_gap_below_the_character_floor_enqueues_nothing_and_still_seals(
         provider.shutdown()
 
 
-def test_an_idle_gap_below_the_turn_floor_enqueues_nothing(tmp_path, monkeypatch):
+def test_the_turn_floor_alone_admits_the_window(tmp_path, monkeypatch):
+    db = _v3_db(tmp_path)
+    clock = _Clock()
+    monkeypatch.setattr(surface, "time", clock)
+    provider = _capture(monkeypatch, tmp_path, db)
+    try:
+        provider.on_turn_start(1, "hi")
+        provider.sync_turn("hi", "hey")  # 2 turns, 5 characters
+        provider.sync_turn("ok", "sure")  # 2 turns, 6 characters
+        clock.t += IDLE_AFTER + 1
+        provider.on_turn_start(2, "next")
+        assert [j["dedupe_key"] for j in _jobs(db)] == [
+            f"extract:window:{SESSION}:1-4"
+        ], "at least min_window_turns turns admits the window on their own"
+    finally:
+        provider.shutdown()
+
+
+def test_the_character_floor_alone_admits_the_window(tmp_path, monkeypatch):
     db = _v3_db(tmp_path)
     clock = _Clock()
     monkeypatch.setattr(surface, "time", clock)
     provider = _capture(monkeypatch, tmp_path, db)
     try:
         provider.on_turn_start(1, "one long message")
-        provider.sync_turn("y" * 400, "")  # one turn, plenty of characters
+        provider.sync_turn("y" * 400, "")  # 1 turn, 400 characters
         clock.t += IDLE_AFTER + 1
         provider.on_turn_start(2, "next")
-        assert _jobs(db) == []
+        assert [j["dedupe_key"] for j in _jobs(db)] == [
+            f"extract:window:{SESSION}:1-1"
+        ], "at least min_window_chars characters admits the window on their own"
     finally:
         provider.shutdown()
 

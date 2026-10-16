@@ -149,9 +149,11 @@ class FormationConfig:
     max_llm_calls_per_hour: int = 60
     pending_ttl_days: int = 30
     #: EM-411: the idle seal gap and the window floor. An idle gap past
-    #: ``idle_after_sec`` seals the previous window; a sealed window under
-    #: **both** floor values enqueues nothing (it is still sealed, so its
-    #: content cannot leak into the next window).
+    #: ``idle_after_sec`` seals the previous window; a sealed window is
+    #: enqueued only when it holds at least ``min_window_turns`` turns **or**
+    #: ``min_window_chars`` characters — under both floors it enqueues
+    #: nothing (it is still sealed, so its content cannot leak into the next
+    #: window).
     idle_after_sec: int = 900
     min_window_turns: int = 2
     min_window_chars: int = 200
@@ -308,8 +310,8 @@ RULES: Mapping[str, Rule] = {
     ),
     "formation.realtime_every_turns": Rule("integer", "Realtime cadence (turns)", "Run realtime formation every N turns.", minimum=1, maximum=100),
     "formation.idle_after_sec": Rule("integer", "Idle seal gap (seconds)", "Seal the previous window after this much idle time.", minimum=1, maximum=86400),
-    "formation.min_window_turns": Rule("integer", "Window floor (turns)", "Idle-sealed windows under this many turns are dropped.", minimum=1, maximum=100),
-    "formation.min_window_chars": Rule("integer", "Window floor (characters)", "Idle-sealed windows under this many characters are dropped.", minimum=1, maximum=100000),
+    "formation.min_window_turns": Rule("integer", "Window floor (turns)", "Idle-sealed windows under both this turn count and the character floor are dropped.", minimum=1, maximum=100),
+    "formation.min_window_chars": Rule("integer", "Window floor (characters)", "Idle-sealed windows under both this character count and the turn floor are dropped.", minimum=1, maximum=100000),
     "formation.llm": Rule(
         "select", "Formation LLM", "Which LLM serves formation.",
         choices=("auto", "hermes", "openai_compat", "none"),
