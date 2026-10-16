@@ -39,6 +39,10 @@ log = logging.getLogger("em.jobs")
 
 Handler = Callable[[Job, "JobContext"], None]
 
+#: How often a gated ``run`` re-checks the gate (§4.2's low-latency promise:
+#: the worker resumes within 50 ms of a prefetch finishing).
+_GATE_POLL_SECONDS = 0.05
+
 
 class PermanentJobError(Exception):
     """Raised by a handler when retrying cannot help. The job goes to ``dead``."""
@@ -217,14 +221,22 @@ class JobWorker:
         stop: threading.Event,
         *,
         poll_seconds: float = 5.0,
+        gate: threading.Event | None = None,
     ) -> int:
         """Loop until ``stop`` is set. Returns the number of jobs run.
 
         Sleeps at most ``poll_seconds`` between empty polls, less if a job
         becomes ready sooner. The sleep is ``stop.wait``, so shutdown is prompt.
+        While ``gate`` is set the worker holds off claiming: the provider
+        raises it while a prefetch is in flight (EM-410), so background work
+        never competes with a live turn's retrieval. The gate is re-read before
+        every claim, so a job already running is never interrupted.
         """
         count = 0
         while not stop.is_set():
+            if gate is not None and gate.is_set():
+                stop.wait(_GATE_POLL_SECONDS)
+                continue
             outcome = self.run_once()
             if outcome is not None:
                 count += 1

@@ -11,9 +11,8 @@ import sys
 import time
 from pathlib import Path
 
-from em.formation.entity_linker import make_link_handler
-from em.jobs.worker import HandlerRegistry, JobWorker
-from em.store.backup import BackupManager, make_backup_handler
+from em.jobs.registry import KNOWN_JOB_TYPES, build_registry
+from em.jobs.worker import JobWorker
 from em.store.db import Store, open_db
 from em.store.migrations import MigrationRefused, assert_safe_db_path
 
@@ -25,7 +24,7 @@ _V3_JOB_COLUMNS = frozenset({
     "created_at", "updated_at",
 })
 
-_KNOWN_TYPES = ("backup", "link", "embed", "embed_backfill", "retract_turns")
+_KNOWN_TYPES = KNOWN_JOB_TYPES
 
 
 def run_worker(
@@ -56,24 +55,7 @@ def run_worker(
         return 1
 
     selected = list(types) if types else list(_KNOWN_TYPES)
-    registry = HandlerRegistry()
-    if "backup" in selected:
-        registry.register("backup", make_backup_handler(BackupManager(db_path)))
-    if "link" in selected:
-        registry.register("link", make_link_handler())
-    if "retract_turns" in selected:
-        from ..store.retract import make_retract_handler
-
-        registry.register("retract_turns", make_retract_handler())
-    if "embed" in selected or "embed_backfill" in selected:
-        from ..embeddings.jobs import make_embed_backfill_handler, make_embed_handler
-        from ..embeddings.service import EmbeddingService
-
-        service = EmbeddingService(str(db_path))
-        if "embed" in selected:
-            registry.register("embed", make_embed_handler(service))
-        if "embed_backfill" in selected:
-            registry.register("embed_backfill", make_embed_backfill_handler(service))
+    registry = build_registry(db_path, types=selected)
 
     store = Store(str(db_path))
     try:

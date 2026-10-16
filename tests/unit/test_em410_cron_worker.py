@@ -290,6 +290,20 @@ def test_no_worker_outside_primary_and_cron(tmp_path, context):
         provider.shutdown()
 
 
+def test_missing_store_file_starts_nothing_and_pins_nothing(tmp_path):
+    """A store that does not exist yet must not pin the instance to the v2 path."""
+    missing = tmp_path / "memory.db"  # never created
+    _home_config(tmp_path, memory_db=missing)
+    provider, names = _provider(tmp_path, context="primary")
+    try:
+        assert provider._jobs_started is False
+        assert names == []
+        assert not missing.exists()  # the probe must not create the store file
+        assert provider._prefetch_service_kind is None  # cache left unpinned
+    finally:
+        provider.shutdown()
+
+
 def test_v2_store_starts_nothing(tmp_path):
     db = tmp_path / "memory.db"
     engine = MemoryEngine(db, profile_id="default")

@@ -232,6 +232,15 @@ class EntropicMemProvider(ToolHandlers):
         self._prefetch_service = None
         self._prefetch_store = None
         self._prefetch_service_kind: Optional[bool] = None
+        # EM-410: the background job worker (started by initialize on v3
+        # stores — primary, or cron when ``jobs.run_in_cron``) and the event
+        # it holds off on while a prefetch is in flight.
+        self._prefetch_in_flight = threading.Event()
+        self._jobs_started = False
+        self._jobs_store = None
+        self._jobs_stop = threading.Event()
+        self._jobs_done = threading.Event()
+        self._jobs_timer: Optional[threading.Timer] = None
         self._last_query: str = ""
         self._conversation_history: List[Dict[str, Any]] = []
 
@@ -573,6 +582,10 @@ class EntropicMemProvider(ToolHandlers):
         self._memory_db.parent.mkdir(parents=True, exist_ok=True)
         # EM-405: a restarted provider continues the session's turn sequence.
         self._restore_turn_index(session_id)
+        # EM-410: §4.1's worker threads — a ``JobWorker`` in primary sessions,
+        # and in cron when ``jobs.run_in_cron`` (bounded by
+        # ``jobs.cron_budget_s``); none in subagent/flush.
+        self._start_job_workers()
 
     @fail_soft
     def unavailable_reason(self) -> str:
@@ -690,67 +703,74 @@ class EntropicMemProvider(ToolHandlers):
             return ""
 
         self._turn_counter += 1
+        # EM-410: the background worker holds off while a prefetch is in
+        # flight, so retrieval never competes with background jobs. Cleared in
+        # the ``finally`` — a raising service clears it too.
+        self._prefetch_in_flight.set()
         try:
-            # EM-116: core memory lives in the system prompt (default). Prefetch
-            # carries at most a one-line delta when core changed since session
-            # start; core_inject_mode "prefetch" keeps the legacy full block.
-            if self._config.get("core_inject_mode", "system_prompt") == "prefetch":
-                core_block = self._core_memory_block()
-            else:
-                core_block = self._core_delta_line()
+            try:
+                # EM-116: core memory lives in the system prompt (default). Prefetch
+                # carries at most a one-line delta when core changed since session
+                # start; core_inject_mode "prefetch" keeps the legacy full block.
+                if self._config.get("core_inject_mode", "system_prompt") == "prefetch":
+                    core_block = self._core_memory_block()
+                else:
+                    core_block = self._core_delta_line()
 
-            # Phase 2.3: Build context-aware query — also the cache key input
-            enhanced_query = self._build_context_query(q)
+                # Phase 2.3: Build context-aware query — also the cache key input
+                enhanced_query = self._build_context_query(q)
 
-            # EM-403 slice 3: the §4.2 service's turn, when the gate says so.
-            # ``served`` is True only for a service call that *returned* — an
-            # empty block from the service is an answer, not a failure.
-            fact_block: Optional[str] = None
-            served = False
-            service = self._prefetch_service_for_turn()
-            if service is not None:
-                try:
-                    result = service.prefetch(
-                        enhanced_query,
-                        scope=self._turn_scope(),
-                        session_id=session_id or self._session_id or "",
-                    )
-                    fact_block = result.text
-                    # §4.1: recall_status() must reflect the LAST prefetch — the
-                    # count the service's pack/cap left, same as the v2 path.
-                    self._state.note_recall(result.injected_count)
-                    served = True
-                except Exception as e:
-                    # Fail soft onto the v2 smart-context path: on a v3 store it
-                    # is always available (P0b's off path), so a broken service
-                    # costs a debug line, never the turn's memory.
-                    logger.debug(
-                        "EntropicMem PrefetchService failed, falling back to the v2 path: %s", e
-                    )
-
-            if not served:
-                use_cache = self._config.get("cache_conversation_context", True)
-                if use_cache:
-                    hit = self._check_cache(enhanced_query)
-                    if hit is not None:
-                        fact_block, injected = hit
-                        self._state.note_recall(injected)
-                if fact_block is None:
-                    self._state.note_recall(0)
-                    fact_block = self._build_fact_block(enhanced_query)
-                    if use_cache:
-                        self._store_cache(
-                            enhanced_query, fact_block, self._state.last_recall_count
+                # EM-403 slice 3: the §4.2 service's turn, when the gate says so.
+                # ``served`` is True only for a service call that *returned* — an
+                # empty block from the service is an answer, not a failure.
+                fact_block: Optional[str] = None
+                served = False
+                service = self._prefetch_service_for_turn()
+                if service is not None:
+                    try:
+                        result = service.prefetch(
+                            enhanced_query,
+                            scope=self._turn_scope(),
+                            session_id=session_id or self._session_id or "",
+                        )
+                        fact_block = result.text
+                        # §4.1: recall_status() must reflect the LAST prefetch — the
+                        # count the service's pack/cap left, same as the v2 path.
+                        self._state.note_recall(result.injected_count)
+                        served = True
+                    except Exception as e:
+                        # Fail soft onto the v2 smart-context path: on a v3 store it
+                        # is always available (P0b's off path), so a broken service
+                        # costs a debug line, never the turn's memory.
+                        logger.debug(
+                            "EntropicMem PrefetchService failed, falling back to the v2 path: %s", e
                         )
 
-            blocks = [b for b in (core_block, fact_block) if b]
-            response = "\n\n".join(blocks)
-            self._spawn_shadow(q, response)
-            return response
+                if not served:
+                    use_cache = self._config.get("cache_conversation_context", True)
+                    if use_cache:
+                        hit = self._check_cache(enhanced_query)
+                        if hit is not None:
+                            fact_block, injected = hit
+                            self._state.note_recall(injected)
+                    if fact_block is None:
+                        self._state.note_recall(0)
+                        fact_block = self._build_fact_block(enhanced_query)
+                        if use_cache:
+                            self._store_cache(
+                                enhanced_query, fact_block, self._state.last_recall_count
+                            )
 
-        except Exception as e:
-            logger.debug("EntropicMem prefetch failed: %s", e)
-            return ""
+                blocks = [b for b in (core_block, fact_block) if b]
+                response = "\n\n".join(blocks)
+                self._spawn_shadow(q, response)
+                return response
+
+            except Exception as e:
+                logger.debug("EntropicMem prefetch failed: %s", e)
+                return ""
+        finally:
+            self._prefetch_in_flight.clear()
 
     def _turn_scope(self) -> Any:
         """The effective store-level ``Scope`` for this turn (or ``None``).
@@ -1891,6 +1911,20 @@ class EntropicMemProvider(ToolHandlers):
 
     @fail_soft
     def shutdown(self) -> None:
+        # EM-410: stop the job worker before any store it holds closes. The
+        # wait is bounded: a wedged handler must not stall session teardown.
+        self._jobs_stop.set()
+        if self._jobs_timer is not None:
+            self._jobs_timer.cancel()
+            self._jobs_timer = None
+        if self._jobs_started and not self._jobs_done.wait(3.0):
+            logger.debug("EntropicMem job worker did not stop within 3 s")
+        if self._jobs_store is not None:
+            try:
+                self._jobs_store.close()
+            except Exception:
+                pass
+            self._jobs_store = None
         with self._prefetch_lock:
             self._prefetch_cache = None
             self._prefetch_cache_count = 0
@@ -2264,6 +2298,71 @@ class EntropicMemProvider(ToolHandlers):
         )
         self._prefetch_service = service
         return service
+
+    def _start_job_workers(self) -> None:
+        """EM-410: start this provider's background job worker, once.
+
+        §4.1's row: a ``JobWorker`` in primary sessions, and in cron when
+        ``jobs.run_in_cron`` (bounded by ``jobs.cron_budget_s``); none in
+        subagent or flush. The worker claims only registered types, and the
+        runner's gate keeps it off while a prefetch is in flight.
+
+        A missing store file starts nothing and leaves the ``_v3_store`` cache
+        untouched — "not created yet" must not pin the instance to the v2 path
+        (the same reasoning as ``_restore_turn_index``). Fail-soft: a worker
+        that cannot start costs a debug line, never ``initialize``.
+        """
+        if self._jobs_started:
+            return
+        if not (self._scripts_dir and self._memory_db):
+            return
+        if not Path(self._memory_db).is_file():
+            return
+        if not self._v3_store():
+            return
+        if self._agent_context == "primary":
+            if not self._typed_config.jobs.run_in_primary:
+                return
+        elif self._agent_context == "cron":
+            if not self._typed_config.jobs.run_in_cron:
+                return
+        else:
+            return  # subagent / flush: no worker
+        try:
+            self._host.ensure_scripts_on_path(self._scripts_dir)
+            from em.jobs.registry import build_registry
+            from em.jobs.worker import JobWorker
+            from em.store.db import Store
+
+            store = Store(str(self._memory_db))
+            registry = build_registry(str(self._memory_db))
+            if not registry.types():
+                store.close()
+                return
+            self._jobs_store = store
+            worker = JobWorker(store, registry)
+            stop = self._jobs_stop
+            done = self._jobs_done
+            if self._agent_context == "cron":
+                self._jobs_timer = threading.Timer(
+                    float(self._typed_config.jobs.cron_budget_s), stop.set
+                )
+                self._jobs_timer.daemon = True
+                self._jobs_timer.start()
+
+            def _run() -> None:
+                try:
+                    worker.run(stop, gate=self._prefetch_in_flight)
+                except Exception as e:
+                    # A dead worker is a log line, not a process crash.
+                    logger.debug("EntropicMem job worker stopped: %s", e)
+                finally:
+                    done.set()
+
+            self._spawn(_run, "entropicmem-jobs")
+            self._jobs_started = True
+        except Exception as e:
+            logger.debug("EntropicMem job worker failed to start: %s", e)
 
     def _open_engine(self, *, scope: Any = None):
         """Open the engine this store's schema calls for, under a §3.5 scope.
