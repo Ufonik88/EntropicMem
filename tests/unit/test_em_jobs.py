@@ -6,6 +6,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -392,6 +393,54 @@ def test_run_loop_stops_promptly(store):
         stop.set()
         t.join(5)
         worker_store.close()
+    assert not t.is_alive()
+
+
+def test_run_loop_pauses_while_the_gate_is_raised(store):
+    """EM-410: the provider raises ``gate`` while a prefetch is in flight."""
+    reg = HandlerRegistry()
+    done = threading.Event()
+    reg.register("ping", lambda job, ctx: done.set())
+    stop = threading.Event()
+    gate = threading.Event()
+    gate.set()
+    worker_store = Store(store.path)
+    t = threading.Thread(
+        target=JobWorker(worker_store, reg).run,
+        args=(stop,),
+        kwargs={"poll_seconds": 0.05, "gate": gate},
+    )
+    t.start()
+    try:
+        enqueue(store, "ping")
+        assert not done.wait(0.4), "worker claimed a job while the gate was raised"
+        gate.clear()
+        assert done.wait(5), "worker never ran the job after the gate fell"
+    finally:
+        stop.set()
+        t.join(5)
+        worker_store.close()
+    assert not t.is_alive()
+
+
+def test_run_loop_stops_promptly_while_the_gate_is_raised(store):
+    reg = HandlerRegistry()
+    reg.register("ping", lambda job, ctx: None)
+    stop = threading.Event()
+    gate = threading.Event()
+    gate.set()
+    worker_store = Store(store.path)
+    t = threading.Thread(
+        target=JobWorker(worker_store, reg).run,
+        args=(stop,),
+        kwargs={"poll_seconds": 0.05, "gate": gate},
+    )
+    t.start()
+    time.sleep(0.1)
+    assert t.is_alive()  # still looping while gated, not dead from an unknown kwarg
+    stop.set()
+    t.join(5)
+    worker_store.close()
     assert not t.is_alive()
 
 
