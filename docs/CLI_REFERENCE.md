@@ -1,6 +1,6 @@
 # CLI Reference
 
-All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd>` (below shown without the prefix). Global flags: `--version`, `--check-deps` (print optional dependency status). Verified against the argparse definitions in `plugins/entropicmem/scripts/entropicmem.py`: 35 top-level commands.
+All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd>` (below shown without the prefix). Global flags: `--version`, `--check-deps` (print optional dependency status). Verified against the argparse definitions in `plugins/entropicmem/scripts/entropicmem.py`: 36 top-level commands.
 
 ## Vault & knowledge loop
 
@@ -25,6 +25,7 @@ All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd
 | `recall "[<q>]" [--top-k N] [--domain D] [--scope own\|shared\|all] [--type fact\|episodic] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--related ENTROPIC_ID] [--reflect]` | Fact search. `--type episodic --since/--until` gives a dated timeline; `--related` walks the triples graph; `--reflect` adds an agent reflection summary |
 | `forget --confirm <entropic_id>` | Delete fact + vault note (requires `--confirm`, auto-backup first) |
 | `memory stats` | Engine statistics |
+| `stats` | Engine statistics (the `memory stats` shortcut — also reachable as `hermes entropicmem stats`, EM-408) |
 | `memory list [--domain D] [--limit N]` | List facts |
 | `memory project` | Materialize facts into vault notes |
 | `memory reindex` | Rebuild `facts_fts` from `facts`, repair orphan rows |

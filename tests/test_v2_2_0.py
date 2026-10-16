@@ -290,6 +290,8 @@ def test_cli_has_episode_and_triple_routes():
 
 
 def test_cli_recall_episodic_parser():
-    src = (_SCRIPTS / "entropicmem.py").read_text(encoding="utf-8")
+    # EM-408: the argparse tree moved from entropicmem.py into em/cli/parser.py
+    # (shared by the standalone CLI and the `hermes entropicmem` mount).
+    src = (_SCRIPTS / "em" / "cli" / "parser.py").read_text(encoding="utf-8")
     assert "--type" in src and "--since" in src and "--until" in src
     assert 'choices=["fact", "episodic"]' in src

@@ -190,12 +190,12 @@ Five cooperating layers, full model in [docs/MEMORY_MODEL.md](docs/MEMORY_MODEL.
 
 ## Commands
 
-35 top-level commands in 10 groups. Full reference: [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md). Invocations use `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <command>`.
+36 top-level commands in 10 groups. Full reference: [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md). Invocations use `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <command>`.
 
 | Group | Commands |
 |-------|----------|
 | Vault & knowledge | `init`, `ingest`, `ingest-pile`, `query`, `note`, `research`, `lint`, `moc`, `hotcache`, `open` |
-| Memory engine | `remember`, `recall`, `forget --confirm`, `memory stats/list/project/reindex`, `extract`, `reinforce`, `history`, `consolidate --confirm` |
+| Memory engine | `remember`, `recall`, `forget --confirm`, `memory stats/list/project/reindex` (`stats` shortcut), `extract`, `reinforce`, `history`, `consolidate --confirm` |
 | Episodic & triples | `episode add/list/stats`, `triple extract/list/stats/neighbors/path/inconsistencies` |
 | Index & graph | `index rebuild/status`, `graph export/serve/show` |
 | Vectors & time | `embed --rebuild`, `timeline` |
