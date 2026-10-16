@@ -6,9 +6,11 @@ new physics, SVG glow defs, LOD, and modal enhancements, and that the
 inline JavaScript still parses cleanly.
 """
 
+import base64
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -335,3 +337,22 @@ class TestExportSchemaStable:
             edge = data["edges"][0]
             for field in ("source", "target", "weight", "kind"):
                 assert field in edge, f"edge field '{field}' missing"
+
+
+def test_the_exported_html_carries_the_branded_favicon(populated_index):
+    """The export is self-contained, so its favicon is an inlined 64×64 PNG —
+    the EntropicMem mark. A missing substitution would ship the raw placeholder;
+    a wrong payload would ship a broken tab icon."""
+    _, index = populated_index
+    out = Path(tempfile.mkdtemp()) / "graph.html"
+    html = export_html(index, out, max_nodes=50)
+
+    assert '<link rel="icon"' in html, "the template must carry a favicon link"
+    assert "__ENTROPICMEM_FAVICON__" not in html, "the placeholder must be substituted"
+    match = re.search(r'<link rel="icon"[^>]*href="(data:image/png;base64,[^"]+)"', html)
+    assert match, "the favicon must be a data URI (the export is one file)"
+
+    payload = base64.b64decode(match.group(1).split(",", 1)[1])
+    assert payload[:8] == b"\x89PNG\r\n\x1a\n", "the favicon payload must be a PNG"
+    width, height = struct.unpack(">II", payload[16:24])
+    assert (width, height) == (64, 64), f"expected the 64×64 mark, got {width}×{height}"
