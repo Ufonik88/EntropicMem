@@ -1268,7 +1268,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2770 passed / 4 skipped / 2 xfailed** (CI, 3.12 expected triple — **2769 / 4 / 2 read green from the job log at `c30aa54`**, the F-004 landing whose branch tip carries its own runs, **+1 the content-ceiling draft's docs-links case**, the derivation not a fresh read; the prior CI-read figure was 2755/4/3 at `6fe2a4b`) |
+| Tests | `python -m pytest -q` | **2770 passed / 4 skipped / 2 xfailed** (CI, 3.12 — read green from the job log at `d92503d`: `c30aa54` read 2769/4/2, and the merged content-ceiling draft's new md file adds exactly one `tests/test_docs_links.py` case, so the earlier +1 derivation is **verified by a fresh read**, not just derived; the prior CI-read figure was 2755/4/3 at `6fe2a4b`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
@@ -1276,14 +1276,16 @@ not.**
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
 `ENTROPICMEM_INDEX_DB` unset. **The 2770 / 4 / 2 figure is CI's expected triple**
-(extras + numpy + the private digest list as the repository secret; 2769/4/2 was
-read green from the job log at `c30aa54` — the F-004 landing, xfail pair 2 since
-that flip — and the drafted content-ceiling card adds one
-`tests/test_docs_links.py` case, derivation not a fresh read) and is the
+(extras + numpy + the private digest list as the repository secret; read green
+from the job log at `d92503d` — the merge of the F-004 landing and the
+content-ceiling draft; `c30aa54` read 2769/4/2 and the draft's new md file
+added exactly one `tests/test_docs_links.py` case — and is the
 reference a pre-flight run is checked against. This box's scratch venv
 (`.venv311`, no fastapi/httpx/
 cryptography/numpy) reads **2694 passed / 16 skipped / 2 xfailed** expected
-(**2693 measured** at `c30aa54`) — the missing
+(**2693 was the local bare measurement at `c30aa54`**; the merged ceiling
+draft's md file adds the one parametrized docs-links case) under the same
+extra-set accounting that had CI at 2755 with the local bare at 2679 — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the 50k AC's reds — on `3dcb35f` and the 2026-10-15 3.13 leg —
 are now fixed by statistic: the guard reads the best of five windows, `dc3c77a`).
