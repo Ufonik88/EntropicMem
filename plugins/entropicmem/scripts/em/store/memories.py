@@ -655,6 +655,34 @@ class MemoryStore:
         seq = audit_append(self._conn, "set_status", actor, memory_id, {"from": current, "to": status, "reason": reason})
         return WriteResult(ok=True, id=memory_id, status=status, decision="updated", reason_code=reason, audit_seq=seq)
 
+    def set_trust_flags(
+        self, memory_id: str, flags: Sequence[str], *, actor: str, reason: str = "trust_flag"
+    ) -> WriteResult:
+        """Replace a row's trust flags (EM-503's conflict marker) and audit it.
+
+        Flags are *metadata*, not content: no version row is written, because
+        the §3.4 "no overwrite without a version row" rule is about content.
+        The audit record is the durable decision trail.
+        """
+        row = self._conn.execute(
+            "SELECT id, status FROM memories WHERE id=?", (memory_id,)
+        ).fetchone()
+        if row is None:
+            return WriteResult(ok=False, decision="blocked", reason_code="not_found")
+        clean = [str(flag) for flag in flags]
+        now = to_iso(utc_now())
+        self._conn.execute(
+            "UPDATE memories SET trust_flags=?, updated_at=? WHERE id=?",
+            (json.dumps(clean, separators=(",", ":")), now, memory_id),
+        )
+        seq = audit_append(
+            self._conn, "trust_flags", actor, memory_id, {"flags": clean, "reason": reason}
+        )
+        return WriteResult(
+            ok=True, id=memory_id, status=row["status"], decision="updated",
+            reason_code=reason, audit_seq=seq,
+        )
+
     def _deletion_reason(self, memory_id: str) -> str:
         """Why the *latest* deletion of ``memory_id`` happened, from its
         version trail. Empty when the row was never deleted."""
