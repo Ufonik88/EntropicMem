@@ -570,11 +570,12 @@ env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_INDEX_DB -u ENTROPICMEM_VAULT_PATH \
   python3 -m pytest -q
 
 # To run the privacy collision check locally, point the guard at the list IN PLACE (never copy it
-# into the repo). Expect the skip to become a pass (locally: 2624 passed, 15 skipped, 3 xfailed).
+# into the repo). Expect the skip to become a pass (locally: 2680 passed, 15 skipped, 3 xfailed).
 env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_INDEX_DB -u ENTROPICMEM_VAULT_PATH \
-  ENTROPICMEM_PRIVACY_DIGESTS_FILE="$HOME/.hermes/attachments/privacy-digests.txt" \
+  ENTROPICMEM_PRIVACY_DIGESTS_FILE="$(ls "$HOME/.hermes/attachments/privacy-digests.txt" \
+    "$HOME/Documents/EntropicMem Dev docs/privacy-digests.txt" 2>/dev/null | head -1)" \
   ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1 python3 -m pytest -q
-# the digests file moved to ~/.hermes/attachments/ on 2026-10-17 (the old ~/Documents/"EntropicMem Dev docs/" path is retired); on a box without the file, drop REQUIRE=1 — the check skips by default and fails closed under REQUIRE=1
+# the digests file is at ~/.hermes/attachments/ on the owner's box and still at ~/Documents/"EntropicMem Dev docs/" on the OpenCode box; the command picks whichever exists. On a box without the file, drop REQUIRE=1 — the check skips by default and fails closed under REQUIRE=1
 
 # CI pins ruff==0.16.2. A newer local ruff disagrees in both directions, so use the pin.
 uv venv --seed /tmp/ruff-parity

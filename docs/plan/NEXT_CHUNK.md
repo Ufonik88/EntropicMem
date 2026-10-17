@@ -17,7 +17,7 @@
 
 **Plan exactly one chunk.** Two commits: code+tests+CHANGELOG, then docs with the reconciliation folded in. `MASTER_TODO`'s `In flight` names no commit; `Last reconciled` names a permanent ancestor. **Verify CI with the check-runs API on the exact SHA** (`ghx api repos/Ufonik88/EntropicMem/commits/<sha>/check-runs`), never `ghx run list --branch main --limit 1`.
 
-**The master plan lives outside the repo, on the owner's machine — current location `~/.hermes/attachments/EntropicMem_v3_Master_Plan.md`** (moved 2026-10-17 from the retired `~/Documents/EntropicMem Dev docs/` path; check there if it moves again). EM-301…EM-306 plus §3.6/§4 are transcribed into `REMAINING_PLAN.md` §6.2, so the repo is self-sufficient for the transcribed parts.
+**The master plan lives outside the repo, on the owner's machines — the owner's Linux box: `~/.hermes/attachments/EntropicMem_v3_Master_Plan.md`; the OpenCode box: `~/Documents/EntropicMem Dev docs/EntropicMem_v3_Master_Plan.md`** (the folder retired on the owner's box on 2026-10-17 but is still present on the OpenCode box, so check both). EM-301…EM-306 plus §3.6/§4 are transcribed into `REMAINING_PLAN.md` §6.2, so the repo is self-sufficient for the transcribed parts.
 
 ---
 
