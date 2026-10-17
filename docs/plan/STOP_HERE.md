@@ -24,8 +24,9 @@ changed**: the episodes read rule is exact-bucket (no profile-wide half), so a
 profile-wide episode is under-read (never over-read) for a user-mode caller —
 its semantic call rides the cutover card. **The v3 cutover is unblocked on the
 F-004 axis**, the draft acceptance needs no signature for a single-user
-cut-over, and the next agent work is the EM-303 prune build (its own card; the
-destructive run stays owner-signed). Concurrently, another session drafted the
+cut-over, and the next agent work was the EM-303 prune build (its own card;
+the destructive run stays owner-signed) — **it landed the same day
+(`99151d3`)**. Concurrently, another session drafted the
 **remember content ceiling card** (`docs/plan/CONTENT_CEILING_CARD_DRAFT.md`,
 from a live silent-truncation incident) — it awaits the owner's slotting and
 the ceiling number before anything is built. The full record: `CHANGELOG.md`
@@ -98,7 +99,7 @@ re-ask it:
 | **F-004** | Agent ruled on both halves it left open: the migration rule for the ~1,700 existing profile-wide facts is **keep profile-wide** (no read-visible change — the changing half, per-author re-bucketing, would need a signed owner instruction), and the build (a)+(c) is **the first queued dev chunk, agent-owned — landed within the day (`c30aa54`): the strict xfail is flipped, the surface is pinned, and the chunk certifies that no product code was needed on the v3 line.** The draft acceptance never needs signing for a single-user cut-over. | Nothing from the owner now. |
 | **The v3 cutover** | **Still the owner's one-word go** — irreversible, touches the real store. The staged `ENTROPICMEM_V3_RETRIEVAL` default flip and the adapter-defaults unification ride that same card, so they are not separate asks. | One "go" (or "not yet") when the shadow report and the F-004 chunk are both in hand. |
 | **Releases, tags, the catalog re-pin** | Owner-gated end to end (`docs/MARKETPLACE.md`); the agent does every non-public step. | One "go" when the owner wants users on 3.0. The live catalog serves 2.8.1 today; two GitHub-UI uploads (the avatar and the social preview) only the owner can do and are separately optional. |
-| **The EM-303 prune** | Agent ruled the slot: **its own card** (the draft's recommendation), queued behind the F-004 chunk. The build is agent-owned; **the destructive run needs a later, separate owner sign-off**, and it only ever acts on a v3 store's embeddings rows — nothing exists for it to delete today. | Nothing from the owner now. |
+| **The EM-303 prune** | Agent ruled the slot: **its own card** (the draft's recommendation). **The build is DONE (landed 2026-10-17, `99151d3`) — no destructive run happened.** The handler refuses before deletion (no current model, an incomplete transition record, an unreadable clock), keeps current + previous past the grace (the test plan corrected the draft's AC2 tail: the previous model is the rollback set, demoted only by a newer completed backfill), and is `dry_run`-first. A real run only ever acts on a v3 store's embeddings rows — nothing exists for it to delete today. | **One owner sign-off for the first real destructive run** (when a store with real vector rows exists to protect — and the run should name the model set it prunes down to). |
 | **S6+** (vault & graph, security, packaging, the 3.0 release) | Recommended, not opened: **start S6 while the P0c data accrues** — it is dev-line work, it never touches the live store, and it fills the collection window. | One word from the owner ("open it"). |
 
 The owner's sole physical step is the P0c run checklist. Everything else that
@@ -108,9 +109,13 @@ ready — surfaced as explicit questions, never again as open questions.
 ## If a future session resumes
 
 Read `MASTER_TODO.md` → `docs/plan/NEXT_CHUNK.md` → `docs/plan/REMAINING_PLAN.md`.
-Since the addendum above, the next development chunk is the **EM-303 prune
-build** (its own card; the build is agent-owned, the destructive run needs a
-separate owner sign-off). The **remember content ceiling card is drafted but
-builds only when the owner opens it** (slotting + the ceiling number). Still
+Since the addendum above, that chunk **landed**: the **EM-303 prune card is
+built and merged (`99151d3`, 2026-10-17) — with no destructive run performed;
+real runs stay owner-gated** and the full record rides plan §5 and
+`NEXT_CHUNK.md` Part A. **Remember the correction the build's test plan
+arbitrated:** the previous model's rows survive the grace (the rollback set);
+only a newer completed backfill demotes them to prunable. No further chunk is
+open. The **remember content ceiling card is drafted but builds only when the
+owner opens it** (slotting + the ceiling number). Still
 never start the cutover, a release, or the prune's destructive run without an
 explicit owner instruction.
