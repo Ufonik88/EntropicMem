@@ -171,12 +171,14 @@ def test_three_seal_kinds_over_one_window_enqueue_exactly_one_job(tmp_path, monk
     assert len(jobs) == 1, "one window, one job — the ledger and the key both collapse"
     assert jobs[0]["dedupe_key"] == f"extract:window:{SESSION}:1-4"
     assert jobs[0]["status"] == "queued"
-    assert json.loads(jobs[0]["payload"]) == {
-        "session_id": SESSION,
-        "seq_start": 1,
-        "seq_end": 4,
-        "reason": "cadence",
-    }
+    payload = json.loads(jobs[0]["payload"])
+    assert payload["session_id"] == SESSION
+    assert payload["seq_start"] == 1 and payload["seq_end"] == 4
+    assert payload["reason"] == "cadence"
+    # EM-502 slice 2: the job carries the effective turn scope, not
+    # ``agent_identity`` (usually empty) — the write/read consistency contract.
+    assert payload["scope"]["profile"] == "default"
+    assert payload["scope"]["user"] == ""
 
 
 def test_a_cadence_flush_seals_the_same_window(tmp_path, monkeypatch):
@@ -403,6 +405,9 @@ def test_capture_is_off_by_default(tmp_path, monkeypatch):
 
 def test_a_build_without_the_window_handler_enqueues_nothing(tmp_path, monkeypatch):
     db = _v3_db(tmp_path)
+    # Since EM-502 this build DOES carry the handler, so the "no handler" case
+    # is simulated explicitly — the gate, not the default, is what this pins.
+    monkeypatch.setattr("em.jobs.BUILT_FORMATION_HANDLERS", frozenset(), raising=False)
     clock = _Clock()
     monkeypatch.setattr(surface, "time", clock)
     provider = _provider(
@@ -421,10 +426,19 @@ def test_a_build_without_the_window_handler_enqueues_nothing(tmp_path, monkeypat
         provider.shutdown()
 
 
-def test_the_build_ships_no_window_handler_until_em502():
-    assert em.jobs.BUILT_FORMATION_HANDLERS == frozenset(), (
-        "EM-502 adds 'extract_window' together with the handler that serves it"
-    )
+def test_the_build_ships_the_em502_window_handler():
+    """EM-502 registered both formation handlers, so EM-411's gate now passes.
+
+    Deliberate repoint: this test used to pin the *pre-EM-502* state (an empty
+    set). The changed surface's claim is now the opposite — the handlers exist
+    and the registry builds them.
+    """
+    from em.jobs.registry import KNOWN_JOB_TYPES
+
+    assert em.jobs.BUILT_FORMATION_HANDLERS == frozenset(
+        {"extract_window", "extract_session"}
+    ), "EM-502 ships both formation handlers together with the job types"
+    assert {"extract_window", "extract_session"} <= set(KNOWN_JOB_TYPES)
 
 
 # --- the soft edges ---------------------------------------------------------
