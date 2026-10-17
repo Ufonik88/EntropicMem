@@ -13,7 +13,7 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
-**Last reconciled:** 2026-10-17, against branch `main` at `1f88e8f` — EM-502 slice 2's extraction jobs and scope-carried writes atop slice 1 on the
+**Last reconciled:** 2026-10-17, against branch `main` at `597aac8` — EM-503's reconciliation and commit policy atop EM-502 slice 2 on the
 **branch-first landing of EM-412's query-embedding wiring** (`em-412-query-embedding`:
 the query embedding is wired into the v3 read paths behind `embeddings.enabled` —
 one fail-soft **`QueryEmbedder`** seam (`em/embeddings/query.py`) built lazily by
@@ -27,10 +27,10 @@ for another model, `Retrieval.diagnostics` carries them, and the search payload 
 `diagnostics` only when non-empty; cosine stays off; flag-off and v2 paths
 byte-identical; 15 new tests; **7 mutation checks all red**). The tree
 was verified on this box (**bare
-2661 / 16 / 3**; with the digest list **2662 / 15 / 3**; CI-equivalent 3.12
-**2739 / 2 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
+2670 / 16 / 3**; with the digest list **2671 / 15 / 3**; CI-equivalent 3.12
+**2748 / 2 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
 SHA after **all 11 CI jobs were green on it**; the current tree's CI 3.12 count
-is **2737 / 4 / 3** (read at `1f88e8f`). Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
+is **2746 / 4 / 3** (read at `597aac8`). Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
 `initialize` starts the background **`JobWorker`** on v3 stores — primary
 sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
 (default true), bounded there by a `jobs.cron_budget_s` (default 120) timer
@@ -642,19 +642,19 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing in flight — EM-502 slice 2, the extraction jobs and the scope-carried
-write, landed on `main` as `1f88e8f` by the branch-first path (`2468e4e` test
-(red) + `4a8a4c2` implementation + `1f88e8f` fix; pushed, all 11 CI jobs green on
-the exact SHA, then `git merge --ff-only`; the branch is deleted).** The tree was
-verified on this box (bare **2661 / 16 / 3**; digest-list **2662 / 15 / 3**;
-CI-equivalent 3.12 **2739 / 2 / 3**; `ruff==0.16.2` clean). Its record is in §5,
-START HERE, and the note above. **S5 is the active sprint: EM-501 and both
-EM-502 slices are done; EM-503 (reconciliation & commit policy) is next, and
-EM-502's extracted candidates are already quarantined pending for it.** The
-remaining recorded-owed candidates stay: the EM-303 prune follow-up (own-card
-recommendation in `docs/plan/PRUNE_CARD_DRAFT.md`) and the adapter/eval gate
-(decided: the split stays, plan §9 item 4). P0c's data still waits on the
-owner's host.**
+**Nothing in flight — EM-503, reconciliation and the commit policy, landed on
+`main` as `597aac8` by the branch-first path (`ca463a0` test (red) + `597aac8`
+implementation; pushed, all 11 CI jobs green on the exact SHA, then
+`git merge --ff-only`; the branch is deleted).** The tree was verified on this
+box (bare **2670 / 16 / 3**; digest-list **2671 / 15 / 3**; CI-equivalent 3.12
+**2748 / 2 / 3**; `ruff==0.16.2` clean). Its record is in §5, START HERE, and
+the note above. **S5's core is on `main`: EM-501, both EM-502 slices and
+EM-503's decision/apply engine. The remaining S5 wiring is EM-503's top-5
+neighbour retrieval plus a reconcile pass over the pending queue, then the S5
+exit criteria.** The remaining recorded-owed candidates stay: the EM-303 prune
+follow-up (own-card recommendation in `docs/plan/PRUNE_CARD_DRAFT.md`) and the
+adapter/eval gate (decided: the split stays, plan §9 item 4). P0c's data still
+waits on the owner's host.**
 
 **`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
 and, on top, the EM-404 landings — slice 1 (`381197f`), slice 2 (`e5e54ef`) and the
@@ -812,6 +812,16 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   refuses a scope-less job; both types join `KNOWN_JOB_TYPES` and
   `BUILT_FORMATION_HANDLERS`, opening EM-411's capture gate. Scope-consistency
   test included. 8 tests; 6 mutation checks red. **Next: EM-503.**
+- **EM-503 landed (2026-10-17, `597aac8`): reconciliation and the commit policy.**
+  `em/formation/reconcile.py` — the deterministic decision engine (NOOP /
+  SUPERSEDE by changed attribute / UPDATE by ≥ 0.92 cosine with equal
+  numbers+negations / ADD), the C.2 model path (CONFLICT is the model's unsure
+  verdict), the §3.7 step-3 commit policy, and `apply_decision` over the store's
+  versioned writes; `MemoryStore.set_trust_flags` records conflicts. The rule
+  path scores **≥ 0.9** on the `update` and `contradiction` categories of
+  `evals/datasets/reconcile.jsonl` (29 synthetic cases). 9 tests; 6 mutation
+  checks red. **Next: the wiring (top-5 neighbour retrieval + a reconcile pass
+  over the pending queue), then the S5 exit criteria.**
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
   identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
   test that prints its full distribution, a document-control guard that
@@ -989,14 +999,14 @@ line there.**
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
 3. **Pre-flight:** the counts, each the command's own output — CI's `test` job
-   (3.12): `pytest -q tests/` → **2737 passed / 4 skipped / 3 xfailed** (read
-   2026-10-17 from the job log at `1f88e8f`, with the extra set
+   (3.12): `pytest -q tests/` → **2746 passed / 4 skipped / 3 xfailed** (read
+   2026-10-17 from the job log at `597aac8`, with the extra set
    fastapi/httpx/cryptography/pyyaml, numpy, and the private digest list as the
    repository secret); this box bare: `.venv311/bin/python -m pytest -q` →
-   **2661 / 16 / 3**; with the digest list in place:
+   **2670 / 16 / 3**; with the digest list in place:
    `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… .venv311/bin/python -m pytest -q`
-   → **2662 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
-   → **2739 / 2 / 3** — the environment, not the tree. The 77-passed gap is
+   → **2671 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
+   → **2748 / 2 / 3** — the environment, not the tree. The 77-passed gap is
    per-module accounted in NEXT_CHUNK's pre-flight (67 fastapi + 7 cryptography
    + 2 numpy + 1 privacy). `git merge-base --is-ancestor 4eb8097 HEAD` proves
    the base.
@@ -1205,17 +1215,17 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2737 passed / 4 skipped / 3 xfailed** (CI, 3.12 at `1f88e8f`) |
+| Tests | `python -m pytest -q` | **2746 passed / 4 skipped / 3 xfailed** (CI, 3.12 at `597aac8`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2737 / 4 / 3 figure is CI's** (extras + numpy +
+`ENTROPICMEM_INDEX_DB` unset. **The 2746 / 4 / 3 figure is CI's** (extras + numpy +
 the private digest list as the repository secret) and is the reference a pre-flight
 run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
-cryptography/numpy) reads **2661 passed / 16 skipped / 3 xfailed** — the missing
+cryptography/numpy) reads **2670 passed / 16 skipped / 3 xfailed** — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the 50k AC's reds — on `3dcb35f` and the 2026-10-15 3.13 leg —
 are now fixed by statistic: the guard reads the best of five windows, `dc3c77a`).
