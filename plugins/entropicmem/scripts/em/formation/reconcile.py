@@ -29,6 +29,7 @@ index. `reconcile_candidate` is the one entry point: decide, apply, audit.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 from collections import Counter
@@ -55,7 +56,9 @@ __all__ = [
     "commit_policy",
     "decide",
     "extract_attribute",
+    "find_neighbours",
     "reconcile_candidate",
+    "reconcile_pending",
     "token_cosine",
 ]
 
@@ -71,6 +74,7 @@ DEFAULT_MIN_CONFIDENCE = 0.75
 DEFAULT_AUTO_COMMIT_KINDS = ("preference", "profile", "constraint", "procedure", "fact")
 CONFLICT_PREFIX = "conflict:"
 RECONCILE_ACTOR = "reconcile"
+logger = logging.getLogger(__name__)
 
 #: The §3.7 attribute detector: ``<subject> <copula|preference|location|cost> <value>``.
 _ATTRIBUTE = re.compile(
@@ -438,3 +442,84 @@ def reconcile_candidate(
     resolved = plan if plan is not None else commit_policy(candidate)
     outcome = apply_decision(conn, candidate, decision, scope=scope, plan=resolved, actor=actor)
     return decision, outcome
+
+
+def find_neighbours(
+    conn, scope: Scope, content: str, *, limit: int = 5
+) -> List[Dict[str, Any]]:
+    """The top-*limit* active memories in *scope* related to *content*.
+
+    Uses the retrieval pipeline's own generators and rerank
+    (``with_gate=False``) — the same BM25 + vector + entity seam the read path
+    uses — then loads the rows' content and hash. A retrieval failure is a miss,
+    never a raise: this runs in a background pass, and a bad index must not kill
+    the queue.
+    """
+    text = (content or "").strip()
+    if not text:
+        return []
+    from ..retrieval.pipeline import retrieve
+
+    try:
+        result = retrieve(conn, scope=scope, query=text, with_gate=False)
+    except Exception:  # pragma: no cover - a broken index is a miss, not a crash
+        logger.debug("reconcile neighbour retrieval failed", exc_info=True)
+        return []
+    ids: List[str] = []
+    for ranking in getattr(result, "rankings", []):
+        if getattr(ranking, "owner_type", "") == "memory":
+            ids.append(str(ranking.owner_id))
+    ids = list(dict.fromkeys(ids))[: max(0, int(limit))]
+    if not ids:
+        return []
+    marks = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"SELECT id, content, content_hash FROM memories WHERE id IN ({marks})", tuple(ids)
+    ).fetchall()
+    by_id = {str(row["id"]): dict(row) for row in rows}
+    return [by_id[mid] for mid in ids if mid in by_id]
+
+
+def reconcile_pending(
+    conn,
+    scope: Scope,
+    *,
+    commit: Optional[Mapping[str, Any]] = None,
+    limit: int = 100,
+    llm: Any = None,
+) -> List[Dict[str, Any]]:
+    """Reconcile every pending extracted candidate in *scope* (idempotent).
+
+    The wiring half of EM-503: for each candidate, retrieve its neighbours,
+    decide, apply the store's versioned write, and record the audit row.
+    ``commit`` is the typed config's policy block
+    (``auto_commit_min_confidence`` / ``auto_commit_kinds`` /
+    ``pending_ttl_days``) carried by the job; absent, the module defaults apply.
+    """
+    policy = dict(commit or {})
+    min_confidence = float(policy.get("min_confidence", DEFAULT_MIN_CONFIDENCE))
+    kinds = tuple(policy.get("kinds") or DEFAULT_AUTO_COMMIT_KINDS)
+    ttl = int(policy.get("ttl_days", 30))
+    store = MemoryStore(conn)
+    pending = [
+        row
+        for row in store.list(scope=scope, status=("pending",), limit=max(1, int(limit)))
+        if str(row.get("source") or "") == "auto_extracted"
+    ]
+    report: List[Dict[str, Any]] = []
+    for row in pending:
+        neighbours = find_neighbours(conn, scope, str(row.get("content") or ""))
+        plan = commit_policy(
+            row, min_confidence=min_confidence, kinds=kinds, pending_ttl_days=ttl
+        )
+        decision, outcome = reconcile_candidate(
+            conn, row, neighbours, scope=scope, plan=plan, llm=llm
+        )
+        report.append(
+            {
+                "id": str(row.get("id") or ""),
+                "decision": decision.decision,
+                "status": outcome.get("status", ""),
+            }
+        )
+    return report

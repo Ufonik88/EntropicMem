@@ -22,14 +22,18 @@ means a bad extractor cannot silently publish.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, Dict, Iterable, List, Optional
 
+from ..clock import to_iso, utc_now
 from ..jobs.worker import PermanentJobError
 from ..store.episodes import EpisodeStore
+from ..store.jobs import JobQueue
 from ..store.memories import MemoryStore
 from ..store.types import MemoryDraft, Scope
 from .extract import Turn
 from .extract import extract_window as extract_window_candidates
+from .reconcile import reconcile_pending
 
 __all__ = [
     "EXTRACT_ACTOR",
@@ -37,6 +41,7 @@ __all__ = [
     "EXTRACT_WINDOW",
     "make_extract_session_handler",
     "make_extract_window_handler",
+    "make_reconcile_handler",
     "scope_from_payload",
 ]
 
@@ -70,6 +75,28 @@ def scope_from_payload(payload: Dict[str, Any]) -> Scope:
     )
 
 
+def _commit_block(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """The typed config's commit-policy block carried by the job (or empty)."""
+    raw = payload.get("commit")
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _ttl_days(payload: Dict[str, Any]) -> int:
+    try:
+        return max(0, int(_commit_block(payload).get("ttl_days", 30)))
+    except (TypeError, ValueError):
+        return 30
+
+
+def _enqueue_reconcile(conn, payload: Dict[str, Any], scope: Scope) -> None:
+    """Queue one reconcile pass for this scope (dedupe: one pass per scope)."""
+    JobQueue(conn).enqueue(
+        "reconcile",
+        {"scope": payload.get("scope") or {}, "commit": _commit_block(payload)},
+        dedupe_key=f"reconcile:{scope.profile}:{scope.user}:{scope.chat}",
+    )
+
+
 def _turns(rows: Iterable[Dict[str, Any]]) -> List[Turn]:
     return [
         Turn(
@@ -90,6 +117,7 @@ def _write_candidates(
     session_id: str,
     origin: str,
     confidence_cap: Optional[float] = None,
+    pending_ttl_days: int = 30,
 ) -> int:
     """Quarantine each candidate as a pending memory; return how many were new.
 
@@ -126,6 +154,9 @@ def _write_candidates(
             tags=tags,
             status="pending",
             pending_reason="extracted",
+            pending_expires_at=to_iso(
+                utc_now() + timedelta(days=max(0, int(pending_ttl_days)))
+            ),
             legacy_id="",
             visibility="",
         )
@@ -165,13 +196,16 @@ def make_extract_window_handler():
         if not ctx.heartbeat():
             return  # another worker owns the job; it will run (at-least-once)
         with ctx.store.transaction() as conn:
-            _write_candidates(
+            written = _write_candidates(
                 conn,
                 candidates,
                 scope=scope,
                 session_id=session_id,
                 origin="auto_extracted",
+                pending_ttl_days=_ttl_days(payload),
             )
+            if written:
+                _enqueue_reconcile(conn, payload, scope)
 
     return handle
 
@@ -211,13 +245,27 @@ def make_extract_session_handler():
         if not ctx.heartbeat():
             return
         with ctx.store.transaction() as conn:
-            _write_candidates(
+            written = _write_candidates(
                 conn,
                 candidates,
                 scope=scope,
                 session_id=session_id,
                 origin=source,
                 confidence_cap=confidence_cap,
+                pending_ttl_days=_ttl_days(payload),
             )
+            if written:
+                _enqueue_reconcile(conn, payload, scope)
+
+    return handle
+
+
+def make_reconcile_handler():
+    """Handler for ``reconcile``: drain this scope's pending extracted candidates."""
+
+    def handle(job, ctx) -> None:
+        scope = scope_from_payload(job.payload)
+        with ctx.store.transaction() as conn:
+            reconcile_pending(conn, scope, commit=_commit_block(job.payload))
 
     return handle

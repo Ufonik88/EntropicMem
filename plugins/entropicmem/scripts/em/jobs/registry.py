@@ -27,6 +27,7 @@ KNOWN_JOB_TYPES = (
     "retract_turns",
     "extract_window",
     "extract_session",
+    "reconcile",
 )
 
 
@@ -64,6 +65,10 @@ def build_registry(
             registry.register("extract_window", make_extract_window_handler())
         if "extract_session" in selected:
             registry.register("extract_session", make_extract_session_handler())
+    if "reconcile" in selected:
+        from ..formation.extract_jobs import make_reconcile_handler
+
+        registry.register("reconcile", make_reconcile_handler())
     if "embed" in selected or "embed_backfill" in selected:
         from ..embeddings.jobs import make_embed_backfill_handler, make_embed_handler
         from ..embeddings.service import EmbeddingService

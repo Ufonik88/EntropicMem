@@ -829,6 +829,20 @@ class EntropicMemProvider(ToolHandlers):
             "is_owner": scope.is_owner,
         }
 
+    def _commit_policy_payload(self) -> Dict[str, Any]:
+        """The typed config's §3.7 step-3 policy, for the reconcile pass.
+
+        The worker has no provider config; carrying the three values on the job
+        is how ``formation.auto_commit_min_confidence`` / ``auto_commit_kinds`` /
+        ``pending_ttl_days`` reach the background pass.
+        """
+        formation = self._typed_config.formation
+        return {
+            "min_confidence": float(formation.auto_commit_min_confidence),
+            "kinds": list(formation.auto_commit_kinds),
+            "ttl_days": int(formation.pending_ttl_days),
+        }
+
     def _prefetch_service_for_turn(self):
         """``PrefetchService`` for this turn, or ``None`` — the chunk-35 gate.
 
@@ -1085,6 +1099,7 @@ class EntropicMemProvider(ToolHandlers):
             session = self._session_id or ""
             if self._state.window_session != session:
                 self._restore_window_ledger(session)
+            start_seq = self._state.window_seq
             counted = (1 if user_text else 0) + (1 if assistant_text else 0)
             with self._prefetch_lock:
                 if user_text:
@@ -1101,6 +1116,12 @@ class EntropicMemProvider(ToolHandlers):
                 self._state.window_turns += 1
                 self._state.window_chars += len(user_text) + len(assistant_text)
             self._persist_window_ledger()
+            # §4.1: append this turn's redacted user/assistant text to the
+            # transcript, so a sealed window has something to extract. The seq
+            # range matches the window ledger's message positions.
+            self._capture_turn_chunks(
+                session, start_seq, user_text, assistant_text, turn_author
+            )
 
         # Auto-extract facts from conversation (non-blocking, regex-based)
         if self._config.get("auto_extract_enabled", False) and self._memory_db and self._scripts_dir:
@@ -1130,6 +1151,57 @@ class EntropicMemProvider(ToolHandlers):
                 )
             except Exception as e:
                 logger.debug("EntropicMem auto-extract failed: %s", e)
+
+    def _capture_turn_chunks(
+        self,
+        session_id: str,
+        start_seq: int,
+        user_text: str,
+        assistant_text: str,
+        turn_author: Optional[Dict[str, Any]],
+    ) -> None:
+        """Append this turn's messages to ``transcript_chunks`` (v3 only, fail-soft).
+
+        §4.1's ``sync_turn`` row: the window capture (EM-411) seals *message*
+        ranges (``window_seq``), and the extraction job (EM-502) reads them back
+        from the transcript. Without this write a sealed window has nothing to
+        extract; with it, the seq range the ledger records is exactly the chunks
+        written here (the first message's seq is ``start_seq + 1``). A v2 store
+        has no ``transcript_chunks`` table, so this is a quiet no-op there, and
+        a capture failure never fails the turn.
+        """
+        if not (self._memory_db and session_id and (user_text or assistant_text)):
+            return
+        try:
+            if not self._v3_store():
+                return
+            from ..store.db import Store
+            from ..store.episodes import EpisodeStore
+
+            author_id = ""
+            if isinstance(turn_author, dict):
+                author_id = str(
+                    turn_author.get("id") or turn_author.get("author_id") or ""
+                )
+            messages = []
+            if user_text:
+                messages.append(
+                    {"role": "user", "content": user_text, "author_id": author_id}
+                )
+            if assistant_text:
+                messages.append({"role": "assistant", "content": assistant_text})
+            if not messages:
+                return
+            store = Store(str(self._memory_db))
+            try:
+                with store.transaction() as conn:
+                    EpisodeStore(conn).upsert_chunks(
+                        session_id, messages, "sync_turn", start_seq=int(start_seq) + 1
+                    )
+            finally:
+                store.close()
+        except Exception as e:  # a capture failure must never fail the turn
+            logger.debug("EntropicMem transcript chunk capture failed: %s", e)
 
     def _auto_extract(
         self,
@@ -1632,6 +1704,7 @@ class EntropicMemProvider(ToolHandlers):
                     "source": "extracted_llm",
                     "confidence_cap": 0.6,
                     "scope": self._scope_payload(),
+                    "commit": self._commit_policy_payload(),
                 },
             )
 
@@ -2247,6 +2320,7 @@ class EntropicMemProvider(ToolHandlers):
                     "seq_end": end,
                     "reason": reason,
                     "scope": self._scope_payload(),
+                    "commit": self._commit_policy_payload(),
                 },
                 dedupe_key=key,
             )
