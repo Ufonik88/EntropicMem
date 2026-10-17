@@ -32,11 +32,11 @@ The S5 code tip is `d331c5e`; the docs reconciliation rides on top of it.
 
 ## Verification at the stop point
 
-- **CI 3.12: 2754 passed / 4 skipped / 3 xfailed** (11/11 jobs green on the exact
+- **CI 3.12: 2755 passed / 4 skipped / 3 xfailed** (11/11 jobs green on the exact
   tip; read from the check-runs API, not `run list`).
-- Bare `.venv311`: **2678 / 16 / 3**.
-- Digest list in place: **2679 / 15 / 3**.
-- CI-equivalent 3.12 (extras + digest): **2756 / 2 / 3**.
+- Bare `.venv311`: **2679 / 16 / 3**.
+- Digest list in place: **2680 / 15 / 3**.
+- CI-equivalent 3.12 (extras + digest): **2757 / 2 / 3**.
 - `ruff==0.16.2` clean; the docs guards (document-control, links, cited SHAs, CLI
   drift) green.
 - The 3 xfails are the pre-existing `F-004` / `F-008a` / `F-009` in

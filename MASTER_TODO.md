@@ -43,10 +43,10 @@ for another model, `Retrieval.diagnostics` carries them, and the search payload 
 `diagnostics` only when non-empty; cosine stays off; flag-off and v2 paths
 byte-identical; 15 new tests; **7 mutation checks all red**). The tree
 was verified on this box (**bare
-2678 / 16 / 3**; with the digest list **2679 / 15 / 3**; CI-equivalent 3.12
-**2756 / 2 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
+2679 / 16 / 3**; with the digest list **2680 / 15 / 3**; CI-equivalent 3.12
+**2757 / 2 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
 SHA after **all 11 CI jobs were green on it**; the current tree's CI 3.12 count
-is **2754 / 4 / 3** (read at `d331c5e`). Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
+is **2755 / 4 / 3** (read at `d331c5e`). Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
 `initialize` starts the background **`JobWorker`** on v3 stores — primary
 sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
 (default true), bounded there by a `jobs.cron_budget_s` (default 120) timer
@@ -661,8 +661,8 @@ the owner's deliberate act, now technically available.
 **Nothing in flight — S5 is complete and development stops here (2026-10-17).**
 The last landing is the EM-503 wiring + the `sync_turn` transcript capture
 (`d331c5e`), which closes the formation chain: extract → quarantine → reconcile
-→ commit. The tree was verified on this box (bare **2678 / 16 / 3**; digest-list
-**2679 / 15 / 3**; CI-equivalent 3.12 **2756 / 2 / 3**; `ruff==0.16.2` clean).
+→ commit. The tree was verified on this box (bare **2679 / 16 / 3**; digest-list
+**2680 / 15 / 3**; CI-equivalent 3.12 **2757 / 2 / 3**; `ruff==0.16.2` clean).
 **The S5 exit criteria are met** — the session-1 → session-2 learning harness
 runs the rule path with no LLM, and the extraction F1 harness is measured. **No
 chunk is queued.** Everything left is owner-gated: P0c's data, the cutover
@@ -840,8 +840,8 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   (reconciliation + commit policy, core + wiring) are on `main`, with the
   `sync_turn` transcript capture that completes the formation chain and the
   session-1 → session-2 learning harness that proves the exit criteria. Counts
-  at the stop: bare **2678 / 16 / 3**, digest **2679 / 15 / 3**, CI-equivalent
-  **2756 / 2 / 3**, CI **2754 / 4 / 3**. **No chunk is queued** — see
+  at the stop: bare **2679 / 16 / 3**, digest **2680 / 15 / 3**, CI-equivalent
+  **2757 / 2 / 3**, CI **2755 / 4 / 3**. **No chunk is queued** — see
   [docs/plan/STOP_HERE.md](docs/plan/STOP_HERE.md); the rest is owner-gated.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
   identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
@@ -1020,14 +1020,14 @@ line there.**
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
 3. **Pre-flight:** the counts, each the command's own output — CI's `test` job
-   (3.12): `pytest -q tests/` → **2754 passed / 4 skipped / 3 xfailed** (read
+   (3.12): `pytest -q tests/` → **2755 passed / 4 skipped / 3 xfailed** (read
    2026-10-17 from the job log at `d331c5e`, with the extra set
    fastapi/httpx/cryptography/pyyaml, numpy, and the private digest list as the
    repository secret); this box bare: `.venv311/bin/python -m pytest -q` →
-   **2678 / 16 / 3**; with the digest list in place:
+   **2679 / 16 / 3**; with the digest list in place:
    `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… .venv311/bin/python -m pytest -q`
-   → **2679 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
-   → **2756 / 2 / 3** — the environment, not the tree. The 77-passed gap is
+   → **2680 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
+   → **2757 / 2 / 3** — the environment, not the tree. The 77-passed gap is
    per-module accounted in NEXT_CHUNK's pre-flight (67 fastapi + 7 cryptography
    + 2 numpy + 1 privacy). `git merge-base --is-ancestor 4eb8097 HEAD` proves
    the base.
@@ -1236,17 +1236,17 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2754 passed / 4 skipped / 3 xfailed** (CI, 3.12 at `d331c5e`) |
+| Tests | `python -m pytest -q` | **2755 passed / 4 skipped / 3 xfailed** (CI, 3.12 at `d331c5e`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2754 / 4 / 3 figure is CI's** (extras + numpy +
+`ENTROPICMEM_INDEX_DB` unset. **The 2755 / 4 / 3 figure is CI's** (extras + numpy +
 the private digest list as the repository secret) and is the reference a pre-flight
 run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
-cryptography/numpy) reads **2678 passed / 16 skipped / 3 xfailed** — the missing
+cryptography/numpy) reads **2679 passed / 16 skipped / 3 xfailed** — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the 50k AC's reds — on `3dcb35f` and the 2026-10-15 3.13 leg —
 are now fixed by statistic: the guard reads the best of five windows, `dc3c77a`).
