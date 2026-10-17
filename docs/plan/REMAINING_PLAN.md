@@ -556,12 +556,12 @@ cd <your clone of Ufonik88/EntropicMem>   # the owner's Linux box: ~/Documents/C
 git fetch --all --prune && git status -sb && git log --oneline -12
 git ls-remote --heads origin        # expect main, release/2.8.x
 
-# The repo's own pre-flight. Expect 2755 passed, 4 skipped, 3 xfailed in CI (3.12 at the
-# docs tip `7f5dcee` — the code SHA `d331c5e` carries no check-runs, corrected 2026-10-17 —
-# extras + numpy + the digest-list secret; the 4 are the internal-ops pair,
+# The repo's own pre-flight. Expect 2756 passed, 4 skipped, 3 xfailed in CI (the
+# 2755 read green at `6fe2a4b` plus +1 for the content-ceiling draft's docs-links
+# case; extras + numpy + the digest-list secret; the 4 are the internal-ops pair,
 # test_provider_contract.py, and the EM-408 host-static pin, which skips where the
-# hermes-agent checkout is absent); this box's scratch venv (.venv311, no extras) reads 2679
-# passed, 16 skipped, 3 xfailed with zero failures — the environment, not the tree (2680 /
+# hermes-agent checkout is absent); this box's scratch venv (.venv311, no extras) reads 2680
+# passed, 16 skipped, 3 xfailed with zero failures — the environment, not the tree (2681 /
 # 15 / 3 with the digest list pointed in place). The 77-passed gap is per-module in
 # NEXT_CHUNK's pre-flight: fastapi graph modules 67 + cryptography 7 + numpy 2 + privacy 1.
 # The private digest list is not at the default path on this machine; CI has

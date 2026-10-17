@@ -53,6 +53,12 @@ The S5 code tip is `d331c5e`; the docs reconciliation rides on top of it.
   `image` field, and the `entropicmem_patch_core` → `…_core_memory` rename.
 - **The EM-303 prune** — its own destructive card, awaiting the owner's slot and
   sign-off (`docs/plan/PRUNE_CARD_DRAFT.md`).
+- **Drafted — the remember content ceiling** (`docs/plan/CONTENT_CEILING_CARD_DRAFT.md`):
+  raises the `remember`/`update` content cap and replaces oversize **truncation**
+  with a refusal (`invalid_arguments`). Found from a live incident on 2026-10-17
+  (a 4.3 KB remember was silently clipped to 4,000 and stored "complete").
+  Awaiting the owner's slotting decision and the ceiling number (8,000
+  recommended; 16,000 mechanized identically). Builds only when the owner opens it.
 - **S6+** — vault & graph, security, packaging, the 3.0 release: not started;
   the owner has not opened that sprint.
 

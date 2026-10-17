@@ -1020,15 +1020,15 @@ line there.**
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
 3. **Pre-flight:** the counts, each the command's own output — CI's `test` job
-   (3.12): `pytest -q tests/` → **2755 passed / 4 skipped / 3 xfailed** (read
-   2026-10-17 from the docs tip's job log — `7f5dcee`; the code SHA `d331c5e`
-   carries no check-runs of its own, corrected 2026-10-17 — with the extra set
+   (3.12): `pytest -q tests/` → **2756 passed / 4 skipped / 3 xfailed** (read
+   2026-10-17 at `6fe2a4b` as 2755/4/3, and +1 for the content-ceiling draft's
+   docs-links case — with the extra set
    fastapi/httpx/cryptography/pyyaml, numpy, and the private digest list as the
    repository secret); this box bare: `.venv311/bin/python -m pytest -q` →
-   **2679 / 16 / 3**; with the digest list in place:
+   **2680 / 16 / 3**; with the digest list in place:
    `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… .venv311/bin/python -m pytest -q`
-   → **2680 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
-   → **2757 / 2 / 3** — the environment, not the tree. The 77-passed gap is
+   → **2681 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
+   → **2758 / 2 / 3** — the environment, not the tree. The 77-passed gap is
    per-module accounted in NEXT_CHUNK's pre-flight (67 fastapi + 7 cryptography
    + 2 numpy + 1 privacy). `git merge-base --is-ancestor 4eb8097 HEAD` proves
    the base.
@@ -1237,17 +1237,19 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2755 passed / 4 skipped / 3 xfailed** (CI, 3.12 at the docs tip `7f5dcee` — the code SHA `d331c5e` carries no check-runs, corrected 2026-10-17) |
+| Tests | `python -m pytest -q` | **2756 passed / 4 skipped / 3 xfailed** (CI, 3.12; +1 is the content-ceiling draft's docs-links case — CI last ran green at 2755/4/3 on `6fe2a4b`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2755 / 4 / 3 figure is CI's** (extras + numpy +
-the private digest list as the repository secret) and is the reference a pre-flight
+`ENTROPICMEM_INDEX_DB` unset. **The 2756 / 4 / 3 figure is CI's expected triple**
+(extras + numpy + the private digest list as the repository secret; 2755/4/3 was
+the last CI-read figure at `6fe2a4b`, and the drafted content-ceiling card adds
+one `tests/test_docs_links.py` case) and is the reference a pre-flight
 run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
-cryptography/numpy) reads **2679 passed / 16 skipped / 3 xfailed** — the missing
+cryptography/numpy) reads **2680 passed / 16 skipped / 3 xfailed** — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the 50k AC's reds — on `3dcb35f` and the 2026-10-15 3.13 leg —
 are now fixed by statistic: the guard reads the best of five windows, `dc3c77a`).
