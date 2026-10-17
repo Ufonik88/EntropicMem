@@ -20,16 +20,19 @@ points at.
 **Development stops at this point.** S5 (formation & consolidation) is complete on
 `main`: **EM-501**, **EM-502** (both slices), **EM-503** (core + wiring), and the
 **S5 exit criteria** — a preference learned in session 1 is served in session 2
-with no explicit `remember`, on the rule path with no LLM configured. **There is
-no queued development chunk.** Everything that remains is **owner-gated** (P0c's
-shadow data, the v3 cutover with F-004 resolved or accepted, releases/tags/the
-catalog re-pin, the EM-303 prune) or belongs to **S6+**, which the owner has not
-started. See [docs/plan/STOP_HERE.md](docs/plan/STOP_HERE.md) for the full
+with no explicit `remember`, on the rule path with no LLM configured. **One
+queued chunk opened (the owner's go) and landed the same day: the F-004
+remediation — resolved and pinned at `c30aa54`.** The next agent-owned build is
+the **EM-303 prune card** (destructive run owner-signed later); what remains on
+the owner is **one-word gated**: P0c's shadow data, the v3 cutover (**no longer
+blocked on F-004**), releases/tags/the catalog re-pin, S6+. See
+[docs/plan/STOP_HERE.md](docs/plan/STOP_HERE.md) for the full
 stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-17, against branch `main` at `d331c5e` — the S5 completion (EM-503 wiring, the `sync_turn` transcript capture and the exit harness) atop the EM-503 core on the
+**Last reconciled:** 2026-10-17, against branch `main` at `c30aa54` — **the F-004 remediation: full per-user isolation on the v3 line, resolved and pinned** (branch-first, all 11 check-runs green on that exact SHA; the finding's strict xfail flipped onto a v3-store drive, the two-provider surface pinned beside the group-chat harness, **no product code changed**; details under In flight) atop the S5 completion (EM-503 wiring, the `sync_turn` transcript capture and
+the exit harness, `d331c5e`) atop the EM-503 core on the
 **branch-first landing of EM-412's query-embedding wiring** (`em-412-query-embedding`:
 the query embedding is wired into the v3 read paths behind `embeddings.enabled` —
 one fail-soft **`QueryEmbedder`** seam (`em/embeddings/query.py`) built lazily by
@@ -46,7 +49,7 @@ was verified on this box (**bare
 2679 / 16 / 3**; with the digest list **2680 / 15 / 3**; CI-equivalent 3.12
 **2757 / 2 / 3**; `ruff==0.16.2` clean) and `main` fast-forwarded to that exact
 SHA after **all 11 CI jobs were green on it**; the current tree's CI 3.12 count
-is **2755 / 4 / 3** (read at `d331c5e`). Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
+is **2769 / 4 / 2** (read at `c30aa54`; the xfail pair moved 3 → 2 with the F-004 flip). Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
 `initialize` starts the background **`JobWorker`** on v3 stores — primary
 sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
 (default true), bounded there by a `jobs.cron_budget_s` (default 120) timer
@@ -658,16 +661,32 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing in flight — S5 is complete and development stops here (2026-10-17).**
-The last landing is the EM-503 wiring + the `sync_turn` transcript capture
-(`d331c5e`), which closes the formation chain: extract → quarantine → reconcile
-→ commit. The tree was verified on this box (bare **2679 / 16 / 3**; digest-list
-**2680 / 15 / 3**; CI-equivalent 3.12 **2757 / 2 / 3**; `ruff==0.16.2` clean).
-**The S5 exit criteria are met** — the session-1 → session-2 learning harness
-runs the rule path with no LLM, and the extraction F1 harness is measured. **No
-chunk is queued.** Everything left is owner-gated: P0c's data, the cutover
-(F-004 resolved or explicitly accepted), releases/tags/the catalog re-pin, and
-the EM-303 prune; S6+ is not started. See `docs/plan/STOP_HERE.md`.**
+**Nothing in flight — the F-004 remediation landed (2026-10-17, `c30aa54`).**
+Branch-first (`em-f004-isolation`, one commit carrying code-effects/tests and the
+CHANGELOG line), **all 11 check-runs green on that exact SHA**, `--ff-only`;
+branch deleted. **No product code changed:** the audit found the v3 line already
+bucket-clean (writes stamp the gateway principal; `scope_sql`/`_in_scope` enforce
+own-or-profile-wide; every keyed surface re-checks its row under the caller's own
+scope), so the chunk is the certification layer. The finding's strict xfail is
+now a **passing guard driving a v3 store** (`_v3_store()` asserted on both
+providers, so it cannot silently degrade to the v2 drive), and
+`tests/harness/test_f004_shared_profile.py` pins the two-provider surface:
+write attribution, both-directions prefetch and search isolation, the five
+foreign-row refusals (`update` edit/supersede, `forget` by id and via the
+confirm token, the four `review` actions, `search` by ids), both-directions
+episode isolation, and the ruled profile-wide-sharing half. The xfail count
+moves 3 → 2. **5 mutation checks all red** (the `scope_sql` clause; the `get`
+refusal; the ids re-check; the episodes' clause; the `_in_scope` row rule
+including a two-layer combination), two absorbed single-layer probes recorded;
+the episodes exact-bucket **under-read** was discovered, recorded and pinned —
+not changed. **S5 stays complete** (the exit criteria met, `d331c5e`).
+
+**Next: the EM-303 prune build** (its own card per the slot ruling;
+`docs/plan/PRUNE_CARD_DRAFT.md` is the draft spec; agent-owned, the destructive
+run owner-signed later). Everything else is owner-gated: P0c's data, the
+cutover (**unblocked on the F-004 axis**), releases/tags/the catalog re-pin,
+and the prune's destructive-run sign-off; S6+ awaits the owner's word. See
+`docs/plan/STOP_HERE.md`'s addendum and `CHANGELOG.md` under `[Unreleased]`/Fixed.
 
 **`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
 and, on top, the EM-404 landings — slice 1 (`381197f`), slice 2 (`e5e54ef`) and the
@@ -835,13 +854,16 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
   `evals/datasets/reconcile.jsonl` (29 synthetic cases). 9 tests; 6 mutation
   checks red. **Next: the wiring (top-5 neighbour retrieval + a reconcile pass
   over the pending queue), then the S5 exit criteria.**
-- **S5 complete (2026-10-17, `d331c5e`) — and development stops here.**
+- **S5 complete (2026-10-17, `d331c5e`) — and development stopped here** *(the
+  owner opened the F-004 remediation within the day; it landed as `c30aa54` —
+  see "In flight").*
   EM-501 (the LLM backend), EM-502 (extraction, both slices) and EM-503
   (reconciliation + commit policy, core + wiring) are on `main`, with the
   `sync_turn` transcript capture that completes the formation chain and the
   session-1 → session-2 learning harness that proves the exit criteria. Counts
   at the stop: bare **2679 / 16 / 3**, digest **2680 / 15 / 3**, CI-equivalent
-  **2757 / 2 / 3**, CI **2755 / 4 / 3**. **No chunk is queued** — see
+  **2757 / 2 / 3**, CI **2755 / 4 / 3**. **No chunk was queued at the stop** —
+  see
   [docs/plan/STOP_HERE.md](docs/plan/STOP_HERE.md); the rest is owner-gated.
 - **Repo hygiene that keeps all of this honest:** privacy guard v2, commit
   identity guard, a docs-link guard, a CLI-reference drift guard, a perf smoke
@@ -1020,15 +1042,15 @@ line there.**
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
 3. **Pre-flight:** the counts, each the command's own output — CI's `test` job
-   (3.12): `pytest -q tests/` → **2755 passed / 4 skipped / 3 xfailed** (read
-   2026-10-17 from the docs tip's job log — `7f5dcee`; the code SHA `d331c5e`
-   carries no check-runs of its own, corrected 2026-10-17 — with the extra set
+   (3.12): `pytest -q tests/` → **2769 passed / 4 skipped / 2 xfailed** (read
+   2026-10-17 from the job log at `c30aa54` — the F-004 branch tip, which
+   carried its own runs — with the extra set
    fastapi/httpx/cryptography/pyyaml, numpy, and the private digest list as the
    repository secret); this box bare: `.venv311/bin/python -m pytest -q` →
-   **2679 / 16 / 3**; with the digest list in place:
+   **2693 / 16 / 2**; with the digest list in place:
    `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… .venv311/bin/python -m pytest -q`
-   → **2680 / 15 / 3**; CI-equivalent 3.12 with the extras and the digest file
-   → **2757 / 2 / 3** — the environment, not the tree. The 77-passed gap is
+   → **2694 / 15 / 2**; CI-equivalent 3.12 with the extras and the digest file
+   → **2771 / 2 / 2** — the environment, not the tree. The 77-passed gap is
    per-module accounted in NEXT_CHUNK's pre-flight (67 fastapi + 7 cryptography
    + 2 numpy + 1 privacy). `git merge-base --is-ancestor 4eb8097 HEAD` proves
    the base.
@@ -1237,7 +1259,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2755 passed / 4 skipped / 3 xfailed** (CI, 3.12 at the docs tip `7f5dcee` — the code SHA `d331c5e` carries no check-runs, corrected 2026-10-17) |
+| Tests | `python -m pytest -q` | **2769 passed / 4 skipped / 2 xfailed** (CI, 3.12 read from the job log 2026-10-17 at `c30aa54` — that SHA carries its own runs; the xfail pair is 2 since the F-004 flip) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
@@ -1312,21 +1334,17 @@ because it is irreversible or public:
   next re-pin. The same note covers the dev line's manifest breadth:
   `provides_tools` is 9 and `provides_hooks` 6 on `main` (EM-404's 7 → 9; EM-405's
   5 → 6, `e483d43`) while the live entry matches the 2.8.1 tag's 7/5 by design.)*
-- **F-004 — full per-user isolation.** *(Status 2026-10-17: the owner opened the
-  remediation chunk ("the stage is yours"); plan §9 item 9 runs: the strict xfail
-  `test_f004_cross_user_isolation` flips onto a v3-store drive — the fresh-store
-  path a shared-profile deployment takes today resolves to the v2 engine by
-  `em.facade.select`, which has no scope columns, so the post-cutover state is
-  exactly what the chunk certifies — and every v3 surface gets an alice/bob
-  isolation pin beside the group-chat harness.)*(Also §9 item 9.)**Before this
-  chunk lands the cutover must not proceed with F-004 open unless the owner
-  records the acceptance in writing.** `tests/regressions/test_findings_v27.py::test_f004_cross_user_isolation` is a
-  strict xfail: two users sharing a profile can see each other's memories (S1's
-  interim is EM-118's owner/guest guard only). v3's §3.5 scoping (EM-402) buckets
-  per turn by the author trio, but F-004's acceptance criterion is Sprint 4's
-  *full* isolation. Cutting the live store over with a known cross-user read path
-  is a privacy and correctness risk — **resolve it, or have the owner accept it
-  explicitly, before the cutover.** (Also §9 item 9.)
+- **F-004 — full per-user isolation: RESOLVED and pinned (2026-10-17, `c30aa54`), no product code changed.** The finding's strict xfail
+  `tests/regressions/test_findings_v27.py::test_f004_cross_user_isolation` is now a passing guard driving a v3 store (`_v3_store()`
+  asserted on both providers), and `tests/harness/test_f004_shared_profile.py` pins the two-provider surface: write attribution,
+  both-directions prefetch/search isolation, the five foreign-row refusals (update edit/supersede, forget by id and via the confirm
+  token, the four review actions, search by ids), episode isolation, and the ruled profile-wide-sharing half. The audit found the v3
+  line already bucket-clean — the leak the xfail documented was the v2 engine's, which has no scope columns and keeps pool semantics
+  until the owner cutover. **The migration ruling (keep profile-wide) is pinned by the harness**; the ~1,700 migrated facts stay
+  readable by the whole profile, and a single-user cut-over never needs a signed acceptance. **Recorded, not changed:** the episodes
+  read rule is exact-bucket (no profile-wide half) — a profile-wide episode is under-read (never over-read) for a user-mode caller;
+  its §3.5 semantic call rides the cutover card as a recorded decision item, never a silent default. **5 mutation checks ran red,
+  two absorbed single-layer probes recorded; each restored from a byte copy.** (Also §9 item 9, `REMAINING_PLAN`.)
 - **Nothing else at the moment.** The merge blocker that used to sit here is
   cleared: Chunks 5 and 6 are on `main` at `e25db32` with green CI on that exact
   SHA (verified via the check-run `headSha`, not assumed).
