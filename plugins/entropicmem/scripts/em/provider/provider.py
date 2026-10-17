@@ -808,6 +808,27 @@ class EntropicMemProvider(ToolHandlers):
             is_owner=base.is_owner,
         )
 
+    def _scope_payload(self) -> Dict[str, Any]:
+        """The turn's effective scope, serialized for a formation job.
+
+        **``_turn_scope()``, not ``_state.scope``, is deliberate.** The profile a
+        later read uses is ``_profile_id or 'default'``; ``_state.scope.profile``
+        is ``agent_identity``, usually empty. Serializing the latter would write
+        extracted memories into a profile no scoped read ever queries — the
+        write/read scope mismatch the extraction jobs exist to avoid.
+        """
+        scope = self._state.scope.to_scope()
+        if scope is None:
+            return {}
+        return {
+            "profile": scope.profile,
+            "user": scope.user,
+            "chat": scope.chat,
+            "chat_type": scope.chat_type,
+            "author": scope.author,
+            "is_owner": scope.is_owner,
+        }
+
     def _prefetch_service_for_turn(self):
         """``PrefetchService`` for this turn, or ``None`` — the chunk-35 gate.
 
@@ -1610,6 +1631,7 @@ class EntropicMemProvider(ToolHandlers):
                     "episode_id": episode_id,
                     "source": "extracted_llm",
                     "confidence_cap": 0.6,
+                    "scope": self._scope_payload(),
                 },
             )
 
@@ -2224,6 +2246,7 @@ class EntropicMemProvider(ToolHandlers):
                     "seq_start": start,
                     "seq_end": end,
                     "reason": reason,
+                    "scope": self._scope_payload(),
                 },
                 dedupe_key=key,
             )

@@ -5,10 +5,10 @@ One place decides which handlers a fresh worker carries, so the CLI's
 Stdlib-only (plan §3.2): the handler factories come from this repository, not
 from the host.
 
-The formation types (``extract_session`` / ``extract_window``) are
-deliberately absent: ``em.jobs.BUILT_FORMATION_HANDLERS`` ships empty until
-EM-502 registers the handler that serves them, and a worker must not claim
-work nothing can run.
+The formation types (``extract_session`` / ``extract_window``) are EM-502's:
+registered here together with ``em.jobs.BUILT_FORMATION_HANDLERS``, which is
+what lets the provider enqueue them — a worker must not claim work nothing can
+run, and the two lists must agree.
 """
 
 from __future__ import annotations
@@ -19,7 +19,15 @@ from typing import Iterable, Optional
 from .worker import HandlerRegistry
 
 #: The job types this build carries a handler for.
-KNOWN_JOB_TYPES = ("backup", "link", "embed", "embed_backfill", "retract_turns")
+KNOWN_JOB_TYPES = (
+    "backup",
+    "link",
+    "embed",
+    "embed_backfill",
+    "retract_turns",
+    "extract_window",
+    "extract_session",
+)
 
 
 def build_registry(
@@ -46,6 +54,16 @@ def build_registry(
         from ..store.retract import make_retract_handler
 
         registry.register("retract_turns", make_retract_handler())
+    if "extract_window" in selected or "extract_session" in selected:
+        from ..formation.extract_jobs import (
+            make_extract_session_handler,
+            make_extract_window_handler,
+        )
+
+        if "extract_window" in selected:
+            registry.register("extract_window", make_extract_window_handler())
+        if "extract_session" in selected:
+            registry.register("extract_session", make_extract_session_handler())
     if "embed" in selected or "embed_backfill" in selected:
         from ..embeddings.jobs import make_embed_backfill_handler, make_embed_handler
         from ..embeddings.service import EmbeddingService

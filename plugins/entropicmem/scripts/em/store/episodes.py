@@ -21,7 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, List, Mapping, Sequence
 
 from ..clock import new_id, to_iso, utc_now
 from .jobs import JobQueue
@@ -110,6 +110,35 @@ class EpisodeStore:
         return self._conn.execute(
             "SELECT COUNT(*) FROM transcript_chunks WHERE session_id=?", (session_id,)
         ).fetchone()[0]
+
+    def read_chunks(
+        self,
+        session_id: str,
+        *,
+        seq_start: int | None = None,
+        seq_end: int | None = None,
+    ) -> List[dict]:
+        """The session's chunks in ``seq`` order, optionally a closed range.
+
+        The extraction handlers read a window through this. No scope is applied
+        here — ``transcript_chunks`` carries no scope column — so the *caller*
+        must decide which scope the extracted memory belongs to; that is exactly
+        the scope-consistency contract pinned by EM-502's tests.
+        """
+        clauses = ["session_id=?"]
+        values: list = [session_id]
+        if seq_start is not None:
+            clauses.append("seq >= ?")
+            values.append(int(seq_start))
+        if seq_end is not None:
+            clauses.append("seq <= ?")
+            values.append(int(seq_end))
+        rows = self._conn.execute(
+            "SELECT seq, role, author_id, text FROM transcript_chunks"
+            f" WHERE {' AND '.join(clauses)} ORDER BY seq",
+            values,
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     # --- episodes ---------------------------------------------------------
 

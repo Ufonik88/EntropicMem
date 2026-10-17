@@ -17,9 +17,12 @@ from .worker import (
 #: Formation job types whose handlers this build actually carries. The
 #: provider only enqueues a window extraction when ``"extract_window"`` is in
 #: here (EM-411's second capture gate): a build without the handler must not
-#: queue work nothing can run. EM-502 adds ``"extract_window"`` together with
-#: the handler that serves it.
-BUILT_FORMATION_HANDLERS: frozenset[str] = frozenset()
+#: queue work nothing can run. **EM-502 registered both handlers** — the
+#: extraction slice 2 — so the gate now passes and EM-411's capture enqueues
+#: become live (with ``formation.mode != "off"``).
+BUILT_FORMATION_HANDLERS: frozenset[str] = frozenset(
+    {"extract_window", "extract_session"}
+)
 
 __all__ = [
     "BUILT_FORMATION_HANDLERS",
