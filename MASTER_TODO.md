@@ -661,35 +661,29 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing in flight — the F-004 remediation landed (2026-10-17, `c30aa54`).**
-Branch-first (`em-f004-isolation`, one commit carrying code-effects/tests and the
-CHANGELOG line), **all 11 check-runs green on that exact SHA**, `--ff-only`;
-branch deleted. **No product code changed:** the audit found the v3 line already
-bucket-clean (writes stamp the gateway principal; `scope_sql`/`_in_scope` enforce
-own-or-profile-wide; every keyed surface re-checks its row under the caller's own
-scope), so the chunk is the certification layer. The finding's strict xfail is
-now a **passing guard driving a v3 store** (`_v3_store()` asserted on both
-providers, so it cannot silently degrade to the v2 drive), and
-`tests/harness/test_f004_shared_profile.py` pins the two-provider surface:
-write attribution, both-directions prefetch and search isolation, the five
-foreign-row refusals (`update` edit/supersede, `forget` by id and via the
-confirm token, the four `review` actions, `search` by ids), both-directions
-episode isolation, and the ruled profile-wide-sharing half. The xfail count
-moves 3 → 2. **5 mutation checks all red** (the `scope_sql` clause; the `get`
-refusal; the ids re-check; the episodes' clause; the `_in_scope` row rule
-including a two-layer combination), two absorbed single-layer probes recorded;
-the episodes exact-bucket **under-read** was discovered, recorded and pinned —
-not changed. **S5 stays complete** (the exit criteria met, `d331c5e`).
+**The EM-303 prune build is OPEN (started 2026-10-17, on this box).** The build
+per `docs/plan/PRUNE_CARD_DRAFT.md` is agent-owned (the owner's slot ruling);
+the first test batch is written and, with the implementation, all 12 guard
+tests are green, and **8 mutation checks ran red** (the grace comparison; the
+current-model keep set; the previous-model keep set; the missing-transition
+refusal including the half-record shape; the no-current-model refusal; the
+dry-run flag; the vacuum-before-commit inversion; the first-backfill enqueue
+gate), each restored from a byte copy. The build covers: `prune` in
+`KNOWN_JOB_TYPES` and the registry, `em/embeddings/prune.py` under the EM-209
+contract, the backfill's completion transaction writing the transition record
+(`embedding_model_previous` + `embedding_model_switched_at`) and enqueueing a
+dedupe-keyed `prune` only when a rollback set exists, the payload-overridable
+grace (default 7), the dry-run, and the vacuum-after-commit. **No destructive
+run exists in this chunk** — the handler only exists in code and tests; real
+runs stay owner-gated. The CHANGELOG line and the counts ride the landing.
 
-**Next: the EM-303 prune build** (its own card per the slot ruling;
-`docs/plan/PRUNE_CARD_DRAFT.md` is the draft spec; agent-owned, the destructive
-run owner-signed later). Drafted beside it: the **remember content ceiling
-card** (`docs/plan/CONTENT_CEILING_CARD_DRAFT.md`) — builds only when the
-owner opens it (slotting + the ceiling number). Everything else is
-owner-gated: P0c's data, the
-cutover (**unblocked on the F-004 axis**), releases/tags/the catalog re-pin,
-and the prune's destructive-run sign-off; S6+ awaits the owner's word. See
-`docs/plan/STOP_HERE.md`'s addendum and `CHANGELOG.md` under `[Unreleased]`/Fixed.
+**Nothing else is in flight.** The F-004 remediation landed (`c30aa54`, merged
+with the concurrent content-ceiling draft at `d92503d`, count-verification at
+`4fd4f8f` — all tips 11/11 CI green). Drafted beside it: the **remember
+content ceiling card** (`docs/plan/CONTENT_CEILING_CARD_DRAFT.md`) — builds
+only when the owner opens it (slotting + the ceiling number). Everything else
+is owner-gated: P0c's data, the cutover (**unblocked on the F-004 axis**),
+releases/tags/the catalog re-pin, and the prune's destructive-run sign-off;
 
 **`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
 and, on top, the EM-404 landings — slice 1 (`381197f`), slice 2 (`e5e54ef`) and the

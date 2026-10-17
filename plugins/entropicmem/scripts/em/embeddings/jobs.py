@@ -32,7 +32,7 @@ from ..jobs.worker import PermanentJobError
 from ..store.embeddings import (
     pending_embed_texts,
     put_embedding,
-    set_stored_model,
+    record_model_switch,
     stored_model,
 )
 from ..store.episodes import EpisodeStore
@@ -184,6 +184,14 @@ def make_embed_backfill_handler(service: EmbeddingService) -> Callable:
                     )
 
         with ctx.store.transaction() as conn:
-            set_stored_model(conn, model)
+            # The transition record + the prune enqueue land in the SAME
+            # transaction as the model stamp: a reader never sees a completed
+            # switch without the rollback identity and its grace clock (the
+            # three are what a later prune authorizes against). A store's
+            # first-ever backfill has no rollback set — no prune is enqueued,
+            # because the handler would only emit a refused no-op.
+            previous = record_model_switch(conn, model)
+            if previous:
+                JobQueue(conn).enqueue("prune", {}, dedupe_key=f"prune:{model}")
 
     return handle

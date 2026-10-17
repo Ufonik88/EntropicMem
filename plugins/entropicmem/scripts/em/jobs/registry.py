@@ -24,6 +24,7 @@ KNOWN_JOB_TYPES = (
     "link",
     "embed",
     "embed_backfill",
+    "prune",
     "retract_turns",
     "extract_window",
     "extract_session",
@@ -69,6 +70,10 @@ def build_registry(
         from ..formation.extract_jobs import make_reconcile_handler
 
         registry.register("reconcile", make_reconcile_handler())
+    if "prune" in selected:
+        from ..embeddings.prune import make_prune_handler
+
+        registry.register("prune", make_prune_handler(db_path))
     if "embed" in selected or "embed_backfill" in selected:
         from ..embeddings.jobs import make_embed_backfill_handler, make_embed_handler
         from ..embeddings.service import EmbeddingService

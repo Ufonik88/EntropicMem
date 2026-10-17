@@ -25,14 +25,19 @@ import sqlite3
 import struct
 from typing import Optional, Sequence
 
+from ..clock import to_iso, utc_now
+
 __all__ = [
     "EMBEDDING_MODEL_KEY",
+    "PREVIOUS_MODEL_KEY",
+    "SWITCHED_AT_KEY",
     "VECTOR_MIN_COVERAGE",
     "count_active_memories",
     "count_episodes",
     "count_other_model_vectors",
     "count_stale_vectors",
     "cosine",
+    "delete_rows_for_models",
     "load_memory_vectors",
     "load_vectors",
     "missing_memory_count",
@@ -40,14 +45,27 @@ __all__ = [
     "pending_embed_texts",
     "put_embedding",
     "rank_by_cosine",
+    "record_model_switch",
     "set_stored_model",
     "stored_model",
+    "stored_model_previous",
+    "switched_at",
     "unpack_vector",
     "write_generation",
 ]
 
 #: The ``meta`` key naming the model the store is currently embedding with.
 EMBEDDING_MODEL_KEY = "embedding_model"
+
+#: The ``meta`` key naming the model the store embedded with **before** the last
+#: completed backfill — the rollback set the prune must keep. Written by
+#: :func:`record_model_switch`.
+PREVIOUS_MODEL_KEY = "embedding_model_previous"
+
+#: The ``meta`` key stamping when the last model switch completed — the
+#: prune's grace clock. ISO-8601 (``to_iso``). Written by
+#: :func:`record_model_switch`.
+SWITCHED_AT_KEY = "embedding_model_switched_at"
 
 #: §3.6: the vector generator runs only when coverage is at least this.
 VECTOR_MIN_COVERAGE = 0.5
@@ -339,6 +357,78 @@ def set_stored_model(conn: sqlite3.Connection, model: str) -> None:
         " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (EMBEDDING_MODEL_KEY, str(model)),
     )
+
+
+def _meta_value(conn: sqlite3.Connection, key: str) -> str:
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return str(row["value"]) if row is not None and row["value"] else ""
+
+
+def stored_model_previous(conn: sqlite3.Connection) -> str:
+    """The model before the last completed switch (``meta.embedding_model_previous``).
+
+    Empty string when no switch has completed: there is no rollback set, and a
+    prune must refuse rather than guess (EM-303's prune contract).
+    """
+    return _meta_value(conn, PREVIOUS_MODEL_KEY)
+
+
+def switched_at(conn: sqlite3.Connection) -> str:
+    """When the last switch completed (``meta.embedding_model_switched_at``), or ``""``."""
+    return _meta_value(conn, SWITCHED_AT_KEY)
+
+
+def record_model_switch(conn: sqlite3.Connection, model: str) -> str:
+    """The completed-backfill stamp: current, previous, and the grace clock.
+
+    The **previous** model is what ``meta.embedding_model`` named *before*
+    this write — its rows are the rollback set for ``prune`` to keep. Run
+    inside the backfill's completion transaction, so the three keys land
+    atomically: a reader never sees a new-current without the transition
+    record, which is exactly what authorizes the later prune.
+
+    Returns the previous model (``""`` on the store's first-ever backfill —
+    there is no rollback set yet, so a prune would be a guaranteed refused
+    no-op and the caller can skip enqueuing one).
+    """
+    previous = stored_model(conn)
+    set_stored_model(conn, str(model))
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (PREVIOUS_MODEL_KEY, previous),
+    )
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (SWITCHED_AT_KEY, to_iso(utc_now())),
+    )
+    return previous
+
+
+def counts_by_model(conn: sqlite3.Connection) -> dict[str, int]:
+    """Rows per model — the dry-run report and the post-run sanity check."""
+    rows = conn.execute(
+        "SELECT model, COUNT(*) AS n FROM embeddings GROUP BY model ORDER BY model"
+    ).fetchall()
+    return {str(row["model"]): int(row["n"]) for row in rows}
+
+
+def delete_rows_for_models(conn: sqlite3.Connection, models: Sequence[str]) -> int:
+    """Delete every embeddings row written for any of *models*. Returns the count.
+
+    Caller keeps the transaction: the prune handler commits once, and the
+    vacuum runs after this commits — never inside it (SQLite forbids VACUUM
+    inside a transaction). Empty or current models are filtered by the caller.
+    """
+    if not models:
+        return 0
+    marks = ",".join("?" for _ in models)
+    cur = conn.execute(
+        f"DELETE FROM embeddings WHERE model IN ({marks})", tuple(models)
+    )
+    return int(cur.rowcount or 0)
+
 
 
 def pending_embed_texts(
