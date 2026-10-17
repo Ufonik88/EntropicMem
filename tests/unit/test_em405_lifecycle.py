@@ -264,12 +264,14 @@ def test_delegation_enqueues_an_extraction_job_with_the_confidence_cap(tmp_path)
     episode_id = _rows(db, "SELECT id FROM episodes WHERE kind='delegation'")[0]["id"]
     jobs = _rows(db, "SELECT type, payload, status FROM jobs WHERE type='extract_session'")
     assert len(jobs) == 1 and jobs[0]["status"] == "queued"
-    assert json.loads(jobs[0]["payload"]) == {
-        "session_id": "child-9",
-        "episode_id": episode_id,
-        "source": "extracted_llm",
-        "confidence_cap": 0.6,
-    }
+    payload = json.loads(jobs[0]["payload"])
+    assert payload["session_id"] == "child-9"
+    assert payload["episode_id"] == episode_id
+    assert payload["source"] == "extracted_llm"
+    assert payload["confidence_cap"] == 0.6
+    # EM-502 slice 2: the job carries the effective turn scope.
+    assert payload["scope"]["profile"] == "default"
+    assert payload["scope"]["user"] == ""
 
 
 def test_delegation_on_a_v2_store_writes_the_episode_only(tmp_path):

@@ -817,7 +817,7 @@ class EntropicMemProvider(ToolHandlers):
         extracted memories into a profile no scoped read ever queries — the
         write/read scope mismatch the extraction jobs exist to avoid.
         """
-        scope = self._state.scope.to_scope()
+        scope = self._turn_scope()
         if scope is None:
             return {}
         return {
