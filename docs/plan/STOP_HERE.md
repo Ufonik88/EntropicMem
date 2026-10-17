@@ -25,9 +25,12 @@ profile-wide episode is under-read (never over-read) for a user-mode caller —
 its semantic call rides the cutover card. **The v3 cutover is unblocked on the
 F-004 axis**, the draft acceptance needs no signature for a single-user
 cut-over, and the next agent work is the EM-303 prune build (its own card; the
-destructive run stays owner-signed). The full record: `CHANGELOG.md` under
-`[Unreleased]`/Fixed, `REMAINING_PLAN.md` §9 item 9, `NEXT_CHUNK.md`'s new Part
-A block.
+destructive run stays owner-signed). Concurrently, another session drafted the
+**remember content ceiling card** (`docs/plan/CONTENT_CEILING_CARD_DRAFT.md`,
+from a live silent-truncation incident) — it awaits the owner's slotting and
+the ceiling number before anything is built. The full record: `CHANGELOG.md`
+under `[Unreleased]`/Fixed, `REMAINING_PLAN.md` §9 item 9, `NEXT_CHUNK.md`'s
+new Part A block.
 
 
 ## What S5 delivered
@@ -74,6 +77,12 @@ A block.
   `image` field, and the `entropicmem_patch_core` → `…_core_memory` rename.
 - **The EM-303 prune** — its own destructive card, awaiting the owner's slot and
   sign-off (`docs/plan/PRUNE_CARD_DRAFT.md`); the agent builds the card next.
+- **Drafted — the remember content ceiling** (`docs/plan/CONTENT_CEILING_CARD_DRAFT.md`):
+  raises the `remember`/`update` content cap and replaces oversize **truncation**
+  with a refusal (`invalid_arguments`). Found from a live incident on 2026-10-17
+  (a 4.3 KB remember was silently clipped to 4,000 and stored "complete").
+  Awaiting the owner's slotting decision and the ceiling number (8,000
+  recommended; 16,000 mechanized identically). Builds only when the owner opens it.
 - **S6+** — vault & graph, security, packaging, the 3.0 release: not started;
   the owner has not opened that sprint.
 
@@ -101,5 +110,7 @@ ready — surfaced as explicit questions, never again as open questions.
 Read `MASTER_TODO.md` → `docs/plan/NEXT_CHUNK.md` → `docs/plan/REMAINING_PLAN.md`.
 Since the addendum above, the next development chunk is the **EM-303 prune
 build** (its own card; the build is agent-owned, the destructive run needs a
-separate owner sign-off). Still never start the cutover, a release, or the
-prune's destructive run without an explicit owner instruction.
+separate owner sign-off). The **remember content ceiling card is drafted but
+builds only when the owner opens it** (slotting + the ceiling number). Still
+never start the cutover, a release, or the prune's destructive run without an
+explicit owner instruction.

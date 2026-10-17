@@ -683,7 +683,10 @@ not changed. **S5 stays complete** (the exit criteria met, `d331c5e`).
 
 **Next: the EM-303 prune build** (its own card per the slot ruling;
 `docs/plan/PRUNE_CARD_DRAFT.md` is the draft spec; agent-owned, the destructive
-run owner-signed later). Everything else is owner-gated: P0c's data, the
+run owner-signed later). Drafted beside it: the **remember content ceiling
+card** (`docs/plan/CONTENT_CEILING_CARD_DRAFT.md`) — builds only when the
+owner opens it (slotting + the ceiling number). Everything else is
+owner-gated: P0c's data, the
 cutover (**unblocked on the F-004 axis**), releases/tags/the catalog re-pin,
 and the prune's destructive-run sign-off; S6+ awaits the owner's word. See
 `docs/plan/STOP_HERE.md`'s addendum and `CHANGELOG.md` under `[Unreleased]`/Fixed.
@@ -1042,15 +1045,21 @@ line there.**
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
 3. **Pre-flight:** the counts, each the command's own output — CI's `test` job
-   (3.12): `pytest -q tests/` → **2769 passed / 4 skipped / 2 xfailed** (read
-   2026-10-17 from the job log at `c30aa54` — the F-004 branch tip, which
-   carried its own runs — with the extra set
+   (3.12): `pytest -q tests/` → **2770 passed / 4 skipped / 2 xfailed** as the
+   pages' expected triple: **2769 / 4 / 2 was read green from the job log at
+   `c30aa54`** (the F-004 landing — that branch tip carries its own runs), and
+   **+1 is the content-ceiling draft's docs-links case** (the derivation, not a
+   fresh read — verify when that card lands; before it, a fresh run reads
+   exactly one fewer), with the extra set
    fastapi/httpx/cryptography/pyyaml, numpy, and the private digest list as the
-   repository secret); this box bare: `.venv311/bin/python -m pytest -q` →
-   **2693 / 16 / 2**; with the digest list in place:
+   repository secret; this box bare: `.venv311/bin/python -m pytest -q` →
+   **2694 / 16 / 2** expected (**2693 measured** at `c30aa54`); with the digest
+   list in place:
    `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… .venv311/bin/python -m pytest -q`
-   → **2694 / 15 / 2**; CI-equivalent 3.12 with the extras and the digest file
-   → **2771 / 2 / 2** — the environment, not the tree. The 77-passed gap is
+   → **2695 / 15 / 2** expected (**2694 measured**); CI-equivalent 3.12 with
+   the extras and the digest file → **2772 / 2 / 2** expected (**2771
+   measured**) — the environment, not the tree. The xfail pair is 2 since the
+   F-004 flip. The 77-passed gap is
    per-module accounted in NEXT_CHUNK's pre-flight (67 fastapi + 7 cryptography
    + 2 numpy + 1 privacy). `git merge-base --is-ancestor 4eb8097 HEAD` proves
    the base.
@@ -1259,17 +1268,22 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2769 passed / 4 skipped / 2 xfailed** (CI, 3.12 read from the job log 2026-10-17 at `c30aa54` — that SHA carries its own runs; the xfail pair is 2 since the F-004 flip) |
+| Tests | `python -m pytest -q` | **2770 passed / 4 skipped / 2 xfailed** (CI, 3.12 expected triple — **2769 / 4 / 2 read green from the job log at `c30aa54`**, the F-004 landing whose branch tip carries its own runs, **+1 the content-ceiling draft's docs-links case**, the derivation not a fresh read; the prior CI-read figure was 2755/4/3 at `6fe2a4b`) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2755 / 4 / 3 figure is CI's** (extras + numpy +
-the private digest list as the repository secret) and is the reference a pre-flight
-run is checked against. This box's scratch venv (`.venv311`, no fastapi/httpx/
-cryptography/numpy) reads **2679 passed / 16 skipped / 3 xfailed** — the missing
+`ENTROPICMEM_INDEX_DB` unset. **The 2770 / 4 / 2 figure is CI's expected triple**
+(extras + numpy + the private digest list as the repository secret; 2769/4/2 was
+read green from the job log at `c30aa54` — the F-004 landing, xfail pair 2 since
+that flip — and the drafted content-ceiling card adds one
+`tests/test_docs_links.py` case, derivation not a fresh read) and is the
+reference a pre-flight run is checked against. This box's scratch venv
+(`.venv311`, no fastapi/httpx/
+cryptography/numpy) reads **2694 passed / 16 skipped / 2 xfailed** expected
+(**2693 measured** at `c30aa54`) — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the 50k AC's reds — on `3dcb35f` and the 2026-10-15 3.13 leg —
 are now fixed by statistic: the guard reads the best of five windows, `dc3c77a`).
