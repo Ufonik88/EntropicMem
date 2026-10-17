@@ -13,6 +13,12 @@ Findings map (v2.7.0 defects → fixing EM task; corrected mapping):
   F-002 (R3 temporal decay)         → EM-106  decay from last_accessed; long-term facts forgotten
   F-003 (H2 multimodal payloads)    → EM-101  FIXED — regression guard
   F-004 (H1 user/chat scoping)      → EM-118  No user/chat scoping; cross-user memory bleed
+
+   (F-004 resolved on the v3 line 2026-10-17: the strict xfail flipped to a
+   passing guard that drives a v3 store — the cutover's own product;
+   ``tests/harness/test_f004_shared_profile.py`` owns the surface pins.
+   On the v2 engine the pool semantics remain the documented pre-cutover
+   reality, which is precisely why the cutover is the owner's act.)
   F-005 (H3 threading/env)          → EM-103 (+EM-102)  FIXED — regression guard
   F-006 (L1 silent fuzzy overwrite) → EM-109  near-duplicate dedup silently overwrites; no supersession record
   F-007 (L2 safe consolidate)       → EM-108  consolidate ignores importance; archives important facts
@@ -40,6 +46,8 @@ from pathlib import Path
 import pytest
 from fake_host import FakeHost
 
+from em.store.db import Store  # noqa: F401  (the F-004 flip creates the v3 store)
+from em.store.migrations import migrate  # noqa: F401
 from memory_engine import MemoryEngine
 
 # ── shared helpers ──────────────────────────────────────────────────────────
@@ -274,16 +282,35 @@ def test_H2_multimodal_prefetch(make_provider, home_a):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# F-004 → S4 (known limitation): No user/chat scoping; cross-user memory bleed. S1 interim = EM-118 owner/guest guard
+# F-004 → resolved on the v3 line (2026-10-17): per-user isolation holds on a
+# v3 store; on v2 the pool semantics remain the documented pre-cutover state.
+# The section header below keeps the finding's original wording.
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.xfail(strict=True, reason="F-004 → S4 known limitation: full "
-          "per-user scoping (alice/bob isolation) is Sprint 4 work. S1 ships "
-          "the interim owner/guest guard (EM-118) — owner_user_ids + guest "
-          "exclusions — see tests/test_privacy_guard.py")
+# F-004 → S4 (known limitation): No user/chat scoping; cross-user memory bleed. S1 interim = EM-118 owner/guest guard
+
 def test_f004_cross_user_isolation(make_provider, home_a):
     """Two users (different user_ids) sharing a profile must not see each
-    other's memories."""
+    other's memories.
+
+    F-004's *resolution* (2026-10-17): per-user isolation holds on the v3
+    line, so the regression guard drives a v3 store — the state the owner's
+    cutover produces. The store is created up front because
+    ``em.facade.select`` resolves a not-yet-existing file to the v2 engine,
+    and the v2 engine has no scope columns; pool semantics there are the
+    documented pre-cutover reality (plan §9 item 9), not a property this
+    test can assert. The surface-level pins for the same shape live in
+    ``tests/harness/test_f004_shared_profile.py``."""
+    # v3 store up front: the cutover's own product, not a side effect.
+    db = home_a / "entropicmem" / "memory.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    store = Store(str(db))
+    try:
+        with store.writer() as conn:
+            migrate(conn)
+    finally:
+        store.close()
+
     provider_a = make_provider()
     provider_b = make_provider()
 
@@ -294,6 +321,9 @@ def test_f004_cross_user_isolation(make_provider, home_a):
 
     host_a.start()
     host_b.start()
+
+    assert provider_a._v3_store() is True, "the F-004 guard must drive the v3 engine"
+    assert provider_b._v3_store() is True, "the F-004 guard must drive the v3 engine"
 
     provider_a.handle_tool_call(
         "entropicmem_remember",
