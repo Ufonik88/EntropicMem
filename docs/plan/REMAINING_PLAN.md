@@ -552,7 +552,7 @@ approval. The plan does not have to be finished for EntropicMem to be useful.
 ### Verify before you touch anything
 
 ```bash
-cd ~/Documents/trae_projects/EntropicMem
+cd <your clone of Ufonik88/EntropicMem>   # the owner's Linux box: ~/Documents/Coding Projects/EntropicMem; the Opencode box: ~/Documents/trae_projects/EntropicMem
 git fetch --all --prune && git status -sb && git log --oneline -12
 git ls-remote --heads origin        # expect main, release/2.8.x
 
@@ -572,8 +572,9 @@ env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_INDEX_DB -u ENTROPICMEM_VAULT_PATH \
 # To run the privacy collision check locally, point the guard at the list IN PLACE (never copy it
 # into the repo). Expect the skip to become a pass (locally: 2624 passed, 15 skipped, 3 xfailed).
 env -u ENTROPICMEM_MEMORY_DB -u ENTROPICMEM_INDEX_DB -u ENTROPICMEM_VAULT_PATH \
-  ENTROPICMEM_PRIVACY_DIGESTS_FILE="$HOME/Documents/EntropicMem Dev docs/privacy-digests.txt" \
+  ENTROPICMEM_PRIVACY_DIGESTS_FILE="$HOME/.hermes/attachments/privacy-digests.txt" \
   ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS=1 python3 -m pytest -q
+# the digests file moved to ~/.hermes/attachments/ on 2026-10-17 (the old ~/Documents/"EntropicMem Dev docs/" path is retired); on a box without the file, drop REQUIRE=1 — the check skips by default and fails closed under REQUIRE=1
 
 # CI pins ruff==0.16.2. A newer local ruff disagrees in both directions, so use the pin.
 uv venv --seed /tmp/ruff-parity
