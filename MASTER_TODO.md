@@ -1021,7 +1021,8 @@ line there.**
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
 3. **Pre-flight:** the counts, each the command's own output — CI's `test` job
    (3.12): `pytest -q tests/` → **2755 passed / 4 skipped / 3 xfailed** (read
-   2026-10-17 from the job log at `d331c5e`, with the extra set
+   2026-10-17 from the docs tip's job log — `7f5dcee`; the code SHA `d331c5e`
+   carries no check-runs of its own, corrected 2026-10-17 — with the extra set
    fastapi/httpx/cryptography/pyyaml, numpy, and the private digest list as the
    repository secret); this box bare: `.venv311/bin/python -m pytest -q` →
    **2679 / 16 / 3**; with the digest list in place:
@@ -1236,7 +1237,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2755 passed / 4 skipped / 3 xfailed** (CI, 3.12 at `d331c5e`) |
+| Tests | `python -m pytest -q` | **2755 passed / 4 skipped / 3 xfailed** (CI, 3.12 at the docs tip `7f5dcee` — the code SHA `d331c5e` carries no check-runs, corrected 2026-10-17) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
