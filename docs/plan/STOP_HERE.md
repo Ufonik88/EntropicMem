@@ -56,6 +56,25 @@ The S5 code tip is `d331c5e`; the docs reconciliation rides on top of it.
 - **S6+** — vault & graph, security, packaging, the 3.0 release: not started;
   the owner has not opened that sprint.
 
+### Who actually decides what (recorded 2026-10-17, with the owner)
+
+The owner asked for every gate above to be settled down to the smallest
+possible action, and this table is that ruling — future sessions must not
+re-ask it:
+
+| Gate | Ruling | What is actually left, and for whom |
+|---|---|---|
+| **P0c's shadow data** | Agent ruled: it is a **collection step, not a decision**. | One mechanical owner step on the active host — enable the dev-line plugin + `ENTROPICMEM_SHADOW_V3` and let ≥ 200 real turns accrue (NEXT_CHUNK's "The owner's run checklist"). The agent reads `_shadow.py report` from there; the cutover's evidence is then in place. |
+| **F-004** | Agent ruled on both halves it left open: the migration rule for the ~1,700 existing profile-wide facts is **keep profile-wide** (no read-visible change — the changing half, per-author re-bucketing, would need a signed owner instruction), and the build (a)+(c) is **the first queued dev chunk, agent-owned — queued, not started.** If it lands green, the draft acceptance never needs signing for a single-user cut-over. | Nothing from the owner now. |
+| **The v3 cutover** | **Still the owner's one-word go** — irreversible, touches the real store. The staged `ENTROPICMEM_V3_RETRIEVAL` default flip and the adapter-defaults unification ride that same card, so they are not separate asks. | One "go" (or "not yet") when the shadow report and the F-004 chunk are both in hand. |
+| **Releases, tags, the catalog re-pin** | Owner-gated end to end (`docs/MARKETPLACE.md`); the agent does every non-public step. | One "go" when the owner wants users on 3.0. The live catalog serves 2.8.1 today; two GitHub-UI uploads (the avatar and the social preview) only the owner can do and are separately optional. |
+| **The EM-303 prune** | Agent ruled the slot: **its own card** (the draft's recommendation), queued behind the F-004 chunk. The build is agent-owned; **the destructive run needs a later, separate owner sign-off**, and it only ever acts on a v3 store's embeddings rows — nothing exists for it to delete today. | Nothing from the owner now. |
+| **S6+** (vault & graph, security, packaging, the 3.0 release) | Recommended, not opened: **start S6 while the P0c data accrues** — it is dev-line work, it never touches the live store, and it fills the collection window. | One word from the owner ("open it"). |
+
+The owner's sole physical step is the P0c run checklist. Everything else that
+is on the owner is a one-word go/no-go on the day the artifacts above are
+ready — surfaced as explicit questions, never again as open questions.
+
 ## If a future session resumes
 
 Read `MASTER_TODO.md` → `docs/plan/NEXT_CHUNK.md` → `docs/plan/REMAINING_PLAN.md`.
