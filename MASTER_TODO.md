@@ -1312,9 +1312,15 @@ because it is irreversible or public:
   next re-pin. The same note covers the dev line's manifest breadth:
   `provides_tools` is 9 and `provides_hooks` 6 on `main` (EM-404's 7 → 9; EM-405's
   5 → 6, `e483d43`) while the live entry matches the 2.8.1 tag's 7/5 by design.)*
-- **F-004 — full per-user isolation is not implemented; the v3 cutover must not
-  proceed with it open unless the owner records the acceptance in writing.**
-  `tests/regressions/test_findings_v27.py::test_f004_cross_user_isolation` is a
+- **F-004 — full per-user isolation.** *(Status 2026-10-17: the owner opened the
+  remediation chunk ("the stage is yours"); plan §9 item 9 runs: the strict xfail
+  `test_f004_cross_user_isolation` flips onto a v3-store drive — the fresh-store
+  path a shared-profile deployment takes today resolves to the v2 engine by
+  `em.facade.select`, which has no scope columns, so the post-cutover state is
+  exactly what the chunk certifies — and every v3 surface gets an alice/bob
+  isolation pin beside the group-chat harness.)*(Also §9 item 9.)**Before this
+  chunk lands the cutover must not proceed with F-004 open unless the owner
+  records the acceptance in writing.** `tests/regressions/test_findings_v27.py::test_f004_cross_user_isolation` is a
   strict xfail: two users sharing a profile can see each other's memories (S1's
   interim is EM-118's owner/guest guard only). v3's §3.5 scoping (EM-402) buckets
   per turn by the author trio, but F-004's acceptance criterion is Sprint 4's
