@@ -69,8 +69,16 @@ SCHEMA_PINS: dict[str, dict] = {
         "props": {
             "content": {
                 "type": "string",
-                "maxLength": 4000,
-                "description": "Self-contained statement, full detail for technical facts.",
+                # Chunk 38's recorded Appendix B deviation: the cap is raised to
+                # the shared CONTENT_MAX_CHARS (8,000) and the description gains
+                # the guidance sentence. The only other field that moves is
+                # update.content (below).
+                "maxLength": 8_000,
+                "description": (
+                    "Self-contained statement, full detail for technical facts. "
+                    "Beyond the embedding window — long documents belong in the vault; "
+                    "store the fact or a pointer to the note."
+                ),
             },
             "kind": {
                 "type": "string",
@@ -126,7 +134,16 @@ SCHEMA_PINS: dict[str, dict] = {
         "required": ["id", "content"],
         "props": {
             "id": {"type": "string"},
-            "content": {"type": "string", "maxLength": 4000},
+            "content": {
+                "type": "string",
+                # Chunk 38's recorded Appendix B deviation (the second and last):
+                # `update`'s content shares the raised cap and the guidance.
+                "maxLength": 8_000,
+                "description": (
+                    "Beyond the embedding window — long documents belong in the vault; "
+                    "store the fact or a pointer to the note."
+                ),
+            },
             "mode": {"type": "string", "enum": ["supersede", "edit"]},
             "importance": {"type": "number", "minimum": 0, "maximum": 1},
             "reason": {"type": "string", "maxLength": 300},

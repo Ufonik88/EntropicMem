@@ -55,6 +55,33 @@ from .hooks import fail_soft
 
 logger = logging.getLogger(__name__)
 
+#: Chunk 38 — the one ceiling for a memory's `content`, shared by the schema
+#: (which advertises it to the model), the validator (which enforces it) and the
+#: tests. It was 4,000 and hand-calibrated against "facts may span several
+#: hundred words"; a live 2026-10-17 incident stored a 4,314-character summary
+#: whose tail was destroyed by the old clamp, so the cap is raised and oversize
+#: input is now **refused** rather than truncated (see FATAL_LENGTH_KEYS). The
+#: number is a build-time decision, not a runtime dial: the Appendix B schemas
+#: are verbatim-pinned artifacts, and a config key would put the advertised
+#: schema and the validator on independent drift paths.
+CONTENT_MAX_CHARS = 8_000
+
+#: The appended guidance for the two `content` descriptions — the model reads it
+#: while composing the call, which prevents oversize calls better than the
+#: refusal can (the refusal is the backstop, not the teacher).
+CONTENT_GUIDANCE = (
+    "Beyond the embedding window — long documents belong in the vault; "
+    "store the fact or a pointer to the note."
+)
+
+#: Fields whose `maxLength` is a **hard error** rather than a clamp: only a
+#: memory's own content, because a clipped fact is indistinguishable from a
+#: complete one at recall time, forever. Every other string cap still warns.
+FATAL_LENGTH_KEYS = {
+    "entropicmem_remember": frozenset({"content"}),
+    "entropicmem_update": frozenset({"content"}),
+}
+
 # --- Appendix B: the nine schemas --------------------------------------------
 # Transcribed verbatim — names, descriptions, bounds and required lists are the
 # model-facing contract; the tests pin them against the plan.
@@ -65,7 +92,7 @@ REMEMBER_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "content": {"type": "string", "maxLength": 4000, "description": "Self-contained statement, full detail for technical facts."},
+            "content": {"type": "string", "maxLength": CONTENT_MAX_CHARS, "description": "Self-contained statement, full detail for technical facts. " + CONTENT_GUIDANCE},
             "kind": {"type": "string", "enum": ["fact", "preference", "profile", "procedure", "event", "constraint", "note"], "description": "Default fact."},
             "importance": {"type": "number", "minimum": 0, "maximum": 1, "description": "0.9 identity/critical, 0.7 useful, 0.4 minor. Default 0.6."},
             "valid_from": {"type": "string", "description": "ISO date when this became true (optional)."},
@@ -102,7 +129,7 @@ UPDATE_SCHEMA = {
         "type": "object",
         "properties": {
             "id": {"type": "string"},
-            "content": {"type": "string", "maxLength": 4000},
+            "content": {"type": "string", "maxLength": CONTENT_MAX_CHARS, "description": CONTENT_GUIDANCE},
             "mode": {"type": "string", "enum": ["supersede", "edit"]},
             "importance": {"type": "number", "minimum": 0, "maximum": 1},
             "reason": {"type": "string", "maxLength": 300},
@@ -392,7 +419,9 @@ class ToolHandlers:
         if translate is not None and isinstance(translated, dict):
             translated = translate(dict(translated))
         try:
-            cleaned, warnings = validate_arguments(schema, translated)
+            cleaned, warnings = validate_arguments(
+                schema, translated, fatal_length_keys=FATAL_LENGTH_KEYS.get(target, frozenset())
+            )
         except ArgumentError as exc:
             return self._blocked(str(exc), "invalid_arguments", deprecated=deprecated)
         handlers = {
@@ -1518,7 +1547,10 @@ class ToolHandlers:
 
 
 __all__ = [
+    "CONTENT_GUIDANCE",
+    "CONTENT_MAX_CHARS",
     "ENTITY_SCHEMA",
+    "FATAL_LENGTH_KEYS",
     "FORGET_SCHEMA",
     "INJECTION_WARNING",
     "LEGACY_ALIASES",

@@ -8,7 +8,12 @@ explicit about what happens to every argument that goes through them:
   what actually arrived — the model reads it and fixes the call.
 * **``maxLength`` and ``maxItems``: capping.** Over-long strings are truncated
   and trailing items dropped, each with a warning in the response (§4.4's
-  "string args are length-capped").
+  "string args are length-capped"). **One deliberate exception (chunk 38):** a
+  caller may name properties in ``fatal_length_keys``, for which an over-long
+  value **raises** instead of clamping — the tool layer does this for a memory's
+  own ``content``, because a truncated fact is silently and permanently
+  indistinguishable from a complete one. The default call has an empty set, so
+  nothing else changes.
 * **numeric bounds: clamping.** ``limit: 99`` becomes 25 with a warning;
   ``importance: 1.4`` becomes 1.0.
 * **unknown arguments: ignored, never fatal** — the projection keeps the
@@ -96,10 +101,20 @@ def _enum_message(path: str, value: Any, choices: List[Any]) -> str:
     return f"`{path}` must be one of: {allowed}; got {_short_repr(value)}"
 
 
-def _validate_value(path: str, value: Any, spec: Dict[str, Any], warnings: List[str]) -> Any:
+def _validate_value(
+    path: str,
+    value: Any,
+    spec: Dict[str, Any],
+    warnings: List[str],
+    fatal_length_keys: Any = frozenset(),
+) -> Any:
     """Validate one value against one property spec; return the cleaned value.
 
     Mutates ``warnings`` in place (caps and clamps are warnings, not errors).
+    A key named in ``fatal_length_keys`` is the exception: over-long input
+    **raises** rather than clamping, because a truncated value that is then
+    persisted is silent data loss — a clipped fact reads exactly like a
+    complete one, forever (chunk 38).
     """
     expected = spec.get("type")
     if expected is not None and not _is_type(value, expected):
@@ -113,6 +128,11 @@ def _validate_value(path: str, value: Any, spec: Dict[str, Any], warnings: List[
 
     if expected == "string" and "maxLength" in spec and len(value) > spec["maxLength"]:
         limit = spec["maxLength"]
+        if path in fatal_length_keys:
+            raise ArgumentError(
+                f"`{path}` must be at most {limit} characters, got {len(value)}",
+                field=path,
+            )
         warnings.append(f"`{path}` truncated to {limit} characters (maxLength {limit})")
         value = value[:limit]
 
@@ -124,7 +144,9 @@ def _validate_value(path: str, value: Any, spec: Dict[str, Any], warnings: List[
                 warnings.append(f"`{path}` truncated to {max_items} items (maxItems {max_items})")
                 value = value[:max_items]
             value = [
-                _validate_value(f"{path}[{index}]", item, items, warnings)
+                _validate_value(
+                    f"{path}[{index}]", item, items, warnings, fatal_length_keys
+                )
                 for index, item in enumerate(value)
             ]
 
@@ -141,7 +163,12 @@ def _validate_value(path: str, value: Any, spec: Dict[str, Any], warnings: List[
     return value
 
 
-def validate_arguments(tool_schema: Dict[str, Any], arguments: Any) -> Tuple[Dict[str, Any], List[str]]:
+def validate_arguments(
+    tool_schema: Dict[str, Any],
+    arguments: Any,
+    *,
+    fatal_length_keys: Any = frozenset(),
+) -> Tuple[Dict[str, Any], List[str]]:
     """Validate ``arguments`` against a tool schema's ``parameters``.
 
     Returns ``(cleaned, warnings)`` where ``cleaned`` carries only the schema's
@@ -150,6 +177,12 @@ def validate_arguments(tool_schema: Dict[str, Any], arguments: Any) -> Tuple[Dic
     arguments are not an object, a required property is missing, a value cannot
     be coerced (wrong type, value outside an enum, a non-array where an array
     is required), and returns the error message a model can act on.
+
+    ``fatal_length_keys`` names properties whose ``maxLength`` is a **hard
+    error** instead of a clamp (chunk 38): the default empty set keeps every
+    existing caller byte-identical, so only a caller that opts in — the tool
+    layer, for a memory's own ``content`` — turns an over-long value into a
+    refusal rather than a silent truncation.
     """
     parameters = tool_schema.get("parameters", {}) if isinstance(tool_schema, dict) else {}
     properties: Dict[str, Any] = parameters.get("properties", {}) or {}
@@ -178,5 +211,5 @@ def validate_arguments(tool_schema: Dict[str, Any], arguments: Any) -> Tuple[Dic
         if spec is None:
             warnings.append(f"unrecognized argument `{key}` (ignored)")
             continue
-        cleaned[key] = _validate_value(key, value, spec, warnings)
+        cleaned[key] = _validate_value(key, value, spec, warnings, fatal_length_keys)
     return cleaned, warnings

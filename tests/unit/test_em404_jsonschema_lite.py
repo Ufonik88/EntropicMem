@@ -214,3 +214,42 @@ def test_unknown_key_and_none_do_not_interact():
     cleaned, warnings = validate_arguments(SCHEMA, {"content": "x", "pinned": None, "zzz": 1})
     assert cleaned == {"content": "x"}
     assert len(warnings) == 1
+
+
+# --- chunk 38: the fatal-length mode (additive; the default above is unchanged)
+
+
+def test_default_call_never_raises_on_an_over_long_string():
+    """The two-argument call is the contract every other caller relies on: the
+    clamp stays the default, so nothing outside the tool layer changes."""
+    cleaned, warnings = validate_arguments(SCHEMA, {"content": "x" * 4001})
+    assert len(cleaned["content"]) == 4000
+    assert warnings
+
+
+def test_a_fatal_length_key_raises_instead_of_clamping():
+    with pytest.raises(ArgumentError) as found:
+        validate_arguments(SCHEMA, {"content": "x" * 4001}, fatal_length_keys={"content"})
+    message = str(found.value)
+    assert "content" in message
+    assert "4000" in message
+    assert "4001" in message
+
+
+def test_a_fatal_length_key_at_the_limit_is_clean():
+    cleaned, warnings = validate_arguments(
+        SCHEMA, {"content": "x" * 4000}, fatal_length_keys={"content"}
+    )
+    assert len(cleaned["content"]) == 4000
+    assert warnings == []
+
+
+def test_fatal_mode_is_keyed_by_the_named_field():
+    """Naming a different key leaves `content` clamping — the set is per-field,
+    not a global switch, so `remember`/`update` can be strict while every other
+    tool's caps stay warnings."""
+    cleaned, warnings = validate_arguments(
+        SCHEMA, {"content": "x" * 4001}, fatal_length_keys={"something_else"}
+    )
+    assert len(cleaned["content"]) == 4000
+    assert any("content" in w for w in warnings)
