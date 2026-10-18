@@ -5,6 +5,10 @@
 queued**. The next actions are owner-gated or belong to a later sprint the owner
 has not started. Do not begin new development from this state without the owner.
 
+> **Superseded for S6 (2026-10-18):** the owner opened S6 and its first chunk has
+> landed — see the addendum below. Every owner-gated item in this file still
+> stands; only the "do not begin" instruction has moved.
+
 The S5 code tip is `d331c5e`; the docs reconciliation rides on top of it.
 
 ### Addendum (2026-10-17, later the same day) — the F-004 chunk landed
@@ -32,6 +36,26 @@ from a live silent-truncation incident) — it awaits the owner's slotting and
 the ceiling number before anything is built. The full record: `CHANGELOG.md`
 under `[Unreleased]`/Fixed, `REMAINING_PLAN.md` §9 item 9, `NEXT_CHUNK.md`'s
 new Part A block.
+
+
+### Addendum (2026-10-18) — S6 is open; EM-601 slice 1 landed
+
+The owner opened **S6 (vault & graph)** with the word this file's ruling table
+below asked for ("YOLO, you make the logical calls"): **dev-line work only — nothing
+touching the live store or any other owner-gated item.** **EM-601 slice 1 — the vault
+projection engine — landed the same day as `bdc1e20`** (branch-first on
+`em-601-projection`, all 11 check-runs green on that exact SHA including
+`identity-guard`, `--ff-only`, branch deleted; the merge re-ran all 11 to success on
+`main`). **The "do not begin" instruction at the top of this file no longer applies to
+S6: the next chunk is EM-601 slice 2** (`NEXT_CHUNK.md` Part B), and the S6 card list
+follows it (`REMAINING_PLAN.md` §6.5). Everything owner-gated below is untouched.
+
+Counts since the stop point (**the "Verification at the stop point" figures below are
+the stop point's own, two chunks back**): CI's 3.12 leg reads **2813 / 4 / 2** (read
+green from the job log at `bdc1e20`), this box bare **2737 / 16 / 2**, with the digest
+list **2738 / 15 / 2**, CI-equivalent 3.12 **2815 / 2 / 2**; ruff `0.16.2` clean. The
+current gates live in `MASTER_TODO.md`'s Gates table — that is the figure to trust, not
+this file's historical ones.
 
 
 ## What S5 delivered
@@ -84,8 +108,10 @@ new Part A block.
   (a 4.3 KB remember was silently clipped to 4,000 and stored "complete").
   Awaiting the owner's slotting decision and the ceiling number (8,000
   recommended; 16,000 mechanized identically). Builds only when the owner opens it.
-- **S6+** — vault & graph, security, packaging, the 3.0 release: not started;
-  the owner has not opened that sprint.
+- **S6 (vault & graph) — OPENED 2026-10-18** on the owner's word (the ruling
+  table below, "open it"); its first card, EM-601 slice 1, landed the same day
+  (`bdc1e20`). Security, packaging and the 3.0 release come after it in S6's
+  card list; the owner's other gates below stand.
 
 ### Who actually decides what (recorded 2026-10-17, with the owner)
 
@@ -100,7 +126,7 @@ re-ask it:
 | **The v3 cutover** | **Still the owner's one-word go** — irreversible, touches the real store. The staged `ENTROPICMEM_V3_RETRIEVAL` default flip and the adapter-defaults unification ride that same card, so they are not separate asks. | One "go" (or "not yet") when the shadow report and the F-004 chunk are both in hand. |
 | **Releases, tags, the catalog re-pin** | Owner-gated end to end (`docs/MARKETPLACE.md`); the agent does every non-public step. | One "go" when the owner wants users on 3.0. The live catalog serves 2.8.1 today; two GitHub-UI uploads (the avatar and the social preview) only the owner can do and are separately optional. |
 | **The EM-303 prune** | Agent ruled the slot: **its own card** (the draft's recommendation). **The build is DONE (landed 2026-10-17, `99151d3`) — no destructive run happened.** The handler refuses before deletion (no current model, an incomplete transition record, an unreadable clock), keeps current + previous past the grace (the test plan corrected the draft's AC2 tail: the previous model is the rollback set, demoted only by a newer completed backfill), and is `dry_run`-first. A real run only ever acts on a v3 store's embeddings rows — nothing exists for it to delete today. | **One owner sign-off for the first real destructive run** (when a store with real vector rows exists to protect — and the run should name the model set it prunes down to). |
-| **S6+** (vault & graph, security, packaging, the 3.0 release) | Recommended, not opened: **start S6 while the P0c data accrues** — it is dev-line work, it never touches the live store, and it fills the collection window. | One word from the owner ("open it"). |
+| **S6+** (vault & graph, security, packaging, the 3.0 release) | **GIVEN 2026-10-18** — the owner's word, "open it" (*YOLO, you make the logical calls*): S6 is open, dev-line work, it never touches the live store. **Vault & graph first: EM-601 slice 1 landed `bdc1e20`; slice 2 is next.** | Nothing from the owner on the vault line; the releases row above still gates the actual 3.0 release. |
 
 The owner's sole physical step is the P0c run checklist. Everything else that
 is on the owner is a one-word go/no-go on the day the artifacts above are
@@ -114,8 +140,9 @@ built and merged (`99151d3`, 2026-10-17) — with no destructive run performed;
 real runs stay owner-gated** and the full record rides plan §5 and
 `NEXT_CHUNK.md` Part A. **Remember the correction the build's test plan
 arbitrated:** the previous model's rows survive the grace (the rollback set);
-only a newer completed backfill demotes them to prunable. No further chunk is
-open. The **remember content ceiling card is drafted but builds only when the
+only a newer completed backfill demotes them to prunable. The **next chunk is
+EM-601 slice 2** (`NEXT_CHUNK.md` Part B) — S6 is open and slice 1 landed the
+same day as `bdc1e20` (2026-10-18, addendum above). The **remember content ceiling card is drafted but builds only when the
 owner opens it** (slotting + the ceiling number). Still
 never start the cutover, a release, or the prune's destructive run without an
 explicit owner instruction.
