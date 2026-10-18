@@ -1,6 +1,12 @@
 # DRAFT — the remember content ceiling: a raised cap and a refusal-over-truncation contract
 
-**Status:** draft for the owner's slotting decision and the ceiling number —
+**Status:** **SLOTTED 2026-10-18 as chunk 38** — the owner handed the outstanding gated
+calls to the agent ("make a call … make a choice for me"), so the agent opened this card
+and set **the ceiling number at 8,000** (open decision 1) and **deferred the optional
+`summary` argument** (open decision 2), both the draft's recommendations. It is the next
+chunk. The original drafting note follows.
+
+Drafted 2026-10-17 for the owner's slotting decision and ceiling number —
 found 2026-10-17 by a live incident (an `entropicmem_remember` of a 4.3 KB
 technical summary was silently cut to its first 4,000 characters and still
 registered `active/created`), audited against the dev-line code the same day.

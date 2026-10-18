@@ -10,21 +10,19 @@
 > switch and `vault lint`) at `e986059`. The owner then slotted **EM-608 — the 50k
 > warm-p95 gate's statistic** the same day, and **it is now landed too** (`3b71cf0`):
 > both warm-p95 ACs read the best of five 20-probe windows at the unchanged 150 ms
-> budget. That was the last agent-owned card that was ready, so **Part B is now
-> owner-gated** — see below. The owner's one-word gates stand untouched: P0c's shadow
-> data, the cutover, the prune's destructive run, releases/tags/the catalog re-pin, and
-> the ceiling card's slotting + number.
+> budget. That was the last agent-owned card that was ready. **2026-10-18, later: the
+> owner handed the outstanding gated calls to the agent** ("make a call … make a choice
+> for me"), so **they are made and Part B is no longer owner-gated** — P0c is skipped, the
+> cutover and the release are a no/not-now, the prune has nothing to run, and **the
+> content-ceiling card is the next chunk (38, ceiling 8,000)**.
 >
-> **CORRECTED 2026-10-18 — a scope question is open for the owner.** An earlier
-> version of this banner read "**S6 IS OPEN**… the S6 card list is agent-owned
-> now". That overclaimed and is retracted: the owner named **one card**, not a
-> stage. **Open question for the owner:** does that word open **EM-601 only**, or the whole
-> of S6 (EM-602…EM-607) and beyond — S7 security, packaging, the 3.0 release?
-> Until the owner answers, **only EM-601 is agent-owned** (and EM-608, which the owner
-> slotted and which is now landed); every other card in
-> `REMAINING_PLAN.md` §6.5 stays behind `STOP_HERE.md`'s gate. Nothing else in
-> this file depends on the answer.
-> See [`STOP_HERE.md`](STOP_HERE.md).
+> **The 2026-10-18 scope question is answered YES.** An earlier version of this banner
+> read "**S6 IS OPEN**… the S6 card list is agent-owned now"; that was retracted at the
+> time as an overclaim, because the owner had named **one card**. The owner has now
+> answered it directly by instructing the agent to make the calls, so **the whole of S6
+> (EM-602…EM-607) is agent-owned**, taken in the §6.5 order after the ceiling fix; S7
+> security, packaging and the 3.0 release still stay behind their own gates. See
+> [`STOP_HERE.md`](STOP_HERE.md).
 
 **Owner decisions in force — the order was re-set on 2026-10-08** (`REMAINING_PLAN.md` §9 item 6):
 1. **P0c — collect the shadow data.** The gating empirical step for the cutover. **Freeze before you look: do not fit a threshold to the sample, and report the raw distribution and the margin, not just a green light.** The observable is now fully armed, so a clean sample can conclude — it still needs the dev-line shadow on a host (the owner's machine is active).
@@ -980,7 +978,7 @@ Closes the recorded 2026-10-15 coverage gap (plan §6.4): no test drove a real s
 
 **Counts:** bare **2693 / 16 / 2**, digest **2694 / 15 / 2**, CI-equivalent 3.12 **2771 / 2 / 2**; CI's 3.12 count **2769 / 4 / 2** (read from the job log at `c30aa54`); `ruff==0.16.2` clean; the docs guards green. The full card line is in `CHANGELOG.md` under `[Unreleased]`/Fixed; §9 item 9 carries the resolution record.
 
-## Part B: next — **nothing is queued; the next chunk is owner-gated.** EM-608 was the last agent-owned card that was ready and it is now landed (Part A above), as is EM-601 in both halves. What remains is either a one-word owner gate (P0c's shadow data, the v3 cutover, the prune's destructive-run sign-off, releases/tags/the catalog re-pin) or a card the owner has not opened (the **remember content ceiling card**, `docs/plan/CONTENT_CEILING_CARD_DRAFT.md`, whose slotting decision and ceiling number — 8,000 recommended — are owner inputs; and S6's remaining card list EM-602…EM-607 — graph, security, packaging, the 3.0 release — which builds only if the owner answers the scope question in the banner above, per `REMAINING_PLAN.md` §6.5). **Do not begin new development from this state without the owner** (`STOP_HERE.md`). The rest of this section is the **landed** EM-601 slice 2 plan, kept as the record. If resuming: read `MASTER_TODO.md` → this file → `REMAINING_PLAN.md`, then `docs/plan/STOP_HERE.md`.
+## Part B: next — **the content-ceiling card (chunk 38): a raised `remember` cap and refusal-over-truncation.** The owner handed the outstanding gated calls to the agent on 2026-10-18 ("make a call … make a choice for me"), so the agent opened this card, set the ceiling at **8,000**, deferred the optional `summary` argument, and made it the next chunk. The full spec, ACs, mutation checks and rollback are in [`CONTENT_CEILING_CARD_DRAFT.md`](CONTENT_CEILING_CARD_DRAFT.md) (status now **slotted, next**): one shared `CONTENT_MAX_CHARS = 8_000` in `em/provider/tools.py` that both the `remember`/`update` schemas and the validator build from, and a keyword-only `fatal_length_keys` mode on `jsonschema_lite.validate_arguments` so oversize `content` **raises `ArgumentError`** (rendered `{"ok": false, "reason_code": "invalid_arguments"}`) **before any store write** — the silent clamp that destroyed a live 4.3 KB memory is removed for those two fields only. Everything else is unchanged: the validator's default two-arg call is byte-identical, no config key, no migration, the plugin manifest and the catalog pin do not move. **The rest of S6 (EM-602…EM-607) is now agent-owned too** (the same instruction answers the scope question yes) and follows in the documented §6.5 order; S7 security, packaging and the 3.0 release stay gated. The rest of this section below is the **landed** EM-601 slice 2 plan, kept as the record. If resuming: read `MASTER_TODO.md` → this file → `REMAINING_PLAN.md`, then `docs/plan/STOP_HERE.md`.
 
 ### Record — EM-601 slice 2 (landed 2026-10-18, `e986059`): the projection job, its mode switch, and the lint surfacing
 

@@ -16,6 +16,29 @@ has not started. Do not begin new development from this state without the owner.
 
 The S5 code tip is `d331c5e`; the docs reconciliation rides on top of it.
 
+### Addendum (2026-10-18, later) — the owner handed the gated calls to the agent; **they are made**
+
+The owner's instruction: *"I do not have any idea what these are or what I must do …
+can you not make a call on these and make a choice for me?"* Taken as the authority this
+file's ruling table reserves to the owner, the agent has decided all six. **Five of them
+require nothing from the owner; one is real work.**
+
+| Item | Plain meaning | The call |
+|---|---|---|
+| **P0c's shadow data** | run the new retrieval silently alongside the current one on real usage, changing nothing, to gather evidence | **Skipped.** It exists only as evidence for the cutover (a no, below), and it needs the owner's host running the dev plugin for weeks. |
+| **The v3 cutover** | move the live memory database to the new format | **No.** The new format has no user-visible benefit yet and is not released; migrating would risk the real store for nothing. The live store stays v2. |
+| **The prune's destructive run** | a background cleanup that deletes old embedding vectors | **Nothing to run.** It can only delete from a v3 store, and there is none (see above). Gated by construction, not by a decision. |
+| **Releases, tags, catalog re-pin** | publish a new version to the Hermes Marketplace | **Not now.** `main` is `3.0.0.dev0` with half-wired v3 features behind flags; publishing would ship unfinished work. It is the last step, after a 3.0 the owner *wants*. |
+| **Ceiling card slotting + number** | a real bug: a long `remember` is silently cut at 4,000 characters and stored as complete (data loss) | **Build it — next chunk (38), ceiling 8,000.** The one item worth doing now. |
+| **The S6 scope question** | whether the owner's earlier "you make the calls" also opened EM-602…EM-607 (vault/graph robustness, security, packaging) | **Yes — opened, agent-owned**, taken in the documented §6.5 order after the ceiling fix. |
+
+**The one action item is the content-ceiling card** (`CONTENT_CEILING_CARD_DRAFT.md`),
+now slotted as the next chunk: one shared `CONTENT_MAX_CHARS = 8_000`, and oversize
+`content` on `remember`/`update` **refused** (`invalid_arguments`, before any write)
+instead of truncated. Reversible in one commit; no migration; the plugin manifest and the
+catalog pin do not move. The draft's optional `summary` argument is **deferred**, as the
+draft recommends.
+
 ### Addendum (2026-10-17, later the same day) — the F-004 chunk landed
 
 The owner opened the F-004 remediation ("the stage is yours"), and it landed as
@@ -113,6 +136,10 @@ this file's historical ones.
   `tests/regressions/test_findings_v27.py` — tracked debt, not new failures.
 
 ## What remains — owner-gated
+
+> **Superseded by the 2026-10-18 "later" addendum above.** Five of the items below are now
+> decided (skipped / no / nothing to run / not now), and the sixth — the content-ceiling
+> card — is the next chunk. The list is kept as the record of what *was* open.
 
 - **P0c** — the shadow data: needs a host running the dev-line plugin with
   `ENTROPICMEM_SHADOW_V3` set for ≥ 200 real turns. Owner's environment.

@@ -15,7 +15,7 @@ points at.
 
 ---
 
-## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); nothing is in flight
+## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — the next chunk is the content-ceiling fix (38)
 
 **Development stopped at this point on 2026-10-17.** S5 (formation & consolidation) is complete on
 `main`: **EM-501**, **EM-502** (both slices), **EM-503** (core + wiring), and the
@@ -39,10 +39,18 @@ branches deleted). **The same day the owner slotted EM-608 — the 50k warm-p95 
 *statistic*** (`docs/plan/PERF_GATE_CARD_DRAFT.md`), the last agent-owned card that was
 ready — **and it is now complete too** (built 2026-10-18, landed as `3b71cf0`: the gate
 now reads the best of five 20-probe windows, the 150 ms budget untouched). **Nothing is in
-flight.** What remains on the owner is **one-word gated**: P0c's shadow data, the v3 cutover
-(**no longer blocked on F-004**), the prune's first destructive run, releases/
-tags/the catalog re-pin, the ceiling card's two inputs, and the S6 scope question
-(whether the EM-601 word opens EM-602…EM-607 too — it does not, as recorded). See
+flight.**
+
+**2026-10-18, later: the owner handed the outstanding gated calls to the agent** — *"I do
+not have any idea what these are or what I must do … can you not make a call on these and
+make a choice for me?"* — and **they are made**: P0c's shadow data is **skipped** (it only
+justifies the cutover), the v3 cutover is **no** (no user-visible benefit yet, not
+released; the live store stays v2), the prune's destructive run has **nothing to run**
+(there is no v3 store to prune), releases/tags/the catalog re-pin are **not now** (`main`
+is `3.0.0.dev0` with half-wired features), the **ceiling card is slotted as the next chunk
+(38) with the number 8,000** (a real silent-truncation data-loss bug), and the **S6 scope
+question is answered yes** — EM-602…EM-607 are agent-owned, in the documented §6.5 order
+after the ceiling fix. **The one action item is the content-ceiling card.** See
 [docs/plan/STOP_HERE.md](docs/plan/STOP_HERE.md) for the full
 stop-state: what is done, the evidence, and the exact counts.
 
@@ -702,7 +710,9 @@ the owner's deliberate act, now technically available.
 
 **Nothing is in flight. EM-608 is landed and merged (`3b71cf0`, 2026-10-18) — the
 last agent-owned card that was ready — and EM-601 (both halves) preceded it the
-same day; everything below records what just landed.**
+same day; everything below records what just landed. The next chunk is the
+content-ceiling card (chunk 38), slotted by the agent on the owner's 2026-10-18
+instruction to make the outstanding calls — see the STOP HERE block above.**
 
 **EM-601 (vault projection, both halves) is COMPLETE — the owner's word, 2026-10-18**
 ("you make the logical calls on the build", target named as chunk 36 = EM-601 slice 1;
@@ -907,9 +917,20 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-**EM-601 and EM-608 are complete and nothing is in flight.** EM-601's slice 1 (the vault projection engine, `bdc1e20`) and slice 2 (the `project_vault` job, its debounce, the mode switch, and `vault lint`, `e986059`), and EM-608 (the 50k warm-p95 gate now reads the best of five 20-probe windows at the unchanged 150 ms budget, `3b71cf0`) are all landed on `main` with all 11 check-runs green on each exact SHA.
-The rest of S6 (EM-602…EM-607), S7 security, packaging and the 3.0 release stay gated pending the owner
-’s scope answer (open question in `NEXT_CHUNK.md`).
+**The next chunk is the content-ceiling card (chunk 38)** — the fix for the silent
+`remember` truncation the 2026-10-17 incident exposed: one shared `CONTENT_MAX_CHARS =
+8_000` and a fatal-oversize refusal instead of a clamp, so a clipped fact can never be
+stored as complete. It is dev-line work; the manifest and the catalog pin do not move.
+`CONTENT_CEILING_CARD_DRAFT.md` carries its ACs and mutation checks, and its status flips
+to slotted/**next**. **EM-601 and EM-608 are complete and nothing is in flight.** EM-601's
+slice 1 (the vault projection engine, `bdc1e20`) and slice 2 (the `project_vault` job, its
+debounce, the mode switch, and `vault lint`, `e986059`), and EM-608 (the 50k warm-p95 gate
+now reads the best of five 20-probe windows at the unchanged 150 ms budget, `3b71cf0`) are
+all landed on `main` with all 11 check-runs green on each exact SHA.
+The **S6 scope question is answered yes** by the owner's 2026-10-18 instruction that the
+agent make the outstanding calls: **EM-602…EM-607 are agent-owned**, taken in the
+documented §6.5 order after the ceiling fix. S7 security, packaging and the 3.0 release
+stay behind their own gates (the release needs the owner's want, not an agent's).
 
 ### The v3 cutover — **deferred 2026-10-07; both re-decision conditions are now met**
 
