@@ -458,6 +458,48 @@ class Vault:
             notes.append(rel)
         return sorted(notes)
 
+    def iter_note_stats(self, include_archive: bool = False):
+        """Yield ``(vault-relative POSIX path, stat)`` for every indexable note.
+
+        EM-603: the index refresh needs each note's path and its
+        ``(st_mtime_ns, st_size)``. `list_notes` + a ``stat`` per note builds a
+        ``Path`` and resolves a relative path for every file; this walks the
+        tree once with ``os.scandir`` instead, which is the difference between a
+        refresh that fits the AC on a shared CI runner and one that does not.
+        Symlinks are not followed (neither a linked file nor a linked
+        directory), so a link can never take the walk out of the vault.
+        """
+        stack = [("", self.root)]
+        protected = "_archive/"
+        while stack:
+            prefix, directory = stack.pop()
+            try:
+                entries = list(os.scandir(directory))
+            except OSError:
+                continue
+            for entry in entries:
+                name = entry.name
+                rel = f"{prefix}{name}"
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        if not include_archive and f"{rel}/".startswith(protected):
+                            continue
+                        stack.append((f"{rel}/", Path(entry.path)))
+                        continue
+                    if not name.endswith(".md"):
+                        continue
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                if not include_archive and rel.startswith(protected):
+                    continue
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                yield rel, info
+
     def search_notes(
         self, pattern: str, folder: Optional[str] = None
     ) -> List[Tuple[Path, int, str]]:

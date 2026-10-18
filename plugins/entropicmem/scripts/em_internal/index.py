@@ -10,7 +10,6 @@ Stdlib-only (sqlite3).
 import hashlib
 import logging
 import sqlite3
-import stat as stat_module
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -295,15 +294,8 @@ class VaultIndex:
         self.db.execute("DELETE FROM graph_edges")
 
         count = 0
-        for rel in vault.list_notes(include_archive=include_archive):
-            try:
-                info = (vault.root / rel).stat(follow_symlinks=False)
-            except OSError:
-                continue
-            if stat_module.S_ISLNK(info.st_mode):
-                # Same rule as the incremental path: a symlink is not followed.
-                continue
-            note = vault.read_note(rel)
+        for rel_text, info in vault.iter_note_stats(include_archive=include_archive):
+            note = vault.read_note(Path(rel_text))
             self.upsert_note(note, stamp=(info.st_mtime_ns, info.st_size))
             count += 1
 
@@ -341,31 +333,19 @@ class VaultIndex:
         touched: List[tuple] = []  # (note_id, (mtime_ns, size))
         renamed: List[tuple] = []  # (note_id, old_title, new_title)
         seen: set = set()
-        for rel in vault.list_notes(include_archive=include_archive):
-            note_id = note_id_for_path(rel)
+        for rel_text, info in vault.iter_note_stats(include_archive=include_archive):
+            note_id = note_id_for_path(rel_text)
             seen.add(note_id)
-            try:
-                # The path comes from `list_notes` — our own walk under the
-                # resolved root — never from user input, so the `resolve_path`
-                # gate is not the right tool here: it would resolve every path
-                # component for every note (the whole cost of a cheap refresh).
-                # Containment is kept by not following a symlink at all: a
-                # linked note is skipped, so the index can never read through a
-                # link out of the tree. Every caller-supplied path still goes
-                # through `resolve_path`.
-                info = (vault.root / rel).stat(follow_symlinks=False)
-            except OSError as exc:
-                # Unreadable right now: leave any existing row alone so a
-                # later refresh can heal it rather than deleting the note.
-                logger.warning("index: cannot stat %s: %s", rel, exc)
-                continue
-            if stat_module.S_ISLNK(info.st_mode):
-                logger.debug("index: skipping symlinked note %s", rel)
-                continue
+            # The walk reports the stat it already had from the directory read,
+            # and never follows a symlink, so no per-note resolve or extra stat
+            # is needed here. Every caller-supplied path still goes through
+            # `resolve_path`; these paths are our own walk under the resolved
+            # root.
             stamp = (info.st_mtime_ns, info.st_size)
             stored = rows.get(note_id)
             if stored is not None and (stored[2], stored[3]) == stamp:
                 continue  # the stat has not moved: no read, no hash
+            rel = Path(rel_text)
             try:
                 note = vault.read_note(rel)
             except (OSError, ValueError) as exc:
