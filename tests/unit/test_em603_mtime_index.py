@@ -19,6 +19,7 @@ Rules: invented data only.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 import time
@@ -500,7 +501,7 @@ def test_the_projection_handler_schedules_a_reindex(tmp_path):
             "SELECT payload FROM jobs WHERE type='reindex_vault'"
         ).fetchone()
         assert row is not None, "the projection must schedule the index refresh"
-        assert str(index_db) in row["payload"]
+        assert json.loads(row["payload"])["index_db"] == str(index_db)
     finally:
         saved.close()
 

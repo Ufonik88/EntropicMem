@@ -327,7 +327,7 @@ def cmd_init(args) -> int:
         if dest.exists():
             backup = dest.with_suffix(dest.suffix + ".bak")
             shutil.copy2(dest, backup)
-            print(f"  Backed up: {filename} → {backup.name}")
+            print(f"  Backed up: {filename} -> {backup.name}")
         dest.write_text(content, encoding="utf-8")
         created.append(filename)
 
@@ -359,7 +359,7 @@ def cmd_init(args) -> int:
     _append_env(env_file, vault_path, index_path, memory_path)
 
     print("\nEntropicMem initialized.")
-    print(f"  Vault:      {vault_path} {'(safe mode — AGENTS.md already existed)' if safe_mode else ''}")
+    print(f"  Vault:      {vault_path} {'(safe mode - AGENTS.md already existed)' if safe_mode else ''}")
     print(f"  Index DB:   {index_path}")
     print(f"  Created:    {', '.join(created) if created else 'none'}")
     if skipped:
@@ -742,7 +742,7 @@ def cmd_index(args) -> int:
             count = index.rebuild(vault, include_archive=getattr(args, "include_archive", False))
             elapsed = time.monotonic() - started
             verb = "refreshed" if args.index_command == "refresh" else "rebuilt"
-            print(f"Index {verb}: {count} notes in {elapsed:.3f}s ({vault_path} → {index_path})")
+            print(f"Index {verb}: {count} notes in {elapsed:.3f}s ({vault_path} -> {index_path})")
             return 0
         finally:
             index.close()
@@ -1181,7 +1181,7 @@ def cmd_memory(args) -> int:
     elif args.memory_command == "reindex":
         r = engine.rebuild_fts()
         print(
-            f"FTS rebuilt: {r['fts_before']} → {r['fts_after']} rows "
+            f"FTS rebuilt: {r['fts_before']} -> {r['fts_after']} rows "
             f"({r['facts']} facts)"
         )
         engine.close()
@@ -1412,9 +1412,9 @@ def cmd_check_deps(args) -> int:
     """Report optional dependency status."""
     print("[EntropicMem deps]")
     print(f"  Core:        OK (Python {sys.version_info.major}.{sys.version_info.minor}, stdlib)")
-    print(f"  sentence-tf: {'INSTALLED' if EMBEDDER_AVAILABLE else 'NOT INSTALLED  → semantic re-rank disabled'}")
+    print(f"  sentence-tf: {'INSTALLED' if EMBEDDER_AVAILABLE else 'NOT INSTALLED  -> semantic re-rank disabled'}")
     has_graphviz = shutil.which("dot") is not None
-    print(f"  graphviz:    {'INSTALLED' if has_graphviz else 'NOT INSTALLED  → DOT export disabled'}")
+    print(f"  graphviz:    {'INSTALLED' if has_graphviz else 'NOT INSTALLED  -> DOT export disabled'}")
     print(f"  Version:     {__version__}")
     return 0
 
@@ -1905,7 +1905,7 @@ def cmd_consolidate(args) -> int:
         print(f"Dry run: {result['would_archive']} facts would be archived "
               f"(older than {result['cutoff_days']} days, accessed ≤ {args.min_access_count} times)")
         if result.get("confirm_required"):
-            print("Dry run only — re-run with --confirm (and without --dry-run) to actually archive.")
+            print("Dry run only - re-run with --confirm (and without --dry-run) to actually archive.")
     else:
         print(f"Consolidated: {result['archived']} facts archived "
               f"(cutoff: {result['cutoff_days']} days)")
