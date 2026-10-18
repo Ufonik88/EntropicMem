@@ -16,6 +16,12 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from em.vault.frontmatter import (
+    dump_frontmatter,
+    load_frontmatter,
+    parse_wikilinks,
+)
+
 # ── protected prefixes (never write) ────────────────────────────────────────
 PROTECTED_PREFIXES = ("_archive/",)
 
@@ -114,31 +120,31 @@ class Note:
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
     def to_frontmatter_block(self) -> str:
-        """Serialize frontmatter to YAML-like block."""
-        lines = ["---"]
-        lines.append(f'title: "{self.title}"')
-        lines.append(f'type: "{self.note_type}"')
-        if self.tags:
-            tags_str = ", ".join(self.tags)
-            lines.append(f"tags: [{tags_str}]")
+        """Serialize frontmatter to a YAML block (EM-602: the shared writer).
+
+        The field order is the v2 order; the escaping is
+        ``em.vault.frontmatter``'s, so a title or tag containing ``"``, a
+        backslash, a colon or a newline can no longer produce a block that
+        reads back differently.
+        """
         today = self.created or date.today().isoformat()
-        lines.append(f'created: "{today}"')
-        lines.append(f'updated: "{today}"')
+        data: Dict[str, Any] = {"title": self.title, "type": self.note_type}
+        if self.tags:
+            data["tags"] = list(self.tags)
+        data["created"] = today
+        data["updated"] = today
         if self.source:
-            lines.append(f'source: "{self.source}"')
+            data["source"] = self.source
         if self.source_url:
-            lines.append(f'source_url: "{self.source_url}"')
+            data["source_url"] = self.source_url
         if self.aliases:
-            aliases_str = ", ".join(self.aliases)
-            lines.append(f"aliases: [{aliases_str}]")
+            data["aliases"] = list(self.aliases)
         if self.agent:
-            lines.append("agent: true")
-        eid = self.entropic_id or self.compute_entropic_id()
-        lines.append(f'entropic_id: "{eid}"')
+            data["agent"] = True
+        data["entropic_id"] = self.entropic_id or self.compute_entropic_id()
         if self.domain:
-            lines.append(f'domain: "{self.domain}"')
-        lines.append("---")
-        return "\n".join(lines)
+            data["domain"] = self.domain
+        return dump_frontmatter(data)
 
     def to_markdown(self) -> str:
         """Render full note as Markdown text."""
@@ -246,32 +252,15 @@ class Vault:
     # ── file operations ─────────────────────────────────────────────────
 
     def read_frontmatter(self, path: Path) -> Dict[str, Any]:
-        """Parse YAML-like frontmatter from a note file. Stdlib-only — no PyYAML."""
+        """Parse frontmatter from a note file (EM-602: the shared reader).
+
+        PyYAML when it is installed, else the subset parser in
+        ``em.vault.frontmatter``. A ``---`` in the body is never a delimiter,
+        and a block the reader cannot parse yields ``{}`` rather than raising.
+        """
         text = path.read_text(encoding="utf-8")
-        fm: Dict[str, Any] = {}
-        if not text.startswith("---"):
-            return fm
-        parts = text.split("---", 2)
-        if len(parts) < 3:
-            return fm
-        block = parts[1]
-        for line in block.strip().split("\n"):
-            line = line.strip()
-            if ":" not in line:
-                continue
-            key, _, val = line.partition(":")
-            key = key.strip()
-            val = val.strip().strip('"').strip("'")
-            # parse list values: [a, b, c]
-            if val.startswith("[") and val.endswith("]"):
-                val = [v.strip().strip('"').strip("'") for v in val[1:-1].split(",") if v.strip()]
-            # parse bool
-            elif val.lower() == "true":
-                val = True
-            elif val.lower() == "false":
-                val = False
-            fm[key] = val
-        return fm
+        metadata, _ = load_frontmatter(text)
+        return metadata
 
     def read_note(self, path: Path) -> Note:
         """Read a note from disk and parse frontmatter + body.
@@ -282,13 +271,8 @@ class Vault:
         """
         full = self.resolve_path(path)
         text = full.read_text(encoding="utf-8")
-        fm: Dict[str, Any] = {}
-        body = text
-        if text.startswith("---"):
-            parts = text.split("---", 2)
-            if len(parts) >= 3:
-                fm = self.read_frontmatter(full)
-                body = parts[2].strip()
+        fm, body = load_frontmatter(text)
+        body = body.strip()
         title = fm.get("title", full.stem.replace("-", " ").title())
         return Note(
             path=full.relative_to(self.root),
@@ -518,8 +502,13 @@ class Vault:
         return text
 
     def extract_wikilinks(self, text: str) -> List[str]:
-        """Extract all [[wikilink]] targets from text."""
-        return re.findall(r"\[\[(.+?)\]\]", text)
+        """Extract wikilink *targets* from text (EM-602).
+
+        Alias, heading and block references are stripped, so ``[[Note|alias]]``
+        resolves against the note titled ``Note`` instead of the literal
+        ``Note|alias``. Duplicates are kept, in order.
+        """
+        return [link.target for link in parse_wikilinks(text)]
 
     def get_domains(self) -> List[str]:
         """Return list of domain folders that have content."""

@@ -266,7 +266,7 @@ class TestVault:
         )
         md = note.to_markdown()
         assert md.startswith("---")
-        assert "title: \"Test Title\"" in md
+        assert "title: Test Title" in md  # EM-602: plain text stays plain
         assert "entropic_id:" in md
         assert md.endswith("Test body content.\n")
 

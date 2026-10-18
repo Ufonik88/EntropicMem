@@ -157,7 +157,8 @@ def test_renamed_title_updates_edges(vault_and_index):
     # In-place title change (same path, same note_id).
     text = (root / rel_old).read_text(encoding="utf-8")
     (root / rel_old).write_text(
-        text.replace('title: "Old Name"', 'title: "New Name"'), encoding="utf-8"
+        # EM-602: the writer leaves plain text unquoted now.
+        text.replace("title: Old Name", "title: New Name"), encoding="utf-8"
     )
 
     index.rebuild(vault)
@@ -177,7 +178,7 @@ def test_rename_lets_dangling_links_resolve(vault_and_index):
 
     text = (root / rel).read_text(encoding="utf-8")
     (root / rel).write_text(
-        text.replace('title: "Placeholder"', 'title: "New Name"'), encoding="utf-8"
+        text.replace("title: Placeholder", "title: New Name"), encoding="utf-8"
     )
 
     index.rebuild(vault)
@@ -206,7 +207,7 @@ def test_incremental_matches_full_rebuild(vault_and_index):
     _write(vault, "Fresh", "See [[Beta]] and [[Delta]].")
     text_b = (root / rel_b).read_text(encoding="utf-8")
     (root / rel_b).write_text(
-        text_b.replace('title: "Beta"', 'title: "Beta Renamed"'), encoding="utf-8"
+        text_b.replace("title: Beta", "title: Beta Renamed"), encoding="utf-8"
     )
 
     index.rebuild(vault)  # incremental
