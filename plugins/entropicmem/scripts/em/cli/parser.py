@@ -88,6 +88,12 @@ def add_commands(parser: argparse.ArgumentParser, *, dest: str = "command") -> a
     idx_rebuild = idx_sub.add_parser("rebuild", help="Full rebuild: reindex every vault note + graph edges")
     idx_rebuild.add_argument("--include-archive", action="store_true",
                              help="Also index notes in the archive folder")
+    idx_refresh = idx_sub.add_parser(
+        "refresh",
+        help="Incremental refresh: only notes whose file stat changed are read (EM-603)",
+    )
+    idx_refresh.add_argument("--include-archive", action="store_true",
+                             help="Also refresh notes in the archive folder")
     idx_sub.add_parser("status", help="Report index freshness without touching anything")
 
     # graph

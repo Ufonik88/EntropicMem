@@ -33,7 +33,7 @@ for entry in (str(REPO), str(SCRIPTS)):
     if entry not in sys.path:
         sys.path.insert(0, entry)
 
-from em_internal.index import SCHEMA_VERSION, VaultIndex  # noqa: E402
+from em_internal.index import NOTE_ID_VERSION, SCHEMA_VERSION, VaultIndex  # noqa: E402
 from em_internal.vault import Note, Vault, note_id_for_path  # noqa: E402
 
 
@@ -148,7 +148,8 @@ def test_nested_notes_get_distinct_index_rows_and_edges(tmp_path):
 def test_a_fresh_index_is_at_the_schema_version(vault_and_index):
     vault, index, root = vault_and_index
     assert index.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
-    assert SCHEMA_VERSION == 2
+    # This card's change is generation 2; later cards advance SCHEMA_VERSION.
+    assert NOTE_ID_VERSION == 2
 
 
 # --- the migration -------------------------------------------------------------

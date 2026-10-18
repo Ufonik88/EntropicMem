@@ -223,7 +223,7 @@ Five cooperating layers, full model in [docs/MEMORY_MODEL.md](docs/MEMORY_MODEL.
 | Vault & knowledge | `init`, `ingest`, `ingest-pile`, `query`, `note`, `research`, `lint`, `moc`, `hotcache`, `open`, `vault lint` |
 | Memory engine | `remember`, `recall`, `forget --confirm`, `memory stats/list/project/reindex` (`stats` shortcut), `extract`, `reinforce`, `history`, `consolidate --confirm` |
 | Episodic & triples | `episode add/list/stats`, `triple extract/list/stats/neighbors/path/inconsistencies` |
-| Index & graph | `index rebuild/status`, `graph export/serve/show` |
+| Index & graph | `index rebuild/refresh/status`, `graph export/serve/show` |
 | Vectors & time | `embed --rebuild`, `timeline` |
 | Security | `security enable/disable/status`, `patch-core` |
 | Portability | `export`, `import` |

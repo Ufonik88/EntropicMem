@@ -704,14 +704,15 @@ def cmd_hotcache(args) -> int:
 # ── subcommand: index ──────────────────────────────────────────────────────
 
 def cmd_index(args) -> int:
-    """Vault index maintenance: `index rebuild` reindexes every vault note,
-    `index status` reports freshness without touching anything.
+    """Vault index maintenance: `index refresh` updates the index incrementally
+    (EM-603: only notes whose file stat changed are read), `index rebuild` runs
+    the same safe refresh under its older name, and `index status` reports
+    freshness without touching anything.
 
     The index (index.db) is only written by `init`, the remember→vault path,
     and `project_to_vault`. Notes added by other tools (wiki.py, Obsidian,
-    vault auto-commit) never reach it, so without a periodic rebuild the
-    health check flags it stale. `index rebuild` is the safe full refresh:
-    drop and reindex every note, then rebuild the wikilink graph edges.
+    vault auto-commit) never reach it, so without a periodic refresh the
+    health check flags it stale.
     """
     vault_path, index_path = _resolve_env()
 
@@ -733,19 +734,20 @@ def cmd_index(args) -> int:
         print(f"Age:         {age_h:.1f} h")
         return 0
 
-    if args.index_command == "rebuild":
+    if args.index_command in ("rebuild", "refresh"):
         vault = Vault(vault_path)
         index = VaultIndex(index_path)
         try:
             started = time.monotonic()
             count = index.rebuild(vault, include_archive=getattr(args, "include_archive", False))
             elapsed = time.monotonic() - started
-            print(f"Index rebuilt: {count} notes in {elapsed:.1f}s ({vault_path} → {index_path})")
+            verb = "refreshed" if args.index_command == "refresh" else "rebuilt"
+            print(f"Index {verb}: {count} notes in {elapsed:.3f}s ({vault_path} → {index_path})")
             return 0
         finally:
             index.close()
 
-    print("Usage: entropicmem index rebuild|status", file=sys.stderr)
+    print("Usage: entropicmem index rebuild|refresh|status", file=sys.stderr)
     return 1
 
 

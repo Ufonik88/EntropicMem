@@ -55,6 +55,11 @@ log = logging.getLogger("entropicmem.vault")
 #: The job type this module enqueues and the registry carries a handler for.
 JOB_TYPE = "project_vault"
 
+#: EM-603: the index refresh job. The vault index is the v2 layer's search
+#: cache, so the handler imports it lazily — the same v2-bridge pattern the
+#: facade uses for ``memory_engine`` — and never at module load.
+REINDEX_JOB_TYPE = "reindex_vault"
+
 #: How long after the last write the projection waits. Long enough to swallow a
 #: burst of edits, short enough that the vault is never meaningfully stale.
 DEBOUNCE_SECONDS = 60
@@ -134,6 +139,7 @@ def enqueue_projection(
     root: "str | Path",
     scope: Scope,
     modes: Sequence[str],
+    index_db: "str | Path | None" = None,
     now=None,
     debounce: int = DEBOUNCE_SECONDS,
     max_wait: int = MAX_WAIT_SECONDS,
@@ -156,6 +162,11 @@ def enqueue_projection(
         "scope": _scope_payload(scope),
         "modes": list(modes),
     }
+    if index_db:
+        # EM-603: the projection's follow-up refresh needs the index path; the
+        # provider passes it from `paths.index_db`. Without it the projection
+        # still runs — it just cannot schedule the refresh.
+        payload["index_db"] = str(index_db)
     queue = JobQueue(conn)
     key = base
 
@@ -196,6 +207,77 @@ def enqueue_projection(
         f"{JOB_TYPE}: burst exceeded {_MAX_CHAIN} follow-up rows for {base!r}; "
         "writes are arriving faster than the vault renders"
     )
+
+
+def _reindex_key(root, index_db) -> str:
+    return f"vault:reindex:{root}:{index_db}"
+
+
+def enqueue_reindex(conn, *, root: "str | Path", index_db: "str | Path | None") -> Optional[str]:
+    """Queue one index refresh for this (vault root, index db), deduplicated.
+
+    Concurrent requests for the same pair collapse onto one row: unlike the
+    projection there is no per-write payload a request could lose — the refresh
+    reads whatever the vault holds when it runs. Returns the row id, or
+    ``None`` when either path is missing (nothing to refresh).
+    """
+    if not root or not index_db:
+        return None
+    queue = JobQueue(conn)
+    return queue.enqueue(
+        REINDEX_JOB_TYPE,
+        {"root": str(root), "index_db": str(index_db)},
+        dedupe_key=_reindex_key(root, index_db),
+        run_after=utc_now(),
+    )
+
+
+def make_reindex_vault_handler() -> Callable:
+    """Handler factory for ``reindex_vault`` (EM-603; worker thread only).
+
+    The vault index is the v2 layer's search cache, so the imports are **lazy**
+    and inside the handler — the same bridge pattern the facade uses for
+    ``memory_engine``. Under EM-209's contract a payload without both paths, a
+    missing vault root or an unopenable index is a *permanent* failure (retrying
+    cannot fix a configuration error); a refresh that raises for any other
+    reason propagates so the row retries and then lands ``failed``.
+    """
+
+    def handle(job, ctx: JobContext):
+        payload = job.payload or {}
+        root = payload.get("root")
+        index_db = payload.get("index_db")
+        if not root or not index_db:
+            raise PermanentJobError(
+                f"{REINDEX_JOB_TYPE}: payload needs both root and index_db"
+            )
+        try:
+            from em_internal.index import VaultIndex
+            from em_internal.vault import Vault
+        except ImportError as exc:  # pragma: no cover - a packaging failure
+            raise PermanentJobError(
+                f"{REINDEX_JOB_TYPE}: the vault index is unavailable: {exc}"
+            ) from exc
+
+        vault = Vault(Path(root))
+        if not vault.root.is_dir():
+            raise PermanentJobError(
+                f"{REINDEX_JOB_TYPE}: vault root does not exist: {root}"
+            )
+        try:
+            index = VaultIndex(Path(index_db))
+        except Exception as exc:  # noqa: BLE001 - sqlite raises OperationalError
+            raise PermanentJobError(
+                f"{REINDEX_JOB_TYPE}: cannot open the index at {index_db}: {exc}"
+            ) from exc
+        try:
+            count = index.rebuild(vault)
+        finally:
+            index.close()
+        log.info("%s: %d notes refreshed from %s", REINDEX_JOB_TYPE, count, vault.root)
+        return count
+
+    return handle
 
 
 def make_project_vault_handler(root: "str | Path | None" = None) -> Callable:
@@ -243,6 +325,16 @@ def make_project_vault_handler(root: "str | Path | None" = None) -> Callable:
             len(report.unchanged),
             len(report.missing_markers),
         )
+        # EM-603: the projection just wrote Markdown, so the vault index is
+        # stale by construction. Schedule its refresh. Fail-soft: a queue
+        # problem must not turn a successful projection into a retried failure.
+        index_db = payload.get("index_db")
+        if index_db:
+            try:
+                with ctx.store.transaction() as conn:
+                    enqueue_reindex(conn, root=target, index_db=index_db)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("%s: could not schedule the index refresh: %s", JOB_TYPE, exc)
         return report
 
     return handle

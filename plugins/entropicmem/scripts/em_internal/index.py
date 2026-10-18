@@ -10,6 +10,7 @@ Stdlib-only (sqlite3).
 import hashlib
 import logging
 import sqlite3
+import stat as stat_module
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -65,7 +66,9 @@ CREATE TABLE IF NOT EXISTS notes_meta (
     agent INTEGER DEFAULT 0,
     entropic_id TEXT DEFAULT '',
     body_preview TEXT DEFAULT '',
-    content_hash TEXT DEFAULT ''
+    content_hash TEXT DEFAULT '',
+    mtime_ns INTEGER DEFAULT 0,
+    size INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS graph_edges (
@@ -87,8 +90,13 @@ CREATE INDEX IF NOT EXISTS idx_meta_importance ON notes_meta(importance DESC);
 #: The index's schema generation, in ``PRAGMA user_version``. **Version 2**
 #: (EM-602 slice 2) changed ``note_id`` from "the path with its top directory
 #: dropped" to the full vault-relative path, so an older database's ids are
-#: recomputed from each row's ``path`` on open.
-SCHEMA_VERSION = 2
+#: recomputed from each row's ``path`` on open. **Version 3** (EM-603) adds
+#: ``mtime_ns``/``size`` so a refresh can skip a note whose ``stat`` has not
+#: moved without reading or hashing it.
+SCHEMA_VERSION = 3
+
+#: The version at which the note-id rule changed; the migration below stamps it.
+NOTE_ID_VERSION = 2
 
 #: Transient prefix for the two-pass rename (a note id is a path, so it can
 #: never contain a NUL). Parked ids cannot collide with the new ones.
@@ -180,8 +188,24 @@ class VaultIndex:
             self.db.execute(
                 "ALTER TABLE notes_meta ADD COLUMN content_hash TEXT DEFAULT ''"
             )
+        # EM-603: the stat columns the incremental refresh relies on. A v2
+        # database gets them as 0, which never matches a real stat — so the
+        # first refresh reads every note once to backfill, then goes quiet.
+        if "mtime_ns" not in columns:
+            self.db.execute(
+                "ALTER TABLE notes_meta ADD COLUMN mtime_ns INTEGER DEFAULT 0"
+            )
+        if "size" not in columns:
+            self.db.execute("ALTER TABLE notes_meta ADD COLUMN size INTEGER DEFAULT 0")
         self.db.commit()
         self._migrate_note_ids()
+        self._stamp_schema_version()
+
+    def _stamp_schema_version(self) -> None:
+        version = self.db.execute("PRAGMA user_version").fetchone()[0]
+        if version < SCHEMA_VERSION:
+            self.db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            self.db.commit()
 
     def _migrate_note_ids(self) -> None:
         """Rewrite pre-EM-602 note ids to the vault-relative-path rule.
@@ -194,7 +218,7 @@ class VaultIndex:
         Runs once per database and is a no-op on a fresh or migrated store.
         """
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version >= SCHEMA_VERSION:
+        if version >= NOTE_ID_VERSION:
             return
         mapping = {}
         for row in self.db.execute("SELECT note_id, path FROM notes_meta").fetchall():
@@ -205,7 +229,7 @@ class VaultIndex:
             with self.db:
                 self._rename_note_ids(mapping)
                 self._rename_wikilink_endpoints(mapping)
-        self.db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        self.db.execute(f"PRAGMA user_version = {NOTE_ID_VERSION}")
         self.db.commit()
 
     def _rename_note_ids(self, mapping: Dict[str, str]) -> None:
@@ -272,8 +296,15 @@ class VaultIndex:
 
         count = 0
         for rel in vault.list_notes(include_archive=include_archive):
+            try:
+                info = (vault.root / rel).stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if stat_module.S_ISLNK(info.st_mode):
+                # Same rule as the incremental path: a symlink is not followed.
+                continue
             note = vault.read_note(rel)
-            self.upsert_note(note)
+            self.upsert_note(note, stamp=(info.st_mtime_ns, info.st_size))
             count += 1
 
         # Phase 2: build graph edges after all notes are indexed
@@ -283,41 +314,88 @@ class VaultIndex:
         return count
 
     def _rebuild_diff(self, vault: Vault, include_archive: bool = False) -> int:
-        """Per-note diff rebuild: see rebuild() for the contract."""
-        # Snapshot the vault (every note is read once; this is also the hash
-        # source, so the read cost buys the change detection).
-        vault_notes: Dict[str, Note] = {}
-        for rel in vault.list_notes(include_archive=include_archive):
-            note = vault.read_note(rel)
-            vault_notes[note.note_id] = note
+        """Per-note diff rebuild: see rebuild() for the contract.
 
-        indexed: Dict[str, tuple] = {}
-        for row in self.db.execute("SELECT note_id, title, content_hash FROM notes_meta"):
-            indexed[row["note_id"]] = (row["title"], row["content_hash"] or "")
+        EM-603: the first cut is the file's ``(st_mtime_ns, st_size)``. A note
+        whose stat matches its stored row is not opened, parsed or hashed at
+        all, so an unchanged vault costs one ``stat`` per note. Only a moved
+        stat reads the file, and the content hash still decides whether the row
+        is *changed* — a bare ``touch`` refreshes the stat columns and nothing
+        else. ``rebuild_full`` is the escape hatch for a same-size, same-mtime
+        rewrite, which no stat-based refresh can see.
+        """
+        rows: Dict[str, tuple] = {}
+        for row in self.db.execute(
+            "SELECT note_id, title, content_hash, mtime_ns, size FROM notes_meta"
+        ):
+            rows[row["note_id"]] = (
+                row["title"],
+                row["content_hash"] or "",
+                int(row["mtime_ns"] or 0),
+                int(row["size"] or 0),
+            )
 
         added: List[Note] = []
         changed: List[Note] = []
+        stamps: Dict[str, tuple] = {}
+        touched: List[tuple] = []  # (note_id, (mtime_ns, size))
         renamed: List[tuple] = []  # (note_id, old_title, new_title)
-        for note_id, note in vault_notes.items():
-            stored = indexed.get(note_id)
+        seen: set = set()
+        for rel in vault.list_notes(include_archive=include_archive):
+            note_id = note_id_for_path(rel)
+            seen.add(note_id)
+            try:
+                # The path comes from `list_notes` — our own walk under the
+                # resolved root — never from user input, so the `resolve_path`
+                # gate is not the right tool here: it would resolve every path
+                # component for every note (the whole cost of a cheap refresh).
+                # Containment is kept by not following a symlink at all: a
+                # linked note is skipped, so the index can never read through a
+                # link out of the tree. Every caller-supplied path still goes
+                # through `resolve_path`.
+                info = (vault.root / rel).stat(follow_symlinks=False)
+            except OSError as exc:
+                # Unreadable right now: leave any existing row alone so a
+                # later refresh can heal it rather than deleting the note.
+                logger.warning("index: cannot stat %s: %s", rel, exc)
+                continue
+            if stat_module.S_ISLNK(info.st_mode):
+                logger.debug("index: skipping symlinked note %s", rel)
+                continue
+            stamp = (info.st_mtime_ns, info.st_size)
+            stored = rows.get(note_id)
+            if stored is not None and (stored[2], stored[3]) == stamp:
+                continue  # the stat has not moved: no read, no hash
+            try:
+                note = vault.read_note(rel)
+            except (OSError, ValueError) as exc:
+                logger.warning("index: cannot read %s: %s", rel, exc)
+                continue
+            stamps[note_id] = stamp
             if stored is None:
                 added.append(note)
-                continue
-            old_title, old_hash = stored
-            if content_hash(note) != old_hash:
+            elif content_hash(note) != stored[1]:
                 changed.append(note)
-                if old_title != note.title:
-                    renamed.append((note_id, old_title, note.title))
+                if stored[0] != note.title:
+                    renamed.append((note_id, stored[0], note.title))
+            else:
+                touched.append((note_id, stamp))
 
-        for note_id in sorted(nid for nid in indexed if nid not in vault_notes):
+        for note_id in sorted(nid for nid in rows if nid not in seen):
             self.delete_note(note_id)
+
+        for note_id, (mtime_ns, size) in touched:
+            self.db.execute(
+                "UPDATE notes_meta SET mtime_ns = ?, size = ? WHERE note_id = ?",
+                (mtime_ns, size, note_id),
+            )
 
         # Two-phase so intra-batch cross-links resolve: all metadata first (the
         # link resolver reads titles from notes_meta), then all edges. The
         # title map is built once for the batch (per-note rescans would be
         # O(N^2) on a full-diff run).
         for note in added + changed:
-            self.upsert_note(note)
+            self.upsert_note(note, stamp=stamps.get(note.note_id))
         known_titles: Dict[str, str] = {}
         for row in self.db.execute("SELECT title, note_id FROM notes_meta"):
             known_titles[row["title"]] = row["note_id"]
@@ -355,7 +433,7 @@ class VaultIndex:
             self.upsert_edges_for_note(vault, note, known_titles=known_titles)
 
         self.db.commit()
-        return len(vault_notes)
+        return len(seen)
 
     def _fts_link_candidates(self, titles: List[str], limit_per_title: int = 200) -> set:
         """Notes whose bodies likely mention one of `titles`.
@@ -405,24 +483,32 @@ class VaultIndex:
                             (row["note_id"], target_id),
                         )
 
-    def upsert_note(self, note: Note) -> None:
-        """Insert or update a note in the index."""
+    def upsert_note(self, note: Note, *, stamp: Optional[tuple] = None) -> None:
+        """Insert or update a note in the index.
+
+        ``stamp`` is the file's ``(st_mtime_ns, st_size)`` — the pair the
+        incremental refresh compares before reading a note (EM-603). A caller
+        that does not pass it stores ``(0, 0)``, which never matches a real
+        stat, so the next refresh reads that one note once and fills it in.
+        """
         note_id = note.note_id
         path_str = str(note.path)
+        mtime_ns, size = stamp if stamp is not None else (0, 0)
 
         # Upsert metadata
         self.db.execute(
             """INSERT INTO notes_meta (note_id, path, title, domain, note_type,
                importance, tags, source, source_url, created, updated, agent,
-               entropic_id, body_preview, content_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               entropic_id, body_preview, content_hash, mtime_ns, size)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(note_id) DO UPDATE SET
                 path=excluded.path, title=excluded.title, domain=excluded.domain,
                 note_type=excluded.note_type, importance=excluded.importance,
                 tags=excluded.tags, source=excluded.source, source_url=excluded.source_url,
                 created=excluded.created, updated=excluded.updated, agent=excluded.agent,
                 entropic_id=excluded.entropic_id, body_preview=excluded.body_preview,
-                content_hash=excluded.content_hash""",
+                content_hash=excluded.content_hash, mtime_ns=excluded.mtime_ns,
+                size=excluded.size""",
             (
                 note_id, path_str, note.title,
                 note.domain, note.note_type,
@@ -434,6 +520,8 @@ class VaultIndex:
                 note.entropic_id or note.compute_entropic_id(),
                 note.body[:500],
                 content_hash(note),
+                mtime_ns,
+                size,
             ),
         )
 
