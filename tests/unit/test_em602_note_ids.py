@@ -203,23 +203,31 @@ def test_opening_a_legacy_index_migrates_the_note_ids(tmp_path):
     vault = _nested_vault(tmp_path)
     _build_legacy_index(db, vault)
     # The fixture really is in the old shape: the ids dropped the top folder.
+    # (On Windows the old rule stored backslashes — the expression is
+    # platform-shaped, and the migration normalises that too.)
+    legacy_note = _legacy_note_id(Path("A/Sub/Note.md"))
+    legacy_other = _legacy_note_id(Path("A/Sub/Other.md"))
     conn = sqlite3.connect(str(db))
     try:
         old_ids = {r[0] for r in conn.execute("SELECT note_id FROM notes_meta")}
     finally:
         conn.close()
-    assert old_ids == {"Sub/Note", "Sub/Other"}
+    assert old_ids == {legacy_note, legacy_other}
 
     index = VaultIndex(db)
     try:
+        # The new rule is POSIX on every platform, which is also what makes a
+        # Windows-written legacy id (backslashes) safe to migrate.
         assert _ids(index) == {"A/Sub/Note", "A/Sub/Other"}
+        assert all("\\" not in note_id for note_id in _ids(index))
         assert index.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         # The wikilink edge moved with its endpoints...
         assert ("A/Sub/Note", "A/Sub/Other", "wikilink") in _edges(index)
         assert not any(
-            "Sub/Note" in (e[0], e[1])
+            old in (e[0], e[1])
             for e in _edges(index)
             if e[2] == "wikilink"
+            for old in (legacy_note, legacy_other)
         )
         # ... the FTS rows moved too (a joined search would otherwise find nothing) ...
         hits = index.search_fts("Other")
@@ -228,7 +236,39 @@ def test_opening_a_legacy_index_migrates_the_note_ids(tmp_path):
         # to wikilink edges, so it is not rewritten even where its text equals a
         # legacy note id.
         assert ("ent_acme", "ent_falcon", "triple:related") in _edges(index)
-        assert ("Sub/Note", "ent_falcon", "triple:related") in _edges(index)
+        assert (legacy_note, "ent_falcon", "triple:related") in _edges(index)
+    finally:
+        index.close()
+
+
+def test_a_windows_shaped_legacy_id_migrates_to_the_posix_form(tmp_path):
+    """Windows wrote backslash ids under the old rule (`str(path.with_suffix(""))`).
+    The new rule is POSIX everywhere, so the migration must normalise them —
+    this is the shape CI's `windows-import` job exercises."""
+    db = tmp_path / "index.db"
+    vault = _nested_vault(tmp_path)
+    _build_legacy_index(db, vault)
+    conn = sqlite3.connect(str(db))
+    try:
+        for table in ("notes_meta", "notes_fts"):
+            conn.execute(f"UPDATE {table} SET note_id = replace(note_id, '/', '\\')")
+        conn.execute(
+            "UPDATE graph_edges SET source_id = replace(source_id, '/', '\\')"
+            " WHERE kind = 'wikilink'"
+        )
+        conn.execute(
+            "UPDATE graph_edges SET target_id = replace(target_id, '/', '\\')"
+            " WHERE kind = 'wikilink'"
+        )
+        conn.execute("PRAGMA user_version = 0")
+        conn.commit()
+    finally:
+        conn.close()
+
+    index = VaultIndex(db)
+    try:
+        assert _ids(index) == {"A/Sub/Note", "A/Sub/Other"}
+        assert ("A/Sub/Note", "A/Sub/Other", "wikilink") in _edges(index)
     finally:
         index.close()
 
