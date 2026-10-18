@@ -1430,6 +1430,13 @@ a job non-blocking to clear red.
 
 ## Open blockers (owner-only)
 
+> **2026-10-18, later: the owner handed the outstanding calls to the agent, and they are
+> made** (see the STOP HERE block at the top): P0c is **skipped**, the v3 cutover is
+> **no**, the prune's destructive run has **nothing to run**, and releases/tags/the
+> catalog re-pin are **not now**. The entries below remain the record of *why* each is
+> irreversible or public — they are not open requests. The one live action is the
+> content-ceiling fix (chunk 38), which is not an owner gate.
+
 Nothing below may be done by an agent without the owner's explicit go-ahead,
 because it is irreversible or public:
 
