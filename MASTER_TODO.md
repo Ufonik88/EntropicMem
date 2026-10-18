@@ -15,25 +15,36 @@ points at.
 
 ---
 
-## STOP HERE — S5 is complete (2026-10-17)
+## STOP HERE — S5 is complete (2026-10-17); S6 opened 2026-10-18, its first chunk landed
 
-**Development stops at this point.** S5 (formation & consolidation) is complete on
+**Development stopped at this point on 2026-10-17.** S5 (formation & consolidation) is complete on
 `main`: **EM-501**, **EM-502** (both slices), **EM-503** (core + wiring), and the
 **S5 exit criteria** — a preference learned in session 1 is served in session 2
 with no explicit `remember`, on the rule path with no LLM configured. **Two
 queued chunks opened (the owner's go) and landed the same day: the F-004
 remediation — resolved and pinned at `c30aa54` — and the EM-303 prune card —
 the promised destructive embedding-maintenance job, built and landed at
-`99151d3` with no destructive run (real runs owner-signed later).** What
-remains on the owner is **one-word gated**: P0c's shadow data, the v3 cutover
+`99151d3` with no destructive run (real runs owner-signed later).**
+
+**2026-10-18: the owner opened S6** ("YOLO, you make the logical calls" — the word
+`STOP_HERE.md`'s ruling table asked for; dev-line work only, nothing touches the live
+store), and **EM-601 slice 1 — the vault projection engine, S6's first card — landed the
+same day at `bdc1e20`** (branch-first on `em-601-projection`, all 11 check-runs green on
+that exact SHA, `--ff-only`, branch deleted; the merge's 11 re-ran them on `main`). **The
+next chunk is EM-601 slice 2** — `docs/plan/NEXT_CHUNK.md` Part B; it has not started.
+What remains on the owner is **one-word gated**: P0c's shadow data, the v3 cutover
 (**no longer blocked on F-004**), the prune's first destructive run, releases/
-tags/the catalog re-pin, and the ceiling card's two inputs, S6+. See
+tags/the catalog re-pin, and the ceiling card's two inputs. See
 [docs/plan/STOP_HERE.md](docs/plan/STOP_HERE.md) for the full
 stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-17, against branch `main` at `99151d3` — **the EM-303 prune card: the promised destructive embedding-maintenance job, built and landed** (branch-first on `em-303-prune`, all 11 check-runs green on that exact SHA, and all 22 after the merge re-ran them on `main` — nothing new existed to break the re-run; **no destructive run happened and none is scheduled: real runs stay owner-gated**, see Open blockers) atop the F-004 remediation (**`c30aa54`** — full per-user isolation resolved and pinned; branch-first, all 11 check-runs green on that exact SHA; the finding's strict xfail flipped onto a v3-store drive, the two-provider surface pinned beside the group-chat harness, **no product code changed**) atop the S5 completion (EM-503 wiring, the `sync_turn` transcript capture and
+**Last reconciled:** 2026-10-18, against branch `main` at `bdc1e20` — **S6 is open (the
+owner's word, 2026-10-18) and EM-601 slice 1 — the vault projection engine — has landed:
+chunk 36, 31 new tests, CI **2813 / 4 / 2** read green from the job log at that SHA** (the
+next chunk, EM-601 slice 2, is NEXT_CHUNK Part B and has not started) — on top of **the EM-303 prune
+card: the promised destructive embedding-maintenance job, built and landed** (branch-first on `em-303-prune`, all 11 check-runs green on that exact SHA, and all 22 after the merge re-ran them on `main` — nothing new existed to break the re-run; **no destructive run happened and none is scheduled: real runs stay owner-gated**, see Open blockers) atop the F-004 remediation (**`c30aa54`** — full per-user isolation resolved and pinned; branch-first, all 11 check-runs green on that exact SHA; the finding's strict xfail flipped onto a v3-store drive, the two-provider surface pinned beside the group-chat harness, **no product code changed**) atop the S5 completion (EM-503 wiring, the `sync_turn` transcript capture and
 the exit harness, `d331c5e`) atop the EM-503 core on the
 **branch-first landing of EM-412's query-embedding wiring** (`em-412-query-embedding`:
 the query embedding is wired into the v3 read paths behind `embeddings.enabled` —
@@ -47,15 +58,17 @@ model-switch `embed_backfill`; the vector readers count and debug-log rows skipp
 for another model, `Retrieval.diagnostics` carries them, and the search payload adds
 `diagnostics` only when non-empty; cosine stays off; flag-off and v2 paths
 byte-identical; 15 new tests; **7 mutation checks all red**). The tree
-was verified on this box (**bare
+was verified on that tree on this box (**bare
 2706 / 16 / 2**; with the digest list **2707 / 15 / 2**; CI-equivalent 3.12
 **2784 / 2 / 2**, both locally measured; `ruff==0.16.2` clean) and `main`
 fast-forwarded to that exact SHA after **all 11 check-runs green on it** (the
 post-merge push re-ran the suite on `main`: 22 runs, all success);
-the tree's CI 3.12 count
-is **2782 / 4 / 2** (read from the job log at `99151d3` — the +12 prune guard
+that tree's CI 3.12 count
+was **2782 / 4 / 2** (read from the job log at `99151d3` — the +12 prune guard
 tests; the prior read was 2770 / 4 / 2 at `d92503d`, and `c30aa54`'s own
-read 2769 / 4 / 2). Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
+read 2769 / 4 / 2). **The current figures are the Gates table's: 2813 / 4 / 2
+(CI 3.12, read at `bdc1e20`), bare 2737 / 16 / 2, digest 2738 / 15 / 2,
+CI-equivalent 2815 / 2 / 2.** Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
 `initialize` starts the background **`JobWorker`** on v3 stores — primary
 sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
 (default true), bounded there by a `jobs.cron_budget_s` (default 120) timer
@@ -259,10 +272,10 @@ privacy = the 77-passed gap; the commands sit in the pre-flight). The
 query-embedding card **landed as `EM-412`** (`637a269`, 2026-10-16 — the note
 below; the four owner edits rode it); **EM-410 has landed**
 (`874b3d4` — the note below; EM-409, EM-408, EM-411 and EM-406 preceded it),
-and **no chunk is queued now** — the next piece is the owner's call (the
-recorded-owed candidates: the prune follow-up — **closed 2026-10-17, the
-prune card landed as `99151d3`** — `_shadow.py`'s one-liner, the
-adapter/eval gate).
+and **S6 opened 2026-10-18 (the owner's word) with EM-601 slice 1 landed as
+chunk 36 (`bdc1e20`) — the next chunk is slice 2** (the
+recorded-owed candidates that remain: `_shadow.py`'s one-liner, the
+adapter/eval gate; the prune follow-up closed 2026-10-17 as `99151d3`).
 
 **EM-410 landed (2026-10-16, `874b3d4`), completing the cron & worker card.**
 `initialize` now starts the background **`JobWorker`** on v3 stores — primary
@@ -481,6 +494,8 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 34 | **EM-403 slice 2 — `PrefetchService`'s async half** | **Done, merged** (code `8b30aa9`, lint `31053df` on branch `em-403-prefetch-async`; ff-merged to `main` as `31053df`; docs `007bb22`; **11/11 check-runs green on each exact SHA, `identity-guard` included**). `precompute` builds the candidate pool (pipeline top rows as `PackItem`s, `CANDIDATE_POOL_SIZE` 60) cached by `(session_id, scope_key)`; the coalescing worker queue (`queue.Queue(maxsize=8)`, newest-per-session identity supersede, oldest-drop on full, all counted) runs it off the prefetch path on one daemon thread through the `spawn_thread` seam; session topic state (rolling 5-turn entity window + α=0.5 EMA) feeds the configurable `TOPIC_ENTITY_BONUS` (0.05) soft signal — zero with no topic, never in the query text; **the query embedding is computed in `precompute` on the worker, never on the agent/prefetch thread and never when one was supplied**; `close()` joins worker/queue threads with a 2.0 s timeout and counts expired joins. 22 new tests (slice-2 pair + isolation/invariants); the suite then read **2343 / 3 / 3** on 3.12 at the merge (CI at the later `3dcb35f`: **2347 / 3 / 3**); ruff clean |
 | 35 | **EM-403 slice 3, second half — the provider's sync fact block routes through the service** | **Done, merged** (code `a5b613a` + docs on branch `em-403-slice3-wiring`, ff; **11/11 check-runs green on the exact SHA, `identity-guard` included**). `prefetch()` serves the fact block from `PrefetchService.prefetch()` when the gate says so — **v3 store AND `ENTROPICMEM_V3_RETRIEVAL=1`** (the gate decision, with reasons, is written on `_prefetch_service_for_turn`; the brief named the v3 store alone). **v2 byte-identical by construction** (the service is `None` there; golden captured from `e4fd865` in a detached worktree, flag ON); flag-off v3 keeps the old path (P0b's off shape); a service failure falls back to the v2 path; `queue_prefetch` shares the one gate. `_turn_scope()` hands the service the **effective** scope (profile from `_profile_id or "default"` — the service reads the store directly, so a raw `to_scope()` would query the wrong profile). **A defect the wiring's shutdown test found and this chunk fixed:** `close()` joined the worker before posting its `None` sentinel, so every v3 session end paid the 2 s join timeout (measured 2011 ms) with a warning — sentinel first now, stuck generators still counted+logged. Recorded gaps on the wired path: no `touch_on_inject` bump, no v2 dedup window, no config-level source/domain filters (store-level §3.5 scoping still applies — pinned by a two-author isolation test). **P0b's flag-on test was rewritten deliberately** (its interim contract is superseded; the off-path tests are unchanged). AC re-run through the wired provider: forced-slow **1.261 s**; **7,648** chars; 50-turn replay **5,504** ≤ 13,500; cache-hit **p95 0.09 ms**; warm **p95 40.58 ms @ 50k**. 18 new tests; suite **2288 / 16 / 3** bare on 3.11, CI **2365 / 3 / 3**; ruff clean; **7 mutation checks, all red** |
 
+| 36 | **EM-601 slice 1 — the vault projection engine (S6's first card)** | **Done, merged** (code `bdc1e20` on branch `em-601-projection`; ff-merged to `main` as `bdc1e20`; **11/11 check-runs green on that exact SHA, `identity-guard` included**, and the merge's 11 re-ran them on `main` to success; branch deleted). `em/vault/` (new package, listed in `pyproject.toml`): `project(conn, root, scope, modes)` renders `Entities/<Name>.md`, `Journal/<date>.md` and `Memories/Unfiled.md` from the v3 store; `lint(root)` reports projected files whose auto-sections are unsafe. **Only auto-section bodies are replaced** — frontmatter, the human region, the gaps between blocks, the trailing text and any section this run does not own are byte-preserved (a hand edit survives ten runs in *both* directions); a file whose markers the user deleted is left exactly as it is and reported by `lint`, never recreated over their prose; an unchanged render writes nothing (no mtime move, no temp file); writes are mkstemp + `os.replace` with the temp unlinked on any failure. **Forgetting erases rather than hides:** a fully-forgotten entity is still *visited* so its page is rewritten down to what remains (an entity with nothing and no page is not created), the unfiled page and a day's journal page behave the same, and a relation renders only while its source memory is live. **Deliberate strengthening:** §3.5's owner-only tiers never reach a plaintext file regardless of scope; the read clause is otherwise `MemoryStore.list`'s own (F-004). **Recorded, not built:** the `project_vault` job + 60 s debounce + the provider's enqueue, the `vault.projection` config → `modes` switch (`legacy` stays v2), `Unfiled.md` month paging past 200 rows, an unbounded journal — **slice 2 is the next chunk**. 31 new tests; **10 mutation checks, all red**, each restored from a byte copy; bare **2737 / 16 / 2**, digest **2738 / 15 / 2**, CI-equivalent 3.12 **2815 / 2 / 2**, CI **2813 / 4 / 2** read at `bdc1e20`; ruff clean, 3.10 leg green |
+
 **EM-404 slice 1 is on `main` without a chunk number — recorded here so it is
 neither forgotten nor mistaken for its card's whole.** `381197f` is the ff of
 `3dcb35f` + `84a555f` (the owner chose merging `main` into the branch, 2026-10-15;
@@ -668,84 +683,57 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**The EM-303 prune build LANDED (2026-10-17, `99151d3` — branch-first on
-`em-303-prune`).** The promised destructive embedding-maintenance job exists as
-code and 12 green guard tests, with **no destructive run performed**: the
-handler refuses to delete without a completed backfill, without the atomic
-transition record (`meta.embedding_model_previous` +
-`meta.embedding_model_switched_at` — half-record shapes included, an unnamed
-rollback set is never prunable), inside the grace (default 7 days,
-payload-overridable), or for a model inside {current, previous} — the test plan
-arbitrated the draft's AC2 tail, so **the previous model survives the grace**
-and only a newer completed backfill demotes it. A real run deletes in one
-transaction and then vacuums on a dedicated autocommit connection;
-`dry_run` reports per-model counts and deletes nothing; the backfill enqueues
-one dedupe-keyed `prune` on completion only when a rollback set exists;
-`prune` joins `KNOWN_JOB_TYPES` (worker and CLI drift-free by import). **8
-mutation checks ran red** (the grace comparison; the current-model keep set;
-the previous-model keep set; the missing-transition refusal including the
-half-record; the no-current-model refusal; the dry-run flag ignored; vacuum
-moved before the commit; the first-backfill enqueue gate), each restored from
-a byte copy. Counts: bare **2706 / 16 / 2**, digest **2707 / 15 / 2**,
-CI-equivalent 3.12 **2784 / 2 / 2**, CI **2782 / 4 / 2** (job-log read at the
-SHA), ruff (`0.16.2`) clean, the 3.10 leg green. The corrected AC2 wording
-rides the CHANGELOG and `NEXT_CHUNK.md` Part A. **The first real destructive
-run is owner-gated** (Open blockers).
+**S6 (vault & graph) is OPEN — the owner's word, 2026-10-18** ("YOLO, you make the
+logical calls"): dev-line work only, nothing touching the live store, every other
+owner-gated item below still gated. It is the one gate `docs/plan/STOP_HERE.md`'s
+ruling table deferred to the owner, and it has been given.
 
-**Nothing else is in flight.** Drafted and still owner-gated: the **remember
-content ceiling card** (`docs/plan/CONTENT_CEILING_CARD_DRAFT.md`) — builds
-only when the owner opens it (slotting + the ceiling number). Everything else
-is owner-gated: P0c's data, the cutover (**unblocked on the F-004 axis**),
-releases/tags/the catalog re-pin, and **the prune's destructive-run sign-off**;
+**EM-601 slice 1 — the vault projection engine, S6's first card — LANDED (2026-10-18,
+`bdc1e20`; branch `em-601-projection`, ff-merged, deleted; 11/11 check-runs green on
+that exact SHA and the merge's 11 re-ran them on `main`).** The chunk ledger row above
+carries the full state; in short:
 
-**`main` carries the chunk-35 merge (`a5b613a` + docs; 11/11 green on the code SHA)
-and, on top, the EM-404 landings — slice 1 (`381197f`), slice 2 (`e5e54ef`) and the
-validation slice (`5000942`) — then the EM-405 lifecycle slice (`e483d43`), the
-EM-407 pair (`2b21ad1` typed config, `dc3c77a` hardening pull), the
-guard-visibility follow-up (`56dc588`) and EM-406 (`6e86c98`; §5 has all the
-records).** Chunks 33,
-34 and the whole of EM-403 slice 3 are on it: on a v3 store the
-provider builds the `PrefetchService` lazily, serves the **synchronous** fact block
-through `PrefetchService.prefetch()`, enqueues `queue_prefetch` into `precompute`, and
-surfaces the five `prefetch.*` metrics — all gated on `ENTROPICMEM_V3_RETRIEVAL=1` as
-well as the v3 store (the gate decision and its reasons are in the ledger row and in
-`NEXT_CHUNK.md` Part A), so the wiring is dormant at the flag's default-off. v2 stores
-are byte-identical by construction (golden captured from `e4fd865` in a detached
-worktree), a service failure falls back to the v2 path, and shutdown closes service and
-store. Recorded gaps on the wired path: no `touch_on_inject` bump, no v2 dedup window,
-no config-level source/domain filters (store-level §3.5 scoping still applies — pinned
-by a two-author isolation test). The card's AC is green through the wired provider
-(warm p95 40.58 ms @ 50k).
+- `em/vault/projection.py` (new package `em.vault`): `project(conn, root, scope,
+  modes)` renders `Entities/<Name>.md`, `Journal/<date>.md` and `Memories/Unfiled.md`
+  from the store, and `lint(root)` reports projected files whose auto-sections are
+  unsafe. Only marker-to-marker bodies are ever replaced — frontmatter, the human
+  region, the gaps, the trailing text and unowned sections are byte-preserved; a
+  marker-less file is left untouched and reported, never recreated over the user's
+  prose; an unchanged render writes nothing (mkstemp + `os.replace`, temp unlinked on
+  failure).
+- **Forgetting erases rather than hides:** a fully-forgotten entity is still visited so
+  its page is rewritten down, a relation renders only while its source memory is live,
+  and the unfiled page and a day's journal page follow the same rule.
+- **Recorded deliberately:** §3.5's owner-only tiers never reach a plaintext file,
+  regardless of scope (strengthening — CHANGELOG says so); the read clause is otherwise
+  `MemoryStore.list`'s own (F-004); two names that sanitise to one filename are told
+  apart by entity id, entities ordered by id so filenames never move; **one root per
+  scope**.
+- **NOT built — that is the next chunk, EM-601 slice 2 (`NEXT_CHUNK.md` Part B):** the
+  `project_vault` job and its `KNOWN_JOB_TYPES` entry, the 60 s debounce and the
+  provider's enqueue on write paths, the `vault.projection` config → `modes` mapping
+  (`none`, `entities`, `entities+journal`, `legacy` — `legacy` stays v2's writer), the
+  CLI's lint surfacing, and month paging for `Memories/Unfiled.md` past 200 rows. As
+  landed, **nothing schedules a projection** — no hook, no job.
+- **Evidence:** 31 new tests (`tests/unit/test_em601_projection.py`), **10 mutation
+  checks all red** (the tier predicate dropped; `forbid_tiers` default flipped;
+  `sensitive` let through; the human region dropped; the trailing text dropped; a
+  fully-forgotten entity never revisited; the relation's source-memory liveness guard
+  removed; a marker-less file recreated over the user's prose; `lint` blind to
+  projected files; the unchanged-on-disk comparison dropped), each restored from a byte
+  copy; bare **2737 / 16 / 2**, digest **2738 / 15 / 2**, CI-equivalent 3.12
+  **2815 / 2 / 2**, CI **2813 / 4 / 2** read from the job log at `bdc1e20` (all four
+  legs identical); ruff (`0.16.2`) clean; the new package and its tests green on 3.10;
+  the privacy word-hash scan of every changed file found no collision.
 
-**P0's code is complete: P0a (the shadow read) and P0b (a v3 store serving prefetch
-from S3 behind `ENTROPICMEM_V3_RETRIEVAL`) are both merged, P0c's **readout** landed
-(`94dd3c7`), the **ceiling split the owner ruled on 2026-10-08 landed
-(`3c8b301`)**, and **EM-306 (`4a2b25e`) armed the miss side from its holdout** —
-fabrication stays a hard ceiling (`max_v3_only = 0`), and the miss ceiling is now
-`0.107143`, so a clean sample can conclude. The divergence-definition question that
-readout raised is therefore **settled, not open**. **What remains of P0 is the data
-itself**, and it is blocked on the environment rather than on a decision: this box does
-not run the plugin at all (no `memory.provider` key, `plugins.enabled` lists only
-`homeassistant`, no `~/.hermes/plugins/entropicmem`), so no turn reaches a write path
-and the live store stays empty. Real turns need a host where the plugin is installed
-and enabled — the owner's act.
+**Next: EM-601 slice 2**, then the rest of S6's card list (EM-602…EM-607,
+`REMAINING_PLAN.md` §6.5). The owner's one-word gates are unchanged: P0c's shadow
+data, the v3 cutover, the prune's first destructive run, releases/tags/the catalog
+re-pin, and the ceiling card's slotting + number.
 
-**A measurement trap worth knowing:** `ghx run list --branch main --limit 1` can
-return a **stale** run — the one just pushed may not be listed yet, and the
-newest-first ordering then hands back an older green run, which looks exactly like
-success. Verify with the check-runs API on the commit instead
-(`ghx api repos/Ufonik88/EntropicMem/commits/<sha>/check-runs`), reading `head_sha`,
-which is the check the rule actually names. This bit once on 2026-10-07 and was
-caught only because the reported SHA did not match the pushed one.
-
-**The visibility change is internal only** — ratified by the owner on 2026-10-07 as a
-ruling on the behaviour change, and still in no release. It must not reach the
-marketplace until the owner explicitly approves a release. See plan §9 item 3.
-
-**The cutover re-decision point is now met in full:** (a) the provider reads
-through S3 — P0b, in code and measured, behind a flag that defaults off — and (b) the
-v3 adapter produced its first end-to-end number. **The decision goes back to the
-owner; the agent does not switch the live store without an explicit go.**
+**Standing note carried forward (2026-10-17):** the OpenCode box's live v2 store was
+found in real use (1 fact, 21 audit rows, same-day `backups/memory_*` to 15:48Z) —
+runtime activity, provably not the suite, attribution still open with the owner.
 
 ## What is done
 
@@ -890,6 +878,11 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
+**The next chunk: EM-601 slice 2 — the `project_vault` job, its mode switch, and the
+lint surfacing** (`docs/plan/NEXT_CHUNK.md` Part B). S6 is open on the owner's word
+(2026-10-18, "YOLO, you make the logical calls") and slice 1 — the projection engine —
+landed the same day as `bdc1e20`.
+
 ### The v3 cutover — **deferred 2026-10-07; both re-decision conditions are now met**
 
 The owner ruled: **defer the cutover; wire S3's read path into the provider first.**
@@ -996,7 +989,9 @@ landing (`e5e54ef`), the slice-1 landing (`381197f`) and the chunk-35 merge
    lexical; flag-off and v2 paths byte-identical; 15 new tests; **7 mutation
    checks all red**. The owner's
    2026-10-16 S4 order ran EM-406 → EM-411 → EM-408 → EM-409 → EM-410 → EM-412
-   (all landed; `637a269` is the latest), and **no chunk is queued** — the
+   (all landed; `bdc1e20` is the latest), and **the next chunk is EM-601
+   slice 2 — S6 opened 2026-10-18 on the owner's word and slice 1 landed as
+   `bdc1e20`** — the
    recorded-owed candidates were the EM-303 prune follow-up (**landed
    2026-10-17 as the prune card, `99151d3`**), `_shadow.py`'s printed-caveat
    one-liner (fixed in `26265ef`), and the adapter/eval gate (rides the
@@ -1052,17 +1047,18 @@ line there.**
    only honest sample is a synthetic one — and a synthetic sample is evidence about the
    *metric*, never about turns, so it must not be used to re-arm a ceiling.
 3. **Pre-flight:** the counts, each the command's own output — CI's `test` job
-   (3.12): `pytest -q tests/` → **2782 / 4 / 2** —
-   **read green from the job log at `99151d3`** (the EM-303 prune landing:
-   +12 guard tests over `d92503d`'s 2770/4/2; the F-004 tip `c30aa54` read
-   2769/4/2 before the merge), with the extra set
+   (3.12): `pytest -q tests/` → **2813 / 4 / 2** —
+   **read green from the job log at `bdc1e20`** (the EM-601 slice 1 landing:
+   +31 `tests/unit/test_em601_projection.py` guards over `99151d3`'s verified
+   2782/4/2, itself the +12 prune guards over `d92503d`'s 2770/4/2 over
+   `c30aa54`'s 2769/4/2), with the extra set
    fastapi/httpx/cryptography/pyyaml, numpy, and the private digest list as the
    repository secret; this box bare: `.venv311/bin/python -m pytest -q` →
-   **2706 / 16 / 2** (measured at `99151d3`); with the digest
+   **2737 / 16 / 2** (measured at `bdc1e20`); with the digest
    list in place:
    `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… .venv311/bin/python -m pytest -q`
-   → **2707 / 15 / 2** (measured); CI-equivalent 3.12 with
-   the extras and the digest file → **2784 / 2 / 2** (measured) —
+   → **2738 / 15 / 2** (measured); CI-equivalent 3.12 with
+   the extras and the digest file → **2815 / 2 / 2** (measured) —
    all three agreeing with the derivation. The xfail pair is 2 since the
    F-004 flip. The 77-passed gap is
    per-module accounted in NEXT_CHUNK's pre-flight (67 fastapi + 7 cryptography
@@ -1099,7 +1095,10 @@ landed, the hardening pull (`dc3c77a`) with its guard-visibility follow-up
 EM-409 (`a472748`), EM-410 (`874b3d4`) and EM-412 (`637a269` — the
 query-embedding wiring, closing the recorded gap); the F-004 remediation
 (`c30aa54`) landed — and **the EM-303 prune card landed later that day
-(`99151d3`), closing the owed prune**. **No chunk is queued now: the
+(`99151d3`), closing the owed prune**. **Next chunk: EM-601 slice 2
+(`docs/plan/NEXT_CHUNK.md` Part B) — S6 opened 2026-10-18 (the owner's word,
+"YOLO, you make the logical calls") and slice 1, the vault projection engine,
+landed the same day as `bdc1e20`; the
 recorded-owed list is emptied of the prune (the remaining candidates —
 `_shadow.py`'s printed-caveat one-liner, already fixed in `26265ef`, and the
 adapter/eval gate that rides the cutover — still slot with the owner; the
@@ -1276,21 +1275,21 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2782 passed / 4 skipped / 2 xfailed** (CI, 3.12 — read green from the job log at `99151d3`: the EM-303 prune landing's +12 guard tests over `d92503d`'s verified 2770/4/2; `c30aa54` read 2769/4/2 before its merge) |
+| Tests | `python -m pytest -q` | **2813 passed / 4 skipped / 2 xfailed** (CI, 3.12 — read green from the job log at `bdc1e20`: the EM-601 slice 1 landing's +31 `tests/unit/test_em601_projection.py` guards over `99151d3`'s verified 2782/4/2; `d92503d` read 2770/4/2 and `c30aa54` 2769/4/2 before their merges) |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2782 / 4 / 2 figure is CI's expected triple**
+`ENTROPICMEM_INDEX_DB` unset. **The 2813 / 4 / 2 figure is CI's expected triple**
 (extras + numpy + the private digest list as the repository secret; read green
-from the job log at `99151d3` — the EM-303 prune landing, +12 guard tests over
-`d92503d`'s verified read). This box's scratch venv
+from the job log at `bdc1e20` — the EM-601 slice 1 landing, +31 guards over
+`99151d3`'s verified 2782/4/2 read). This box's scratch venv
 (`.venv311`, no fastapi/httpx/
-cryptography/numpy) read **2706 passed / 16 skipped / 2 xfailed** measured
-(with the digest list: **2707 / 15 / 2** measured; CI-equivalent 3.12:
-**2784 / 2 / 2** measured) under the same
+cryptography/numpy) read **2737 passed / 16 skipped / 2 xfailed** measured
+(with the digest list: **2738 / 15 / 2** measured; CI-equivalent 3.12:
+**2815 / 2 / 2** measured) under the same
 extra-set accounting that had CI at 2755 with the local bare at 2679 — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the 50k AC's reds — on `3dcb35f` and the 2026-10-15 3.13 leg —
