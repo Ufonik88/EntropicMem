@@ -1,9 +1,12 @@
 # EM-608 — the 50k warm-p95 gate's measurement, drafted
 
-**Status: DRAFT, agent-owned, not yet slotted.** Opened 2026-10-18 as a *tracked
+**Status: LANDED 2026-10-18 as `3b71cf0` (chunk 37).** Opened 2026-10-18 as a *tracked
 defect item*, not a product card: the gate's **measurement** is the defect, not
-its budget. It costs one slot whenever the owner wants it; nothing blocks on it,
-and **the 150 ms budget is not touched by this draft.**
+its budget. The owner slotted it the same day and it was built, landed and merged the
+same day — both warm-p95 ACs now read the best of five 20-probe windows via the shared
+`tests/harness/perf_stats.py`, and **the 150 ms budget was not touched.** The record:
+`CHANGELOG.md` `[Unreleased]`/Fixed, `MASTER_TODO.md`'s chunk-37 row,
+`NEXT_CHUNK.md` Part A. The text below is the original draft, kept as the record.
 
 ## The defect
 

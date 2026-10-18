@@ -26,12 +26,12 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2834 passed, 4 skipped, 2 xfailed** |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2758 passed, 16 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2759 passed, 15 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2836 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2842 passed, 4 skipped, 2 xfailed** |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2766 passed, 16 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2767 passed, 15 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2844 passed, 2 skipped, 2 xfailed** |
 
-Read as at `c1493e3` (HEAD, EM-601 slice 2 in flight). CI's figure is **read from
+Read as at `3b71cf0` (EM-608 landed on `main`; nothing in flight). CI's figure is **read from
 the job log**, never assumed: `gh run view <run-id> --log` on the run for the
 exact SHA. All four CI legs (3.10–3.13) report the identical triple.
 
@@ -81,12 +81,12 @@ as a pair. The dev box does not have the list at the default path
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          2758 / 16 / 2
+bare          2766 / 16 / 2
 + extras      +77 passed, −13 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    2836 /  2 / 2
+= CI-equiv    2844 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          2834 /  4 / 2
+= CI          2842 /  4 / 2
 ```
 
 ## Citing CI evidence — one trap
