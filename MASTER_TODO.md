@@ -15,7 +15,7 @@ points at.
 
 ---
 
-## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38, the content-ceiling fix, is complete; the next chunk is EM-602 (S6)
+## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix) and chunk 39 (EM-602 slice 1, frontmatter & wikilink robustness) are complete; the next chunk is EM-602 slice 2 (note ids and the index migration)
 
 **Development stopped at this point on 2026-10-17.** S5 (formation & consolidation) is complete on
 `main`: **EM-501**, **EM-502** (both slices), **EM-503** (core + wiring), and the
@@ -50,20 +50,22 @@ released; the live store stays v2), the prune's destructive run has **nothing to
 is `3.0.0.dev0` with half-wired features), the **ceiling card is slotted as the next chunk
 (38) with the number 8,000** (a real silent-truncation data-loss bug), and the **S6 scope
 question is answered yes** — EM-602…EM-607 are agent-owned, in the documented §6.5 order
-after the ceiling fix. **Chunk 38 — the content-ceiling fix — is now COMPLETE too**
-(landed 2026-10-18 as `c53b182`: `CONTENT_MAX_CHARS = 8_000` in one place, and oversize
-`remember`/`update` `content` **refused** rather than truncated, so a clipped fact can
-never be stored as complete), so **the next chunk is EM-602, the first of the S6 cards.**
-See
+after the ceiling fix. **Chunk 38 — the content-ceiling fix — is COMPLETE** (landed
+2026-10-18 as `c53b182`), and so is **chunk 39 — EM-602 slice 1, frontmatter & wikilink
+robustness** (landed 2026-10-18 as `607d54f`: the vault's frontmatter writer quotes and
+escapes, a `---` in the body is no longer a delimiter, wikilinks parse as a grammar, and
+the v2 `em_internal.vault` is a shim over the new `em/vault/frontmatter`). **The next
+chunk is EM-602 slice 2 — `note_id` as the full vault-relative path and the `index.db`
+`user_version` 2 migration.** See
 [docs/plan/STOP_HERE.md](docs/plan/STOP_HERE.md) for the full
 stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-18, against branch `main` at `c53b182` — **chunk 38, the
-`remember` content ceiling, is complete (landed `c53b182`: one shared `CONTENT_MAX_CHARS =
-8_000`, and oversize `remember`/`update` `content` refused before any write instead of
-clipped), and the next chunk is EM-602.** Before it the same day, **EM-608 is complete:
+**Last reconciled:** 2026-10-18, against branch `main` at `607d54f` — **chunk 39, EM-602
+slice 1 (frontmatter & wikilink robustness), is complete (landed `607d54f`), after chunk 38
+(the `remember` content ceiling, `c53b182`); the next chunk is EM-602 slice 2 (note ids and
+the `index.db` `user_version` 2 migration).** Before them the same day, **EM-608 is complete:
 the 50k warm-p95 gate now reads the best of five 20-probe windows (landed `3b71cf0`, the
 150 ms budget untouched), and EM-601 is complete: both halves landed (slice 1 the vault
 projection engine `bdc1e20`, slice 2 the job, debounce, mode switch and `vault lint`
@@ -93,9 +95,9 @@ post-merge push re-ran the suite on `main`: 22 runs, all success);
 that tree's CI 3.12 count
 was **2782 / 4 / 2** (read from the job log at `99151d3` — the +12 prune guard
 tests; the prior read was 2770 / 4 / 2 at `d92503d`, and `c30aa54`'s own
-read 2769 / 4 / 2). **The current figures are the Gates table's: 2858 / 4 / 2
-(CI 3.12, read at `c53b182`), bare 2782 / 16 / 2, digest 2783 / 15 / 2,
-CI-equivalent 2860 / 2 / 2.** Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
+read 2769 / 4 / 2). **The current figures are the Gates table's: 2884 / 4 / 2
+(CI 3.12, read at `607d54f`), bare 2808 / 16 / 2, digest 2809 / 15 / 2,
+CI-equivalent 2886 / 2 / 2.** Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
 `initialize` starts the background **`JobWorker`** on v3 stores — primary
 sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
 (default true), bounded there by a `jobs.cron_budget_s` (default 120) timer
@@ -530,6 +532,8 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 
 | 38 | **The `remember` content ceiling — raised to 8,000, and a refusal instead of a truncation (the silent-data-loss fix)** | **Done, merged** (code `c53b182` on branch `chunk-38-content-ceiling`; ff-merged to `main` as `c53b182`; **11/11 check-runs green on that exact SHA, `identity-guard` included**, all on `headSha=c53b182c`; branch deleted). The defect (found 2026-10-17 by a live incident): `jsonschema_lite.validate_arguments` implemented `maxLength` as *clamp-with-a-warning*, and the clamped value was then **persisted** — a 4,314-character summary was stored `active/created` with its tail destroyed, so a clipped fact was permanently indistinguishable from a complete one. **The fix moves two fields only:** `CONTENT_MAX_CHARS = 8_000` in `em/provider/tools.py` feeds both the `remember` and `update` schemas' `maxLength`, and a new keyword-only `fatal_length_keys` mode on `validate_arguments` makes an over-long named value **raise** `ArgumentError`; `handle_tool_call` names `remember`/`update` `content` in `FATAL_LENGTH_KEYS`, so the refusal rides the existing `invalid_arguments` branch **before any store write** (a refused call leaves no memory row and no audit entry). Every other string cap still warns and clamps — the validator's default call is byte-identical. Both `content` descriptions gain the guidance sentence the model reads; the two `maxLength` values and the two descriptions are the **recorded Appendix B deviation**. **16 new tests** (`tests/unit/test_em_content_ceiling.py` 12, `test_em404_jsonschema_lite.py` +4, incl. the packer's skip-never-cut behaviour and a 20k × ~2,000-char containment measurement); **8 mutation checks, all red**, each restored from a byte copy; bare **2782 / 16 / 2**, digest **2783 / 15 / 2**, CI-equivalent 3.12 **2860 / 2 / 2**, CI **2858 / 4 / 2** read at `c53b182` (all four legs identical); ruff (`0.16.2`) clean; 3.10 leg green; privacy scan clean. Recorded on this box: fts+insert 1.05 s, index 90 MB, warm p95 62 ms at 20k × 2 KB, inside §4.2's 9,000-char block cap. |
 
+| 39 | **EM-602 slice 1 — frontmatter & wikilink robustness (the vault can no longer corrupt itself on a hand edit)** | **Done, merged** (code `607d54f` on branch `em-602-frontmatter`; ff-merged to `main` as `607d54f`; **11/11 check-runs green on that exact SHA, `identity-guard` included**; branch deleted). Two silent-corruption defects in `em_internal/vault.py`, fixed by moving the logic to the new shared **`em/vault/frontmatter.py`** which the v2 module now shims: the writer's f-strings emitted a block that read back differently (or did not parse) for a title containing `"`, `\` or a newline, and the reader's `text.split("---", 2)` truncated a note containing a `---` in its body. Now the writer quotes only what YAML requires (plain text stays plain), escapes, and uses a block scalar for multi-line values; the reader takes a delimiter only at file start and on its own line, prefers PyYAML when importable else the subset parser (round-tripped against each other — the check found and fixed a real block-chomping bug), keeps a hand-written unquoted date a **string**, and wikilinks parse as a grammar with alias/heading/block stripped in `extract_wikilinks`. **26 new tests** (`tests/unit/test_em602_frontmatter.py`); **7 mutation checks, all red**, plus a **green control** (PyYAML disabled) proving the fallback carries the behaviour; 2 deliberate repoints recorded (`test_vault`'s `title:` byte-pin, `test_graph_incremental`'s three raw-title replaces). Bare **2808 / 16 / 2**, digest **2809 / 15 / 2**, CI-equivalent 3.12 **2886 / 2 / 2**, CI **2884 / 4 / 2** read at `607d54f` (all four legs identical); ruff (`0.16.2`) clean; 3.10 leg green; privacy scan clean. **Slice 2 — `note_id` as the full vault-relative path and the `index.db` `user_version` 2 migration — is the next chunk.** |
+
 **EM-404 slice 1 is on `main` without a chunk number — recorded here so it is
 neither forgotten nor mistaken for its card's whole.** `381197f` is the ff of
 `3dcb35f` + `84a555f` (the owner chose merging `main` into the branch, 2026-10-15;
@@ -717,9 +721,10 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing is in flight. Chunk 38 — the `remember` content ceiling — landed 2026-10-18
-(`c53b182`), after EM-608 (`3b71cf0`) and EM-601's both halves (`bdc1e20`, `e986059`) the
-same day; **the next chunk is EM-602, the first of the now-agent-owned S6 cards.** Everything
+**Nothing is in flight. Chunk 39 — EM-602 slice 1, frontmatter and wikilink robustness —
+landed 2026-10-18 (`607d54f`), after chunk 38 (`c53b182`), EM-608 (`3b71cf0`) and EM-601's
+both halves (`bdc1e20`, `e986059`) the same day; **the next chunk is EM-602 slice 2 — note
+ids and the `index.db` migration.** Everything
 below records what just landed.**
 
 **EM-601 (vault projection, both halves) is COMPLETE — the owner's word, 2026-10-18**
@@ -925,17 +930,21 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-**Chunk 38, the content-ceiling fix, is landed (`c53b182`) — nothing is in flight and the
-next chunk is EM-602, the first of the S6 cards.** It fixed the silent `remember` truncation
-the 2026-10-17 incident exposed: one shared `CONTENT_MAX_CHARS = 8_000` and a fatal-oversize
-refusal instead of a clamp, so a clipped fact can never be stored as complete. Dev-line work;
+**Chunk 38, the content-ceiling fix, is landed (`c53b182`), and so is chunk 39, EM-602
+slice 1 (`607d54f`) — nothing is in flight and the next chunk is EM-602 slice 2, the note-id
+change and the `index.db` `user_version` 2 migration.** It fixed the silent `remember`
+truncation
+the 2026-10-17 incident exposed (one shared `CONTENT_MAX_CHARS = 8_000`, a fatal-oversize
+refusal instead of a clamp), and EM-602 slice 1 hardened the vault's frontmatter and
+wikilink handling (escaping writer, delimiter rule, PyYAML-or-subset reader, the new
+`em/vault/frontmatter.py` shimmed by `em_internal.vault`). Dev-line work;
 the manifest and the catalog pin did not move. **EM-601 and EM-608 are complete** — EM-601's
 slice 1 (the vault projection engine, `bdc1e20`) and slice 2 (the `project_vault` job, its
 debounce, the mode switch, and `vault lint`, `e986059`), and EM-608 (the 50k warm-p95 gate
 now reads the best of five 20-probe windows at the unchanged 150 ms budget, `3b71cf0`).
 The **S6 scope question is answered yes** by the owner's 2026-10-18 instruction that the
 agent make the outstanding calls: **EM-602…EM-607 are agent-owned**, taken in the
-documented §6.5 order, starting with **EM-602 (frontmatter & wikilink robustness)**. S7
+documented §6.5 order, with **EM-602's slice 2 next**. S7
 security, packaging and the 3.0 release
 stay behind their own gates (the release needs the owner's want, not an agent's).
 
@@ -1017,12 +1026,12 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**Chunk 38 — the `remember` content ceiling — is merged (`c53b182`, all 11 CI jobs green
-on the exact SHA on `headSha=c53b182c` — the branch-first landing of
-`chunk-38-content-ceiling`: one shared `CONTENT_MAX_CHARS = 8_000`, the fatal-oversize
-refusal instead of a clamp, tests first, CHANGELOG, push, check-runs,
-`git merge --ff-only`, branch deleted), **and the next chunk is EM-602, the first of the
-now-agent-owned S6 cards.** On top of EM-608 (`3b71cf0`, the 50k
+**Chunk 39 — EM-602 slice 1, frontmatter & wikilink robustness — is merged (`607d54f`, all 11
+CI jobs green on the exact SHA — the branch-first landing of `em-602-frontmatter`: the new
+`em/vault/frontmatter.py` with `em_internal.vault` shimming it, tests first, CHANGELOG, push,
+check-runs, `git merge --ff-only`, branch deleted), **and the next chunk is EM-602 slice 2
+(note ids and the `index.db` migration).** On top of chunk 38 (the `remember` content
+ceiling, `c53b182`), EM-608 (`3b71cf0`, the 50k
 warm-p95 gate's *statistic* via the shared `tests/harness/perf_stats.py`) and EM-601's
 both halves the same day (slice 1 the vault projection engine
 `bdc1e20`, slice 2 the `project_vault` job, its debounce, the mode switch and
@@ -1056,8 +1065,9 @@ landing (`e5e54ef`), the slice-1 landing (`381197f`) and the chunk-35 merge
    checks all red**. The owner's
    2026-10-16 S4 order ran EM-406 → EM-411 → EM-408 → EM-409 → EM-410 → EM-412
    (all landed), and **EM-601 is complete — slice 1 landed as
-   `bdc1e20` and slice 2 as `e986059` — EM-608 (`3b71cf0`) after it, and chunk 38, the
-   `remember` content-ceiling fix (`c53b182`), after that** (the owner's word,
+   `bdc1e20` and slice 2 as `e986059` — EM-608 (`3b71cf0`) after it, chunk 38, the
+   `remember` content-ceiling fix (`c53b182`), after that, and chunk 39, EM-602 slice 1
+   (`607d54f`), after that** (the owner's word,
    2026-10-18, authorised one card each; the owner's later instruction to make the
    outstanding calls answered the S6 scope question yes) — the
    recorded-owed candidates were the EM-303 prune follow-up (**landed
@@ -1167,9 +1177,11 @@ query-embedding wiring, closing the recorded gap); the F-004 remediation
 projection engine) landed 2026-10-18 as `bdc1e20` and slice 2 (the `project_vault`
 job, its debounce, the mode switch and `vault lint`) the same day as `e986059` — and
 **EM-608, the 50k warm-p95 gate's statistic**, landed
-the same day as `3b71cf0`, and **chunk 38, the `remember` content-ceiling fix**, the same
-day as `c53b182` — so nothing is in flight and the next chunk is EM-602 (the first S6
-card, which the owner's instruction to make the outstanding calls made agent-owned).** The
+the same day as `3b71cf0`, **chunk 38, the `remember` content-ceiling fix**, the same
+day as `c53b182`, and **chunk 39, EM-602 slice 1 (frontmatter & wikilink robustness)**, the
+same day as `607d54f` — so nothing is in flight and the next chunk is EM-602 slice 2 (the
+note-id change and the `index.db` migration; the owner's instruction to make the
+outstanding calls made the S6 cards agent-owned).** The
 recorded-owed list is emptied of the prune (the remaining candidates —
 `_shadow.py`'s printed-caveat one-liner, already fixed in `26265ef`, and the
 adapter/eval gate that rides the cutover — still slot with the owner; the
@@ -1353,15 +1365,15 @@ not.**
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2858 / 4 / 2 figure is CI's expected triple**
+`ENTROPICMEM_INDEX_DB` unset. **The 2884 / 4 / 2 figure is CI's expected triple**
 (extras + numpy + the private digest list as the repository secret; read green
-from the job log at `c53b182` — the chunk-38 landing, +16 guards over the
-`3b71cf0` read's 2842/4/2, itself +8 over `bdc1e20`'s 2813/4/2). This
+from the job log at `607d54f` — the EM-602 slice 1 landing, +26 guards over the
+`c53b182` read's 2858/4/2, itself +16 over `3b71cf0`'s 2842/4/2, itself +8 over `bdc1e20`'s 2813/4/2). This
 box's scratch venv
 (`.venv311`, no fastapi/httpx/
-cryptography/numpy) read **2782 passed / 16 skipped / 2 xfailed** measured
-(with the digest list: **2783 / 15 / 2** measured; CI-equivalent 3.12:
-**2860 / 2 / 2** measured) under the same
+cryptography/numpy) read **2808 passed / 16 skipped / 2 xfailed** measured
+(with the digest list: **2809 / 15 / 2** measured; CI-equivalent 3.12:
+**2886 / 2 / 2** measured) under the same
 extra-set accounting that had CI at 2755 with the local bare at 2679 — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the two 50k ACs' reds — the prefetch AC on `3dcb35f`/the

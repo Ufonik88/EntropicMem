@@ -8,9 +8,11 @@ has not started. Do not begin new development from this state without the owner.
 > **Superseded for EM-601 and EM-608 (2026-10-18):** the owner authorised **EM-601,
 > the vault-projection card, both halves** — and both landed the same day (slice 1
 > `bdc1e20`, slice 2 `e986059`) — and slotted **EM-608**, the 50k warm-p95 gate's
-> statistic, which also **landed the same day** (`3b71cf0`), and **chunk 38, the
-> `remember` content-ceiling fix, landed the same day too** (`c53b182`). **Nothing is in
-> flight; the next chunk is EM-602.** Every
+> statistic, which also **landed the same day** (`3b71cf0`), **chunk 38, the
+> `remember` content-ceiling fix, landed the same day too** (`c53b182`), and **chunk 39,
+> EM-602 slice 1 (frontmatter & wikilink robustness), landed the same day** (`607d54f`).
+> **Nothing is in
+> flight; the next chunk is EM-602 slice 2.** Every
 > owner-gated item in this file still stands; only the "do not begin"
 > instruction has moved, and only for EM-601 and EM-608. **The rest of S6 and
 > everything after it remain gated** — see the correction in the addendum below.
@@ -43,8 +45,14 @@ draft recommends.
 **Update, same day: that card landed.** Built, landed and merged as chunk 38 on 2026-10-18
 (`c53b182`) — the same two fields moved, 16 new tests, **8 mutation checks all red**, each
 restored from a byte copy, no migration, the manifest and catalog pin untouched.
-**Nothing is in flight; the next chunk is EM-602**, the first of the now-agent-owned S6
-cards.
+**The next chunk is EM-602**, the first of the now-agent-owned S6 cards.
+
+**Update, same day: EM-602 slice 1 landed too.** Chunk 39 (`607d54f`) hardened the vault's
+frontmatter (escaping writer, delimiter rule, PyYAML-or-subset reader) and wikilinks, in the
+new `em/vault/frontmatter.py` which `em_internal.vault` now shims — 26 tests, **7 mutation
+checks all red** plus a green control, 2 recorded repoints. **Nothing is in flight; the next
+chunk is EM-602 slice 2** (the `note_id` change and the `index.db` `user_version` 2
+migration).
 
 ### Addendum (2026-10-17, later the same day) — the F-004 chunk landed
 
@@ -73,7 +81,7 @@ under `[Unreleased]`/Fixed, `REMAINING_PLAN.md` §9 item 9, `NEXT_CHUNK.md`'s
 new Part A block.
 
 
-### Addendum (2026-10-18) — EM-601, EM-608 and chunk 38 are complete
+### Addendum (2026-10-18) — EM-601, EM-608, chunk 38 and chunk 39 are complete
 
 The owner opened **EM-601 (the vault-projection card, both halves)** with the
 explicit session assignment *"We're doing this YOLO, so you dont need my
