@@ -10,9 +10,10 @@ has not started. Do not begin new development from this state without the owner.
 > `bdc1e20`, slice 2 `e986059`) — and slotted **EM-608**, the 50k warm-p95 gate's
 > statistic, which also **landed the same day** (`3b71cf0`), **chunk 38, the
 > `remember` content-ceiling fix, landed the same day too** (`c53b182`), and **chunk 39,
-> EM-602 slice 1 (frontmatter & wikilink robustness), landed the same day** (`607d54f`).
+> EM-602 in both slices (frontmatter & wikilinks, then the note-id rule and the `index.db`
+> migration), landed the same day** (`607d54f` + `c29addc`).
 > **Nothing is in
-> flight; the next chunk is EM-602 slice 2.** Every
+> flight; the next chunk is EM-603.** Every
 > owner-gated item in this file still stands; only the "do not begin"
 > instruction has moved, and only for EM-601 and EM-608. **The rest of S6 and
 > everything after it remain gated** — see the correction in the addendum below.
@@ -50,9 +51,17 @@ restored from a byte copy, no migration, the manifest and catalog pin untouched.
 **Update, same day: EM-602 slice 1 landed too.** Chunk 39 (`607d54f`) hardened the vault's
 frontmatter (escaping writer, delimiter rule, PyYAML-or-subset reader) and wikilinks, in the
 new `em/vault/frontmatter.py` which `em_internal.vault` now shims — 26 tests, **7 mutation
-checks all red** plus a green control, 2 recorded repoints. **Nothing is in flight; the next
-chunk is EM-602 slice 2** (the `note_id` change and the `index.db` `user_version` 2
-migration).
+checks all red** plus a green control, 2 recorded repoints.
+
+**Update, same day: EM-602 slice 2 landed, and the card is complete.** Chunk 39's second
+commit (`c29addc`) made `note_id` the full vault-relative path — `A/Sub/Note` and
+`B/Sub/Note` no longer share one primary key — and added the `index.db`
+`PRAGMA user_version` 2 migration (ids recomputed from each row's `path`, `notes_meta` and
+`notes_fts` renamed in two passes, the `wikilink` endpoints remapped, `triple:*` edges left
+alone, Windows-shaped ids normalised to POSIX), with 10 tests and **6 mutation checks all
+red**. One Windows CI fix is recorded (the fixture's legacy ids were platform-shaped; the
+product was right). **Nothing is in flight; the next chunk is EM-603** (the incremental
+index by mtime).
 
 ### Addendum (2026-10-17, later the same day) — the F-004 chunk landed
 
