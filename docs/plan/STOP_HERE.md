@@ -11,9 +11,10 @@ has not started. Do not begin new development from this state without the owner.
 > statistic, which also **landed the same day** (`3b71cf0`), **chunk 38, the
 > `remember` content-ceiling fix, landed the same day too** (`c53b182`), and **chunk 39,
 > EM-602 in both slices (frontmatter & wikilinks, then the note-id rule and the `index.db`
-> migration), landed the same day** (`607d54f` + `c29addc`).
+> migration), landed the same day** (`607d54f` + `c29addc`), and **chunk 40,
+> EM-603 the incremental index, landed the same day** (`338ec2a`).
 > **Nothing is in
-> flight; the next chunk is EM-603.** Every
+> flight; the next chunk is EM-604.** Every
 > owner-gated item in this file still stands; only the "do not begin"
 > instruction has moved, and only for EM-601 and EM-608. **The rest of S6 and
 > everything after it remain gated** — see the correction in the addendum below.
@@ -62,6 +63,13 @@ alone, Windows-shaped ids normalised to POSIX), with 10 tests and **6 mutation c
 red**. One Windows CI fix is recorded (the fixture's legacy ids were platform-shaped; the
 product was right). **Nothing is in flight; the next chunk is EM-603** (the incremental
 index by mtime).
+
+**Update, same day: EM-603 landed.** Chunk 40 (`338ec2a`) made a refresh compare each
+note's `(mtime_ns, size)` and open only what moved — a 5k vault with one change reads in
+26–32 ms against the 300 ms AC — with `entropicmem index refresh` and a `reindex_vault`
+job that a projection schedules. 19 tests, **11 mutation checks all red**, one recorded
+Windows fix (non-ASCII CLI output). **Nothing is in flight; the next chunk is EM-604**
+(opt-in ingestion of human vault edits).
 
 ### Addendum (2026-10-17, later the same day) — the F-004 chunk landed
 

@@ -15,7 +15,7 @@ points at.
 
 ---
 
-## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix) and chunk 39 (EM-602, both slices: frontmatter/wikilinks and the note-id/index migration) are complete; the next chunk is EM-603 (the incremental index)
+## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix), chunk 39 (EM-602, both slices) and chunk 40 (EM-603, the incremental index) are complete; the next chunk is EM-604 (opt-in ingestion of human vault edits)
 
 **Development stopped at this point on 2026-10-17.** S5 (formation & consolidation) is complete on
 `main`: **EM-501**, **EM-502** (both slices), **EM-503** (core + wiring), and the
@@ -57,18 +57,22 @@ escapes, a `---` in the body is no longer a delimiter, wikilinks parse as a gram
 v2 `em_internal.vault` is a shim over the new `em/vault/frontmatter`; and `note_id` is now
 the full vault-relative path with an `index.db` `user_version` 2 migration that recomputes
 ids from each row's path, remaps the wikilink edges, keeps triple edges and normalises
-Windows-shaped ids to POSIX). **The next
-chunk is EM-603 — the incremental index by mtime.** See
+Windows-shaped ids to POSIX). **Chunk 40 — EM-603, the incremental index — is COMPLETE** (landed
+2026-10-18 as `338ec2a`: `notes_meta` carries `mtime_ns`/`size` (`index.db`
+`user_version` 3), a refresh reads only a note whose stat moved (a 5k vault with one
+change: 26/31/32 ms on 3.11/3.12/3.10 against the 300 ms AC), `entropicmem index refresh`
+runs it and the `reindex_vault` job refreshes the index after a projection). **The next
+chunk is EM-604 — opt-in ingestion of human vault edits.** See
 [docs/plan/STOP_HERE.md](docs/plan/STOP_HERE.md) for the full
 stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-18, against branch `main` at `c29addc` — **chunk 39, EM-602,
-is complete in both slices (the frontmatter/wikilink hardening `607d54f`, and the note-id
-change with the `index.db` `user_version` 2 migration `c29addc`), after chunk 38 (the
-`remember` content ceiling, `c53b182`); the next chunk is EM-603, the incremental index by
-mtime.** Before them the same day, **EM-608 is complete:
+**Last reconciled:** 2026-10-18, against branch `main` at `338ec2a` — **chunk 40, EM-603,
+the incremental index by file stat, is complete (landed `338ec2a`), after chunk 39 (EM-602,
+both slices — `607d54f` + `c29addc`) and chunk 38 (the `remember` content ceiling,
+`c53b182`); the next chunk is EM-604, opt-in ingestion of human vault edits.** Before them
+the same day, **EM-608 is complete:
 the 50k warm-p95 gate now reads the best of five 20-probe windows (landed `3b71cf0`, the
 150 ms budget untouched), and EM-601 is complete: both halves landed (slice 1 the vault
 projection engine `bdc1e20`, slice 2 the job, debounce, mode switch and `vault lint`
@@ -98,9 +102,9 @@ post-merge push re-ran the suite on `main`: 22 runs, all success);
 that tree's CI 3.12 count
 was **2782 / 4 / 2** (read from the job log at `99151d3` — the +12 prune guard
 tests; the prior read was 2770 / 4 / 2 at `d92503d`, and `c30aa54`'s own
-read 2769 / 4 / 2). **The current figures are the Gates table's: 2894 / 4 / 2
-(CI 3.12, read at `c29addc`), bare 2818 / 16 / 2, digest 2819 / 15 / 2,
-CI-equivalent 2896 / 2 / 2.** Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
+read 2769 / 4 / 2). **The current figures are the Gates table's: 2913 / 4 / 2
+(CI 3.12, read at `338ec2a`), bare 2837 / 16 / 2, digest 2838 / 15 / 2,
+CI-equivalent 2915 / 2 / 2.** Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
 `initialize` starts the background **`JobWorker`** on v3 stores — primary
 sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
 (default true), bounded there by a `jobs.cron_budget_s` (default 120) timer
@@ -537,6 +541,8 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 
 | 39 | **EM-602 (both slices) — frontmatter & wikilink robustness, then the note-id rule and the `index.db` migration (the vault can no longer corrupt itself on a hand edit)** | **Done, merged** (slice 1 `607d54f` and slice 2 `c29addc` on branch `em-602-frontmatter` / `em-602-note-ids`; ff-merged to `main`; **11/11 check-runs green on each exact SHA, `identity-guard` and `windows-import` included**; branches deleted). **Slice 1** moved the vault's frontmatter/wikilink logic into the new shared `em/vault/frontmatter.py`, shimmed by `em_internal.vault`: the writer escaped `"`/`\`/newlines and quoted only what YAML requires, the reader took a delimiter only at file start and on its own line (a `---` in the body no longer truncated a note), PyYAML is preferred with the subset parser as the fallback and the two are round-tripped against each other, a hand-written unquoted date stays a **string**, and wikilinks parse as a grammar with alias/heading/block stripped. **Slice 2** made `note_id` the **full vault-relative path** (it used to drop the top directory, so `A/Sub/Note` and `B/Sub/Note` shared one primary key) and added the **`index.db` `user_version` 2 migration**: ids are recomputed from each row's `path`, `notes_meta`/`notes_fts` are renamed in two passes, the `wikilink` edges are remapped, `triple:*` edges are left alone, and a Windows-shaped (backslash) id is normalised to POSIX. **36 new tests** (26 + 10); **13 mutation checks, all red** (7 + 6), each restored from a byte copy, plus a **green control** proving the subset parser carries the behaviour with PyYAML disabled; **2 deliberate repoints recorded** and **one Windows CI fix recorded** (the fixture's legacy ids were platform-shaped; the product was right). Bare **2818 / 16 / 2**, digest **2819 / 15 / 2**, CI-equivalent 3.12 **2896 / 2 / 2**, CI **2894 / 4 / 2** read at `c29addc` (all four legs identical); ruff (`0.16.2`) clean; 3.10 leg green; privacy scan clean. **EM-602 is complete.** |
 
+| 40 | **EM-603 — the incremental index: a refresh reads only what moved, and a projection schedules it** | **Done, merged** (code `338ec2a` on branch `em-603-incremental-index`; ff-merged to `main` as `338ec2a`; **11/11 check-runs green on that exact SHA, `identity-guard` and `windows-import` included**; branch deleted). `notes_meta` gains `mtime_ns`/`size` (`index.db` `PRAGMA user_version` 3, the ALTER migration; a v2 db backfills on its first refresh). A refresh compares `(st_mtime_ns, st_size)` and **does not open** an unchanged note; only a moved stat is read, and the content hash still decides whether the row changed — a bare `touch` refreshes the stat columns only. `Vault.iter_note_stats` does the walk in one `os.scandir` pass (no Path and no `resolve_path` per file) and **never follows a symlink**, so the path work is not the whole cost and a link cannot leave the vault. **AC met with a 10× margin:** 5k notes with one change in 26 / 31 / 32 ms (3.11 / 3.12 / 3.10) against 300 ms — the first push read 398 ms on the CI 3.12 runner, which the walk fixed. New surface: `entropicmem index refresh` (CLI reference + README) and the **`reindex_vault`** job (`KNOWN_JOB_TYPES` + shared registry), enqueued dedupe-keyed by the `project_vault` handler when the payload carries `index_db` (the provider passes `paths.index_db`); the handler imports the v2 index lazily and a missing path/root is a `PermanentJobError`. **19 new tests** (`tests/unit/test_em603_mtime_index.py`); **11 mutation checks, all red**, each restored from a byte copy; one recorded Windows fix (the CLI printed non-ASCII `→`/`—`, a `UnicodeEncodeError` on cp1252 — output is ASCII throughout); one deliberate repoint (`test_em602_note_ids` pins `NOTE_ID_VERSION`, not `SCHEMA_VERSION`). Bare **2837 / 16 / 2**, digest **2838 / 15 / 2**, CI-equivalent 3.12 **2915 / 2 / 2**, CI **2913 / 4 / 2** read at `338ec2a` (all four legs identical); ruff (`0.16.2`) clean; 3.10 leg green; privacy scan clean. **Chunk embeddings remain EM-308's and that card is not built — recorded, not invented.** |
+
 **EM-404 slice 1 is on `main` without a chunk number — recorded here so it is
 neither forgotten nor mistaken for its card's whole.** `381197f` is the ff of
 `3dcb35f` + `84a555f` (the owner chose merging `main` into the branch, 2026-10-15;
@@ -724,10 +730,10 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing is in flight. Chunk 39 — EM-602, both slices — landed 2026-10-18 (`607d54f`
-and `c29addc`), after chunk 38 (`c53b182`), EM-608 (`3b71cf0`) and EM-601's
-both halves (`bdc1e20`, `e986059`) the same day; **the next chunk is EM-603, the
-incremental index by mtime.** Everything
+**Nothing is in flight. Chunk 40 — EM-603, the incremental index — landed 2026-10-18
+(`338ec2a`), after chunk 39 (EM-602, `607d54f` + `c29addc`), chunk 38 (`c53b182`),
+EM-608 (`3b71cf0`) and EM-601's both halves (`bdc1e20`, `e986059`) the same day; **the next
+chunk is EM-604, opt-in ingestion of human vault edits.** Everything
 below records what just landed.**
 
 **EM-601 (vault projection, both halves) is COMPLETE — the owner's word, 2026-10-18**
@@ -933,22 +939,26 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-**Chunk 38, the content-ceiling fix, is landed (`c53b182`), and so is chunk 39, EM-602 in
-both slices (`607d54f`, `c29addc`) — nothing is in flight and the next chunk is EM-603, the
-incremental index by mtime.** Chunk 38 fixed the silent `remember`
+**Chunk 38, the content-ceiling fix, is landed (`c53b182`), chunk 39, EM-602 in
+both slices (`607d54f`, `c29addc`), and chunk 40, EM-603 the incremental index
+(`338ec2a`) — nothing is in flight and the next chunk is EM-604, opt-in ingestion of human
+vault edits.** Chunk 38 fixed the silent `remember`
 truncation
 the 2026-10-17 incident exposed (one shared `CONTENT_MAX_CHARS = 8_000`, a fatal-oversize
 refusal instead of a clamp); EM-602 hardened the vault's frontmatter and wikilink handling
 (escaping writer, delimiter rule, PyYAML-or-subset reader, the new
 `em/vault/frontmatter.py` shimmed by `em_internal.vault`) and made `note_id` the full
-vault-relative path with the `index.db` `user_version` 2 migration. Dev-line work;
+vault-relative path with the `index.db` `user_version` 2 migration; EM-603 made an index
+refresh read only a note whose file stat moved (`index.db` `user_version` 3), added
+`entropicmem index refresh` and the `reindex_vault` job a projection schedules — a 5k vault
+with one change refreshes in ~30 ms against the card's 300 ms. Dev-line work;
 the manifest and the catalog pin did not move. **EM-601 and EM-608 are complete** — EM-601's
 slice 1 (the vault projection engine, `bdc1e20`) and slice 2 (the `project_vault` job, its
 debounce, the mode switch, and `vault lint`, `e986059`), and EM-608 (the 50k warm-p95 gate
 now reads the best of five 20-probe windows at the unchanged 150 ms budget, `3b71cf0`).
 The **S6 scope question is answered yes** by the owner's 2026-10-18 instruction that the
 agent make the outstanding calls: **EM-602…EM-607 are agent-owned**, taken in the
-documented §6.5 order, with **EM-603 next**. S7
+documented §6.5 order, with **EM-604 next**. S7
 security, packaging and the 3.0 release
 stay behind their own gates (the release needs the owner's want, not an agent's).
 
@@ -1030,13 +1040,13 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**Chunk 39 — EM-602, both slices — is merged (`607d54f` and `c29addc`, all 11
-CI jobs green on each exact SHA, `windows-import` included — the branch-first landings of
-`em-602-frontmatter` and `em-602-note-ids`: the new `em/vault/frontmatter.py` with
-`em_internal.vault` shimming it, then `note_id` as the full vault-relative path with the
-`index.db` `user_version` 2 migration; tests first, CHANGELOG, push, check-runs,
-`git merge --ff-only`, branches deleted), **and the next chunk is EM-603, the incremental
-index by mtime.** On top of chunk 38 (the `remember` content
+**Chunk 40 — EM-603, the incremental index — is merged (`338ec2a`, all 11
+CI jobs green on the exact SHA, `windows-import` included — the branch-first landing of
+`em-603-incremental-index`: the stat diff, the `os.scandir` walk, `index refresh` and the
+`reindex_vault` job; tests first, CHANGELOG, push, check-runs,
+`git merge --ff-only`, branch deleted), **and the next chunk is EM-604, opt-in ingestion of
+human vault edits.** On top of chunk 39 (EM-602 in both slices, `607d54f` + `c29addc`),
+chunk 38 (the `remember` content
 ceiling, `c53b182`), EM-608 (`3b71cf0`, the 50k
 warm-p95 gate's *statistic* via the shared `tests/harness/perf_stats.py`) and EM-601's
 both halves the same day (slice 1 the vault projection engine
@@ -1072,8 +1082,9 @@ landing (`e5e54ef`), the slice-1 landing (`381197f`) and the chunk-35 merge
    2026-10-16 S4 order ran EM-406 → EM-411 → EM-408 → EM-409 → EM-410 → EM-412
    (all landed), and **EM-601 is complete — slice 1 landed as
    `bdc1e20` and slice 2 as `e986059` — EM-608 (`3b71cf0`) after it, chunk 38, the
-   `remember` content-ceiling fix (`c53b182`), after that, and chunk 39, EM-602 in both
-   slices (`607d54f`, `c29addc`), after that** (the owner's word,
+   `remember` content-ceiling fix (`c53b182`), after that, chunk 39, EM-602 in both
+   slices (`607d54f`, `c29addc`), after that, and chunk 40, EM-603 the incremental index
+   (`338ec2a`), after that** (the owner's word,
    2026-10-18, authorised one card each; the owner's later instruction to make the
    outstanding calls answered the S6 scope question yes) — the
    recorded-owed candidates were the EM-303 prune follow-up (**landed
@@ -1371,15 +1382,15 @@ not.**
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2894 / 4 / 2 figure is CI's expected triple**
+`ENTROPICMEM_INDEX_DB` unset. **The 2913 / 4 / 2 figure is CI's expected triple**
 (extras + numpy + the private digest list as the repository secret; read green
-from the job log at `c29addc` — the EM-602 slice 2 landing, +10 guards over the
-`607d54f` read's 2884/4/2, itself +26 over `c53b182`'s 2858/4/2). This
+from the job log at `338ec2a` — the EM-603 landing, +19 guards over the
+`c29addc` read's 2894/4/2, itself +10 over `607d54f`'s 2884/4/2). This
 box's scratch venv
 (`.venv311`, no fastapi/httpx/
-cryptography/numpy) read **2818 passed / 16 skipped / 2 xfailed** measured
-(with the digest list: **2819 / 15 / 2** measured; CI-equivalent 3.12:
-**2896 / 2 / 2** measured) under the same
+cryptography/numpy) read **2837 passed / 16 skipped / 2 xfailed** measured
+(with the digest list: **2838 / 15 / 2** measured; CI-equivalent 3.12:
+**2915 / 2 / 2** measured) under the same
 extra-set accounting that had CI at 2755 with the local bare at 2679 — the missing
 extras change what is collected and skipped, which is the environment, not the tree
 (0 failures locally; the two 50k ACs' reds — the prefetch AC on `3dcb35f`/the
