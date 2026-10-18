@@ -26,6 +26,19 @@ from em.vault.frontmatter import (
 PROTECTED_PREFIXES = ("_archive/",)
 
 
+def note_id_for_path(path) -> str:
+    """THE one note-id rule (EM-602 slice 2).
+
+    The vault-relative path, POSIX separators, extension stripped. It used to
+    be ``path.relative_to(path.parent.parent)`` — the path with its *top
+    directory dropped* — so ``A/Sub/Note`` and ``B/Sub/Note`` both read
+    ``Sub/Note``: one primary key for two notes. The full path is unique by
+    construction, which is what ``index.db`` stores as ``note_id`` and as the
+    endpoints of ``graph_edges``.
+    """
+    return Path(str(path).replace("\\", "/")).with_suffix("").as_posix()
+
+
 def derive_title(content: str, max_len: int = 60) -> str:
     """Derive a human-readable title from fact/content text.
 
@@ -97,12 +110,12 @@ class Note:
 
     @property
     def note_id(self) -> str:
-        """Stable identifier: Domain/filename-without-extension."""
-        try:
-            rel = self.path.relative_to(self.path.parent.parent)
-        except ValueError:
-            rel = self.path
-        return str(rel.with_suffix(""))
+        """Stable identifier: the full vault-relative path without `.md`.
+
+        EM-602 slice 2 — this used to drop the top directory, so two notes in
+        different trees could share one id. See :func:`note_id_for_path`.
+        """
+        return note_id_for_path(self.path)
 
     @property
     def importance(self) -> float:

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from em_internal.vault import Note, Vault
+from em_internal.vault import Note, Vault, note_id_for_path
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,16 @@ CREATE INDEX IF NOT EXISTS idx_meta_domain ON notes_meta(domain);
 CREATE INDEX IF NOT EXISTS idx_meta_type ON notes_meta(note_type);
 CREATE INDEX IF NOT EXISTS idx_meta_importance ON notes_meta(importance DESC);
 """
+
+#: The index's schema generation, in ``PRAGMA user_version``. **Version 2**
+#: (EM-602 slice 2) changed ``note_id`` from "the path with its top directory
+#: dropped" to the full vault-relative path, so an older database's ids are
+#: recomputed from each row's ``path`` on open.
+SCHEMA_VERSION = 2
+
+#: Transient prefix for the two-pass rename (a note id is a path, so it can
+#: never contain a NUL). Parked ids cannot collide with the new ones.
+_MIGRATING = "\x00migrating\x00"
 
 
 # ── data classes ────────────────────────────────────────────────────────────
@@ -171,6 +181,58 @@ class VaultIndex:
                 "ALTER TABLE notes_meta ADD COLUMN content_hash TEXT DEFAULT ''"
             )
         self.db.commit()
+        self._migrate_note_ids()
+
+    def _migrate_note_ids(self) -> None:
+        """Rewrite pre-EM-602 note ids to the vault-relative-path rule.
+
+        The old id dropped the path's top directory, so it cannot be inverted;
+        the row's own ``path`` can, and that is the rule (`note_id_for_path`).
+        ``notes_meta``, ``notes_fts`` and the ``kind='wikilink'`` endpoints of
+        ``graph_edges`` all carry the id, so all three move together —
+        ``kind='triple:*'`` edges carry entity/triple ids and are left alone.
+        Runs once per database and is a no-op on a fresh or migrated store.
+        """
+        version = self.db.execute("PRAGMA user_version").fetchone()[0]
+        if version >= SCHEMA_VERSION:
+            return
+        mapping = {}
+        for row in self.db.execute("SELECT note_id, path FROM notes_meta").fetchall():
+            new_id = note_id_for_path(row["path"])
+            if new_id != row["note_id"]:
+                mapping[row["note_id"]] = new_id
+        if mapping:
+            with self.db:
+                self._rename_note_ids(mapping)
+                self._rename_wikilink_endpoints(mapping)
+        self.db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        self.db.commit()
+
+    def _rename_note_ids(self, mapping: Dict[str, str]) -> None:
+        """Two passes, so a rename can never collide with its own primary key."""
+        for old in mapping:
+            for table in ("notes_meta", "notes_fts"):
+                self.db.execute(
+                    f"UPDATE {table} SET note_id = ? WHERE note_id = ?",
+                    (_MIGRATING + old, old),
+                )
+        for old, new in mapping.items():
+            for table in ("notes_meta", "notes_fts"):
+                self.db.execute(
+                    f"UPDATE {table} SET note_id = ? WHERE note_id = ?",
+                    (new, _MIGRATING + old),
+                )
+
+    def _rename_wikilink_endpoints(self, mapping: Dict[str, str]) -> None:
+        for old, new in mapping.items():
+            self.db.execute(
+                "UPDATE graph_edges SET source_id = ? WHERE source_id = ? AND kind = 'wikilink'",
+                (new, old),
+            )
+            self.db.execute(
+                "UPDATE graph_edges SET target_id = ? WHERE target_id = ? AND kind = 'wikilink'",
+                (new, old),
+            )
 
     def close(self) -> None:
         self.db.close()
