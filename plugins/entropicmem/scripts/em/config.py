@@ -180,7 +180,7 @@ class JobsConfig:
 class VaultConfig:
     """`vault.*` — the Obsidian projection (EM-210)."""
 
-    projection: str = "entities+journal"
+    projection: str = "none"
     ingest_human_edits: bool = False
 
 

@@ -518,6 +518,8 @@ class ToolHandlers:
                     )
                 else:
                     result = memories.add(draft, scope=write_scope, actor=actor)
+                if result.ok:
+                    self._enqueue_projection(conn, write_scope)
         finally:
             store.close()
         if not result.ok:
@@ -1071,6 +1073,8 @@ class ToolHandlers:
                         result = memories.supersede(
                             row["id"], draft, scope=write_scope, actor=actor, reason=reason
                         )
+                    if result.ok:
+                        self._enqueue_projection(conn, write_scope)
             finally:
                 store.close()
         except Exception as e:
@@ -1200,6 +1204,8 @@ class ToolHandlers:
                     result = memories.set_status(
                         row["id"], "deleted", actor=actor, reason="forget"
                     )
+                    if result.ok:
+                        self._enqueue_projection(conn, self._state.scope.write_scope())
             finally:
                 store.close()
             if not result.ok:

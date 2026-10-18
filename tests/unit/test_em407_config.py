@@ -131,7 +131,7 @@ def test_defaults_are_appendix_a_with_em306_owning_the_tuned_numbers():
     assert cfg.jobs.run_in_primary is True
     assert cfg.jobs.run_in_cron is True
     assert cfg.jobs.cron_budget_s == 120
-    assert cfg.vault.projection == "entities+journal"
+    assert cfg.vault.projection == "none"
     assert cfg.vault.ingest_human_edits is False
     assert cfg.trust.injection_policy_extracted == "quarantine"
     assert cfg.trust.injection_policy_direct == "flag"

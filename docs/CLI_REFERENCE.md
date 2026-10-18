@@ -1,6 +1,6 @@
 # CLI Reference
 
-All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd>` (below shown without the prefix). Global flags: `--version`, `--check-deps` (print optional dependency status). Verified against the argparse definitions in `plugins/entropicmem/scripts/entropicmem.py`: 36 top-level commands.
+All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd>` (below shown without the prefix). Global flags: `--version`, `--check-deps` (print optional dependency status). Verified against the argparse definitions in `plugins/entropicmem/scripts/entropicmem.py`: 37 top-level commands.
 
 ## Vault & knowledge loop
 
@@ -13,6 +13,7 @@ All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd
 | `note [title] [--domain D] [--tags T]` | Stdin to permanent note |
 | `research "<q>" [--rounds N]` | Research brief in inbox (default 3 rounds) |
 | `lint [--domain D] [--pii]` | Vault health; `--pii` scans facts for PII |
+| `vault lint --root <path>` | Lint the projected vault: report projected files whose auto-sections are unsafe (EM-601 slice 2) |
 | `moc [--domain D]` | Build/repair domain Index.md + backlinks |
 | `hotcache` | Rebuild Wiki-Cache.md |
 | `open <note_id>` | Open note in system editor (`Domain/Name` or `vault://Domain/Name`) |

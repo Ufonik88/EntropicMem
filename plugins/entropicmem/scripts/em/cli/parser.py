@@ -285,6 +285,12 @@ def add_commands(parser: argparse.ArgumentParser, *, dest: str = "command") -> a
     p_run.add_argument("--types", nargs="+", help="Limit to these job types (default: every registered type)")
     p_run.add_argument("--max-seconds", type=float, dest="max_seconds", help="Stop after this many seconds")
 
+    # vault (EM-601 slice 2): lint the projected vault for unsafe auto-sections
+    p_vault = sub.add_parser("vault", help="Vault projection commands")
+    v_sub = p_vault.add_subparsers(dest="vault_command")
+    p_vault_lint = v_sub.add_parser("lint", help="Lint the projected vault: report projected files whose auto-sections are unsafe")
+    p_vault_lint.add_argument("--root", required=True, help="Vault root path")
+
     return parser
 
 

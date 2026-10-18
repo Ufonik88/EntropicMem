@@ -27,6 +27,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 MASTER = REPO / "MASTER_TODO.md"
 
@@ -123,18 +125,31 @@ _CHUNK_ROWS = ("4", "5", "6", "7", "7.1", "7.2")
 
 _CHUNK_ID = r"\d+(?:\.\d+)?"
 
-#: The three pages that state the expected suite size, each by an anchor unique to it.
-#: **Cross-file agreement only** — comparing against a live collection run would need a
-#: nested pytest, which trades a silent drift for a flaky gate (and `--collect-only`
-#: cannot see collection-time skips anyway, so the number would not match regardless).
-_BASELINE_ANCHORS = (
+#: The canonical source of the expected suite size. **One file, one number.**
+#: The three plan pages used to each hand-copy the triple, and three hand-copied
+#: numbers mean three edits per chunk and a silent one-page drift whenever one is
+#: missed — which is exactly what happened, repeatedly (chunk 18's pre-flight said
+#: 1995 while the other two pages and the actual run said 1998; and on 2026-10-17
+#: `cb88d47` went red on all four legs because `MASTER_TODO.md` said 2755/4/3 while
+#: the other two said 2756/4/3 — a doc-only failure that cost a full re-run). So the
+#: pages now *reference* the source and state no figure of their own, and this guard
+#: checks the reference rather than the arithmetic.
+_BASELINE_PAGE = REPO / "docs" / "plan" / "BASELINE.md"
+
+#: The three pages that must point at it, each by an anchor unique to it.
+_BASELINE_REFS = (
     (REPO / "MASTER_TODO.md", "| Tests |"),
     (REPO / "docs" / "plan" / "NEXT_CHUNK.md", "**Baseline:**"),
     (REPO / "docs" / "plan" / "REMAINING_PLAN.md", "pre-flight. Expect"),
 )
 
+#: The source's figure-of-record row — CI's 3.12 leg, the one a pre-flight is
+#: checked against. The marker is what makes the triple findable in a page that
+#: also quotes the three *local* readings a few rows below.
+_FIGURE_OF_RECORD = "figure of record"
+
 #: Both separators appear in the wild: `2061 passed / 3 skipped / 3 xfailed` in the
-#: gates table, `2061 passed, 3 skipped, 3 xfailed` in the two pre-flight blocks.
+#: gates table, `2061 passed, 3 skipped, 3 xfailed` in the pre-flight blocks.
 _COUNT_RE = re.compile(r"(\d+)\s+passed\s*[/,]\s*(\d+)\s+skipped\s*[/,]\s*(\d+)\s+xfailed")
 
 #: Below this the number was mis-typed, not mis-synced — same idea as the CLI drift
@@ -142,109 +157,135 @@ _COUNT_RE = re.compile(r"(\d+)\s+passed\s*[/,]\s*(\d+)\s+skipped\s*[/,]\s*(\d+)\
 _COUNT_FLOOR = 1000
 
 
-def _stated_baseline(path: Path, anchor: str) -> tuple:
-    """The `(passed, skipped, xfailed)` triple one page states, or a loud failure."""
-    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if anchor in ln]
+def _canonical_baseline(text: str) -> tuple:
+    """The `(passed, skipped, xfailed)` triple the source states, or a loud failure.
+
+    Keys on the figure-of-record row, not on any triple in the file: the page also
+    carries the bare, digest and CI-equivalent readings, and picking up one of those
+    instead would compare CI's figure against a local one and call it drift.
+    """
+    lines = [ln for ln in text.splitlines() if _FIGURE_OF_RECORD in ln]
     assert len(lines) == 1, (
-        f"{path.name}: the anchor {anchor!r} matched {len(lines)} lines, expected exactly "
-        "one. If the wording moved, move the anchor in `_BASELINE_ANCHORS` — do not drop "
-        "the page from the check, that is how the drift this guard exists for returns."
+        f"{_BASELINE_PAGE.name}: the marker {_FIGURE_OF_RECORD!r} matched {len(lines)} lines, "
+        "expected exactly one. If the wording moved, move `_FIGURE_OF_RECORD` — do not drop "
+        "the check, that is how the drift this guard exists for returns."
     )
     match = _COUNT_RE.search(lines[0])
-    assert match, f"{path.name}: the line anchored by {anchor!r} states no passed/skipped/xfailed triple"
+    assert match, f"{_BASELINE_PAGE.name}: the figure-of-record row states no passed/skipped/xfail triple"
     return tuple(int(group) for group in match.groups())
 
 
-def _baseline_disagreement(stated: dict) -> Optional[str]:
-    """``None`` when every page states the same triple, else a message naming them.
+def _reference_is_intact(line: str) -> Optional[str]:
+    """``None`` when a plan page's anchor line points at the source and states no
+    figure, else a message saying which half is wrong.
 
-    A pure function on purpose. The docs agree today, so a test that only reads them
-    never sees a violating input — and an assertion whose strength no input tests cannot
-    be mutation-proven (weakening ``== 1`` to ``>= 1`` would slip through with the tree
-    green). Separating the comparison lets the tests below feed it disagreement directly,
-    which is what gives the doc-level check its teeth. Same lesson EM-304's tie-break test
-    taught: a test that does not exercise the case proves nothing about it.
+    A pure function on purpose. The pages are correct today, so a test that only reads
+    them never sees a violating input — and an assertion whose strength no input tests
+    cannot be mutation-proven (deleting the "states no figure" half would slip through
+    with the tree green). Separating the check lets the tests below feed it a violation
+    directly, which is what gives the doc-level check its teeth.
     """
-    passed = {triple[0] for triple in stated.values()}
-    if len(passed) > 1:
-        return f"the docs disagree about the expected suite size: {stated}"
-    if min(passed) < _COUNT_FLOOR:
-        return f"implausible suite size (below {_COUNT_FLOOR}): {stated}"
-    skipped = {triple[1] for triple in stated.values()}
-    xfailed = {triple[2] for triple in stated.values()}
-    if len(skipped) > 1 or len(xfailed) > 1:
+    if _BASELINE_PAGE.name not in line:
+        return f"does not reference {_BASELINE_PAGE.name}"
+    if _COUNT_RE.search(line):
         return (
-            "the docs disagree about the skip/xfail pair, which is read as a pair with the "
-            f"passed count (3 skips without the private digest list, 2 with it): {stated}"
+            f"restates a passed/skipped/xfail triple instead of referencing {_BASELINE_PAGE.name}; "
+            "move the figure to the source"
         )
     return None
 
 
-def test_the_stated_pre_flight_baseline_agrees_across_the_docs() -> None:
-    """One number, three pages.
+def test_the_source_states_one_canonical_triple() -> None:
+    """The single source exists, parses, and is plausible.
 
-    Chunk 18's pre-flight said **1995** while `MASTER_TODO` and the actual run said
-    **1998**: a stale number that reads exactly like a real mismatch, and the rule on
-    mismatch is "stop and report", so a wrong page costs a full re-measure and invites
-    the wrong conclusion ("assume the older number is right"). Nothing compared the
-    pages, because the number is written by hand in all three.
-
-    This asserts the three statements agree **with each other**. It deliberately does
-    not compare them against a live collection: the suite's own pre-flight run is what
-    checks them against reality, and this guard's job is to make sure that when the run
-    disagrees, the pages cannot also disagree among themselves.
+    This replaces the old three-way agreement check: the pages no longer state a
+    number, so there is nothing to cross-compare — the number has exactly one home,
+    and this is the assertion that keeps it honest. The floor is the same one the old
+    comparison carried, moved here: a mis-typed 206 is a mis-type, and nothing else in
+    the file would catch it.
     """
-    stated = {path.name: _stated_baseline(path, anchor) for path, anchor in _BASELINE_ANCHORS}
-    assert _baseline_disagreement(stated) is None, _baseline_disagreement(stated)
-
-    # Belt and braces, and knowingly redundant with the three synthetic tests below: a
-    # guard that returned None for everything would pass the assertion above too, so the
-    # real triples are fed a deliberate drift as well. Dropping *this* line does not
-    # weaken the guard — the synthetic tests carry it, and a mutation of the comparison
-    # itself is caught there — which is why it reads as a survived mutation rather than a
-    # coverage hole.
-    drifted = dict(stated)
-    page = sorted(drifted)[0]
-    drifted[page] = (drifted[page][0] - 1, *drifted[page][1:])
-    assert _baseline_disagreement(drifted) is not None
+    assert _BASELINE_PAGE.is_file(), (
+        f"{_BASELINE_PAGE.name} is missing; it is the single source of the expected suite size"
+    )
+    passed, skipped, xfailed = _canonical_baseline(_BASELINE_PAGE.read_text(encoding="utf-8"))
+    assert passed >= _COUNT_FLOOR, f"implausible suite size (below {_COUNT_FLOOR}): {passed}"
+    assert 0 <= skipped < 100, f"implausible skip count: {skipped}"
+    assert 0 <= xfailed < 100, f"implausible xfail count: {xfailed}"
 
 
-def test_every_page_that_states_the_baseline_is_in_the_comparison() -> None:
-    """Pinned by name, because dropping a page from `_BASELINE_ANCHORS` narrows the
-    guard silently — `len(stated) == len(_BASELINE_ANCHORS)` is true either way."""
-    assert {path.name for path, _ in _BASELINE_ANCHORS} == {
+def test_every_page_that_used_to_state_the_baseline_now_references_it() -> None:
+    """Each of the three pages points at the source and states no figure of its own."""
+    for path, anchor in _BASELINE_REFS:
+        assert path.is_file(), f"{path.name} vanished; it must reference the pre-flight baseline"
+        lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if anchor in ln]
+        assert len(lines) == 1, (
+            f"{path.name}: the anchor {anchor!r} matched {len(lines)} lines, expected exactly "
+            "one. If the wording moved, move the anchor in `_BASELINE_REFS` — do not drop "
+            "the page from the check, that is how the drift this guard exists for returns."
+        )
+        problem = _reference_is_intact(lines[0])
+        assert problem is None, f"{path.name}: the line anchored by {anchor!r} {problem}"
+
+
+def test_the_page_set_is_pinned_by_name() -> None:
+    """Pinned by name, because dropping a page from `_BASELINE_REFS` narrows the
+    guard silently — the loop above is happy with two pages either way."""
+    assert {path.name for path, _ in _BASELINE_REFS} == {
         "MASTER_TODO.md", "NEXT_CHUNK.md", "REMAINING_PLAN.md",
     }
-    assert len(_BASELINE_ANCHORS) == 3
+    assert len(_BASELINE_REFS) == 3
     # And each anchor must be specific to its own page: an anchor that matches in two
     # files is an anchor that will match the wrong line when one of them is reworded.
-    for path, anchor in _BASELINE_ANCHORS:
-        assert path.is_file(), f"{path.name} vanished; it states the pre-flight baseline"
+    for path, anchor in _BASELINE_REFS:
         hits = [ln for ln in path.read_text(encoding="utf-8").splitlines() if anchor in ln]
         assert len(hits) == 1, f"{path.name}: anchor {anchor!r} matched {len(hits)} lines"
 
 
-def test_the_comparison_rejects_a_drifted_passed_count() -> None:
-    """The teeth, fed a violating input the repo cannot supply while it is consistent."""
-    agreed = {"MASTER_TODO.md": (2061, 3, 3), "NEXT_CHUNK.md": (2061, 3, 3), "REMAINING_PLAN.md": (2061, 3, 3)}
-    assert _baseline_disagreement(agreed) is None
-
-    drifted = dict(agreed, **{"NEXT_CHUNK.md": (1995, 3, 3)})
-    assert "disagree" in (_baseline_disagreement(drifted) or "")
-
-
-def test_the_comparison_rejects_a_drifted_skip_or_xfail_pair() -> None:
-    """The skip count is read as a *pair* with the passed count (3 without the private
-    digest list, 2 with it), so a one-sided drift is a disagreement, not a variant."""
-    assert "skip/xfail pair" in (_baseline_disagreement(
-        {"a": (2061, 3, 3), "b": (2061, 2, 3)}) or "")
-    assert "skip/xfail pair" in (_baseline_disagreement(
-        {"a": (2061, 3, 3), "b": (2061, 3, 4)}) or "")
+def test_the_source_is_not_one_of_the_pages_it_owns() -> None:
+    """The source and the pages that reference it must be different files, or the
+    reference is a tautology and the single source is not single."""
+    assert _BASELINE_PAGE.name == "BASELINE.md"
+    assert _BASELINE_PAGE not in {path for path, _ in _BASELINE_REFS}
+    assert _BASELINE_PAGE.parent == REPO / "docs" / "plan"
 
 
-def test_the_comparison_rejects_an_implausible_size() -> None:
-    """A mis-typed 206 in all three pages agrees with itself; the floor catches it."""
-    assert "implausible" in (_baseline_disagreement({"a": (206, 3, 3), "b": (206, 3, 3)}) or "")
+def test_the_reference_check_rejects_a_page_that_restates_the_figure() -> None:
+    """The teeth, fed the violating line the repo cannot supply while it is consistent.
+
+    The first form is the shape this repo actually drifted on: a page that keeps its
+    reference *and* re-adds a number beside it, which is how a second home for the
+    figure gets started.
+    """
+    assert _reference_is_intact("| Tests | `pytest -q` | see `BASELINE.md` |") is None
+
+    restate = "| Tests | `pytest -q` | 2755 passed / 4 skipped / 3 xfailed (see BASELINE.md) |"
+    assert "restate" in (_reference_is_intact(restate) or "")
+
+    # And the other half: pointing somewhere else entirely is not a reference either.
+    assert "does not reference" in (
+        _reference_is_intact("| Tests | `pytest -q` | 2755 passed / 4 skipped / 3 xfailed |") or ""
+    )
+
+
+def test_the_source_parser_keys_on_the_figure_of_record_row() -> None:
+    """The parser must not grab any triple in the file — only that row's.
+
+    The source also quotes the bare, digest and CI-equivalent readings; a parser that
+    matched the first triple it saw would compare CI's figure against a local one and
+    report drift on a perfectly consistent repo.
+    """
+    row = "| CI, 3.12 (the figure of record) | `pytest -q` | **2813 passed, 4 skipped, 2 xfailed** |"
+    assert _canonical_baseline(f"intro\n{row}\n| bare | x | 2737 passed, 16 skipped, 2 xfailed |\n") == (
+        2813, 4, 2,
+    )
+
+    # A triple elsewhere in the file is not the figure of record: no marker, no answer.
+    with pytest.raises(AssertionError):
+        _canonical_baseline("| bare | x | 2737 passed, 16 skipped, 2 xfailed |\n")
+
+    # Two marker rows is as ambiguous as none, and fails for the same reason.
+    with pytest.raises(AssertionError):
+        _canonical_baseline(f"{row}\n{row}\n")
 
 
 def _table_rows(text: str) -> dict[str, str]:

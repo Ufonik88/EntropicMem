@@ -15,7 +15,7 @@ points at.
 
 ---
 
-## STOP HERE — S5 is complete (2026-10-17); S6 opened 2026-10-18, its first chunk landed
+## STOP HERE — S5 is complete (2026-10-17); EM-601 authorised 2026-10-18, its first chunk landed
 
 **Development stopped at this point on 2026-10-17.** S5 (formation & consolidation) is complete on
 `main`: **EM-501**, **EM-502** (both slices), **EM-503** (core + wiring), and the
@@ -26,10 +26,13 @@ remediation — resolved and pinned at `c30aa54` — and the EM-303 prune card �
 the promised destructive embedding-maintenance job, built and landed at
 `99151d3` with no destructive run (real runs owner-signed later).**
 
-**2026-10-18: the owner opened S6** ("YOLO, you make the logical calls" — the word
-`STOP_HERE.md`'s ruling table asked for; dev-line work only, nothing touches the live
-store), and **EM-601 slice 1 — the vault projection engine, S6's first card — landed the
-same day at `bdc1e20`** (branch-first on `em-601-projection`, all 11 check-runs green on
+**2026-10-18: the owner authorised EM-601** — the vault-projection card, both halves —
+by naming it as the session's build (*"you make the logical calls on the build"*,
+target "chunk 36 = EM-601 slice 1"); slice 2's go came explicitly the same day
+("proceed with slice 2"). **That is one card, not a stage: S6's remaining cards
+(EM-602…EM-607), S7 security, packaging and the 3.0 release stay gated** — an earlier
+record read "S6 opened", which overclaimed and is retracted. **EM-601 slice 1 — the
+vault projection engine — landed the same day at `bdc1e20`** (branch-first on `em-601-projection`, all 11 check-runs green on
 that exact SHA, `--ff-only`, branch deleted; the merge's 11 re-ran them on `main`). **The
 next chunk is EM-601 slice 2** — `docs/plan/NEXT_CHUNK.md` Part B; it has not started.
 What remains on the owner is **one-word gated**: P0c's shadow data, the v3 cutover
@@ -40,9 +43,11 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-18, against branch `main` at `bdc1e20` — **S6 is open (the
-owner's word, 2026-10-18) and EM-601 slice 1 — the vault projection engine — has landed:
-chunk 36, 31 new tests, CI **2813 / 4 / 2** read green from the job log at that SHA** (the
+**Last reconciled:** 2026-10-18, against branch `main` at `bdc1e20` — **EM-601 is authorised
+(the owner's word, 2026-10-18 — one card, not a stage; the rest of S6 stays gated) and
+EM-601 slice 1 — the vault projection engine — has landed:
+chunk 36, 31 new tests, CI green at that SHA (the expected figure of record lives in one
+place: [`docs/plan/BASELINE.md`](docs/plan/BASELINE.md))** (the
 next chunk, EM-601 slice 2, is NEXT_CHUNK Part B and has not started) — on top of **the EM-303 prune
 card: the promised destructive embedding-maintenance job, built and landed** (branch-first on `em-303-prune`, all 11 check-runs green on that exact SHA, and all 22 after the merge re-ran them on `main` — nothing new existed to break the re-run; **no destructive run happened and none is scheduled: real runs stay owner-gated**, see Open blockers) atop the F-004 remediation (**`c30aa54`** — full per-user isolation resolved and pinned; branch-first, all 11 check-runs green on that exact SHA; the finding's strict xfail flipped onto a v3-store drive, the two-provider surface pinned beside the group-chat harness, **no product code changed**) atop the S5 completion (EM-503 wiring, the `sync_turn` transcript capture and
 the exit harness, `d331c5e`) atop the EM-503 core on the
@@ -272,7 +277,7 @@ privacy = the 77-passed gap; the commands sit in the pre-flight). The
 query-embedding card **landed as `EM-412`** (`637a269`, 2026-10-16 — the note
 below; the four owner edits rode it); **EM-410 has landed**
 (`874b3d4` — the note below; EM-409, EM-408, EM-411 and EM-406 preceded it),
-and **S6 opened 2026-10-18 (the owner's word) with EM-601 slice 1 landed as
+and **EM-601 was authorised 2026-10-18 (the owner's word, one card) with slice 1 landed as
 chunk 36 (`bdc1e20`) — the next chunk is slice 2** (the
 recorded-owed candidates that remain: `_shadow.py`'s one-liner, the
 adapter/eval gate; the prune follow-up closed 2026-10-17 as `99151d3`).
@@ -683,8 +688,11 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**S6 (vault & graph) is OPEN — the owner's word, 2026-10-18** ("YOLO, you make the
-logical calls"): dev-line work only, nothing touching the live store, every other
+**EM-601 (vault projection, both halves) is AUTHORISED — the owner's word, 2026-10-18**
+("you make the logical calls on the build", target named as chunk 36 = EM-601 slice 1;
+slice 2's go explicit the same day). **One card, not a stage — the rest of S6, S7,
+security and packaging stay gated** (see the open scope question in `NEXT_CHUNK.md`):
+dev-line work only, nothing touching the live store, every other
 owner-gated item below still gated. It is the one gate `docs/plan/STOP_HERE.md`'s
 ruling table deferred to the owner, and it has been given.
 
@@ -709,12 +717,7 @@ carries the full state; in short:
   `MemoryStore.list`'s own (F-004); two names that sanitise to one filename are told
   apart by entity id, entities ordered by id so filenames never move; **one root per
   scope**.
-- **NOT built — that is the next chunk, EM-601 slice 2 (`NEXT_CHUNK.md` Part B):** the
-  `project_vault` job and its `KNOWN_JOB_TYPES` entry, the 60 s debounce and the
-  provider's enqueue on write paths, the `vault.projection` config → `modes` mapping
-  (`none`, `entities`, `entities+journal`, `legacy` — `legacy` stays v2's writer), the
-  CLI's lint surfacing, and month paging for `Memories/Unfiled.md` past 200 rows. As
-  landed, **nothing schedules a projection** — no hook, no job.
+- **EM-601 slice 2 — BUILT, not yet landed** (`NEXT_CHUNK.md` Part B): `em/vault/schedule.py` (new) carries the `project_vault` job handler (`make_project_vault_handler`, `enqueue_projection`), the 60 s debounce with `MAX_WAIT_SECONDS` ceiling and the follow-up chain for mid-projection writes, and the `modes_for()` config→modes map. `vault.projection` default flips to `none`. The provider enqueues on `_remember_v3`, `_update` and `_forget_one` inside the write transaction. `KNOWN_JOB_TYPES` gains `project_vault`; `build_registry` registers it drift-free. The CLI gains `vault lint --root <path>` (`cmd_vault` in `entropicmem.py`, route in `dispatch`, subcommand in `em/cli/parser.py`). **18 new tests** (`tests/unit/test_em601_slice2_schedule.py`), all green; **5 mutation checks, all red**; suite **2758 / 16 / 2** bare, **2759 / 15 / 2** with the digest list, **2836 / 2 / 2** CI-equivalent; `ruff` clean; privacy scan clean. **Deferred, recorded:** `Memories/Unfiled.md` month paging past 200 rows — a policy decision, not code.
 - **Evidence:** 31 new tests (`tests/unit/test_em601_projection.py`), **10 mutation
   checks all red** (the tier predicate dropped; `forbid_tiers` default flipped;
   `sensitive` let through; the human region dropped; the trailing text dropped; a
@@ -879,8 +882,9 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 ## What is next
 
 **The next chunk: EM-601 slice 2 — the `project_vault` job, its mode switch, and the
-lint surfacing** (`docs/plan/NEXT_CHUNK.md` Part B). S6 is open on the owner's word
-(2026-10-18, "YOLO, you make the logical calls") and slice 1 — the projection engine —
+lint surfacing** (`docs/plan/NEXT_CHUNK.md` Part B). EM-601 is authorised on the owner's
+word (2026-10-18 — one card; the wider S6 scope is an open question in `NEXT_CHUNK.md`)
+and slice 1 — the projection engine —
 landed the same day as `bdc1e20`.
 
 ### The v3 cutover — **deferred 2026-10-07; both re-decision conditions are now met**
@@ -990,7 +994,7 @@ landing (`e5e54ef`), the slice-1 landing (`381197f`) and the chunk-35 merge
    checks all red**. The owner's
    2026-10-16 S4 order ran EM-406 → EM-411 → EM-408 → EM-409 → EM-410 → EM-412
    (all landed; `bdc1e20` is the latest), and **the next chunk is EM-601
-   slice 2 — S6 opened 2026-10-18 on the owner's word and slice 1 landed as
+   slice 2 — EM-601 was authorised 2026-10-18 on the owner's word and slice 1 landed as
    `bdc1e20`** — the
    recorded-owed candidates were the EM-303 prune follow-up (**landed
    2026-10-17 as the prune card, `99151d3`**), `_shadow.py`'s printed-caveat
@@ -1096,8 +1100,8 @@ EM-409 (`a472748`), EM-410 (`874b3d4`) and EM-412 (`637a269` — the
 query-embedding wiring, closing the recorded gap); the F-004 remediation
 (`c30aa54`) landed — and **the EM-303 prune card landed later that day
 (`99151d3`), closing the owed prune**. **Next chunk: EM-601 slice 2
-(`docs/plan/NEXT_CHUNK.md` Part B) — S6 opened 2026-10-18 (the owner's word,
-"YOLO, you make the logical calls") and slice 1, the vault projection engine,
+(`docs/plan/NEXT_CHUNK.md` Part B) — EM-601 was authorised 2026-10-18 (the owner's
+word, one card) and slice 1, the vault projection engine,
 landed the same day as `bdc1e20`; the
 recorded-owed list is emptied of the prune (the remaining candidates —
 `_shadow.py`'s printed-caveat one-liner, already fixed in `26265ef`, and the
@@ -1275,7 +1279,7 @@ not.**
 
 | Gate | Command | Budget |
 |---|---|---|
-| Tests | `python -m pytest -q` | **2813 passed / 4 skipped / 2 xfailed** (CI, 3.12 — read green from the job log at `bdc1e20`: the EM-601 slice 1 landing's +31 `tests/unit/test_em601_projection.py` guards over `99151d3`'s verified 2782/4/2; `d92503d` read 2770/4/2 and `c30aa54` 2769/4/2 before their merges) |
+| Tests | `python -m pytest -q` | **Zero failed.** The expected counts, their legend and the four named CI skips live in **one place**: [`docs/plan/BASELINE.md`](docs/plan/BASELINE.md). The triple is `passed / skipped / xfailed`; **`failed` is always 0 on a green run.** This page states no figure of its own — a chunk updates `BASELINE.md` only. |
 | Lint | `ruff check .` under the CI pin `ruff==0.16.2` | clean |
 | Evals | `evals run --suite ci --compare evals/baselines/v2.8.0-ci.json` | no gated metric regressed |
 | Performance | `evals.perf --sizes 1000 --probes 20` | prefetch warm p95 ≤ 20 ms |
@@ -1341,6 +1345,24 @@ green, and the rerun of the failed job went green in ~4 minutes. **This AC now
 sits within 1% of its budget on shared runners and has flapped twice in two
 days — the tell stays a uniformly inflated p50, not a stall tail; the ruling
 stands: rerun the failed job, never widen the budget.**
+
+**2026-10-18 — treated as a defect, not a note: `EM-608`.** The measurement is
+now a **tracked item**, `docs/plan/PERF_GATE_CARD_DRAFT.md` (agent-owned, one
+slot, nothing blocking). Re-running a red `main` job until it goes green is a
+workaround, not a fix: the gate's verdict currently depends on which runner it
+lands on, so it does not gate. The draft specifies **a statistic, not a rerun**
+(best-of-N windows — the exact fix EM-407 applied to the numpy guard a test
+over), with a dedicated non-blocking job as the fallback, and it **forbids
+widening the 150 ms budget without the owner**. **Instances, with evidence:**
+`test_warm_p95_at_50k_is_under_150ms` has failed **twice** — 2026-10-16
+(`6e86c98`, `test (3.10)`, p95 153.35 ms, all 25 samples 117–158 ms) and
+2026-10-18 (`bdc1e20`, `test (3.13)`, p95 151.09 ms, run `39112375641`, job
+`117631038052`). **A third was not found and cannot be**: re-running a failed
+job **overwrites its log**, so a failure re-run to green leaves no artifact —
+a sweep of every failed CI job's log from 2026-09-20 to 2026-10-19 returns zero
+hits. **Record every instance when it happens; GitHub will not keep it.**
+The 2026-10-15 3.13-leg flap was a *different* test (the numpy guard) and was
+fixed by statistic, not rerun — the precedent EM-608 generalises.
 The way to tell a flake from a
 regression is a rerun of the **same** SHA. Never widen a budget, skip a test or mark
 a job non-blocking to clear red.

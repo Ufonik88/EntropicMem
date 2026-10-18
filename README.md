@@ -4,7 +4,7 @@
 
 # EntropicMem: Standalone Agent Memory System
 
-> A self-contained knowledge engine for Hermes Agent. SQLite memory, Markdown vault, visual graph, and a 35-command knowledge loop. Install from the Hermes plugin catalog or via `/learn`.
+> A self-contained knowledge engine for Hermes Agent. SQLite memory, Markdown vault, visual graph, and a 36-command knowledge loop. Install from the Hermes plugin catalog or via `/learn`.
 
 > **Public repo.** Never commit personal data: real names beyond the maintainer handle, home paths, emails, IPs, employer or client details, or memory/graph exports. See [CONTRIBUTING.md](CONTRIBUTING.md) for the rule and the pre-commit checklist.
 
@@ -216,11 +216,11 @@ Five cooperating layers, full model in [docs/MEMORY_MODEL.md](docs/MEMORY_MODEL.
 
 ## Commands
 
-36 top-level commands in 10 groups. Full reference: [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md). Invocations use `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <command>`.
+37 top-level commands in 10 groups. Full reference: [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md). Invocations use `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <command>`.
 
 | Group | Commands |
 |-------|----------|
-| Vault & knowledge | `init`, `ingest`, `ingest-pile`, `query`, `note`, `research`, `lint`, `moc`, `hotcache`, `open` |
+| Vault & knowledge | `init`, `ingest`, `ingest-pile`, `query`, `note`, `research`, `lint`, `moc`, `hotcache`, `open`, `vault lint` |
 | Memory engine | `remember`, `recall`, `forget --confirm`, `memory stats/list/project/reindex` (`stats` shortcut), `extract`, `reinforce`, `history`, `consolidate --confirm` |
 | Episodic & triples | `episode add/list/stats`, `triple extract/list/stats/neighbors/path/inconsistencies` |
 | Index & graph | `index rebuild/status`, `graph export/serve/show` |

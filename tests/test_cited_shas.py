@@ -62,6 +62,15 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # 2026-10-15 3.13-leg job and its run so the flap stays checkable (NEXT_CHUNK Part A).
     "116561640133": "GitHub Actions job id, not a commit: the 2026-10-15 guard flap",
     "38775407380": "GitHub Actions run id, not a commit: the 2026-10-15 guard flap",
+    # Same shape, same reason: EM-608's draft cites the 2026-10-18 warm-p95 flap's
+    # job and run so the instance stays checkable (MASTER_TODO's flake record).
+    "117631038052": "GitHub Actions job id, not a commit: the 2026-10-18 warm-p95 flap",
+    "39112375641": "GitHub Actions run id, not a commit: the 2026-10-18 warm-p95 flap",
+    "38861052493": "GitHub Actions run id, not a commit: the 2026-10-16 warm-p95 flap",
+    # Cited on purpose BECAUSE it does not resolve: BASELINE.md's "Citing CI
+    # evidence" section uses it as the worked example of a run whose head_sha
+    # names a rebased-away commit. Removing the citation breaks the lesson.
+    "cb88d47": "unreachable on purpose: the rebased-away head_sha BASELINE.md uses as the worked example",
 }
 
 #: Sanity floors: the scan must keep seeing a real corpus, or a broken regex or glob

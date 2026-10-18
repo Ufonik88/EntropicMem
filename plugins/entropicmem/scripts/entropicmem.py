@@ -2066,6 +2066,29 @@ def cmd_shared_init(args) -> int:
     return 0
 
 
+def cmd_vault(args) -> int:
+    """Vault projection commands (EM-601 slice 2).
+
+    ``vault lint --root <path>`` reports projected files whose auto-sections
+    are unsafe and exits non-zero when any exist, so a gutted projection is
+    visible to the person looking at the vault.
+    """
+    if getattr(args, "vault_command", None) != "lint":
+        print(
+            "usage: entropicmem vault lint --root <path>", file=sys.stderr
+        )
+        return 1
+    from em.vault.projection import lint
+
+    problems = lint(args.root)
+    if problems:
+        for p in problems:
+            print(f"{p.path}: {p.problem}")
+        return 1
+    print("Vault lint: 0 problems.")
+    return 0
+
+
 def cmd_worker(args) -> int:
     """Run queued v3 jobs. Never migrates, and refuses a non-v3 database."""
     if getattr(args, "worker_command", None) != "run":
@@ -2147,6 +2170,7 @@ def dispatch(args, *, dest: str = "command", parser=None) -> int:
         "recall": cmd_recall,
         "episode": cmd_episode,
         "triple": cmd_triple,
+        "vault": cmd_vault,
         "remember": cmd_remember,
         "forget": cmd_forget,
         "open": cmd_open,

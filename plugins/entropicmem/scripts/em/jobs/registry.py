@@ -25,6 +25,7 @@ KNOWN_JOB_TYPES = (
     "embed",
     "embed_backfill",
     "prune",
+    "project_vault",
     "retract_turns",
     "extract_window",
     "extract_session",
@@ -74,6 +75,13 @@ def build_registry(
         from ..embeddings.prune import make_prune_handler
 
         registry.register("prune", make_prune_handler(db_path))
+    if "project_vault" in selected:
+        from ..vault.schedule import make_project_vault_handler
+
+        # No fallback root: the payload carries it, and the provider sets it
+        # from `paths.vault_path` when it enqueues. A payload with no root is a
+        # bug upstream, and the handler says so loudly rather than guessing.
+        registry.register("project_vault", make_project_vault_handler())
     if "embed" in selected or "embed_backfill" in selected:
         from ..embeddings.jobs import make_embed_backfill_handler, make_embed_handler
         from ..embeddings.service import EmbeddingService

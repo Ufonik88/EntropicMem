@@ -37,6 +37,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..config import Config, config_schema_fields, load_config, validate_values
 from ..policy.scopes import ScopeContext
+from ..vault.schedule import enqueue_projection, modes_for
 from .hooks import HOOK_BUDGETS, fail_soft
 from .identity import ConfigSignatureCache, default_signature
 from .state import ProviderState
@@ -2360,6 +2361,35 @@ class EntropicMemProvider(ToolHandlers):
                 store.close()
         except Exception as e:
             logger.debug("EntropicMem job enqueue (%s) failed: %s", job_type, e)
+
+    def _enqueue_projection(self, conn, scope) -> None:
+        """Enqueue a debounced ``project_vault`` job after a write (EM-601 slice 2).
+
+        Called inside the write's transaction so the enqueue and the write
+        commit together. Off when ``vault.projection`` is ``none`` or
+        ``legacy`` — those map to no modes and ``enqueue_projection`` returns
+        ``None`` without leaving a row. Fail-soft: a bad vault path or config
+        never fails the write.
+        """
+        if not (self._memory_db and self._v3_store() and self._vault_path):
+            return
+        try:
+            from pathlib import Path
+
+            root = Path(self._vault_path)
+            if not root.is_dir():
+                return
+            modes = modes_for(self._typed_config.vault.projection)
+            if not modes:
+                return
+            enqueue_projection(
+                conn,
+                root=root,
+                scope=scope,
+                modes=modes,
+            )
+        except Exception as e:
+            logger.debug("EntropicMem vault projection enqueue failed: %s", e)
 
     @staticmethod
     def _delegation_text(text: str, cap: int) -> str:
