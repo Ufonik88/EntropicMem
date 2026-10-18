@@ -8,8 +8,9 @@ has not started. Do not begin new development from this state without the owner.
 > **Superseded for EM-601 and EM-608 (2026-10-18):** the owner authorised **EM-601,
 > the vault-projection card, both halves** — and both landed the same day (slice 1
 > `bdc1e20`, slice 2 `e986059`) — and slotted **EM-608**, the 50k warm-p95 gate's
-> statistic, which also **landed the same day** (`3b71cf0`). **Nothing is in flight.**
-> Every
+> statistic, which also **landed the same day** (`3b71cf0`), and **chunk 38, the
+> `remember` content-ceiling fix, landed the same day too** (`c53b182`). **Nothing is in
+> flight; the next chunk is EM-602.** Every
 > owner-gated item in this file still stands; only the "do not begin"
 > instruction has moved, and only for EM-601 and EM-608. **The rest of S6 and
 > everything after it remain gated** — see the correction in the addendum below.
@@ -39,6 +40,12 @@ instead of truncated. Reversible in one commit; no migration; the plugin manifes
 catalog pin do not move. The draft's optional `summary` argument is **deferred**, as the
 draft recommends.
 
+**Update, same day: that card landed.** Built, landed and merged as chunk 38 on 2026-10-18
+(`c53b182`) — the same two fields moved, 16 new tests, **8 mutation checks all red**, each
+restored from a byte copy, no migration, the manifest and catalog pin untouched.
+**Nothing is in flight; the next chunk is EM-602**, the first of the now-agent-owned S6
+cards.
+
 ### Addendum (2026-10-17, later the same day) — the F-004 chunk landed
 
 The owner opened the F-004 remediation ("the stage is yours"), and it landed as
@@ -66,7 +73,7 @@ under `[Unreleased]`/Fixed, `REMAINING_PLAN.md` §9 item 9, `NEXT_CHUNK.md`'s
 new Part A block.
 
 
-### Addendum (2026-10-18) — EM-601 and EM-608 are complete
+### Addendum (2026-10-18) — EM-601, EM-608 and chunk 38 are complete
 
 The owner opened **EM-601 (the vault-projection card, both halves)** with the
 explicit session assignment *"We're doing this YOLO, so you dont need my
@@ -140,6 +147,8 @@ this file's historical ones.
 > **Superseded by the 2026-10-18 "later" addendum above.** Five of the items below are now
 > decided (skipped / no / nothing to run / not now), and the sixth — the content-ceiling
 > card — is the next chunk. The list is kept as the record of what *was* open.
+> **Chunk 38 (the ceiling card) then landed the same day (`c53b182`); see the update at the
+> end of the addendum above. Nothing is in flight and the next chunk is EM-602.**
 
 - **P0c** — the shadow data: needs a host running the dev-line plugin with
   `ENTROPICMEM_SHADOW_V3` set for ≥ 200 real turns. Owner's environment.

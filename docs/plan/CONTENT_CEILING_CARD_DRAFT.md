@@ -1,10 +1,13 @@
 # DRAFT — the remember content ceiling: a raised cap and a refusal-over-truncation contract
 
-**Status:** **SLOTTED 2026-10-18 as chunk 38** — the owner handed the outstanding gated
-calls to the agent ("make a call … make a choice for me"), so the agent opened this card
+**Status:** **LANDED 2026-10-18 as `c53b182` (chunk 38)** — the owner handed the outstanding
+gated calls to the agent ("make a call … make a choice for me"), so the agent opened this card
 and set **the ceiling number at 8,000** (open decision 1) and **deferred the optional
-`summary` argument** (open decision 2), both the draft's recommendations. It is the next
-chunk. The original drafting note follows.
+`summary` argument** (open decision 2), both the draft's recommendations. Built, landed and
+merged the same day; the next chunk is EM-602 (S6). The record: `CHANGELOG.md`
+`[Unreleased]`/Fixed + Added, `MASTER_TODO.md`'s chunk-38 row, `NEXT_CHUNK.md` Part A.
+The text below is the original draft, kept as the record — expect its "Status" line and open
+decisions to read as pre-build.
 
 Drafted 2026-10-17 for the owner's slotting decision and ceiling number —
 found 2026-10-17 by a live incident (an `entropicmem_remember` of a 4.3 KB
