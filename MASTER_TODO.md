@@ -717,7 +717,7 @@ carries the full state; in short:
   `MemoryStore.list`'s own (F-004); two names that sanitise to one filename are told
   apart by entity id, entities ordered by id so filenames never move; **one root per
   scope**.
-- **EM-601 slice 2 — BUILT, not yet landed** (`NEXT_CHUNK.md` Part B): `em/vault/schedule.py` (new) carries the `project_vault` job handler (`make_project_vault_handler`, `enqueue_projection`), the 60 s debounce with `MAX_WAIT_SECONDS` ceiling and the follow-up chain for mid-projection writes, and the `modes_for()` config→modes map. `vault.projection` default flips to `none`. The provider enqueues on `_remember_v3`, `_update` and `_forget_one` inside the write transaction. `KNOWN_JOB_TYPES` gains `project_vault`; `build_registry` registers it drift-free. The CLI gains `vault lint --root <path>` (`cmd_vault` in `entropicmem.py`, route in `dispatch`, subcommand in `em/cli/parser.py`). **18 new tests** (`tests/unit/test_em601_slice2_schedule.py`), all green; **5 mutation checks, all red**; suite **2758 / 16 / 2** bare, **2759 / 15 / 2** with the digest list, **2836 / 2 / 2** CI-equivalent; `ruff` clean; privacy scan clean. **Deferred, recorded:** `Memories/Unfiled.md` month paging past 200 rows — a policy decision, not code.
+- **EM-601 slice 2 — LANDED (e986059, on main; all 11 check-runs green on the exact SHA)** — `em/vault/schedule.py` (new) carries the `project_vault` job handler, the 60 s debounce with `MAX_WAIT_SECONDS` ceiling and the follow-up chain for mid-projection writes, and `modes_for()`; `vault.projection` default flips to `none`; the provider enqueues on `_remember_v3`, `_update` and `_forget_one` inside the write transaction; `KNOWN_JOB_TYPES` gains `project_vault`; `build_registry` registers it drift-free; the CLI gains `vault lint --root <path>`; `CLI_REFERENCE.md` and `README.md` move the count 36→37. **18 new tests** (`tests/unit/test_em601_slice2_schedule.py`), all green; **5 mutation checks, all red**; suite **2758 / 16 / 2** bare, **2759 / 15 / 2** with the digest list, **2836 / 2 / 2** CI-equivalent; `ruff` clean; privacy scan clean. **Deferred, recorded:** `Memories/Unfiled.md` month paging past 200 rows — a policy decision, not code.
 - **Evidence:** 31 new tests (`tests/unit/test_em601_projection.py`), **10 mutation
   checks all red** (the tier predicate dropped; `forbid_tiers` default flipped;
   `sensitive` let through; the human region dropped; the trailing text dropped; a
@@ -881,10 +881,10 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-**The next chunk: EM-601 slice 2 — the `project_vault` job, its mode switch, and the
-lint surfacing** (`docs/plan/NEXT_CHUNK.md` Part B). EM-601 is authorised on the owner's
-word (2026-10-18 — one card; the wider S6 scope is an open question in `NEXT_CHUNK.md`)
-and slice 1 — the projection engine —
+**EM-601 is complete** — slice 1 (the vault projection engine, `bdc1e20`) and slice 2 (the `project_vault` job, its debounce, the mode switch, and vault lint, `e986059`) are both landed on `main` with all 11 check-runs green on each exact SHA.
+The rest of S6 (EM-602…EM-607), S7 security, packaging and the 3.0 release stay gated pending the owner
+’s scope answer (open question in `NEXT_CHUNK.md`).
+
 landed the same day as `bdc1e20`.
 
 ### The v3 cutover — **deferred 2026-10-07; both re-decision conditions are now met**
