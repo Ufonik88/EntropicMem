@@ -1332,6 +1332,15 @@ guard. The same SHA's branch run and the rerun of the failed job were both green
 1 ms over the 250 ms enqueue budget, on a cold Windows runner (the path is the
 EM-405 rewind enqueue; EM-411 adds nothing to it); the rerun of the failed job
 was green.
+**A third instance, 2026-10-18:** the main-push re-run of `bdc1e20` (EM-601
+slice 1) tripped `test (3.13)`'s `test_warm_p95_at_50k_is_under_150ms` at p95
+**151.09 ms** — 24 of 25 samples under the budget (135–159 ms, p50 144): the
+same mildly inflated distribution, 0.7% over. The same SHA's branch run had
+been green, both later docs commits' 3.13 legs (`00abbdc`, `8125126`) were
+green, and the rerun of the failed job went green in ~4 minutes. **This AC now
+sits within 1% of its budget on shared runners and has flapped twice in two
+days — the tell stays a uniformly inflated p50, not a stall tail; the ruling
+stands: rerun the failed job, never widen the budget.**
 The way to tell a flake from a
 regression is a rerun of the **same** SHA. Never widen a budget, skip a test or mark
 a job non-blocking to clear red.
