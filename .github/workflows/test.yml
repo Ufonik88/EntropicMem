@@ -1,29 +1,34 @@
 name: CI
 on: [push, pull_request]
+
+# The workflow only reads the repository. Jobs that need more must opt in.
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           # Not the default shallow clone: tests/test_master_todo.py resolves the
           # commit MASTER_TODO.md says it was reconciled against and asserts it
           # is a real ancestor of HEAD. fetch-depth: 1 leaves only the tip, so
           # that check cannot run — it failed on every Python leg when the doc
           # guard first landed. Same reason identity-guard fetches full history.
           fetch-depth: 0
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
       # fastapi + cryptography so the graph-server and encryption tests run
       # instead of importorskip-ing (they were silently untested in CI before).
       # pyyaml: the Hermes host always ships it, and without it _backend cannot
       # read config.yaml, so the EM-102 config-precedence tests fail.
-      - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50" "pyyaml>=6,<7" "numpy>=1.24,<3"
+      - run: pip install -q "pytest==9.0.3" "fastapi==0.143.0" "httpx==0.28.1" "cryptography==50.0.2" "pyyaml==6.0.3" "numpy>=1.24,<3"
       - run: pytest -q tests/
         env:
           # Private identifier denylist (SHA-256 digests). Never committed, not
@@ -47,11 +52,13 @@ jobs:
   evals-ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50"
+      - run: pip install -q "pytest==9.0.3" "fastapi==0.143.0" "httpx==0.28.1" "cryptography==50.0.2"
       # The ci suite forces sentence_transformers/torch OFF (sys.meta_path
       # blocker + engine flag), so no ML deps are needed here.
       - run: PYTHONPATH="plugins/entropicmem/scripts" python3 -m evals run --suite ci --adapter v2 --compare evals/baselines/v2.8.0-ci.json
@@ -67,11 +74,13 @@ jobs:
   perf-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - run: pip install -q "pytest==9.0.3" "fastapi>=0.100,<1" "httpx>=0.27,<1" "cryptography>=41,<50"
+      - run: pip install -q "pytest==9.0.3" "fastapi==0.143.0" "httpx==0.28.1" "cryptography==50.0.2"
       - run: PYTHONPATH="plugins/entropicmem/scripts" python3 -m evals.perf --sizes 1000 --probes 20 --out-dir /tmp
       - name: Assert perf budget
         run: |
@@ -110,8 +119,10 @@ jobs:
   windows-import:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
       - run: pip install -q "pytest==9.0.3"
@@ -125,8 +136,10 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
       - run: PYTHONPATH="plugins/entropicmem/scripts" python3 benchmarks/run_recall_bench.py
@@ -143,8 +156,10 @@ jobs:
   plugin-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
       # `hermes plugins validate` is not on PyPI yet (0.19.0 predates it), and
@@ -171,8 +186,9 @@ jobs:
   identity-guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           # Need the base history to compute base..head on a pull_request, and
           # the before/after range on a push. fetch-depth: 0 is the safe default.
           fetch-depth: 0
@@ -199,8 +215,10 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
       - run: pip install -q "ruff==0.16.2"
