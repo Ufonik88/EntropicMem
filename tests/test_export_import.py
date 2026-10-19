@@ -93,7 +93,7 @@ def test_export_wipe_import_recall_equal(env, tmp_path):
     shutil.rmtree(env.vault)
     assert not env.memory_db.exists()
 
-    cli.import_capsule(capsule)
+    cli.import_capsule(capsule, trust_unverified=True)
 
     eng2 = MemoryEngine(env.memory_db)
     after_facts = sorted((f.id, f.content, f.domain) for f in eng2.list_facts())
@@ -109,6 +109,14 @@ def test_export_wipe_import_recall_equal(env, tmp_path):
     conn = sqlite3.connect(str(env.index_db))
     assert conn.execute("SELECT x FROM t").fetchone()[0] == 1
     conn.close()
+
+
+def test_import_requires_an_explicit_trust_decision(env, tmp_path):
+    capsule = _make_capsule(env, tmp_path)
+    before = sorted(p.name for p in env.ent.iterdir())
+    with pytest.raises(ValueError, match="not signed"):
+        cli.import_capsule(capsule)
+    assert sorted(p.name for p in env.ent.iterdir()) == before
 
 
 # ── AC2: malicious archive members rejected, nothing written outside ────────
@@ -130,7 +138,7 @@ def _capsule_with_member(env, tmp_path, member, data=b"pwned"):
 def test_import_rejects_parent_traversal_member(env, tmp_path):
     capsule = _capsule_with_member(env, tmp_path, tarfile.TarInfo("../evil.txt"))
     with pytest.raises(ValueError, match="unsafe"):
-        cli.import_capsule(capsule)
+        cli.import_capsule(capsule, trust_unverified=True)
     assert not (env.ent / ".." / "evil.txt").resolve().exists()
     assert not (env.home / "evil.txt").exists()
     assert not env.memory_db.exists()
@@ -142,14 +150,14 @@ def test_import_rejects_symlink_member(env, tmp_path):
     member.linkname = "/etc/passwd"
     capsule = _capsule_with_member(env, tmp_path, member)
     with pytest.raises(ValueError, match="unsafe"):
-        cli.import_capsule(capsule)
+        cli.import_capsule(capsule, trust_unverified=True)
     assert not (env.vault / "link.txt").exists()
 
 
 def test_import_rejects_absolute_path_member(env, tmp_path):
     capsule = _capsule_with_member(env, tmp_path, tarfile.TarInfo("/tmp/evil-abs.txt"))
     with pytest.raises(ValueError, match="unsafe"):
-        cli.import_capsule(capsule)
+        cli.import_capsule(capsule, trust_unverified=True)
     assert not Path("/tmp/evil-abs.txt").exists()
 
 
@@ -161,7 +169,7 @@ def test_import_refuses_when_lock_file_exists(env, tmp_path):
     lock.write_text("pid=0\n", encoding="utf-8")
     try:
         with pytest.raises(ValueError, match="import refused"):
-            cli.import_capsule(capsule)
+            cli.import_capsule(capsule, trust_unverified=True)
     finally:
         lock.unlink()
 
@@ -175,7 +183,7 @@ def test_import_refuses_while_provider_running(env, tmp_path):
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         with pytest.raises(ValueError, match="import refused"):
-            cli.import_capsule(capsule)
+            cli.import_capsule(capsule, trust_unverified=True)
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)

@@ -10,9 +10,8 @@ stores and pins what the card's Spec/AC promise on top of them:
   ``shared``, and every result carries ``id``, ``short_id``, ``kind``,
   ``content``, ``valid_from``/``valid_to``, ``status``, ``score``, ``why``;
   ``include_history`` appends superseded predecessors;
-* forget-by-query returns candidates plus a ``confirm_token``
-  (``sha1(ids+session)[:10]``, 5 minutes, single use) and applies only when
-  the token comes back;
+* forget-by-query returns candidates plus a single-use ``confirm_token``
+  (5 minutes) and applies only when the token comes back;
 * the v2 store keeps working: remember/search/forget/timeline go through the
   engine, and the v3-only tools refuse with ``needs_v3_store``.
 
@@ -21,7 +20,6 @@ Rules: invented data only.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 import sys
@@ -428,11 +426,17 @@ def test_forget_by_query_returns_candidates_and_token(tmp_path):
     candidate_ids = sorted(c["id"] for c in payload["candidates"])
     assert candidate_ids == sorted(ids)
     assert all({"id", "short_id", "kind", "content"} <= set(c) for c in payload["candidates"])
-    expected = hashlib.sha1(
-        (",".join(sorted(ids)) + "em404-session").encode("utf-8")
-    ).hexdigest()[:10]
-    assert payload["confirm_token"] == expected
+    assert isinstance(payload["confirm_token"], str) and payload["confirm_token"]
     assert payload["expires_in_seconds"] == 300
+
+
+def test_forget_tokens_differ_between_previews(tmp_path):
+    db = _v3_db(tmp_path)
+    _seed(db, _draft("falcon note one"))
+    provider = _provider(tmp_path, db)
+    first = _call(provider, "entropicmem_forget", {"query": "falcon"})["confirm_token"]
+    second = _call(provider, "entropicmem_forget", {"query": "falcon"})["confirm_token"]
+    assert first != second
 
 
 def test_forget_apply_consumes_the_token(tmp_path):
@@ -851,12 +855,49 @@ def test_remember_on_a_v2_store_warns_about_v3_only_fields(tmp_path):
     assert "pinned" in warnings
 
 
+def test_tool_errors_do_not_echo_exception_text(tmp_path):
+    db = _v3_db(tmp_path)
+    provider = _provider(tmp_path, db)
+
+    def boom():
+        raise RuntimeError("/home/alice/private/memory.db: no such table")
+
+    provider._open_engine = boom
+    payload = _call(provider, "entropicmem_stats", {})
+    rendered = json.dumps(payload)
+    assert "/home/" not in rendered and "no such table" not in rendered
+    assert "RuntimeError" in rendered
+
+
+def test_tool_errors_do_not_echo_store_exception_text(tmp_path):
+    db = _v3_db(tmp_path)
+    provider = _provider(tmp_path, db)
+
+    class _BrokenEngine:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def stats(self):
+            raise RuntimeError("/home/alice/private/memory.db: no such table")
+
+    provider._memory_engine = lambda: (_BrokenEngine(), None)
+    payload = _call(provider, "entropicmem_stats", {})
+    rendered = json.dumps(payload)
+    assert "/home/" not in rendered and "no such table" not in rendered
+    assert "RuntimeError" in rendered
+
+
 def test_stats_passes_through(tmp_path):
     db = _v3_db(tmp_path)
     provider = _provider(tmp_path, db)
     payload = _call(provider, "entropicmem_stats", {})
     assert isinstance(payload, dict)
     assert "reason_code" not in payload
+    assert payload["guest_mode"] == "inactive (no owner_user_ids)"
+    assert payload["injection_screen"] in ("active", "unavailable", "unknown")
 
 
 def test_recall_alias_returns_results_and_says_deprecated(tmp_path):

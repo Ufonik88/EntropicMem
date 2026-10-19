@@ -244,6 +244,11 @@ def add_commands(parser: argparse.ArgumentParser, *, dest: str = "command") -> a
     p_export.add_argument("output", nargs="?", default="capsule.tar.gz", help="Output path")
     p_import = sub.add_parser("import", help="Import memory capsule")
     p_import.add_argument("input", help="Input capsule path")
+    p_import.add_argument(
+        "--trust-unverified",
+        action="store_true",
+        help="Import a capsule without a verified signature (treat it as trusted input)",
+    )
 
     # history (Phase 11)
     p_history = sub.add_parser("history", help="Show fact version history")

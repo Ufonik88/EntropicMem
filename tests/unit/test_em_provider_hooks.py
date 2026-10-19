@@ -49,10 +49,10 @@ def test_returns_the_wrapped_value_and_counts_it():
 def test_swallows_an_exception_and_logs_it_without_the_message(caplog):
     """Privacy: the log carries the exception TYPE, never its message.
 
-    A tool handler's message can contain the user's text (``_tool_error(str(e))``
-    passes it straight through), so the ERROR line names the type only. The full
-    exception is a DEBUG record — an operator who raised the level opted in, and
-    this test reads at INFO precisely so that is visible.
+    A tool handler's exception message can contain the user's text, so the
+    ERROR line names the type only. The full exception is a DEBUG record — an
+    operator who raised the level opted in, and this test reads at INFO
+    precisely so that is visible.
     """
 
     @fail_soft

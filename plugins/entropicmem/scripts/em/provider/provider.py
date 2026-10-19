@@ -2636,7 +2636,10 @@ class EntropicMemProvider(ToolHandlers):
         try:
             engine = self._open_engine()
         except Exception as exc:  # noqa: BLE001 - a store we cannot serve is a tool error
-            return None, self._error(str(exc))
+            logger.debug("EntropicMem failed to open the store", exc_info=True)
+            return None, self._error(
+                f"EntropicMem failed to open the store ({type(exc).__name__})"
+            )
         return engine, None
 
 

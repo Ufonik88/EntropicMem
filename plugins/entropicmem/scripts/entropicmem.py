@@ -1772,12 +1772,16 @@ def _provider_running(db_path: Path) -> bool:
     return FileLock.probe(db_path.parent / f"{db_path.name}.lock")
 
 
-def import_capsule(capsule_path: Path) -> dict:
+def import_capsule(capsule_path: Path, *, trust_unverified: bool = False) -> dict:
     """Import a memory capsule from tar.gz.
 
     EM-113: fail-closed — refuses while a lock file exists or the provider is
     running, validates every member BEFORE extracting anything, verifies the
     manifest v2 sha256s, and extracts with tarfile's ``data`` filter.
+
+    Capsule checksums prove integrity, not origin: the manifest travels with
+    the payload. Import is therefore opt-in (``trust_unverified=True``, CLI
+    ``--trust-unverified``) until a signed capsule format exists.
     """
     import tarfile
 
@@ -1804,7 +1808,15 @@ def import_capsule(capsule_path: Path) -> dict:
         if manifest_file is None:
             raise ValueError("invalid capsule (missing manifest.json)")
         manifest = json.loads(manifest_file.read())
+        if not isinstance(manifest, dict):
+            raise ValueError("invalid capsule (manifest is not an object)")
         expected = manifest.get("files") or {}
+
+        if not trust_unverified:
+            raise ValueError(
+                "capsule is not signed; import is refused unless its contents are "
+                "trusted (re-run with --trust-unverified)"
+            )
 
         with tempfile.TemporaryDirectory() as staging:
             staging = Path(staging)
@@ -1868,7 +1880,9 @@ def cmd_import(args) -> int:
             return 0
 
     try:
-        result = import_capsule(capsule_path)
+        result = import_capsule(
+            capsule_path, trust_unverified=bool(getattr(args, "trust_unverified", False))
+        )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
