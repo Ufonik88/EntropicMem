@@ -664,6 +664,7 @@ SCHEMA_KEYS: Tuple[str, ...] = (
     "formation.mode",
     "formation.llm",
     "vault.projection",
+    "vault.ingest_human_edits",
     "trust.injection_policy_extracted",
     "trust.injection_policy_direct",
     "privacy.transcript_retention_days",

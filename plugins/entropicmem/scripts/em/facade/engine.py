@@ -1277,6 +1277,16 @@ class V3Engine:
             for row in rows
         ]
 
+    def vault_review_hints(self) -> List[Dict[str, Any]]:
+        """EM-604 removal hints: a projected line the user deleted, still live.
+
+        Read alongside ``list_pending``, because that is where the user acts on a
+        vault edit. A forgotten memory's hint is filtered out at read time.
+        """
+        from ..vault.ingest import read_hints
+
+        return read_hints(self._reader(), self.scope)
+
     def list_audit(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Recent audit rows under the v2 names the CLI prints.
 

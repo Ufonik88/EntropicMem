@@ -249,6 +249,14 @@ class EntityStore:
                 linked.append(entity_id)
         return linked
 
+    def link_memory(self, memory_id: str, entity_id: str, role: str = "mention") -> None:
+        """Link a memory to *this* entity by id, without content inference.
+
+        For a caller that already knows the entity — a vault edit read from an
+        entity page (EM-604) — rather than the linker's phrase matching.
+        """
+        self._link(memory_id, entity_id, role)
+
     def _link(self, memory_id: str, entity_id: str, role: str = "mention") -> None:
         self._conn.execute(
             "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, role) VALUES (?,?,?)",

@@ -1984,6 +1984,11 @@ def cmd_pending(args) -> int:
             for r in rows:
                 print(f"{r.get('id')} [{r.get('domain')}] {r.get('reason')}: {(r.get('content') or '')[:100]}")
             print(f"({len(rows)} pending)")
+            # EM-604: a projected line the user deleted, still live. ASCII only,
+            # so a cp1252 console never trips over the hint.
+            collect = getattr(engine, "vault_review_hints", None)
+            for hint in collect() if collect else []:
+                print(hint.get("text", ""))
             return 0
         if action == "promote":
             eid = engine.promote_pending(args.id)

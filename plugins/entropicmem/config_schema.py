@@ -221,6 +221,15 @@ CONFIG_SCHEMA = ProviderConfigSchema(
             group="Vault",
         ),
         ProviderField(
+            key="vault.ingest_human_edits",
+            label="Ingest human edits",
+            kind=KIND_BOOL,
+            default="False",
+            description="Read human vault edits back into the store.",
+            inline=True,
+            group="Vault",
+        ),
+        ProviderField(
             key="trust.injection_policy_extracted",
             label="Extracted-content policy",
             kind=KIND_SELECT,

@@ -48,6 +48,7 @@ from em.clock import parse_iso, utc_now
 from em.jobs.worker import JobContext, PermanentJobError
 from em.store.jobs import JobQueue
 from em.store.types import Scope
+from em.vault.ingest import ingest as ingest_human_edits
 from em.vault.projection import project
 
 log = logging.getLogger("entropicmem.vault")
@@ -140,6 +141,7 @@ def enqueue_projection(
     scope: Scope,
     modes: Sequence[str],
     index_db: "str | Path | None" = None,
+    ingest: bool = False,
     now=None,
     debounce: int = DEBOUNCE_SECONDS,
     max_wait: int = MAX_WAIT_SECONDS,
@@ -167,6 +169,11 @@ def enqueue_projection(
         # provider passes it from `paths.index_db`. Without it the projection
         # still runs — it just cannot schedule the refresh.
         payload["index_db"] = str(index_db)
+    if ingest:
+        # EM-604: read the human regions back as pending proposals before the
+        # projection re-adds any line the user removed. Only present when on, so
+        # an off payload is unchanged.
+        payload["ingest"] = True
     queue = JobQueue(conn)
     key = base
 
@@ -307,6 +314,21 @@ def make_project_vault_handler(root: "str | Path | None" = None) -> Callable:
         reader = ctx.store.reader()
         if reader is None:
             raise PermanentJobError(f"{JOB_TYPE}: the store has no readable connection")
+
+        if payload.get("ingest"):
+            # EM-604: read the human regions *before* the projection rewrites the
+            # auto-sections, so a line the user deleted is seen as a removal
+            # rather than as the re-add this very run is about to make.
+            with ctx.store.transaction() as conn:
+                ingested = ingest_human_edits(conn, Path(target), scope=scope)
+            if ingested.added:
+                log.info(
+                    "%s: ingested %d human edit(s) as pending", JOB_TYPE, len(ingested.added)
+                )
+            if ingested.hints:
+                log.info(
+                    "%s: %d removed-line hint(s) for review", JOB_TYPE, len(ingested.hints)
+                )
 
         report = project(reader, Path(target), scope=scope, modes=modes)
         if report.missing_markers:

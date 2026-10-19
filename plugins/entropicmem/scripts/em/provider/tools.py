@@ -1377,10 +1377,17 @@ class ToolHandlers:
                 self._host.ensure_scripts_on_path(self._scripts_dir)
                 with self._open_engine() as engine:
                     rows = engine.list_pending(limit=limit)
+                    # EM-604: a projected line the user deleted, still live. v2
+                    # engines have no such surface, so it is optional.
+                    collect = getattr(engine, "vault_review_hints", None)
+                    hints = collect() if collect else []
             except Exception as e:
                 logger.exception("entropicmem_review failed")
                 return self._error(str(e))
-            return json.dumps({"ok": True, "pending": rows})
+            payload: Dict[str, Any] = {"ok": True, "pending": rows}
+            if hints:
+                payload["vault_hints"] = hints
+            return json.dumps(payload)
         if action == "consolidate_preview":
             if not self._initialized():
                 return self._error("EntropicMem not initialized")

@@ -2388,6 +2388,7 @@ class EntropicMemProvider(ToolHandlers):
                 scope=scope,
                 modes=modes,
                 index_db=self._index_db,
+                ingest=bool(self._typed_config.vault.ingest_human_edits),
             )
         except Exception as e:
             logger.debug("EntropicMem vault projection enqueue failed: %s", e)

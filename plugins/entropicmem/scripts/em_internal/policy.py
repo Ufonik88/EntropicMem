@@ -64,6 +64,10 @@ def evaluate_write(
     # Auto-extract never lands directly in durable facts
     if source in ("auto_extracted", "auto_extract"):
         return "quarantine", "auto_extracted_requires_promotion"
+    # A human vault edit (EM-604) is a proposal too: it enters the review queue
+    # rather than the live store, so the user's own note is confirmed first.
+    if source == "vault_edit":
+        return "quarantine", "vault_edit_requires_review"
     if source in ("promoted", "pending_promoted"):
         return "allow", None
     if domain in ("Finance", "People") and source in ("auto_extracted", "conversation"):
