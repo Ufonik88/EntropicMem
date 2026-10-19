@@ -15,7 +15,7 @@ points at.
 
 ---
 
-## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix), chunk 39 (EM-602, both slices) and chunk 40 (EM-603, the incremental index) are complete; the next chunk is EM-604 (opt-in ingestion of human vault edits)
+## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix), chunk 39 (EM-602, both slices) and chunk 40 (EM-603, the incremental index) are complete; **chunk 41 (EM-604, opt-in ingestion of human vault edits) is built on the working tree and NOT committed or pushed (2026-10-19), so the next chunk is EM-605 (graph export v3)**
 
 **Development stopped at this point on 2026-10-17.** S5 (formation & consolidation) is complete on
 `main`: **EM-501**, **EM-502** (both slices), **EM-503** (core + wiring), and the
@@ -61,17 +61,24 @@ Windows-shaped ids to POSIX). **Chunk 40 — EM-603, the incremental index — i
 2026-10-18 as `338ec2a`: `notes_meta` carries `mtime_ns`/`size` (`index.db`
 `user_version` 3), a refresh reads only a note whose stat moved (a 5k vault with one
 change: 26/31/32 ms on 3.11/3.12/3.10 against the 300 ms AC), `entropicmem index refresh`
-runs it and the `reindex_vault` job refreshes the index after a projection). **The next
-chunk is EM-604 — opt-in ingestion of human vault edits.** See
+runs it and the `reindex_vault` job refreshes the index after a projection). **Chunk 41 — EM-604,
+the opt-in ingestion of human vault edits — is BUILT on the working tree (2026-10-19) and is
+NOT committed or pushed**: `vault.ingest_human_edits` (default off) makes the `project_vault`
+job read each entity page's human region back as `pending` `source=vault_edit` proposals
+(before the projection re-adds anything), with a removed auto-section line recorded as a
+`review` hint; 15 new tests, **11 mutation checks all red**, each restored from a byte copy;
+**no branch, no commit, no push, no CI figure.** **The next chunk is EM-605 — graph export v3.**
+See
 [docs/plan/STOP_HERE.md](docs/plan/STOP_HERE.md) for the full
 stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-18, against branch `main` at `338ec2a` — **chunk 40, EM-603,
+**Last reconciled:** 2026-10-19, against branch `main` at `338ec2a` — **chunk 40, EM-603,
 the incremental index by file stat, is complete (landed `338ec2a`), after chunk 39 (EM-602,
 both slices — `607d54f` + `c29addc`) and chunk 38 (the `remember` content ceiling,
-`c53b182`); the next chunk is EM-604, opt-in ingestion of human vault edits.** Before them
+`c53b182`); chunk 41 (EM-604, opt-in ingestion of human vault edits) is built on the
+working tree and is NOT committed or pushed, so the next chunk is EM-605 (graph export v3).** Before them
 the same day, **EM-608 is complete:
 the 50k warm-p95 gate now reads the best of five 20-probe windows (landed `3b71cf0`, the
 150 ms budget untouched), and EM-601 is complete: both halves landed (slice 1 the vault
@@ -102,9 +109,10 @@ post-merge push re-ran the suite on `main`: 22 runs, all success);
 that tree's CI 3.12 count
 was **2782 / 4 / 2** (read from the job log at `99151d3` — the +12 prune guard
 tests; the prior read was 2770 / 4 / 2 at `d92503d`, and `c30aa54`'s own
-read 2769 / 4 / 2). **The current figures are the Gates table's: 2913 / 4 / 2
-(CI 3.12, read at `338ec2a`), bare 2837 / 16 / 2, digest 2838 / 15 / 2,
-CI-equivalent 2915 / 2 / 2.** Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
+read 2769 / 4 / 2). **The current figures are the Gates table's: CI 3.12 **2913 / 4 / 2**
+(the last landed read, at `338ec2a`; EM-604 is uncommitted and has **no CI figure**),
+bare **2852 / 16 / 2**, digest **2853 / 15 / 2**, CI-equivalent **2930 / 2 / 2** — the
+three local rows measured on the uncommitted EM-604 working tree.** Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
 `initialize` starts the background **`JobWorker`** on v3 stores — primary
 sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
 (default true), bounded there by a `jobs.cron_budget_s` (default 120) timer
@@ -543,6 +551,8 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 
 | 40 | **EM-603 — the incremental index: a refresh reads only what moved, and a projection schedules it** | **Done, merged** (code `338ec2a` on branch `em-603-incremental-index`; ff-merged to `main` as `338ec2a`; **11/11 check-runs green on that exact SHA, `identity-guard` and `windows-import` included**; branch deleted). `notes_meta` gains `mtime_ns`/`size` (`index.db` `PRAGMA user_version` 3, the ALTER migration; a v2 db backfills on its first refresh). A refresh compares `(st_mtime_ns, st_size)` and **does not open** an unchanged note; only a moved stat is read, and the content hash still decides whether the row changed — a bare `touch` refreshes the stat columns only. `Vault.iter_note_stats` does the walk in one `os.scandir` pass (no Path and no `resolve_path` per file) and **never follows a symlink**, so the path work is not the whole cost and a link cannot leave the vault. **AC met with a 10× margin:** 5k notes with one change in 26 / 31 / 32 ms (3.11 / 3.12 / 3.10) against 300 ms — the first push read 398 ms on the CI 3.12 runner, which the walk fixed. New surface: `entropicmem index refresh` (CLI reference + README) and the **`reindex_vault`** job (`KNOWN_JOB_TYPES` + shared registry), enqueued dedupe-keyed by the `project_vault` handler when the payload carries `index_db` (the provider passes `paths.index_db`); the handler imports the v2 index lazily and a missing path/root is a `PermanentJobError`. **19 new tests** (`tests/unit/test_em603_mtime_index.py`); **11 mutation checks, all red**, each restored from a byte copy; one recorded Windows fix (the CLI printed non-ASCII `→`/`—`, a `UnicodeEncodeError` on cp1252 — output is ASCII throughout); one deliberate repoint (`test_em602_note_ids` pins `NOTE_ID_VERSION`, not `SCHEMA_VERSION`). Bare **2837 / 16 / 2**, digest **2838 / 15 / 2**, CI-equivalent 3.12 **2915 / 2 / 2**, CI **2913 / 4 / 2** read at `338ec2a` (all four legs identical); ruff (`0.16.2`) clean; 3.10 leg green; privacy scan clean. **Chunk embeddings remain EM-308's and that card is not built — recorded, not invented.** |
 
+| 41 | **EM-604 — opt-in ingestion of human vault edits (the projection's other direction)** | **BUILT ON THE WORKING TREE (2026-10-19) — not committed, no branch, not pushed; no CI run exists for it.** `vault.ingest_human_edits` (default off) joins the typed config (the curated `SCHEMA_KEYS` entry + the `config_schema.py` mirror); when on, the `project_vault` payload carries `"ingest": True` and the handler runs a pass **before** `project()`. `em/vault/ingest.py` (new) reads each entity page's **human region** (outside every `entropicmem:auto` block) and turns each `- <statement>` line into a **`pending`** `source="vault_edit"` memory linked to that page's entity — the store's only pending route is the write policy, so `evaluate_write` gains the `vault_edit` quarantine branch. A line the user removed from an auto-section is recorded as a `review` hint (`user removed line for m-<short> - forget?`, ASCII) in one deduped `meta` key, keyed off a persisted per-page baseline of block refs; a gutted page is skipped, the first pass stays quiet, and the read is scope-bounded (F-004). Surface: `V3Engine.vault_review_hints()` feeds the `review` `list_pending` `vault_hints`, printed by CLI `cmd_pending`. Cuts named: no new CLI subcommand, no LLM over human lines. **15 new tests**; **11 mutation checks, all red**, each restored from a byte copy; local counts bare **2852 / 16 / 2**, digest **2853 / 15 / 2**, CI-equivalent 3.12 **2930 / 2 / 2**; 3.10 leg green (143 passed); ruff clean. **The next chunk is EM-605 — graph export v3.** |
+
 **EM-404 slice 1 is on `main` without a chunk number — recorded here so it is
 neither forgotten nor mistaken for its card's whole.** `381197f` is the ff of
 `3dcb35f` + `84a555f` (the owner chose merging `main` into the branch, 2026-10-15;
@@ -730,10 +740,15 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing is in flight. Chunk 40 — EM-603, the incremental index — landed 2026-10-18
+**Chunk 41 — EM-604, the opt-in ingestion of human vault edits — is BUILT on the working
+tree (2026-10-19): not committed, no branch, not pushed, and no CI run exists for it.**
+15 new tests, **11 mutation checks all red**, each restored from a byte copy; local counts
+bare **2852 / 16 / 2**, digest **2853 / 15 / 2**, CI-equivalent 3.12 **2930 / 2 / 2**; the
+record is the Part A block in `NEXT_CHUNK.md` and the CHANGELOG's `[Unreleased]`/Added entry.
+**Chunk 40 — EM-603, the incremental index — landed 2026-10-18
 (`338ec2a`), after chunk 39 (EM-602, `607d54f` + `c29addc`), chunk 38 (`c53b182`),
 EM-608 (`3b71cf0`) and EM-601's both halves (`bdc1e20`, `e986059`) the same day; **the next
-chunk is EM-604, opt-in ingestion of human vault edits.** Everything
+chunk is EM-605, graph export v3.** Everything
 below records what just landed.**
 
 **EM-601 (vault projection, both halves) is COMPLETE — the owner's word, 2026-10-18**
@@ -941,8 +956,9 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 **Chunk 38, the content-ceiling fix, is landed (`c53b182`), chunk 39, EM-602 in
 both slices (`607d54f`, `c29addc`), and chunk 40, EM-603 the incremental index
-(`338ec2a`) — nothing is in flight and the next chunk is EM-604, opt-in ingestion of human
-vault edits.** Chunk 38 fixed the silent `remember`
+(`338ec2a`) — and **chunk 41, EM-604 (opt-in ingestion of human vault edits), is built on the
+working tree as of 2026-10-19 and is not committed or pushed, so the next chunk is EM-605
+(graph export v3).** Chunk 38 fixed the silent `remember`
 truncation
 the 2026-10-17 incident exposed (one shared `CONTENT_MAX_CHARS = 8_000`, a fatal-oversize
 refusal instead of a clamp); EM-602 hardened the vault's frontmatter and wikilink handling
@@ -958,7 +974,8 @@ debounce, the mode switch, and `vault lint`, `e986059`), and EM-608 (the 50k war
 now reads the best of five 20-probe windows at the unchanged 150 ms budget, `3b71cf0`).
 The **S6 scope question is answered yes** by the owner's 2026-10-18 instruction that the
 agent make the outstanding calls: **EM-602…EM-607 are agent-owned**, taken in the
-documented §6.5 order, with **EM-604 next**. S7
+documented §6.5 order, with **EM-605 next** (EM-604 is built on the working tree, not
+landed). S7
 security, packaging and the 3.0 release
 stay behind their own gates (the release needs the owner's want, not an agent's).
 
@@ -1044,8 +1061,9 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 CI jobs green on the exact SHA, `windows-import` included — the branch-first landing of
 `em-603-incremental-index`: the stat diff, the `os.scandir` walk, `index refresh` and the
 `reindex_vault` job; tests first, CHANGELOG, push, check-runs,
-`git merge --ff-only`, branch deleted), **and the next chunk is EM-604, opt-in ingestion of
-human vault edits.** On top of chunk 39 (EM-602 in both slices, `607d54f` + `c29addc`),
+`git merge --ff-only`, branch deleted), **and chunk 41 — EM-604, the opt-in ingestion of
+human vault edits — is built on the working tree (2026-10-19: not committed, no branch, not
+pushed, no CI run exists for it), so the next chunk is EM-605, graph export v3.** On top of chunk 39 (EM-602 in both slices, `607d54f` + `c29addc`),
 chunk 38 (the `remember` content
 ceiling, `c53b182`), EM-608 (`3b71cf0`, the 50k
 warm-p95 gate's *statistic* via the shared `tests/harness/perf_stats.py`) and EM-601's
