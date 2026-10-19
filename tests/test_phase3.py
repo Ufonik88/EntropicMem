@@ -110,7 +110,10 @@ class TestGraphExport:
         html = export_html(index, out, max_nodes=50)
         assert out.exists()
         assert "<!DOCTYPE html>" in html
-        assert "d3js.org" in html
+        # The viewer libraries ship inside the page; no script is fetched.
+        assert '<script src="https://d3js.org/' not in html
+        assert '<script src="https://cdn.jsdelivr.net/' not in html
+        assert "d3.zoomIdentity" in html and "marked.parse" in html
         size = out.stat().st_size
         assert size > 2000, f"HTML too small: {size} bytes"
         # Verify embedded JSON is valid

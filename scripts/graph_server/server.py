@@ -299,14 +299,16 @@ def _bind_hosts() -> set | None:
 
 
 def _bind_is_loopback() -> bool:
-    """True while every detected bind address is loopback.
+    """True only when every *detected* bind address is loopback.
 
-    Nothing detected counts as loopback (the local trust plane): the process
-    holds no serving socket yet (tests, pre-bind import).
+    An absent signal is not evidence of loopback: ``/proc`` is unavailable on
+    macOS, and a programmatic uvicorn run or a unit file can bind without an
+    argv ``--host``. Treat "unknown" as exposed so the token gate stays on;
+    set ``ENTROPICMEM_GRAPH_BIND`` where the intent cannot be detected.
     """
     hosts = _bind_hosts()
     if not hosts:
-        return True
+        return False
     return all(_is_loopback_host(h) for h in hosts)
 
 
@@ -399,13 +401,13 @@ def _host_allowed(host_header: str, server: tuple | None) -> bool:
 
 # ── security headers ────────────────────────────────────────────────────────
 
-# graph.html loads D3 (d3js.org), marked (jsdelivr) and Google Fonts, runs
+# graph.html ships D3 and marked inside the document, uses Google Fonts and
 # inline script/style, and fetches only its own origin. connect-src 'self'
 # keeps vault content from being sent anywhere else; img-src excludes remote
 # images so rendered markdown cannot beacon out.
 CSP = (
     "default-src 'none'; "
-    "script-src 'self' 'unsafe-inline' https://d3js.org https://cdn.jsdelivr.net; "
+    "script-src 'self' 'unsafe-inline'; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src https://fonts.gstatic.com; "
     "img-src 'self' data:; "
@@ -598,22 +600,8 @@ def _note_payload(note_id: str) -> dict:
 
 @app.get("/health")
 def health():
-    """Liveness plus the enforced bind policy (see _enforce_bind_policy)."""
-    loopback = _bind_is_loopback()
-    if loopback:
-        policy = "loopback (tokenless local trust plane)"
-    elif _expose_override():
-        policy = "non-loopback via ENTROPICMEM_GRAPH_EXPOSE=1 override"
-    else:
-        policy = "non-loopback without ENTROPICMEM_GRAPH_EXPOSE=1 (refused at startup)"
-    if _expose_override() and "ENTROPICMEM_GRAPH_EXPOSE" not in policy:
-        policy += "; ENTROPICMEM_GRAPH_EXPOSE=1 set"
-    return {
-        "ok": True,
-        "bind_policy": policy,
-        "token_required": not loopback,
-        "token_source": "env" if _env_token() else "per-run",
-    }
+    """Liveness only. The bind policy is logged at startup, not disclosed here."""
+    return {"ok": True}
 
 
 @app.post("/refresh")
@@ -853,6 +841,7 @@ def graph_json(x_entropicmem_token: str | None = Header(default=None)):
 
 
 # Intentionally no StaticFiles mount at "/". graph.html is self-contained
-# (D3 from CDN) and both artifacts are served by the explicit routes above.
+# (the viewer libraries are inlined) and both artifacts are served by the
+# explicit routes above.
 # Mounting StaticFiles at "/" risks catching requests that should hit the
 # API routes depending on Starlette route-matching order.

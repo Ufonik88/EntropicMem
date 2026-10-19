@@ -24,6 +24,7 @@ _ENGINE_DIR = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem"
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setenv("ENTROPICMEM_GRAPH_EXPORT_DIR", str(tmp_path / "graph_export"))
+    monkeypatch.setenv("ENTROPICMEM_GRAPH_BIND", "127.0.0.1")
     import sys
     sys.path.insert(0, str(_PARENT))
     sys.path.insert(0, str(_ENGINE_DIR))

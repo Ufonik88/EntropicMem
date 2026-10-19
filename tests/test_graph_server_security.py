@@ -114,6 +114,15 @@ def test_bind_policy_allows_loopback(mod):
     mod._enforce_bind_policy()  # fixture binds 127.0.0.1 — must not raise
 
 
+def test_no_bind_signal_is_not_treated_as_loopback(mod, client, monkeypatch):
+    monkeypatch.setattr(mod, "_bind_hosts", lambda: None)
+    assert mod._bind_is_loopback() is False
+    with pytest.raises(RuntimeError, match="non-loopback"):
+        mod._enforce_bind_policy()
+    for url in READ_URLS:
+        assert client.get(url).status_code == 403, url
+
+
 def test_startup_hook_is_wired_to_the_bind_guard(mod, monkeypatch):
     """The refusal must fire from the ASGI startup lifecycle, not just from a
     helper nobody calls."""
@@ -143,22 +152,19 @@ def test_argv_bind_detection(mod, monkeypatch):
     assert mod._argv_bind_hosts() == {"127.0.0.1"}
 
 
-# ── /health reports the enforced policy ─────────────────────────────────────
+# ── /health is liveness only ────────────────────────────────────────────────
 
-def test_health_reports_loopback_policy(client):
+def test_health_reports_only_liveness(client):
     d = client.get("/health").json()
-    assert d["ok"] is True
-    assert "loopback" in d["bind_policy"]
-    assert d["token_required"] is False
+    assert d == {"ok": True}
 
 
-def test_health_reports_expose_override(client, monkeypatch):
+def test_health_does_not_disclose_the_auth_policy(client, monkeypatch):
     monkeypatch.setenv("ENTROPICMEM_GRAPH_BIND", "0.0.0.0")
     monkeypatch.setenv("ENTROPICMEM_GRAPH_EXPOSE", "1")
     d = client.get("/health").json()
-    assert "ENTROPICMEM_GRAPH_EXPOSE" in d["bind_policy"], \
-        "the override must be reported in bind_policy"
-    assert d["token_required"] is True
+    assert d == {"ok": True}
+    assert "bind_policy" not in d and "token_required" not in d
 
 
 # ── token enforcement on read endpoints ─────────────────────────────────────
@@ -389,8 +395,10 @@ def test_csp_allows_the_graph_page_dependencies(mod):
     loads is allowed for its resource type, and nothing else."""
     src = graph_assets.template()
     csp = {d.split()[0]: d.split()[1:] for d in mod.CSP.split("; ")}
-    assert 'src="https://d3js.org/' in src and "https://d3js.org" in csp["script-src"]
-    assert 'src="https://cdn.jsdelivr.net/' in src and "https://cdn.jsdelivr.net" in csp["script-src"]
+    assert '<script src="https://d3js.org/' not in src
+    assert '<script src="https://cdn.jsdelivr.net/' not in src
+    assert csp["script-src"] == ["'self'", "'unsafe-inline'"]
+    assert "d3.zoomIdentity" in src and "marked.parse" in src
     assert "https://fonts.googleapis.com/css2" in src and "https://fonts.googleapis.com" in csp["style-src"]
     assert "https://fonts.gstatic.com" in csp["font-src"]
     assert "data:image/svg+xml" in src and "data:" in csp["img-src"]  # PNG export
@@ -438,10 +446,10 @@ def test_exposed_reads_accept_run_token(mod, client, monkeypatch):
         assert r.status_code not in (401, 403), url
 
 
-def test_health_reports_token_source(client, monkeypatch):
-    assert client.get("/health").json()["token_source"] == "per-run"
+def test_health_does_not_report_token_source(client, monkeypatch):
+    assert "token_source" not in client.get("/health").json()
     monkeypatch.setenv("ENTROPICMEM_GRAPH_TOKEN", TOKEN)
-    assert client.get("/health").json()["token_source"] == "env"
+    assert "token_source" not in client.get("/health").json()
 
 
 _LIFESPAN_STATE: dict = {}

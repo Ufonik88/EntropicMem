@@ -69,7 +69,7 @@ packages = ["em", "em.cli", "em.embeddings", "em.facade", "em.formation", "em.gr
 # undeclared importable package, which is the kind of ambiguity that breaks on a
 # future setuptools.
 [tool.setuptools.package-data]
-"em.graph.assets" = ["*.html", "*.css", "*.js"]
+"em.graph.assets" = ["*.html", "*.css", "*.js", "*.LICENSE"]
 
 [tool.setuptools.dynamic]
 version = {attr = "em.__version__"}

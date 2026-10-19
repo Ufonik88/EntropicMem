@@ -30,7 +30,7 @@ from typing import Optional, Set, Tuple
 # Keep byte-identical with scripts/graph_server/server.py:CSP.
 CSP = (
     "default-src 'none'; "
-    "script-src 'self' 'unsafe-inline' https://d3js.org https://cdn.jsdelivr.net; "
+    "script-src 'self' 'unsafe-inline'; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src https://fonts.gstatic.com; "
     "img-src 'self' data:; "

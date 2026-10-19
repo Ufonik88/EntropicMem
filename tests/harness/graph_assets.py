@@ -30,6 +30,9 @@ def template() -> str:
     favicon placeholders are left in place (they are substituted at export time).
     """
     html = asset("graph.html")
-    return html.replace("__ENTROPICMEM_CSS__", asset("graph.css")).replace(
-        "__ENTROPICMEM_JS__", asset("graph.js")
+    return (
+        html.replace("__ENTROPICMEM_CSS__", asset("graph.css"))
+        .replace("__ENTROPICMEM_D3_JS__", asset("d3.min.js"))
+        .replace("__ENTROPICMEM_MARKED_JS__", asset("marked.min.js"))
+        .replace("__ENTROPICMEM_JS__", asset("graph.js"))
     )

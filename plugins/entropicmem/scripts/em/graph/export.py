@@ -256,14 +256,17 @@ def _read_asset(name: str) -> str:
 def _render_html(graph_json: str) -> str:
     """Inline the three viewer assets into one self-contained HTML document.
 
-    The shell carries ``__ENTROPICMEM_CSS__`` / ``__ENTROPICMEM_JS__``
-    placeholders (and ``__ENTROPICMEM_FAVICON__``); the JS carries
+    The shell carries ``__ENTROPICMEM_CSS__`` / ``__ENTROPICMEM_D3_JS__`` /
+    ``__ENTROPICMEM_MARKED_JS__`` / ``__ENTROPICMEM_JS__`` placeholders (and
+    ``__ENTROPICMEM_FAVICON__``); the JS carries
     ``__ENTROPICMEM_GRAPH_DATA__``. Composing the shell first means the data
     and favicon placeholders are found wherever they ended up.
     """
     html = (
         _read_asset("graph.html")
         .replace("__ENTROPICMEM_CSS__", _read_asset("graph.css"))
+        .replace("__ENTROPICMEM_D3_JS__", _read_asset("d3.min.js"))
+        .replace("__ENTROPICMEM_MARKED_JS__", _read_asset("marked.min.js"))
         .replace("__ENTROPICMEM_JS__", _read_asset("graph.js"))
     )
     return html.replace("__ENTROPICMEM_GRAPH_DATA__", graph_json).replace(

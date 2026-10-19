@@ -10,11 +10,11 @@ hid and the page showed an endless "Building graph…" spinner on every
 browser/OS. Nothing in the Python layer noticed, because the export itself
 succeeded.
 
-These tests parse the inline JS of the assembled viewer template — the three
-files under ``em/graph/assets`` (EM-605 split it out of ``graph_export.py``;
-``graph_assets.template()`` puts it back together) — and assert that every
-camelCase helper *called* in the template has a definition (``function``,
-``const``, ``let``, ``var`` or ``class``).
+These tests parse the viewer's own JS asset — the files under
+``em/graph/assets`` (EM-605 split it out of ``graph_export.py``; the exporter
+puts them back together) — and assert that every camelCase helper *called* in
+the viewer has a definition (``function``, ``const``, ``let``, ``var`` or
+``class``). Vendored libraries are separate files and are not parsed here.
 Single-word lowercase names are skipped: the template's comments and prose
 contain plenty ("translate (…)", "pixel (…)" inside ``/* … */`` blocks) and
 this viewer's JS style is camelCase for helpers.
@@ -61,10 +61,8 @@ def template() -> str:
 
 
 @pytest.fixture(scope="module")
-def inline_js(template: str) -> str:
-    blocks = re.findall(r"<script>(.*?)</script>", template, re.S)
-    assert blocks, "no inline <script> block in the template"
-    js = max(blocks, key=len)
+def inline_js() -> str:
+    js = graph_assets.asset("graph.js")
     # The payload placeholder is a single line; neutralise it so nothing in
     # it can ever be mistaken for code if it ever becomes non-trivial.
     return re.sub(r"const DATA = .*?;", "const DATA = {};", js, count=1, flags=re.S)
