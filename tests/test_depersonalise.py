@@ -55,7 +55,7 @@ class TestLocalePacks:
         assert any(f.pii_type == "email" for f in findings), "generic email detection broken"
 
     def test_region_specific_off_by_default(self):
-        text = "call me on 0821234567 or check id 8001015009087"
+        text = "call me on 0820001234 or check id 8001015009087"
         assert not any(f.pii_type in ("phone", "id_number") for f in scan_pii(text)), (
             "region-specific PII detected despite empty locale packs"
         )
@@ -63,7 +63,7 @@ class TestLocalePacks:
     def test_region_specific_opt_in(self):
         from pii import _raw_findings
 
-        text = "call me on 0821234567 or check id 8001015009087"
+        text = "call me on 0820001234 or check id 8001015009087"
         findings = scan_pii(text, locales=["za"])
         assert any(f.pii_type == "phone" for f in findings), (
             f"za phone pack not applied: {[f.pii_type for f in findings]}"

@@ -16,6 +16,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from em.util.fsperm import chmod_posix
 from em.vault.frontmatter import (
     dump_frontmatter,
     load_frontmatter,
@@ -360,7 +361,10 @@ class Vault:
         if not self._contains(filepath):
             raise ValueError(f"Path traversal attempt blocked: {folder}/{filename}")
 
+        parent_existed = filepath.parent.exists()
         filepath.parent.mkdir(parents=True, exist_ok=True)
+        if not parent_existed and filepath.parent != self.root:
+            chmod_posix(filepath.parent, 0o700)
 
         note = Note(
             path=Path(safe_folder) / filename,
@@ -379,6 +383,7 @@ class Vault:
                 setattr(note, k, v) if hasattr(note, k) else None
 
         filepath.write_text(note.to_markdown(), encoding="utf-8")
+        chmod_posix(filepath, 0o600)
         return Path(safe_folder) / filename
 
     def append_note(self, path: Path, content: str, anchor: Optional[str] = None) -> None:

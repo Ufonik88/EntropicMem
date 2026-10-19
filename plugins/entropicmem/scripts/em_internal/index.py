@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from em.util.fsperm import chmod_posix
 from em_internal.vault import Note, Vault, note_id_for_path
 
 logger = logging.getLogger(__name__)
@@ -172,6 +173,7 @@ class VaultIndex:
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path).resolve()
         self.db = sqlite3.connect(str(self.db_path), timeout=30)
+        chmod_posix(self.db_path, 0o600)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")

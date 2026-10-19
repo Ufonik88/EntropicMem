@@ -61,6 +61,7 @@ from typing import Any, Sequence
 
 from em.clock import short_id
 from em.store.types import OWNER_ONLY_TIERS, Scope
+from em.util.fsperm import chmod_posix
 from em_internal.vault import Vault
 
 AUTO_BEGIN = "<!-- entropicmem:auto:begin id={section} -->"
@@ -281,7 +282,10 @@ def _commit(vault: Vault, relative: Path, text: str, action: str, report: Projec
     if target.is_file() and _read_raw(target) == text:
         report.unchanged.append(relative)
         return
+    parent_existed = target.parent.exists()
     target.parent.mkdir(parents=True, exist_ok=True)
+    if not parent_existed:
+        chmod_posix(target.parent, 0o700)
     _atomic_write(target, text)
     report.written.append(relative)
 

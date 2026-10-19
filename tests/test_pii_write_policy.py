@@ -63,7 +63,7 @@ def test_redact_all_types_preserves_unmatched_text():
 
 
 def test_spans_disjoint_on_mixed_input():
-    text = ("contact a@b.co or 0821234567 from 10.0.0.8 using " + _api_token()
+    text = ("contact a@b.co or 0820001234 from 10.0.0.8 using " + _api_token()
             + " with password=" + _api_token() + ".txt end")
     _assert_disjoint(scan_pii(text))
     out = redact_pii(text)

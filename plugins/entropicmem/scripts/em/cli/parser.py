@@ -235,6 +235,9 @@ def add_commands(parser: argparse.ArgumentParser, *, dest: str = "command") -> a
     s_sub.add_parser("enable", help="Enable encryption")
     s_sub.add_parser("disable", help="Disable encryption")
     s_sub.add_parser("status", help="Show encryption status")
+    s_sub.add_parser(
+        "fix-permissions", help="Restrict an existing vault/index to private file modes"
+    )
 
     # export / import (Phase 11)
     p_export = sub.add_parser("export", help="Export memory capsule")

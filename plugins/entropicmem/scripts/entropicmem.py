@@ -1587,6 +1587,14 @@ def cmd_security(args) -> int:
             print("Encryption: DISABLED")
         return 0
 
+    if args.security_command == "fix-permissions":
+        from em_internal.security import fix_permissions
+
+        vault_path, index_db = _resolve_env()
+        result = fix_permissions(db_path, vault_path, index_db)
+        print(f"Restricted {result['changed']} path(s) to private modes.")
+        return 0
+
     if not CRYPTO_AVAILABLE:
         print("Error: cryptography package not installed.", file=sys.stderr)
         print("Install with: pip install entropicmem[security]", file=sys.stderr)
