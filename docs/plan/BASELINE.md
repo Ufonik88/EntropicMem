@@ -26,15 +26,20 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2928 passed, 4 skipped, 2 xfailed** |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2852 passed, 16 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2853 passed, 15 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2930 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2929 passed, 4 skipped, 2 xfailed** *(projected from the CI-equivalent run below; the run for this branch's SHA is read at landing and stamped in the reconciliation)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2853 passed, 16 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2854 passed, 15 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2931 passed, 2 skipped, 2 xfailed** |
 
-Read as at `31a7323` (EM-604 — the opt-in ingestion of human vault edits —
-landed on `main`; the next chunk is EM-605). CI's figure is **read from
-the job log**, never assumed: `gh run view <run-id> --log` on the run for the
-exact SHA. All four CI legs (3.10–3.13) report the identical triple.
+Read as at `4cde953` (EM-604, the opt-in ingestion of human vault edits, landed on
+`main`; the next chunk is EM-605) — **confirmed green on that exact SHA:** run
+`39219386624` (a `push` to `main`), **all 11 jobs success**, `identity-guard` and
+`windows-import` included. CI's figure is **read from the job log**, never assumed:
+`gh run view <run-id> --log` on the run for the exact SHA; all four CI legs
+(3.10–3.13) report the identical triple. **The gap between this box's CI-equivalent
+reading and CI is in the middle column, not the total — `2930 / 2 / 2` versus
+`2928 / 4 / 2` is `−2 passed, +2 skipped`, the two hermes-agent host pins that pass
+here and skip in CI**, the same pair the ladder below walks.
 
 ## Why the three environments differ
 
@@ -82,12 +87,12 @@ as a pair. The dev box does not have the list at the default path
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          2852 / 16 / 2
+bare          2853 / 16 / 2
 + extras      +77 passed, −13 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    2930 /  2 / 2
+= CI-equiv    2931 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          2928 /  4 / 2
+= CI          2929 /  4 / 2
 ```
 
 ## Citing CI evidence — one trap

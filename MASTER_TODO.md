@@ -549,7 +549,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 
 | 39 | **EM-602 (both slices) — frontmatter & wikilink robustness, then the note-id rule and the `index.db` migration (the vault can no longer corrupt itself on a hand edit)** | **Done, merged** (slice 1 `607d54f` and slice 2 `c29addc` on branch `em-602-frontmatter` / `em-602-note-ids`; ff-merged to `main`; **11/11 check-runs green on each exact SHA, `identity-guard` and `windows-import` included**; branches deleted). **Slice 1** moved the vault's frontmatter/wikilink logic into the new shared `em/vault/frontmatter.py`, shimmed by `em_internal.vault`: the writer escaped `"`/`\`/newlines and quoted only what YAML requires, the reader took a delimiter only at file start and on its own line (a `---` in the body no longer truncated a note), PyYAML is preferred with the subset parser as the fallback and the two are round-tripped against each other, a hand-written unquoted date stays a **string**, and wikilinks parse as a grammar with alias/heading/block stripped. **Slice 2** made `note_id` the **full vault-relative path** (it used to drop the top directory, so `A/Sub/Note` and `B/Sub/Note` shared one primary key) and added the **`index.db` `user_version` 2 migration**: ids are recomputed from each row's `path`, `notes_meta`/`notes_fts` are renamed in two passes, the `wikilink` edges are remapped, `triple:*` edges are left alone, and a Windows-shaped (backslash) id is normalised to POSIX. **36 new tests** (26 + 10); **13 mutation checks, all red** (7 + 6), each restored from a byte copy, plus a **green control** proving the subset parser carries the behaviour with PyYAML disabled; **2 deliberate repoints recorded** and **one Windows CI fix recorded** (the fixture's legacy ids were platform-shaped; the product was right). Bare **2818 / 16 / 2**, digest **2819 / 15 / 2**, CI-equivalent 3.12 **2896 / 2 / 2**, CI **2894 / 4 / 2** read at `c29addc` (all four legs identical); ruff (`0.16.2`) clean; 3.10 leg green; privacy scan clean. **EM-602 is complete.** |
 
-| 40 | **EM-603 — the incremental index: a refresh reads only what moved, and a projection schedules it** | **Done, merged** (code `338ec2a` on branch `em-603-incremental-index`; ff-merged to `main` as `338ec2a`; **11/11 check-runs green on that exact SHA, `identity-guard` and `windows-import` included**; branch deleted). `notes_meta` gains `mtime_ns`/`size` (`index.db` `PRAGMA user_version` 3, the ALTER migration; a v2 db backfills on its first refresh). A refresh compares `(st_mtime_ns, st_size)` and **does not open** an unchanged note; only a moved stat is read, and the content hash still decides whether the row changed — a bare `touch` refreshes the stat columns only. `Vault.iter_note_stats` does the walk in one `os.scandir` pass (no Path and no `resolve_path` per file) and **never follows a symlink**, so the path work is not the whole cost and a link cannot leave the vault. **AC met with a 10× margin:** 5k notes with one change in 26 / 31 / 32 ms (3.11 / 3.12 / 3.10) against 300 ms — the first push read 398 ms on the CI 3.12 runner, which the walk fixed. New surface: `entropicmem index refresh` (CLI reference + README) and the **`reindex_vault`** job (`KNOWN_JOB_TYPES` + shared registry), enqueued dedupe-keyed by the `project_vault` handler when the payload carries `index_db` (the provider passes `paths.index_db`); the handler imports the v2 index lazily and a missing path/root is a `PermanentJobError`. **19 new tests** (`tests/unit/test_em603_mtime_index.py`); **11 mutation checks, all red**, each restored from a byte copy; one recorded Windows fix (the CLI printed non-ASCII `→`/`—`, a `UnicodeEncodeError` on cp1252 — output is ASCII throughout); one deliberate repoint (`test_em602_note_ids` pins `NOTE_ID_VERSION`, not `SCHEMA_VERSION`). Bare **2837 / 16 / 2**, digest **2838 / 15 / 2**, CI-equivalent 3.12 **2915 / 2 / 2**, CI **2913 / 4 / 2** read at `338ec2a` (all four legs identical); ruff (`0.16.2`) clean; 3.10 leg green; privacy scan clean. **Chunk embeddings remain EM-308's and that card is not built — recorded, not invented.** |
+| 40 | **EM-603 — the incremental index: a refresh reads only what moved, and a projection schedules it** | **Done, merged** (code `338ec2a` on branch `em-603-incremental-index`; ff-merged to `main` as `338ec2a`; **11/11 check-runs green on that exact SHA, `identity-guard` and `windows-import` included**; branch deleted). `notes_meta` gains `mtime_ns`/`size` (`index.db` `PRAGMA user_version` 3, the ALTER migration; a v2 db backfills on its first refresh). A refresh compares `(st_mtime_ns, st_size)` and **does not open** an unchanged note; only a moved stat is read, and the content hash still decides whether the row changed — a bare `touch` refreshes the stat columns only. `Vault.iter_note_stats` does the walk in one `os.scandir` pass (no Path and no `resolve_path` per file) and **never follows a symlink**, so the path work is not the whole cost and a link cannot leave the vault. **AC met with a 10× margin:** 5k notes with one change in 26 / 31 / 32 ms (3.11 / 3.12 / 3.10) against 300 ms — the first push read 398 ms on the CI 3.12 runner, which the walk fixed. New surface: `entropicmem index refresh` (CLI reference + README) and the **`reindex_vault`** job (`KNOWN_JOB_TYPES` + shared registry), enqueued dedupe-keyed by the `project_vault` handler when the payload carries `index_db` (the provider passes `paths.index_db`); the handler imports the v2 index lazily and a missing path/root is a `PermanentJobError`. **19 new tests** (`tests/unit/test_em603_mtime_index.py`); **11 mutation checks, all red**, each restored from a byte copy; one recorded Windows fix (the CLI printed non-ASCII `→`/`—`, a `UnicodeEncodeError` on cp1252 — output is ASCII throughout); one deliberate repoint (`test_em602_note_ids` pins `NOTE_ID_VERSION`, not `SCHEMA_VERSION`). **The 5k AC's wall-clock budget was de-flaked the next day (2026-10-19):** it reads a same-run ratio with the card's 300 ms as its floor, and the walk's no-per-note-`resolve` half is pinned structurally (the CHANGELOG's Fixed entry). Bare **2837 / 16 / 2**, digest **2838 / 15 / 2**, CI-equivalent 3.12 **2915 / 2 / 2**, CI **2913 / 4 / 2** read at `338ec2a` (all four legs identical); ruff (`0.16.2`) clean; 3.10 leg green; privacy scan clean. **Chunk embeddings remain EM-308's and that card is not built — recorded, not invented.** |
 
 | 41 | **EM-604 — opt-in ingestion of human vault edits (the projection's other direction)** | **Done, merged** (code `d8f643f` + docs `31a7323` on branch `em-604-vault-ingest`; ff-merged to `main` as `31a7323`; **11/11 check-runs green on the exact SHA, `identity-guard` included**; branch deleted). **One recorded flake, not a code fault:** the post-merge `main` push re-ran `windows-import` on the same SHA and EM-603's 5k refresh AC read 440 ms on a contended Windows runner (its cold phase took 59.8 s); the branch push on that SHA was green and a re-run of the failed job was green — the EM-603 test was not touched, weakened or skipped. `vault.ingest_human_edits` (default off) joins the typed config (the curated `SCHEMA_KEYS` entry + the `config_schema.py` mirror); when on, the `project_vault` payload carries `"ingest": True` and the handler runs a pass **before** `project()`. `em/vault/ingest.py` (new) reads each entity page's **human region** (outside every `entropicmem:auto` block) and turns each `- <statement>` line into a **`pending`** `source="vault_edit"` memory linked to that page's entity — the store's only pending route is the write policy, so `evaluate_write` gains the `vault_edit` quarantine branch. A line the user removed from an auto-section is recorded as a `review` hint (`user removed line for m-<short> - forget?`, ASCII) in one deduped `meta` key, keyed off a persisted per-page baseline of block refs; a gutted page is skipped, the first pass stays quiet, and the read is scope-bounded (F-004). Surface: `V3Engine.vault_review_hints()` feeds the `review` `list_pending` `vault_hints`, printed by CLI `cmd_pending`. Cuts named: no new CLI subcommand, no LLM over human lines. **15 new tests**; **11 mutation checks, all red**, each restored from a byte copy; local counts bare **2852 / 16 / 2**, digest **2853 / 15 / 2**, CI-equivalent 3.12 **2930 / 2 / 2**, CI **2928 / 4 / 2** read at `31a7323`; 3.10 leg green (143 passed); ruff clean. **The next chunk is EM-605 — graph export v3.** |
 
@@ -740,10 +740,14 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing is in flight. Chunk 41 — EM-604, the opt-in ingestion of human vault edits —
+**Nothing is in flight on `main`; branch `em-603-deflake` carries EM-603's 5k-AC
+de-flake, committed and landing — its run's CI is read before the merge, and the wall-clock
+budget becomes a same-run ratio with 300 ms as its floor (+1 test, bare 2853 / 16 / 2).
+Chunk 41 — EM-604, the opt-in ingestion of human vault edits —
 landed 2026-10-19 (`31a7323`, on `em-604-vault-ingest`, then ff-merged and the branch
 deleted; 11/11 check-runs green on the exact SHA, `identity-guard` included; one recorded
-`windows-import` re-run flake on the same SHA — EM-603's 5k AC, not EM-604 code).** 15 new
+`windows-import` re-run flake on the same SHA — EM-603's 5k AC, not EM-604 code, now fixed
+forward by that de-flake).** 15 new
 tests, **11 mutation checks all red**, each restored from a byte copy; CI's 3.12 count
 **2928 / 4 / 2** read at `31a7323`, local counts bare **2852 / 16 / 2**, digest
 **2853 / 15 / 2**, CI-equivalent 3.12 **2930 / 2 / 2**; the record is the Part A block in
@@ -1402,26 +1406,18 @@ not.**
 | Identity | CI `identity-guard` | every commit a noreply address |
 
 Run the suite with `ENTROPICMEM_MEMORY_DB`, `ENTROPICMEM_VAULT_PATH` and
-`ENTROPICMEM_INDEX_DB` unset. **The 2913 / 4 / 2 figure is CI's expected triple**
-(extras + numpy + the private digest list as the repository secret; read green
-from the job log at `338ec2a` — the EM-603 landing, +19 guards over the
-`c29addc` read's 2894/4/2, itself +10 over `607d54f`'s 2884/4/2). This
-box's scratch venv
-(`.venv311`, no fastapi/httpx/
-cryptography/numpy) read **2837 passed / 16 skipped / 2 xfailed** measured
-(with the digest list: **2838 / 15 / 2** measured; CI-equivalent 3.12:
-**2915 / 2 / 2** measured) under the same
-extra-set accounting that had CI at 2755 with the local bare at 2679 — the missing
-extras change what is collected and skipped, which is the environment, not the tree
-(0 failures locally; the two 50k ACs' reds — the prefetch AC on `3dcb35f`/the
-2026-10-15 3.13 leg and the 2026-10-16/2026-10-18 warm-p95 flaps — are now fixed by
-statistic: both read the best of five windows, `dc3c77a` and `3b71cf0`).
-**The CI skip count is 4 — 3 plus the new host-static pin, which skips where the
-hermes-agent checkout is absent; this box reads 16 skips without the private digest
-list and 15 with it** — read the pair, not either number alone.
-The total rises with every card; the expected figure is in
-[NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md)'s pre-flight, and a mismatch means stop
-and report, not "assume the older number is right".
+`ENTROPICMEM_INDEX_DB` unset. **The expected triple, its legend, the four named
+CI skips, and why the three local readings differ from CI (the two hermes-agent
+host pins that pass on a dev box and skip in CI — the middle column moving, not
+the total) live in [`docs/plan/BASELINE.md`](docs/plan/BASELINE.md); read the
+figure there, this page keeps none of its own.** The extras change what is
+collected and skipped, which is the environment, not the tree (0 failures
+locally). **Every performance red so far is fixed by statistic or ratio, never by
+weakening a budget:** the two 50k warm-p95 ACs read the best of five windows
+(`dc3c77a`, `3b71cf0`), and EM-603's 5k-refresh AC reads a same-run ratio with the
+card's 300 ms as its floor (the CHANGELOG's Fixed entry). The total rises with
+every card; a mismatch against `BASELINE.md` means stop and report, not "assume
+the older number is right".
 
 **Run the suite on Python 3.10 as well as your default interpreter**, at least
 when you touch `em/`. CI's floor is 3.10 and the two are not interchangeable:

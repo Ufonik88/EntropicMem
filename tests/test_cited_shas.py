@@ -67,6 +67,13 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "117631038052": "GitHub Actions job id, not a commit: the 2026-10-18 warm-p95 flap",
     "39112375641": "GitHub Actions run id, not a commit: the 2026-10-18 warm-p95 flap",
     "38861052493": "GitHub Actions run id, not a commit: the 2026-10-16 warm-p95 flap",
+    # Same shape, same reason: the EM-603 5k-AC wall-clock flake. The EM-604
+    # post-merge push re-ran `windows-import` on the same SHA and it read 440 ms
+    # on a contended runner (CHANGELOG's Fixed entry); BASELINE.md cites the run
+    # that then confirmed the commit green. All three stay checkable.
+    "39216670780": "GitHub Actions run id, not a commit: the 2026-10-19 EM-603 5k-AC windows-import flap",
+    "117942029064": "GitHub Actions job id, not a commit: the 2026-10-19 EM-603 5k-AC windows-import flap",
+    "39219386624": "GitHub Actions run id, not a commit: the 2026-10-19 green run on 4cde953 (BASELINE.md)",
     # Cited on purpose BECAUSE it does not resolve: BASELINE.md's "Citing CI
     # evidence" section uses it as the worked example of a run whose head_sha
     # names a rebased-away commit. Removing the citation breaks the lesson.
