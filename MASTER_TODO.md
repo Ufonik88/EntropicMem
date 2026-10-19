@@ -13,6 +13,27 @@ points at.
 | [docs/V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md) | The `em/` v3 layers, the ten invariants, recipes, repo guards, and the facade's write rules |
 | [CHANGELOG.md](CHANGELOG.md) | One line per card, under `[Unreleased]` |
 
+> **Security hardening — 2026-10-19 (working tree, uncommitted).** A security
+> hardening review against `main` at `2079bd3` was applied end to end.
+> Fifteen areas needed a code/config patch, three are accepted risks with a
+> documented mitigation, and one item was already fixed and no longer applies.
+> The working tree now carries: private POSIX
+> modes for vault notes, new domain directories, `index.db` and encryption
+> artefacts, plus `security fix-permissions` for existing trees; staged
+> all-or-nothing encrypt/decrypt; folder containment on
+> `list_notes`/`search_notes` and `moc`; a fail-closed graph bind policy, a
+> liveness-only `/health`, and vendored (not CDN-loaded) graph libraries;
+> an explicit `--trust-unverified` capsule import; one outbound scheme/host/DNS
+> validator with a response cap; type-only tool errors; a random, pruned
+> `forget` token; a once-only WARNING for an unavailable injection screen plus
+> its state in `stats`; guest-mode visibility in `stats`; raised dependency
+> floors; and SHA-pinned, read-only CI on Python 3.10–3.14.
+> **Verification:** full suite **2972 passed / 3 skipped / 2 xfailed** on this
+> box (Python 3.12), `ruff check .` clean. **Not committed, not pushed, no CI
+> run.** The CPython 3.14.8 upgrade is an ops action outside the repo; the
+> no-lockfile policy remains an accepted risk (direct CI pins added). The next
+> development chunk is still EM-605 slice 2.
+
 ---
 
 ## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix), chunk 39 (EM-602, both slices) and chunk 40 (EM-603, the incremental index) are complete, and **chunk 41 (EM-604, opt-in ingestion of human vault edits) is COMPLETE (landed 2026-10-19 as `31a7323`); EM-603's 5k AC is de-flaked (landed 2026-10-19 as `adb1439`); EM-605 slice 1 (graph model / renderers / assets split) is COMPLETE (landed 2026-10-19 as `2fd7812`); **chunk 43, the slice-1 follow-up (packaging verified where it ships, figures measured not typed, the warm AC's absolute ceiling), is COMPLETE (landed 2026-10-19 as `5258b46`); so the next chunk is EM-605 slice 2 (the graph's entity nodes, relation edges, time slider and scope filter)**
@@ -75,7 +96,8 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-19, against branch `main` at `5258b46` — **EM-605 slice 1 (the
+**Last reconciled:** 2026-10-19, against branch `main` at `2079bd3` (security
+hardening applied in the working tree; see the note above) — **EM-605 slice 1 (the
 graph model / renderers / viewer-assets split) landed (`2fd7812`, all 11 check-runs green on
 the exact SHA), and EM-603's 5k AC is de-flaked (landed `adb1439`, reconciled as `e6647e7`);
 chunk 41, EM-604,

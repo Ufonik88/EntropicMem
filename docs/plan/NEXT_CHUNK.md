@@ -54,6 +54,34 @@
 
 ## Part A: what has landed
 
+### Security hardening — 2026-10-19 (working tree on `2079bd3`, uncommitted)
+
+- **Scope:** a security hardening review was checked against the current tree,
+  not an earlier snapshot. Fifteen areas needed a patch, three are accepted
+  risks, and one item was already fixed and no longer applies.
+- **Patched:** private modes for vault notes/new domain dirs/`index.db` and
+  encryption artefacts (including decrypted plaintext), with
+  `security fix-permissions` for existing trees; staged all-or-nothing
+  `encrypt_db`/`decrypt_db`; folder containment for `list_notes`,
+  `search_notes` and `moc`; graph server "no bind signal" is now exposed, not
+  loopback, and `/health` returns only `{"ok": true}`; D3 and marked are
+  vendored into the export instead of loaded from CDNs, and the CSP no longer
+  admits script origins; capsule import needs `--trust-unverified`; the
+  embedding/formation sinks share one outbound validator (scheme, host, DNS,
+  redirects, 8 MiB cap); tool errors carry the exception type only; forget
+  tokens are random, single-use and pruned; the injection screen warns once and
+  reports its state in `stats`; `stats` exposes `guest_mode`; dependency floors
+  are raised and CI pins Python 3.10–3.14, `cryptography==50.0.2`, SHA-pinned
+  actions and `contents: read`.
+- **Accepted risks:** guest isolation still defaults to the v2 single pool when
+  `owner_user_ids` is empty (now warned and surfaced, not silent); the repo
+  still ships no lockfile by policy (direct CI pins added, transitive set still
+  floats); a CPython upgrade to 3.14.8 is an ops action, with the capsule call
+  site already validating members.
+- **Verification:** full suite **2972 passed / 3 skipped / 2 xfailed** on this
+  box (Python 3.12); `ruff check .` clean. No commit, push or CI run was made.
+- **Next:** EM-605 slice 2, unchanged.
+
 ### Chunk 43 — the EM-605 slice-1 follow-up: packaging where it ships, figures measured not typed, the warm AC's ceiling. **DONE, MERGED (2026-10-19, `5258b46`; branch `em-605-followups`, deleted)**
 
 - **P1 — the wheel, not the source tree.** The viewer assets shipped as package-data of `em.graph` keyed on `assets/*`, which works but makes setuptools warn that `em.graph.assets` is an importable package absent from `packages=` — a warning on the exact mechanism the wheel depends on. They are now a declared package (`packages=` gains `em.graph.assets`; the globs key on it) and the warning is gone. Verified where it ships: the wheel and sdist build clean; `unzip -l` lists `graph.html`, `graph.css`, `graph.js`; their bytes equal the tree's; and the export ran **from the installed wheel in a clean venv outside the repo** — `em.graph` from `site-packages`, assets through `importlib.resources`, an 88,785-byte `graph.html`, 2 nodes / 2 edges, zero unresolved placeholders, and no source-tree path anywhere in the output. 2 new tests (the assets package declared in both `packages=` and the globs; every file on disk matched by a declared glob; the exporter reads through `importlib.resources`, never `__file__`) and 5 mutation checks, all red. **The output still loads D3, marked and Google Fonts from their CDNs — by design, unchanged by this slice**; there is no vendored fallback and the CSP admits exactly those origins, so the self-contained claim is about the three assets being inlined and nothing being read from the tree. **A pre-existing gap, recorded not fixed:** the wheel omits the flat engine modules (`memory_engine.py`, `vault.py`, `index.py`, …), so `import em.graph` from an installed wheel fails inside `em_internal.index`; the deleted `graph_export.py` made the same import, so the split did not introduce it, and EM-806 owns packaging. The catalog's directory-copy install ships everything.
@@ -1048,7 +1076,10 @@ Closes the recorded 2026-10-15 coverage gap (plan §6.4): no test drove a real s
 
 **Counts:** bare **2693 / 16 / 2**, digest **2694 / 15 / 2**, CI-equivalent 3.12 **2771 / 2 / 2**; CI's 3.12 count **2769 / 4 / 2** (read from the job log at `c30aa54`); `ruff==0.16.2` clean; the docs guards green. The full card line is in `CHANGELOG.md` under `[Unreleased]`/Fixed; §9 item 9 carries the resolution record.
 
-## Part B: next — **EM-605 slice 2, in five slices, in this order.** Slice 1 (the split into `em/graph/{model,export}.py` and `em/graph/assets/{graph.html,graph.js,graph.css}`, packaged via `importlib.resources` and inlined at export) is **landed 2026-10-19 (`2fd7812`)**, and chunk 43 (its follow-up: packaging verified where it ships, the figures measured by a script and guarded, the warm AC's ceiling) landed as `5258b46` — see the Part A records for exactly what moved and what is pinned. **Do not land the whole feature at once: five slices, each with the full gates (ruff, the full suite, 11/11 CI on the exact SHA, mutation checks from byte copies).**
+## Part B: next — **EM-605 slice 2, in five slices, in this order.**
+
+*(The 2026-10-19 security hardening is a change in the working tree, not a
+new chunk; it does not change this order. See the Part A block above.)* Slice 1 (the split into `em/graph/{model,export}.py` and `em/graph/assets/{graph.html,graph.js,graph.css}`, packaged via `importlib.resources` and inlined at export) is **landed 2026-10-19 (`2fd7812`)**, and chunk 43 (its follow-up: packaging verified where it ships, the figures measured by a script and guarded, the warm AC's ceiling) landed as `5258b46` — see the Part A records for exactly what moved and what is pinned. **Do not land the whole feature at once: five slices, each with the full gates (ruff, the full suite, 11/11 CI on the exact SHA, mutation checks from byte copies).**
 
 1. **Entity nodes and typed relation edges.** One loader builds the payload from **both** `index.db` (notes) and `memory.db` (entities/relations via `em/store/entities.py`); entity nodes and relation edges carry typed colours. Fixture **databases for both stores**, and a **fixture where the stores disagree** (a note id and an entity id that do not line up) with the behaviour defined explicitly — a join across two databases that mismatches ids or timestamps is the obvious failure.
 2. **Owner-only scope filter, enforced in the model, not the JS.** Client-side hiding still leaves the data in the file. **Leak test:** build an export from a fixture containing non-owner data, then assert that **no non-owner id, label, alias or edge endpoint appears anywhere in the output bytes**, including the embedded JSON — scan the whole document, not the node list. Land this **before** anything that shows owner-scoped data.
