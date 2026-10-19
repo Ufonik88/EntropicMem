@@ -26,16 +26,17 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2954 passed, 4 skipped, 2 xfailed** *(projected from this box's CI-equivalent run by the host-pin relation; the run for this branch's SHA is read at landing and stamped in the reconciliation)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2954 passed, 4 skipped, 2 xfailed** *(read at `5258b46`; all four CI legs 3.10–3.13 report it identically)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2878 passed, 16 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2879 passed, 15 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2956 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **2954 passed, 4 skipped, 2 xfailed** |
 
-Read as at `2fd7812` (the EM-605 slice-1 landing) — the three local rows above are measured
-on the EM-605 slice-1 follow-up branch, and the CI row is **projected** from them by the
-host-pin relation, so no SHA is claimed for it yet; the landing stamps the read figure and
-its run id here. The last run read on this line was **`39236004212`** (the
+Read as at `5258b46` (chunk 43, the EM-605 slice-1 follow-up) — **confirmed green on that exact
+SHA:** run **`39251351180`** (a `push` to `em-605-followups`), all 11 jobs success,
+`identity-guard` and `windows-import` included (1762 passed there), CI's 3.12 count
+**2954 / 4 / 2**, all four legs identical and read from the job log. The run before it was
+**`39236004212`** (the
 `em-605-graph-split` push at `2fd7812`: all 11 jobs success, `identity-guard` and
 `windows-import` included, CI 3.12 **2936 / 4 / 2** on all four legs), re-verified on `main`
 by run **`39237280578`**; before it `e6647e7` (run `39231027295`), `adb1439` (run

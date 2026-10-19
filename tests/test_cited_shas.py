@@ -78,6 +78,7 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "39231027295": "GitHub Actions run id, not a commit: the 2026-10-19 post-merge re-run of the eleven on main at e6647e7, the EM-603 de-flake reconciliation (BASELINE.md)",
     "39236004212": "GitHub Actions run id, not a commit: the 2026-10-19 green run on 2fd7812, EM-605 slice 1 (BASELINE.md)",
     "39237280578": "GitHub Actions run id, not a commit: the 2026-10-19 post-merge re-run of the eleven on main at 2fd7812 (BASELINE.md)",
+    "39251351180": "GitHub Actions run id, not a commit: the 2026-10-19 green run on 5258b46, chunk 43, the EM-605 slice-1 follow-up (BASELINE.md)",
     # Cited on purpose BECAUSE it does not resolve: BASELINE.md's "Citing CI
     # evidence" section uses it as the worked example of a run whose head_sha
     # names a rebased-away commit. Removing the citation breaks the lesson.
