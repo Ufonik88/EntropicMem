@@ -207,26 +207,81 @@ def test_the_model_does_not_import_the_renderers():
 
 # ── packaging: the wheel ships the viewer ──────────────────────────────────
 
-def test_the_wheel_declares_em_graph_and_its_assets():
-    """``packages=`` is an explicit list and the viewer is data, not Python: a
-    released wheel without either entry serves an empty page, and the catalog's
-    directory-copy install would hide it."""
+def _declared_packages() -> list:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    m = re.search(r"^packages = \[(.*)\]$", pyproject, re.MULTILINE)
+    assert m, "packages= list not found"
+    return re.findall(r'"([^"]+)"', m.group(1))
 
-    packages = re.search(r"^packages = \[(.*)\]$", pyproject, re.MULTILINE)
-    assert packages, "packages= list not found"
-    assert '"em.graph"' in packages.group(1)
 
-    assert "[tool.setuptools.package-data]" in pyproject
-    data_block = re.search(
+def _declared_package_data() -> dict:
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    block = re.search(
         r"^\[tool\.setuptools\.package-data\]\s*\n(.*?)(?=^\[|\Z)",
         pyproject,
         re.MULTILINE | re.DOTALL,
     )
-    assert data_block, "package-data block not found"
-    assert '"em.graph"' in data_block.group(1)
-    for glob in ("assets/*.html", "assets/*.css", "assets/*.js"):
-        assert glob in data_block.group(1), f"package-data lost {glob}"
+    assert block, "package-data block not found"
+    declared = {}
+    for line in block.group(1).splitlines():
+        m = re.match(r'\s*"([^"]+)"\s*=\s*\[(.*)\]', line)
+        if m:
+            declared[m.group(1)] = re.findall(r'"([^"]+)"', m.group(2))
+    return declared
 
+
+def test_the_wheel_declares_the_assets_package_and_its_glob():
+    """``packages=`` is an explicit list and the viewer is data, not Python: a
+    released wheel without these entries serves an empty page, while the catalog's
+    directory-copy install keeps working — a drift no other test could see.
+
+    The globs are keyed on ``em.graph.assets``, not ``em.graph``: keyed on the
+    parent, setuptools warns that the assets directory is an importable package
+    absent from ``packages=``. That warning is the failure mode this pins — it was
+    real, and it means the two declarations must agree.
+    """
+    packages = _declared_packages()
+    assert "em.graph" in packages, "em.graph dropped from packages="
+    assert "em.graph.assets" in packages, "em.graph.assets dropped from packages="
+
+    declared = _declared_package_data()
+    assert "em.graph.assets" in declared, "package-data lost the em.graph.assets key"
+
+
+def test_every_asset_file_is_matched_by_a_declared_glob():
+    """Adding a fourth asset without a glob ships a wheel with a missing file."""
+    import fnmatch
+
+    globs = _declared_package_data()["em.graph.assets"]
+    files = [
+        p.name
+        for p in (SCRIPTS / "em" / "graph" / "assets").iterdir()
+        if p.is_file() and p.suffix != ".py"
+    ]
+    assert files, "no viewer assets found"
+    unmatched = [
+        name for name in files if not any(fnmatch.fnmatch(name, g) for g in globs)
+    ]
+    assert not unmatched, f"asset(s) {unmatched} match no declared glob in {globs}"
+
+
+def test_the_exporter_reads_the_assets_through_importlib_resources():
+    """``__file__``-relative reads break in a zip/pip-installed layout, which is
+    exactly where this slice's packaging prediction has to hold."""
+    import ast
+    import importlib.resources as res
+
+    import em.graph.export as export_mod
+
+    tree = ast.parse(
+        (SCRIPTS / "em" / "graph" / "export.py").read_text(encoding="utf-8")
+    )
+    assert not any(isinstance(n, ast.Name) and n.id == "__file__" for n in ast.walk(tree)), (
+        "export.py reads assets relative to __file__"
+    )
+
+    packaged = res.files("em.graph") / "assets"
     for name in ("graph.html", "graph.css", "graph.js"):
-        assert (SCRIPTS / "em" / "graph" / "assets" / name).is_file()
+        assert export_mod._read_asset(name) == (packaged / name).read_text(
+            encoding="utf-8"
+        ), f"{name} inlined does not match the packaged asset"

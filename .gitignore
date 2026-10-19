@@ -33,6 +33,10 @@ export/
 !benchmarks/probes.json
 !export/graph.html
 !evals/baselines/*.json
+# The suite's figures of record are docs, not an export: the numbers the plan
+# pages and the CHANGELOG are checked against (scripts/record_suite_figures.py
+# writes it, tests/test_suite_figures.py reads it).
+!docs/plan/suite_figures.json
 
 # Eval results are generated per run (baselines above are the committed ones).
 # Ignore the directory's *contents*, not the directory itself: git cannot

@@ -57,12 +57,16 @@ Changelog = "https://github.com/Ufonik88/EntropicMem/blob/main/CHANGELOG.md"
 # points, extras layout) is EM-806.
 [tool.setuptools]
 package-dir = {"" = "plugins/entropicmem/scripts"}
-packages = ["em", "em.cli", "em.embeddings", "em.facade", "em.formation", "em.graph", "em.jobs", "em.policy", "em.provider", "em.retrieval", "em.store", "em.store.migrations", "em.util", "em.vault", "em_internal"]
+packages = ["em", "em.cli", "em.embeddings", "em.facade", "em.formation", "em.graph", "em.graph.assets", "em.jobs", "em.policy", "em.provider", "em.retrieval", "em.store", "em.store.migrations", "em.util", "em.vault", "em_internal"]
 
 # EM-605: the graph viewer ships as data, not Python — the HTML/CSS/JS are
-# read through importlib.resources and inlined at export.
+# read through importlib.resources and inlined at export. The globs are keyed
+# on `em.graph.assets` (a package for shipping only; see its __init__): keyed on
+# `em.graph` they worked but setuptools warned that the assets directory was an
+# undeclared importable package, which is the kind of ambiguity that breaks on a
+# future setuptools.
 [tool.setuptools.package-data]
-"em.graph" = ["assets/*.html", "assets/*.css", "assets/*.js"]
+"em.graph.assets" = ["*.html", "*.css", "*.js"]
 
 [tool.setuptools.dynamic]
 version = {attr = "em.__version__"}

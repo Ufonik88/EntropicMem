@@ -26,24 +26,29 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2936 passed, 4 skipped, 2 xfailed** *(read at `2fd7812`; all four CI legs 3.10–3.13 report it identically)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2860 passed, 16 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2861 passed, 15 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2938 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2954 passed, 4 skipped, 2 xfailed** *(projected from this box's CI-equivalent run by the host-pin relation; the run for this branch's SHA is read at landing and stamped in the reconciliation)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2878 passed, 16 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2879 passed, 15 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2956 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **2954 passed, 4 skipped, 2 xfailed** |
 
-Read as at `2fd7812` (EM-605 slice 1 — the graph model / renderers / viewer-assets split —
-landed; the next chunk is EM-605 slice 2) — **confirmed green on that exact SHA:** run
-`39236004212` (a `push` to `em-605-graph-split`), **all 11 jobs success**, `identity-guard`
-and `windows-import` included (1757 passed there, the slice's +7), CI's 3.12 count
-**2936 / 4 / 2**, all four legs identical and read from the job log; the post-merge `main`
-push re-ran the eleven on the same SHA as run `39237280578`, all success. The line before
-it: `e6647e7` (run `39231027295`), and before that `adb1439` (run `39226716232`) and
-`4cde953` (run `39219386624`). CI's figure is **read from the job log**, never assumed:
-`gh run view <run-id> --log` on the run for the exact SHA; all four CI legs (3.10–3.13)
-report the identical triple. **The gap between this box's CI-equivalent reading and CI is in
-the middle column, not the total — `2938 / 2 / 2` versus `2936 / 4 / 2` is `−2 passed,
-+2 skipped`, the two hermes-agent host pins that pass here and skip in CI**, the same pair
-the ladder below walks.
+Read as at `2fd7812` (the EM-605 slice-1 landing) — the three local rows above are measured
+on the EM-605 slice-1 follow-up branch, and the CI row is **projected** from them by the
+host-pin relation, so no SHA is claimed for it yet; the landing stamps the read figure and
+its run id here. The last run read on this line was **`39236004212`** (the
+`em-605-graph-split` push at `2fd7812`: all 11 jobs success, `identity-guard` and
+`windows-import` included, CI 3.12 **2936 / 4 / 2** on all four legs), re-verified on `main`
+by run **`39237280578`**; before it `e6647e7` (run `39231027295`), `adb1439` (run
+`39226716232`) and `4cde953` (run `39219386624`). CI's figure is **read from the job log**,
+never assumed: `gh run view <run-id> --log`; all four CI legs (3.10–3.13) report the
+identical triple. **The gap between this box's CI-equivalent reading and CI is in the middle
+column, not the total — `2956 / 2 / 2` versus `2954 / 4 / 2` is `−2 passed, +2 skipped`, the
+two hermes-agent host pins that pass here and skip in CI**, the same pair the ladder below
+walks. **The four triples in this table are the figures of record and live in exactly one
+other place, [`suite_figures.json`](suite_figures.json), which
+[`scripts/record_suite_figures.py`](../../scripts/record_suite_figures.py) writes from
+pytest summary lines and [`tests/test_suite_figures.py`](../../tests/test_suite_figures.py)
+checks them against.**
 
 ## Why the three environments differ
 
@@ -88,15 +93,44 @@ as a pair. The dev box does not have the list at the default path
 (`~/.config/entropicmem/privacy-digests.txt` is absent); it lives at
 `~/Documents/EntropicMem Dev docs/privacy-digests.txt`.
 
+**Python 3.10 is a supported target, and the full suite runs there before a landing.**
+`requires-python = ">=3.10"` and the `test` matrix runs 3.10–3.13, so 3.10 is not
+best-effort: the row above is a full `pytest -q tests/` on this box's 3.10 venv, not
+the touched files. (An earlier record said "the 3.10 leg green for the touched
+files", which was the weaker check this replaces.)
+
+## Known CI coverage gap — the two host pins
+
+**Two tests pass on a dev box and never run in CI.** They are the two hermes-agent
+host pins named in the skip list above:
+
+* `tests/test_provider_contract.py::test_the_pin_matches_the_host_when_the_host_is_reachable`
+* `tests/unit/test_em408_cli_mount.py::test_the_host_discovery_contract_is_pinned`
+
+CI has no `hermes-agent` checkout, so both skip on every runner and on every Python
+leg — which means the assertions that would catch a drift between the pinned host
+contract and the host the plugin actually runs against are **the only two assertions
+in the repo that CI never exercises**. Their *shape* is pinned elsewhere (the
+provider-contract surface, the CLI mount), but not the pin itself.
+
+**Decision, recorded rather than left implicit:** this is a known gap, not an
+oversight. Closing it needs a scheduled or manual job on a host with the checkout
+(the same condition `test_the_pin_matches_the_host_when_the_host_is_reachable`
+tests for), which is infrastructure the repo does not have today; a runner cannot
+manufacture the checkout without fetching and pinning a host, which is a release-
+adjacent decision. Until that job exists, a change touching the host contract must
+be verified on a box that has one — this box does, which is why the two pins show as
+*passes* in every row above.
+
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          2860 / 16 / 2
+bare          2878 / 16 / 2
 + extras      +77 passed, −13 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    2938 /  2 / 2
+= CI-equiv    2956 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          2936 /  4 / 2
+= CI          2954 /  4 / 2
 ```
 
 ## Citing CI evidence — one trap
@@ -113,7 +147,17 @@ content had already landed in main as `8dc725a`.
 
 ## Updating this file
 
-At the end of a chunk, after the pre-flight runs: edit the four rows above and
-the `Read as at` SHA. Nothing else in the repo needs touching — the three plan
-pages link here, and `tests/test_master_todo.py` fails if any of them re-states
-a triple instead of referencing this file.
+At the end of a chunk, after the pre-flight runs: re-measure and let the script
+write the record, then edit the four rows above and the `Read as at` SHA to match.
+
+```
+python scripts/record_suite_figures.py --measure \
+    --ci-run <the branch's run id> --ci-line "<the 3.12 job log's summary line>"
+```
+
+That measures the three local variants from pytest's own summary lines, refuses a
+red run or a figure that breaks the host-pin arithmetic, writes
+[`suite_figures.json`](suite_figures.json) and then runs the guard. The guard
+fails when this table, the CHANGELOG, the MASTER_TODO ledger, plan §11 or
+`NEXT_CHUNK.md` state a triple that is neither current nor historical — which is
+the drift a hand-typed figure caused on 2026-10-19, twice.
