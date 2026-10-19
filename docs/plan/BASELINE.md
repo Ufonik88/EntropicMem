@@ -26,21 +26,26 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2929 passed, 4 skipped, 2 xfailed** *(read at `adb1439`; all four CI legs 3.10–3.13 report it identically)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2853 passed, 16 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2854 passed, 15 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2931 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2935 passed, 4 skipped, 2 xfailed** *(projected from the CI-equivalent run below for the EM-605 slice-1 branch; the run for its own SHA is read at landing and stamped in the reconciliation)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2859 passed, 16 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2860 passed, 15 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2937 passed, 2 skipped, 2 xfailed** |
 
-Read as at `adb1439` (EM-604 landed, plus EM-603's 5k-AC de-flake; the next chunk is
-EM-605) — **confirmed green on that exact SHA:** run `39226716232` (a `push` to `main`),
-**all 11 jobs success**, `identity-guard` and `windows-import` included (the EM-604
-landing itself was confirmed green at `4cde953`, run `39219386624`; the post-merge push
-re-ran the eleven on `main` too, run `39228057585`, all success). CI's figure is
-**read from the job log**, never assumed: `gh run view <run-id> --log` on the run for the
-exact SHA; all four CI legs (3.10–3.13) report the identical triple. **The gap between
-this box's CI-equivalent reading and CI is in the middle column, not the total —
-`2931 / 2 / 2` versus `2929 / 4 / 2` is `−2 passed, +2 skipped`, the two hermes-agent host
-pins that pass here and skip in CI**, the same pair the ladder below walks.
+Read as at `e6647e7` (the EM-603 de-flake reconciliation — the tip the EM-605 slice-1 branch
+is cut from) — **confirmed green on that exact SHA:** run `39231027295` (a `push` to
+`main`), **all 11 jobs success**, `identity-guard` and `windows-import` included (1750
+passed there, the de-flake's +1), CI's 3.12 count **2929 / 4 / 2**, all four legs identical
+and read from the job log. Earlier confirmed greens on this line: `adb1439` (run
+`39226716232`) and `4cde953` (run `39219386624`), plus the post-merge re-run on `adb1439`
+(run `39228057585`). **EM-605 slice 1 (the graph model / renderers / viewer-assets split) is
+on branch `em-605-graph-split`, +7 tests, and the three local figures above are measured on
+it**; CI's figure for it cannot be read before its own run, so the CI row above carries the
+projection and the landing stamps the read one. CI's figure is **read from the job log**,
+never assumed: `gh run view <run-id> --log` on the run for the exact SHA; all four CI legs
+(3.10–3.13) report the identical triple. **The gap between this box's CI-equivalent reading
+and CI is in the middle column, not the total — `2937 / 2 / 2` versus `2935 / 4 / 2` is
+`−2 passed, +2 skipped`, the two hermes-agent host pins that pass here and skip in CI**, the
+same pair the ladder below walks.
 
 ## Why the three environments differ
 
@@ -88,12 +93,12 @@ as a pair. The dev box does not have the list at the default path
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          2853 / 16 / 2
+bare          2859 / 16 / 2
 + extras      +77 passed, −13 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    2931 /  2 / 2
+= CI-equiv    2937 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          2929 /  4 / 2
+= CI          2935 /  4 / 2
 ```
 
 ## Citing CI evidence — one trap

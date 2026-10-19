@@ -15,7 +15,7 @@ points at.
 
 ---
 
-## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix), chunk 39 (EM-602, both slices) and chunk 40 (EM-603, the incremental index) are complete, and **chunk 41 (EM-604, opt-in ingestion of human vault edits) is COMPLETE (landed 2026-10-19 as `31a7323`); EM-603's 5k AC is de-flaked (landed 2026-10-19 as `adb1439`); so the next chunk is EM-605 (graph export v3)**
+## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix), chunk 39 (EM-602, both slices) and chunk 40 (EM-603, the incremental index) are complete, and **chunk 41 (EM-604, opt-in ingestion of human vault edits) is COMPLETE (landed 2026-10-19 as `31a7323`); EM-603's 5k AC is de-flaked (landed 2026-10-19 as `adb1439`); EM-605 slice 1 (graph model / renderers / assets split) is committed and landing on branch `em-605-graph-split`; so the next chunk is EM-605 slice 2 (the graph's entity nodes, relation edges, time slider and scope filter)**
 
 **Development stopped at this point on 2026-10-17.** S5 (formation & consolidation) is complete on
 `main`: **EM-501**, **EM-502** (both slices), **EM-503** (core + wiring), and the
@@ -75,9 +75,11 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-19, against branch `main` at `adb1439` — **chunk 41, EM-604,
-the opt-in ingestion of human vault edits, is complete (landed `31a7323`), and EM-603's
-5k AC is de-flaked (landed `adb1439`), after chunk 40
+**Last reconciled:** 2026-10-19, against branch `main` at `e6647e7` — **EM-603's 5k AC is
+de-flaked (landed `adb1439`, reconciled as `e6647e7`), and EM-605 slice 1 (the graph model /
+renderers / viewer-assets split) is committed and landing on branch `em-605-graph-split`;
+chunk 41, EM-604,
+the opt-in ingestion of human vault edits, is complete (landed `31a7323`), after chunk 40
 (EM-603, the incremental index — `338ec2a`), chunk 39 (EM-602,
 both slices — `607d54f` + `c29addc`) and chunk 38 (the `remember` content ceiling,
 `c53b182`); the next chunk is EM-605 (graph export v3).** Before them
@@ -553,6 +555,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 40 | **EM-603 — the incremental index: a refresh reads only what moved, and a projection schedules it** | **Done, merged** (code `338ec2a` on branch `em-603-incremental-index`; ff-merged to `main` as `338ec2a`; **11/11 check-runs green on that exact SHA, `identity-guard` and `windows-import` included**; branch deleted). `notes_meta` gains `mtime_ns`/`size` (`index.db` `PRAGMA user_version` 3, the ALTER migration; a v2 db backfills on its first refresh). A refresh compares `(st_mtime_ns, st_size)` and **does not open** an unchanged note; only a moved stat is read, and the content hash still decides whether the row changed — a bare `touch` refreshes the stat columns only. `Vault.iter_note_stats` does the walk in one `os.scandir` pass (no Path and no `resolve_path` per file) and **never follows a symlink**, so the path work is not the whole cost and a link cannot leave the vault. **AC met with a 10× margin:** 5k notes with one change in 26 / 31 / 32 ms (3.11 / 3.12 / 3.10) against 300 ms — the first push read 398 ms on the CI 3.12 runner, which the walk fixed. New surface: `entropicmem index refresh` (CLI reference + README) and the **`reindex_vault`** job (`KNOWN_JOB_TYPES` + shared registry), enqueued dedupe-keyed by the `project_vault` handler when the payload carries `index_db` (the provider passes `paths.index_db`); the handler imports the v2 index lazily and a missing path/root is a `PermanentJobError`. **19 new tests** (`tests/unit/test_em603_mtime_index.py`); **11 mutation checks, all red**, each restored from a byte copy; one recorded Windows fix (the CLI printed non-ASCII `→`/`—`, a `UnicodeEncodeError` on cp1252 — output is ASCII throughout); one deliberate repoint (`test_em602_note_ids` pins `NOTE_ID_VERSION`, not `SCHEMA_VERSION`). **The 5k AC's wall-clock budget was de-flaked the next day (2026-10-19):** it reads a same-run ratio with the card's 300 ms as its floor, and the walk's no-per-note-`resolve` half is pinned structurally (the CHANGELOG's Fixed entry). Bare **2837 / 16 / 2**, digest **2838 / 15 / 2**, CI-equivalent 3.12 **2915 / 2 / 2**, CI **2913 / 4 / 2** read at `338ec2a` (all four legs identical); ruff (`0.16.2`) clean; 3.10 leg green; privacy scan clean. **Chunk embeddings remain EM-308's and that card is not built — recorded, not invented.** |
 
 | 41 | **EM-604 — opt-in ingestion of human vault edits (the projection's other direction)** | **Done, merged** (code `d8f643f` + docs `31a7323` on branch `em-604-vault-ingest`; ff-merged to `main` as `31a7323`; **11/11 check-runs green on the exact SHA, `identity-guard` included**; branch deleted). **One recorded flake, not a code fault:** the post-merge `main` push re-ran `windows-import` on the same SHA and EM-603's 5k refresh AC read 440 ms on a contended Windows runner (its cold phase took 59.8 s); the branch push on that SHA was green and a re-run of the failed job was green — the EM-603 test was not touched, weakened or skipped. `vault.ingest_human_edits` (default off) joins the typed config (the curated `SCHEMA_KEYS` entry + the `config_schema.py` mirror); when on, the `project_vault` payload carries `"ingest": True` and the handler runs a pass **before** `project()`. `em/vault/ingest.py` (new) reads each entity page's **human region** (outside every `entropicmem:auto` block) and turns each `- <statement>` line into a **`pending`** `source="vault_edit"` memory linked to that page's entity — the store's only pending route is the write policy, so `evaluate_write` gains the `vault_edit` quarantine branch. A line the user removed from an auto-section is recorded as a `review` hint (`user removed line for m-<short> - forget?`, ASCII) in one deduped `meta` key, keyed off a persisted per-page baseline of block refs; a gutted page is skipped, the first pass stays quiet, and the read is scope-bounded (F-004). Surface: `V3Engine.vault_review_hints()` feeds the `review` `list_pending` `vault_hints`, printed by CLI `cmd_pending`. Cuts named: no new CLI subcommand, no LLM over human lines. **15 new tests**; **11 mutation checks, all red**, each restored from a byte copy; local counts bare **2852 / 16 / 2**, digest **2853 / 15 / 2**, CI-equivalent 3.12 **2930 / 2 / 2**, CI **2928 / 4 / 2** read at `31a7323`; 3.10 leg green (143 passed); ruff clean. **The next chunk is EM-605 — graph export v3.** |
+| 42 | **EM-605 slice 1 — the graph monolith split into a model, renderers and packaged viewer assets** | **Committed, landing** on branch `em-605-graph-split` (its own run's CI is read before the merge, then it is ff-merged to `main` and the branch deleted). `graph_export.py` (2,122 lines) is **deleted, not shimmed**: the model — the palettes, `get_shape`, `detect_communities`, `body_coverage`, `assert_bodies_present`, `resolve_note_path`, and the payload builder lifted out of `export_json` — is `em/graph/model.py`, which writes no file and imports neither `json` nor `html`; the four renderers (`export_json`, `export_dot`, `export_canvas`, `export_html`) are `em/graph/export.py`, and `export_json` is a thin write over `build_graph_payload`; the viewer is three assets (`em/graph/assets/graph.html`, `graph.css`, `graph.js`) read through `importlib.resources` and **inlined** at export, so a written `graph.html` is still one self-contained file. **No behaviour change:** the assets reassemble to byte-for-byte the monolith's `_HTML_TEMPLATE`, and the body gate's error message still names the export path (the model takes the caller's name for it). `pyproject.toml` declares `em.graph` in `packages=` and the three globs in a new `[tool.setuptools.package-data]` block. `entropicmem.py`, `scripts/graph_server/server.py` and every graph test import from `em.graph.model` / `em.graph.export`; the six suites that scraped the template out of the Python source now read the assembled assets through one helper, `tests/harness/graph_assets.py`. **7 new tests** (`tests/unit/test_em605_graph_split.py`); **8 mutation checks, all red**, each restored from a byte copy; local counts bare **2859 / 16 / 2**, digest **2860 / 15 / 2**, CI-equivalent 3.12 **2937 / 2 / 2**; 3.10 leg green (134 passed); ruff clean. **Slice 2 of the card — entity nodes and relation edges, the time slider over `valid_from`/`valid_to`, the owner-only scope filter and dashed superseded edges — is the next chunk.** |
 
 **EM-404 slice 1 is on `main` without a chunk number — recorded here so it is
 neither forgotten nor mistaken for its card's whole.** `381197f` is the ff of
@@ -741,7 +744,18 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing is in flight. Chunk 41 — EM-604, the opt-in ingestion of human vault edits —
+**In flight: EM-605 slice 1** — the graph monolith split into `em/graph/model.py`,
+`em/graph/export.py` and the three viewer assets — is committed and landing on branch
+`em-605-graph-split` (its own run's CI is read before the merge, then it is ff-merged to
+`main` and the branch deleted). No behaviour change: the assets reassemble byte-for-byte to
+the old `_HTML_TEMPLATE`, `graph_export.py` is deleted rather than shimmed, and the wheel
+now declares `em.graph` and its assets. 7 new tests, **8 mutation checks all red**; local
+counts bare **2859 / 16 / 2**, digest **2860 / 15 / 2**, CI-equivalent 3.12
+**2937 / 2 / 2**. **Slice 2 — entity nodes and relation edges, the time slider over
+`valid_from`/`valid_to`, the owner-only scope filter, dashed superseded edges — is the next
+chunk.**
+
+**Chunk 41 — EM-604, the opt-in ingestion of human vault edits —
 landed 2026-10-19 (`31a7323`, on `em-604-vault-ingest`, then ff-merged and the branch
 deleted; 11/11 check-runs green on the exact SHA, `identity-guard` included; one recorded
 `windows-import` re-run flake on the same SHA — EM-603's 5k AC, not EM-604 code).** 15 new
@@ -759,7 +773,9 @@ and the CI-versus-local gap stated where the table is read). **Chunk 40 — EM-6
 incremental index — landed 2026-10-18
 (`338ec2a`), after chunk 39 (EM-602, `607d54f` + `c29addc`), chunk 38 (`c53b182`),
 EM-608 (`3b71cf0`) and EM-601's both halves (`bdc1e20`, `e986059`) the same day; **the next
-chunk is EM-605, graph export v3.** Everything
+chunk is EM-605 slice 2, the graph's entity nodes, relation edges, time slider and scope
+filter — slice 1 (the model / renderers / assets split) is landing on branch
+`em-605-graph-split`.** Everything
 below records what just landed.**
 
 **EM-601 (vault projection, both halves) is COMPLETE — the owner's word, 2026-10-18**
@@ -968,7 +984,9 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 **Chunk 38, the content-ceiling fix, is landed (`c53b182`), chunk 39, EM-602 in
 both slices (`607d54f`, `c29addc`), and chunk 40, EM-603 the incremental index
 (`338ec2a`) — and **chunk 41, EM-604 (opt-in ingestion of human vault edits), is complete
-(landed 2026-10-19 as `31a7323`), so the next chunk is EM-605 (graph export v3).** Chunk 38 fixed the silent `remember`
+(landed 2026-10-19 as `31a7323`), so the next chunk is EM-605 slice 2 (the graph's entity
+nodes, relation edges, time slider and scope filter); slice 1 (the model / renderers /
+assets split) is landing on branch `em-605-graph-split`.** Chunk 38 fixed the silent `remember`
 truncation
 the 2026-10-17 incident exposed (one shared `CONTENT_MAX_CHARS = 8_000`, a fatal-oversize
 refusal instead of a clamp); EM-602 hardened the vault's frontmatter and wikilink handling
@@ -984,7 +1002,9 @@ debounce, the mode switch, and `vault lint`, `e986059`), and EM-608 (the 50k war
 now reads the best of five 20-probe windows at the unchanged 150 ms budget, `3b71cf0`).
 The **S6 scope question is answered yes** by the owner's 2026-10-18 instruction that the
 agent make the outstanding calls: **EM-602…EM-607 are agent-owned**, taken in the
-documented §6.5 order, with **EM-605 next** (EM-604 landed 2026-10-19). S7
+documented §6.5 order, with **EM-605 next** (EM-604 landed 2026-10-19; EM-605 slice 1, the
+model / renderers / assets split, is landing on branch `em-605-graph-split`, and slice 2
+follows). S7
 security, packaging and the 3.0 release
 stay behind their own gates (the release needs the owner's want, not an agent's).
 
@@ -1072,8 +1092,12 @@ CI jobs green on the exact SHA, `windows-import` included — the branch-first l
 `reindex_vault` job; tests first, CHANGELOG, push, check-runs,
 `git merge --ff-only`, branch deleted), **and chunk 41 — EM-604, the opt-in ingestion of
 human vault edits — landed the same day (2026-10-19, `31a7323`: 11/11 check-runs green on
-the exact SHA, one recorded `windows-import` re-run flake), so the next chunk is EM-605,
-graph export v3.** On top of chunk 39 (EM-602 in both slices, `607d54f` + `c29addc`),
+the exact SHA, one recorded `windows-import` re-run flake), **EM-603's 5k AC was de-flaked
+the same day (`adb1439`, all 11 check-runs green on the exact SHA, `windows-import`
+included), and EM-605 slice 1 — the graph model / renderers / assets split — is landing on
+branch `em-605-graph-split` (`graph_export.py` deleted, `em/graph/` in its place, the three
+viewer assets packaged and inlined at export, no behaviour change), so the next chunk is
+EM-605 slice 2 (the graph's entity nodes, relation edges, time slider and scope filter).** On top of chunk 39 (EM-602 in both slices, `607d54f` + `c29addc`),
 chunk 38 (the `remember` content
 ceiling, `c53b182`), EM-608 (`3b71cf0`, the 50k
 warm-p95 gate's *statistic* via the shared `tests/harness/perf_stats.py`) and EM-601's
