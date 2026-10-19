@@ -111,11 +111,13 @@ def resolve_paths(hermes_home: Path, plugin_config: dict) -> Tuple[Path, Path, P
     vault = resolve_vault_path(plugin_config.get("vault_path"), hermes_home=hermes_home)
     index_db = Path(
         plugin_config.get("index_db")
-        or os.environ.get("ENTROPICMEM_INDEX_DB", str(base / "index.db"))
+        or os.environ.get("ENTROPICMEM_INDEX_DB")
+        or str(base / "index.db")
     ).expanduser()
     memory_db = Path(
         plugin_config.get("memory_db")
-        or os.environ.get("ENTROPICMEM_MEMORY_DB", str(base / "memory.db"))
+        or os.environ.get("ENTROPICMEM_MEMORY_DB")
+        or str(base / "memory.db")
     ).expanduser()
     return vault, index_db, memory_db
 
