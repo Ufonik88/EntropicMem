@@ -21,7 +21,7 @@ All engine code lives under `plugins/entropicmem/scripts/`, inside the plugin di
 | Index | `plugins/entropicmem/scripts/index.py` | Vault FTS5 + `graph_edges` over `index.db`, incremental rebuild |
 | Retrieval | `plugins/entropicmem/scripts/retrieval.py` | Composed stack: hot cache, FTS5, wikilink expansion, optional semantic rerank |
 | Triple extraction | `plugins/entropicmem/scripts/triple_extract.py` | Rule-based subject, predicate, object extraction |
-| Graph export | `plugins/entropicmem/scripts/graph_export.py` | D3 HTML template (with markdown sanitize pass) + json/dot/canvas export |
+| Graph export | `plugins/entropicmem/scripts/em/graph/` (`model.py`, `export.py`, `assets/`) | D3 HTML viewer (with markdown sanitize pass) + json/dot/canvas export |
 | CLI | `plugins/entropicmem/scripts/entropicmem.py` | 35 top-level commands over the modules above |
 | Plugin | `plugins/entropicmem/` | Hermes `MemoryProvider`: 9 tools, 6 lifecycle hooks, config schema |
 | Graph server | `scripts/graph_server/server.py` | FastAPI: `/refresh` (always token-gated), `/api/note/{id}`, `/api/note/by-title/{title}`, `/api/search`, `/api/path`, `/health`; loopback bind enforced, Host allowlist, CSP, static or per-run token |

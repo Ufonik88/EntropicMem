@@ -115,9 +115,10 @@ SCRIPTS_DIR = _resolve_scripts_dir()
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+from em.graph.export import export_html, export_json  # noqa: E402
+from em.graph.model import resolve_note_path  # noqa: E402
 from em_internal.index import VaultIndex, build_fts_query  # noqa: E402
 from em_internal.vault import Vault, resolve_vault_path  # noqa: E402
-from graph_export import export_html, export_json, resolve_note_path  # noqa: E402
 
 BASE_DIR = _resolve_export_dir()
 # Hard-pin data paths under HERMES_HOME (do not trust ENTROPICMEM_* env).
@@ -514,7 +515,7 @@ def _regenerate(*, include_bodies: bool = True) -> dict:
         # previously export_json was always called without bodies while
         # export_html alone got the flag, so graph.json stayed empty even
         # when refresh requested bodies.
-        from graph_export import assert_bodies_present  # local import ok
+        from em.graph.model import assert_bodies_present  # local import ok
 
         payload = export_json(
             index,

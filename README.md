@@ -114,7 +114,7 @@ EntropicMem/
 │   │   ├── vault.py             # Markdown vault operations
 │   │   ├── index.py             # Vault FTS5 index + graph edges
 │   │   ├── retrieval.py         # Composed retrieval stack
-│   │   ├── graph_export.py      # D3 galaxy visual graph
+│   │   ├── em/graph/            # Graph model, renderers + viewer assets (EM-605)
 │   │   ├── graph_static.py      # Hardened stdlib server for `graph serve`
 │   │   ├── policy.py / pii.py   # Write policy + PII redaction
 │   │   ├── embeddings.py        # Vector search (optional)

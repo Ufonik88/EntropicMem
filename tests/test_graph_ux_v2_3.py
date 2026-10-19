@@ -1,7 +1,8 @@
 """
 test_graph_ux_v2_3.py — Structural tests for the v2.3.0 graph UI/UX overhaul.
 
-These assert the HTML template in graph_export.py actually ships the UX
+These assert the assembled graph viewer template (the three files under
+em/graph/assets, reassembled by graph_assets.template()) actually ships the UX
 fixes (wheel deltaMode normalization, collapsible overlays, zoom controls,
 HiDPI PNG export, tooltip edge-flipping, focus trap, loading/empty states).
 They intentionally inspect the template source: the graph viewer is a
@@ -9,19 +10,14 @@ self-contained D3 page, so its "API" is the generated markup/JS.
 """
 
 import re
-from pathlib import Path
 
+import graph_assets
 import pytest
-
-_SRC = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts" / "graph_export.py"
 
 
 @pytest.fixture(scope="module")
 def template():
-    src = _SRC.read_text(encoding="utf-8")
-    m = re.search(r'_HTML_TEMPLATE = r"""(.*)"""\s*$', src, re.S)
-    assert m, "could not locate _HTML_TEMPLATE in graph_export.py"
-    return m.group(1)
+    return graph_assets.template()
 
 
 # ── Phase 1: scroll sensitivity calibration ─────────────────────────────────

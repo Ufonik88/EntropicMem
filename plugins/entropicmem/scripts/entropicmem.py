@@ -48,6 +48,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 # [tool.setuptools.dynamic]; plugin.yaml is kept in sync by a test).
 from em import __version__  # noqa: E402
 from em.cli.parser import build_parser  # noqa: E402 (the shared argparse tree; EM-408)
+from em.graph.export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 from em.store.db import open_db  # noqa: E402 (audit verify opens read-only)
 from em.store.locking import FileLock  # noqa: E402 (EM-202: portable lock probe)
 from em_internal.index import VaultIndex  # noqa: E402
@@ -59,7 +60,6 @@ from em_internal.vault import (  # noqa: E402
     hermes_home_path,
     resolve_vault_path,
 )
-from graph_export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 from memory_engine import MemoryEngine  # noqa: E402
 from triple_extract import extract_triples_from_engine  # noqa: E402
 

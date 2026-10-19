@@ -26,11 +26,11 @@ import pytest
 _SCRIPT_DIR = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts"
 sys.path.insert(0, str(_SCRIPT_DIR))
 
+import graph_assets  # noqa: E402
+
+from em.graph.export import export_html  # noqa: E402
 from em_internal.index import VaultIndex  # noqa: E402
 from em_internal.vault import Vault  # noqa: E402
-from graph_export import export_html  # noqa: E402
-
-_SRC = _SCRIPT_DIR / "graph_export.py"
 
 XSS_BODY = (
     '<img src=x onerror=alert(1)>'
@@ -74,10 +74,7 @@ def rendered(tmp_path):
 
 @pytest.fixture(scope="module")
 def template() -> str:
-    src = _SRC.read_text(encoding="utf-8")
-    m = re.search(r'_HTML_TEMPLATE = r"""(.*)"""\s*$', src, re.S)
-    assert m, "could not locate _HTML_TEMPLATE in graph_export.py"
-    return m.group(1)
+    return graph_assets.template()
 
 
 # ── rendered output: the malicious body must not survive as markup ─────────

@@ -1,27 +1,23 @@
 """
 test_graph_ux_v2_6.py - Structural tests for the v2.6 graph integration UI.
 
-These assert the HTML template in graph_export.py ships the community legend
-mode, cluster-island layout toggle, in-graph search UI, shortest-path UI, and
-orphan highlight (Phases 2-5 of docs/GRAPH_INTEGRATION_PLAN.md). The graph
-viewer is a self-contained D3 page, so its "API" is the generated markup/JS,
-matching the v2.3 structural-test approach.
+These assert the assembled graph viewer template (the three files under
+em/graph/assets, reassembled by graph_assets.template()) ships the community
+legend mode, cluster-island layout toggle, in-graph search UI, shortest-path
+UI, and orphan highlight (Phases 2-5 of docs/GRAPH_INTEGRATION_PLAN.md). The
+graph viewer is a self-contained D3 page, so its "API" is the generated
+markup/JS, matching the v2.3 structural-test approach.
 """
 
 import re
-from pathlib import Path
 
+import graph_assets
 import pytest
-
-_SRC = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem" / "scripts" / "graph_export.py"
 
 
 @pytest.fixture(scope="module")
 def template():
-    src = _SRC.read_text(encoding="utf-8")
-    m = re.search(r'_HTML_TEMPLATE = r"""(.*?)"""\s*$', src, re.S)
-    assert m, "could not locate _HTML_TEMPLATE in graph_export.py"
-    return m.group(1)
+    return graph_assets.template()
 
 
 # ─ Phase 2: cluster rendering ──────────────────────────────────────────────

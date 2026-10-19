@@ -18,6 +18,7 @@ import os
 import sys
 from pathlib import Path
 
+import graph_assets
 import pytest
 
 # The graph server needs fastapi; CI only installs pytest, so skip the
@@ -386,7 +387,7 @@ def test_security_headers_on_rejected_host(client):
 def test_csp_allows_the_graph_page_dependencies(mod):
     """The CSP must not break graph.html: every external origin the page
     loads is allowed for its resource type, and nothing else."""
-    src = (_ENGINE_DIR / "graph_export.py").read_text(encoding="utf-8")
+    src = graph_assets.template()
     csp = {d.split()[0]: d.split()[1:] for d in mod.CSP.split("; ")}
     assert 'src="https://d3js.org/' in src and "https://d3js.org" in csp["script-src"]
     assert 'src="https://cdn.jsdelivr.net/' in src and "https://cdn.jsdelivr.net" in csp["script-src"]

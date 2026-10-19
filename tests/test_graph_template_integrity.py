@@ -10,26 +10,20 @@ hid and the page showed an endless "Building graph…" spinner on every
 browser/OS. Nothing in the Python layer noticed, because the export itself
 succeeded.
 
-These tests parse the inline JS of ``_HTML_TEMPLATE`` in ``graph_export.py``
-and assert that every camelCase helper *called* in the template has a
-definition (``function``, ``const``, ``let``, ``var`` or ``class``).
+These tests parse the inline JS of the assembled viewer template — the three
+files under ``em/graph/assets`` (EM-605 split it out of ``graph_export.py``;
+``graph_assets.template()`` puts it back together) — and assert that every
+camelCase helper *called* in the template has a definition (``function``,
+``const``, ``let``, ``var`` or ``class``).
 Single-word lowercase names are skipped: the template's comments and prose
 contain plenty ("translate (…)", "pixel (…)" inside ``/* … */`` blocks) and
 this viewer's JS style is camelCase for helpers.
 """
 
 import re
-from pathlib import Path
 
+import graph_assets
 import pytest
-
-_SRC = (
-    Path(__file__).resolve().parent.parent
-    / "plugins"
-    / "entropicmem"
-    / "scripts"
-    / "graph_export.py"
-)
 
 # Bare identifiers JS provides (called without a leading dot).
 _BUILTINS = {
@@ -63,10 +57,7 @@ _CAMEL = re.compile(r"^[a-z][\w$]*[A-Z][\w$]*$")
 
 @pytest.fixture(scope="module")
 def template() -> str:
-    src = _SRC.read_text(encoding="utf-8")
-    m = re.search(r'_HTML_TEMPLATE = r"""(.*)"""\s*$', src, re.S)
-    assert m, "could not locate _HTML_TEMPLATE in graph_export.py"
-    return m.group(1)
+    return graph_assets.template()
 
 
 @pytest.fixture(scope="module")

@@ -15,16 +15,15 @@ _SCRIPT_DIR = Path(__file__).resolve().parent.parent / "plugins" / "entropicmem"
 _CLI = str(_SCRIPT_DIR / "entropicmem.py")
 sys.path.insert(0, str(_SCRIPT_DIR))
 
-from em_internal.index import VaultIndex
-from em_internal.vault import Vault
-from graph_export import (
+from em.graph.export import (  # noqa: E402
     export_canvas,
     export_dot,
     export_html,
     export_json,
-    get_color,
-    get_shape,
 )
+from em.graph.model import get_color, get_shape  # noqa: E402
+from em_internal.index import VaultIndex
+from em_internal.vault import Vault
 
 
 def _run(*args, **env):
@@ -159,7 +158,7 @@ class TestGraphExport:
         assert all("path" not in n for n in lean["nodes"])
 
     def test_assert_bodies_present_blocks_empty_modal_regression(self):
-        from graph_export import assert_bodies_present, body_coverage
+        from em.graph.model import assert_bodies_present, body_coverage
         empty = {
             "nodes": [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}],
             "meta": {"include_bodies": True},
