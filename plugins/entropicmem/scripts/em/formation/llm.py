@@ -43,6 +43,7 @@ import time
 import urllib.request
 from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol
 
+from ..net import open_validated, read_capped
 from ..util.jsonschema_lite import ArgumentError, validate_arguments
 
 logger = logging.getLogger(__name__)
@@ -313,8 +314,8 @@ class OpenAICompatBackend:
         request = urllib.request.Request(
             self._base_url + "/chat/completions", data=body, headers=headers, method="POST"
         )
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        with open_validated(request, timeout=timeout) as response:
+            payload = json.loads(read_capped(response).decode("utf-8"))
         return response_text(payload)
 
     def complete_json(

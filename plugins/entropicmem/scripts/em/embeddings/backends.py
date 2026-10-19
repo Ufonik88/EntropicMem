@@ -31,6 +31,8 @@ import urllib.error
 import urllib.request
 from typing import Dict, List, Optional, Sequence
 
+from em.net import open_validated, read_capped
+
 __all__ = [
     "FastEmbedBackend",
     "NoneBackend",
@@ -143,8 +145,8 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: float):
         headers={"Content-Type": "application/json", **headers},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - user-configured endpoint
-        body = response.read().decode("utf-8")
+    with open_validated(request, timeout=timeout) as response:  # noqa: S310 - validated endpoint
+        body = read_capped(response).decode("utf-8")
     return json.loads(body)
 
 

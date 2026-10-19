@@ -342,7 +342,7 @@ def test_openai_compat_timeout_is_per_call_and_fails_soft(monkeypatch, tmp_path)
         seen["timeout"] = timeout
         raise socket.timeout("timed out")
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("em.embeddings.backends.open_validated", fake_urlopen)
     backend = OpenAICompatBackend(base_url="http://127.0.0.1:9", model=MODEL, timeout=0.25)
     service = EmbeddingService(str(tmp_path / "emb.db"), backend=backend)
     embedder = QueryEmbedder(service, session_id="s1")
