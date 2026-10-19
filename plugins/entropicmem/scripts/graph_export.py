@@ -769,10 +769,42 @@ body { background: var(--bg-grad); color: var(--text); font-family: var(--body);
 #path-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--accent); color: var(--accent); border-radius: 20px; padding: 6px 16px; font-size: 12px; z-index: 11; display: none; backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); box-shadow: 0 0 24px var(--accent-glow); max-width: 82vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Loading / empty states ── */
-#loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 50; background: var(--bg-grad); color: var(--text-dim); font-size: 13px; letter-spacing: 0.4px; transition: opacity 0.4s ease; }
+/* Full-bleed overlay shown from the first frame of fetch; cross-fades out
+   once the D3 graph is painted (see hideLoading()). The skeleton lives in the
+   same inset:0 box the real graph renders into, so there is no layout jump
+   when data replaces it. */
+#loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; z-index: 50; background: var(--bg-grad); color: var(--text-dim); font-size: 13px; letter-spacing: 0.4px; transition: opacity 0.4s ease; }
 #loading.done { opacity: 0; pointer-events: none; }
-#loading .spinner { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+#loading .loading-label { font-family: var(--display); font-weight: 600; color: var(--text); letter-spacing: 0.5px; }
+
+/* Graph-shaped skeleton: placeholder nodes + edges in a galaxy-like topology,
+   so the transition to real data feels continuous. */
+#loading .graph-skeleton { width: 520px; height: 320px; max-width: 92vw; max-height: 70vh; overflow: visible; display: block; }
+
+/* Sweeping neon lightflow across the loading surface (signature accent treatment). */
+#loading .shimmer-flow { position: absolute; inset: 0; width: 200%; height: 200%; background: linear-gradient(135deg, transparent 0%, transparent 40%, var(--accent) 48%, var(--accent) 52%, transparent 60%, transparent 100%); opacity: 0.28; transform: translateX(-100%); animation: shimmer-flow 2.8s linear infinite; pointer-events: none; mix-blend-mode: screen; z-index: 1; }
+@keyframes shimmer-flow { to { transform: translateX(100%); } }
+
+/* Edges: faint structural lines with a marching dash (data in motion). */
+.skeleton-edge { stroke: var(--accent); stroke-width: 1.5; stroke-linecap: round; fill: none; stroke-dasharray: 6 4; stroke-dashoffset: 0; opacity: 0.5; animation: edge-flow 2s linear infinite; }
+.skeleton-edge:nth-child(odd) { animation-delay: 0.3s; }
+.skeleton-edge:nth-child(3n) { animation-delay: 0.7s; }
+.skeleton-edge:nth-child(5n) { animation-delay: 1.2s; }
+@keyframes edge-flow { to { stroke-dashoffset: -24; } }
+
+/* Nodes: placeholder dots with a neon pulse. */
+.skeleton-node { fill: var(--color-node-fill, var(--text-dim)); stroke: var(--accent); stroke-width: 1.5; filter: url(#node-glow); transform-origin: center; animation: node-pulse 2.2s ease-in-out infinite; }
+.skeleton-node:nth-child(even) { animation-delay: 0.5s; }
+.skeleton-node:nth-child(3n) { animation-delay: 1s; }
+.skeleton-node:nth-child(5n) { animation-delay: 1.5s; }
+@keyframes node-pulse { 0%, 100% { transform: scale(1); opacity: 0.55; } 50% { transform: scale(1.3); opacity: 0.95; } }
+
+/* Reduced motion: keep the skeleton, drop the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-edge, .skeleton-node, #loading .shimmer-flow { animation: none !important; }
+  .skeleton-node { opacity: 0.7; stroke-opacity: 0.6; }
+  .skeleton-edge { stroke-opacity: 0.55; }
+}
 #empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: var(--text-dim); font-size: 13px; z-index: 5; display: none; pointer-events: none; }
 #empty-state .empty-title { font-family: var(--display); font-size: 15px; color: var(--text); margin-bottom: 6px; }
 
@@ -898,7 +930,34 @@ svg text { fill: #b9b9c6; font-size: 9px; pointer-events: none; font-family: var
   <div id="stats"><span id="stats-text"></span><button class="collapse-btn" id="collapse-stats" aria-label="Toggle stats" aria-expanded="true" title="Toggle stats (S)"><svg class="icon" viewBox="0 0 24 24" style="width:11px;height:11px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
 </div>
 <div id="tooltip" role="tooltip"></div>
-<div id="loading"><div class="spinner"></div><div>Building graph…</div></div>
+<div id="loading" aria-busy="true">
+  <div class="shimmer-flow" aria-hidden="true"></div>
+  <svg class="graph-skeleton" viewBox="0 0 520 320" aria-hidden="true" focusable="false">
+    <g class="skeleton-edges" aria-hidden="true">
+      <line class="skeleton-edge" x1="260" y1="100" x2="140" y2="150"/>
+      <line class="skeleton-edge" x1="260" y1="100" x2="380" y2="140"/>
+      <line class="skeleton-edge" x1="260" y1="100" x2="330" y2="190"/>
+      <line class="skeleton-edge" x1="140" y1="150" x2="110" y2="240"/>
+      <line class="skeleton-edge" x1="110" y1="240" x2="280" y2="260"/>
+      <line class="skeleton-edge" x1="280" y1="260" x2="430" y2="230"/>
+      <line class="skeleton-edge" x1="280" y1="260" x2="200" y2="280"/>
+      <line class="skeleton-edge" x1="380" y1="140" x2="430" y2="230"/>
+      <line class="skeleton-edge" x1="380" y1="140" x2="330" y2="190"/>
+      <line class="skeleton-edge" x1="330" y1="190" x2="280" y2="260"/>
+    </g>
+    <g class="skeleton-nodes" aria-hidden="true">
+      <circle class="skeleton-node" cx="260" cy="100" r="10"/>
+      <circle class="skeleton-node" cx="140" cy="150" r="7"/>
+      <circle class="skeleton-node" cx="380" cy="140" r="8"/>
+      <circle class="skeleton-node" cx="110" cy="240" r="6"/>
+      <circle class="skeleton-node" cx="280" cy="260" r="11"/>
+      <circle class="skeleton-node" cx="430" cy="230" r="7"/>
+      <circle class="skeleton-node" cx="200" cy="280" r="6"/>
+      <circle class="skeleton-node" cx="330" cy="190" r="7"/>
+    </g>
+  </svg>
+  <div class="loading-label">Building graph…</div>
+</div>
 <div id="empty-state"><div class="empty-title">No notes match these filters</div><div>Loosen the importance slider, tag, or domain filters.</div></div>
 
 <div id="modal-overlay"></div>
@@ -2105,7 +2164,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const hideLoading = () => {
     if (loadingHidden) return;
     loadingHidden = true;
-    document.getElementById("loading").classList.add("done");
+    const el = document.getElementById("loading");
+    el.classList.add("done");
+    el.setAttribute("aria-busy", "false");
   };
   if (simulation) simulation.on("tick.loading", () => hideLoading());
   setTimeout(hideLoading, 2500); // failsafe for tiny graphs that end instantly

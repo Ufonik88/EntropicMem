@@ -658,7 +658,7 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing in flight — S5 is complete and development stops here (2026-10-17).**
+**Graph loading-state skeleton (this session):** replacing the `graph_export.py` loading spinner with a graph-shaped neon skeleton (placeholder nodes + edges, dark theme, shimmer/pulse, `aria-busy`, no layout jump). S5 itself remains complete and stopped; no chunk is queued — see `docs/plan/STOP_HERE.md`.
 The last landing is the EM-503 wiring + the `sync_turn` transcript capture
 (`d331c5e`), which closes the formation chain: extract → quarantine → reconcile
 → commit. The tree was verified on this box (bare **2679 / 16 / 3**; digest-list
