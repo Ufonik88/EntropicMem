@@ -26,18 +26,15 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record; last landed state `338ec2a`) | `pytest -q tests/` | **2913 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2928 passed, 4 skipped, 2 xfailed** |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2852 passed, 16 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2853 passed, 15 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2930 passed, 2 skipped, 2 xfailed** |
 
-Read as at `338ec2a` (EM-603 — the incremental index — landed on `main`). **The three
-local rows are re-measured on the uncommitted EM-604 working tree** (`+15` tests:
-`tests/unit/test_em604_vault_ingest.py`, the opt-in ingestion of human vault edits);
-EM-604 is **committed on no branch and not pushed**, so CI's row is still the last
-landed CI figure (`338ec2a`) and **no CI figure exists for EM-604 yet**. Once it lands,
-read CI's figure from the job log, never assumed: `gh run view <run-id> --log` on the
-run for the exact SHA. All four CI legs (3.10–3.13) report the identical triple.
+Read as at `31a7323` (EM-604 — the opt-in ingestion of human vault edits —
+landed on `main`; the next chunk is EM-605). CI's figure is **read from
+the job log**, never assumed: `gh run view <run-id> --log` on the run for the
+exact SHA. All four CI legs (3.10–3.13) report the identical triple.
 
 ## Why the three environments differ
 
@@ -90,7 +87,7 @@ bare          2852 / 16 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    2930 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          2928 /  4 / 2   (projected for EM-604; the last landed CI read is 2913 / 4 / 2 at 338ec2a)
+= CI          2928 /  4 / 2
 ```
 
 ## Citing CI evidence — one trap
