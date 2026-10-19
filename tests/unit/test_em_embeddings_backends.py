@@ -194,3 +194,30 @@ def test_embed_query_returns_none_without_a_backend_and_embeds_with_one():
     assert service.embed_query("Acme staging") == [float(len("Acme staging") % 7), 1.0, 0.0, 0.0]
     assert service.embed_query("   ") is None
     assert backend.embed_calls == [1]  # one text, one call; the blank made none
+
+
+def test_embeddings_degrade_gracefully_without_semantic_st_extra(monkeypatch):
+    """When the semantic-st extra is absent (no sentence-transformers, no
+    fastembed, no torch), importing the backends module and selecting a
+    backend degrades to ``none`` instead of raising. The service works with
+    the none backend and embed_texts/embed_query report unavailable."""
+    # Simulate the ML stack being entirely unavailable
+    monkeypatch.setattr(backends, "_module_available", _specs())
+
+    # Module import itself must not fail
+    from em.embeddings import backends as reimported
+    assert reimported is backends
+
+    # Auto selection falls back to none
+    backend = select_backend("auto", env={})
+    assert backend.name == "none"
+    assert not backend.available()
+
+    # Service degrades gracefully: reports unavailable, embed_texts raises
+    # (caller's bug), embed_query returns None
+    service = EmbeddingService(":memory:", backend=backend, model="none")
+    assert not service.available
+    assert not service.is_warm
+    with pytest.raises(RuntimeError):
+        service.embed_texts(["anything"])
+    assert service.embed_query("anything") is None

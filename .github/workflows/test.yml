@@ -37,6 +37,24 @@ jobs:
           ENTROPICMEM_PRIVACY_DIGESTS: ${{ secrets.ENTROPICMEM_PRIVACY_DIGESTS }}
           ENTROPICMEM_REQUIRE_PRIVACY_DIGESTS: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && '1' || '0' }}
 
+  # F-01: the semantic-st extra (sentence-transformers >= 5.6.0, numpy,
+  # scikit-learn) installs and the embedding backends degrade gracefully when
+  # it is absent. Torch is heavy, so this runs as a separate optional job
+  # rather than bloating the standard test matrix.
+  semantic-st:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - run: pip install -q "pytest==9.0.3" "sentence-transformers>=5.6.0" "numpy>=1.24.0,<3" "scikit-learn>=1.5,<2"
+      - run: pytest -q tests/unit/test_em_embeddings_backends.py
+
   # EM-007: run the ci eval suite and compare against the committed baseline.
   # Fails on any gated regression per §6.3 (recall@5, ndcg@5, abstain_correct,
   # noise_rate, must_not_ok). The threshold warnings documented in §2.4 are
