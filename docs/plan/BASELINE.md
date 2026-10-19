@@ -26,20 +26,21 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2929 passed, 4 skipped, 2 xfailed** *(projected from the CI-equivalent run below; the run for this branch's SHA is read at landing and stamped in the reconciliation)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2929 passed, 4 skipped, 2 xfailed** *(read at `adb1439`; all four CI legs 3.10–3.13 report it identically)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2853 passed, 16 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2854 passed, 15 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2931 passed, 2 skipped, 2 xfailed** |
 
-Read as at `4cde953` (EM-604, the opt-in ingestion of human vault edits, landed on
-`main`; the next chunk is EM-605) — **confirmed green on that exact SHA:** run
-`39219386624` (a `push` to `main`), **all 11 jobs success**, `identity-guard` and
-`windows-import` included. CI's figure is **read from the job log**, never assumed:
-`gh run view <run-id> --log` on the run for the exact SHA; all four CI legs
-(3.10–3.13) report the identical triple. **The gap between this box's CI-equivalent
-reading and CI is in the middle column, not the total — `2930 / 2 / 2` versus
-`2928 / 4 / 2` is `−2 passed, +2 skipped`, the two hermes-agent host pins that pass
-here and skip in CI**, the same pair the ladder below walks.
+Read as at `adb1439` (EM-604 landed, plus EM-603's 5k-AC de-flake; the next chunk is
+EM-605) — **confirmed green on that exact SHA:** run `39226716232` (a `push` to `main`),
+**all 11 jobs success**, `identity-guard` and `windows-import` included (the EM-604
+landing itself was confirmed green at `4cde953`, run `39219386624`; the post-merge push
+re-ran the eleven on `main` too, run `39228057585`, all success). CI's figure is
+**read from the job log**, never assumed: `gh run view <run-id> --log` on the run for the
+exact SHA; all four CI legs (3.10–3.13) report the identical triple. **The gap between
+this box's CI-equivalent reading and CI is in the middle column, not the total —
+`2931 / 2 / 2` versus `2929 / 4 / 2` is `−2 passed, +2 skipped`, the two hermes-agent host
+pins that pass here and skip in CI**, the same pair the ladder below walks.
 
 ## Why the three environments differ
 

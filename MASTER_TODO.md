@@ -15,7 +15,7 @@ points at.
 
 ---
 
-## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix), chunk 39 (EM-602, both slices) and chunk 40 (EM-603, the incremental index) are complete, and **chunk 41 (EM-604, opt-in ingestion of human vault edits) is COMPLETE (landed 2026-10-19 as `31a7323`), so the next chunk is EM-605 (graph export v3)**
+## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix), chunk 39 (EM-602, both slices) and chunk 40 (EM-603, the incremental index) are complete, and **chunk 41 (EM-604, opt-in ingestion of human vault edits) is COMPLETE (landed 2026-10-19 as `31a7323`); EM-603's 5k AC is de-flaked (landed 2026-10-19 as `adb1439`); so the next chunk is EM-605 (graph export v3)**
 
 **Development stopped at this point on 2026-10-17.** S5 (formation & consolidation) is complete on
 `main`: **EM-501**, **EM-502** (both slices), **EM-503** (core + wiring), and the
@@ -75,8 +75,9 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-19, against branch `main` at `31a7323` — **chunk 41, EM-604,
-the opt-in ingestion of human vault edits, is complete (landed `31a7323`), after chunk 40
+**Last reconciled:** 2026-10-19, against branch `main` at `adb1439` — **chunk 41, EM-604,
+the opt-in ingestion of human vault edits, is complete (landed `31a7323`), and EM-603's
+5k AC is de-flaked (landed `adb1439`), after chunk 40
 (EM-603, the incremental index — `338ec2a`), chunk 39 (EM-602,
 both slices — `607d54f` + `c29addc`) and chunk 38 (the `remember` content ceiling,
 `c53b182`); the next chunk is EM-605 (graph export v3).** Before them
@@ -740,18 +741,21 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing is in flight on `main`; branch `em-603-deflake` carries EM-603's 5k-AC
-de-flake, committed and landing — its run's CI is read before the merge, and the wall-clock
-budget becomes a same-run ratio with 300 ms as its floor (+1 test, bare 2853 / 16 / 2).
-Chunk 41 — EM-604, the opt-in ingestion of human vault edits —
+**Nothing is in flight. Chunk 41 — EM-604, the opt-in ingestion of human vault edits —
 landed 2026-10-19 (`31a7323`, on `em-604-vault-ingest`, then ff-merged and the branch
 deleted; 11/11 check-runs green on the exact SHA, `identity-guard` included; one recorded
-`windows-import` re-run flake on the same SHA — EM-603's 5k AC, not EM-604 code, now fixed
-forward by that de-flake).** 15 new
+`windows-import` re-run flake on the same SHA — EM-603's 5k AC, not EM-604 code).** 15 new
 tests, **11 mutation checks all red**, each restored from a byte copy; CI's 3.12 count
 **2928 / 4 / 2** read at `31a7323`, local counts bare **2852 / 16 / 2**, digest
 **2853 / 15 / 2**, CI-equivalent 3.12 **2930 / 2 / 2**; the record is the Part A block in
-`NEXT_CHUNK.md` and the CHANGELOG's `[Unreleased]`/Added entry. **Chunk 40 — EM-603, the
+`NEXT_CHUNK.md` and the CHANGELOG's `[Unreleased]`/Added entry. **EM-603's 5k AC is
+de-flaked** (landed 2026-10-19 as `adb1439`, branch `em-603-deflake` deleted; 11/11
+check-runs green on the exact SHA, `windows-import` included, and CI 3.12 reads
+**2929 / 4 / 2** there): the AC now measures a same-run ratio with the card's 300 ms as its
+floor, and the walk's no-per-note-`resolve` half is pinned structurally; +1 test, bare
+**2853 / 16 / 2**, digest **2854 / 15 / 2**, CI-equivalent **2931 / 2 / 2**, 3 mutation
+checks all red; the same commit makes the CI record unambiguous in `BASELINE.md` (a legend
+and the CI-versus-local gap stated where the table is read). **Chunk 40 — EM-603, the
 incremental index — landed 2026-10-18
 (`338ec2a`), after chunk 39 (EM-602, `607d54f` + `c29addc`), chunk 38 (`c53b182`),
 EM-608 (`3b71cf0`) and EM-601's both halves (`bdc1e20`, `e986059`) the same day; **the next
