@@ -432,25 +432,35 @@ class Vault:
         if full.exists():
             full.unlink()
 
+    def _folder_base(self, folder: Optional[str]) -> Path:
+        """Resolve a folder argument under the vault root.
+
+        Folder names are caller input (CLI/agent), so they go through the same
+        containment choke point as note paths. Existing behaviour is kept:
+        an exact miss falls back to a case-insensitive match among the root's
+        directory names.
+        """
+        if not folder:
+            return self.root
+        base = self.resolve_path(folder)
+        if base.exists():
+            return base
+        # Case-insensitive match, but only on a single path component; the
+        # containment check above has already rejected absolute and `..` input.
+        name = Path(str(folder).removeprefix("vault://")).name
+        if name:
+            for item in self.root.iterdir():
+                if item.is_dir() and item.name.lower() == name.lower():
+                    return item
+        return base
+
     def list_notes(
         self,
         folder: Optional[str] = None,
         include_archive: bool = False,
     ) -> List[Path]:
         """List all Markdown files, optionally scoped to a folder. Skips protected + archive."""
-        # Find the actual folder (case-insensitive match against existing dirs)
-        base = self.root
-        if folder:
-            # Try exact match first, then case-insensitive
-            folder_path = self.root / folder
-            if not folder_path.exists():
-                # Try case-insensitive match
-                for item in self.root.iterdir():
-                    if item.is_dir() and item.name.lower() == folder.lower():
-                        folder_path = item
-                        break
-            base = folder_path
-
+        base = self._folder_base(folder)
         if not base.exists():
             return []
         notes = []
@@ -510,15 +520,7 @@ class Vault:
     ) -> List[Tuple[Path, int, str]]:
         """Grep-like search inside note bodies. Returns (path, line_number, line)."""
         results = []
-        base = self.root
-        if folder:
-            folder_path = self.root / folder
-            if not folder_path.exists():
-                for item in self.root.iterdir():
-                    if item.is_dir() and item.name.lower() == folder.lower():
-                        folder_path = item
-                        break
-            base = folder_path
+        base = self._folder_base(folder)
         if not base.exists():
             return results
         # Sanitize pattern: only use for case-insensitive substring match, no regex

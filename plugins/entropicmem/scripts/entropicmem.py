@@ -975,8 +975,15 @@ def cmd_moc(args) -> int:
     index = VaultIndex(index_path)
     domains = [args.domain] if args.domain else vault.get_domains()
     for domain in domains:
-        notes = vault.list_notes(folder=domain)
-        domain_dir = vault.root / domain
+        # One contained resolution for both the read and the write. A folder
+        # that escapes the vault is refused here, before anything is written.
+        try:
+            domain_dir = vault.resolve_path(domain)
+            notes = vault.list_notes(folder=domain)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            index.close()
+            return 2
         domain_dir.mkdir(exist_ok=True)
         lines = [
             "---",

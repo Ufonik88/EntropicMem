@@ -310,6 +310,16 @@ class TestPathContainment:
             with pytest.raises(ValueError):
                 vault.resolve_path(bad)
 
+    def test_folder_arguments_reject_escape(self, temp_vault):
+        vault, _ = temp_vault
+        evil = self._outside_file(vault)
+        with pytest.raises(ValueError):
+            vault.list_notes(folder="../vault-evil")
+        with pytest.raises(ValueError):
+            vault.search_notes("secret", folder="../vault-evil")
+        with pytest.raises(ValueError):
+            vault.list_notes(folder=str(evil.parent))
+
     def test_resolve_path_allows_vault_relative_forms(self, temp_vault):
         vault, _ = temp_vault
         p1 = vault.resolve_path("Knowledge/Index.md")

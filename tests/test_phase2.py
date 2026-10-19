@@ -121,6 +121,16 @@ class TestMoc:
         assert note.note_type == "index"
         assert note.domain == "Knowledge"
 
+    def test_moc_refuses_an_escaping_domain(self, seeded_vault):
+        vp, ip = seeded_vault
+        outside = vp.parent / "outside"
+        outside.mkdir(exist_ok=True)
+        r = _run("moc", "--domain", "../outside",
+                 ENTROPICMEM_VAULT_PATH=str(vp), ENTROPICMEM_INDEX_DB=str(ip))
+        assert r.returncode == 2
+        assert "Error:" in r.stderr
+        assert not (outside / "Index.md").exists()
+
     def test_moc_adds_backlinks(self, seeded_vault):
         vp, ip = seeded_vault
         r = _run("moc",
