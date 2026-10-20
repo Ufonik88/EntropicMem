@@ -6,6 +6,92 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 > Entries below that also shipped in the 2.8.1 patch are listed again, verbatim, in the `[2.8.1]` section.
 
+### Dependency Update — 2026-10-20
+
+Team record of the dependency work landed across the five active projects in the week of 2026-10-20: what changed, what was deferred, and what consumers must do.
+
+**Sources of truth (the only ones used):**
+- The five parent dependency tasks — branches and commits are listed under each project below.
+- *Major Version Upgrade Risk Assessment* (2026-10-19, @Rikus Research).
+- Merged/opened PR list: no PRs were opened this round (`gh` is unauthenticated on all remotes); the changes exist as local branches and commits, ready to be opened as PRs.
+
+**Verification:** every version delta was checked against the commit diff in the owning repo (`git show <sha>`). Installed versions for entropic-dash were additionally verified by import (`fastapi 0.148.0`, `uvicorn 0.54.0`, `httpx 0.28.1`). This task is documentation only: no dependency was installed or upgraded here, and no application code, build config, or lockfile was changed beyond what the parent tasks already landed.
+
+**No major versions were shipped this round.** Every landed change is a patch/minor floor or an upper-bound tightening within a declared major. The assessed majors (openai 2→3, rich 14→15, cryptography 49→50 for entropic-dash/hermes-webui; sentence-transformers/numpy/scikit-learn for EntropicMem) were not applied and are listed under **Deferred / Not Updated** with reasons and revisit triggers.
+
+#### Changes by project
+
+**hermes-agent** — branch `chore/deps-hermes-agent-2026-10-20`, commit `7d68ab50eb` (`pyproject.toml` only: manifest-only, live venv untouched, `uv.lock` not regenerated — documented gap)
+
+Patch/minor bumps:
+- `truststore` 0.10.4 → 0.10.5 (patch)
+- `python-dotenv` 1.2.2 → 1.2.4 (patch)
+- `tenacity` 9.1.4 → 9.2.1 (patch)
+- `ruamel.yaml` 0.18.16 → 0.19.1 (minor)
+- `requests` 2.33.0 → 2.34.2 (patch)
+
+Not applied: `certifi` 2026.10.18 → 2026.5.20 was proposed and then **reverted** — it violates the 3-day exclude-newer cutoff; `certifi` is unchanged.
+
+Upgrade note: none — patch/minor only, no breaking change, no consumer action required.
+
+**hermes-webui** — commit `5f59904d` (`package.json`, `requirements.txt`, `package-lock.json` regenerated, `uv.lock` regenerated)
+
+Patch/minor changes:
+- `eslint` (devDependency) ^10.4.0 → ^10.13.0 (patch/minor within range)
+- `cryptography` >=42.0 → >=42.0,<43.0 (upper bound added to keep the 50.x major out; floor unchanged)
+
+File change only, no version delta: `requirements.txt` was rewritten to the single `cryptography>=42.0,<43.0` constraint — the `pyyaml>=6.0` line was removed from the runtime file, and the commented optional Office parsers (`python-docx`/`openpyxl`/`python-pptx`) were dropped from the comment (they remain as unpinned test deps in `requirements-dev.txt`). No tracked `python-docx` version changed in this commit.
+
+Upgrade note: none — no breaking change; the `<43.0` bound prevents `cryptography` 50.x from being pulled in.
+
+**entropic-dash** — commit `374736c` (`requirements.txt` only; full suite 43 tests pass; imports verified)
+
+Bound tightening (floors unchanged; installed versions verified working):
+- `fastapi` >=0.133.0 → >=0.133.0,<0.149.0 (installed 0.148.0)
+- `uvicorn` >=0.53.0 → >=0.53.0,<0.55.0 (installed 0.54.0)
+- `httpx` >=0.28.1 → >=0.28.1,<2.15.0 (installed 0.28.1)
+
+Upgrade note: consumers should confirm installed versions satisfy the new upper bounds; the verified working set is `fastapi 0.148.0`, `uvicorn 0.54.0`, `httpx 0.28.1`. No consumer action required if already on those versions.
+
+**EntropicMem** — branch `chore/deps-entropicmem-2026-10-20`, commits `3328fe4` + `6e66e41` (`pyproject.toml` + `uv.lock`: `uv lock --upgrade`, then `uv lock --check` clean; `ruff` clean; `.gitignore` excludes `uv*.lock`, so the lockfile was force-added — flagged for the owner)
+
+Patch/minor floors raised (same major in every case):
+- `fastembed` >=0.3 → >=0.9.0 (`semantic` extra)
+- `graphviz` >=0.20 → >=0.21
+- `cryptography` >=50.0.0 → >=50.0.2
+- `fastapi` >=0.109.1,<1 → >=0.154.0,<1
+- `uvicorn` >=0.30,<1 → >=0.54.0,<1
+- `pytest` >=9.0.3 → >=9.1.1
+- `ruff` >=0.4.0 → >=0.17.1
+
+Pytest is not green: 7 failures, all proven pre-existing or environmental (follow-up `t_90a566db`). `.github/workflows/test.yml` pins `fastapi==0.143.0`, `pytest==9.0.3`, `cryptography==50.0.2`, now below the new floors — out of scope here, flagged for the owner.
+
+Upgrade note: none — same-major floors, no breaking change in declared usage, no consumer action required.
+
+**hermes-portal** — branch `chore/deps-hermes-portal-2026-10-20`, commit `ba9d706` (`pyproject.toml` documents the standard-library-only nature)
+
+`hermes-portal` has no external dependencies, so there is nothing to bump. No dependency changes this round; the commit documents that status rather than changing any pin. Publish note: remote `rpmalouin/Hermes-Portal` access is denied (403), so the branch is local only.
+
+Upgrade note: none.
+
+#### Deferred / Not Updated
+
+| Package | Project | Current → target | Reason | Revisit trigger |
+|---------|---------|------------------|--------|-----------------|
+| `sentence-transformers` | EntropicMem | >=5.6.0 → 6.1.0 | Major bump; the semantic stack (`sentence-transformers` + `numpy` + `scikit-learn`) is superseded by `semantic-st` in the manifest | When a major-version move is scheduled and approved by the owner |
+| `numpy` | EntropicMem | >=1.24.0 → 2.5.4 | Major bump; the lock splits `numpy` per Python marker (2.2.6 / 2.4.6 / 2.5.4), so no single floor can express it | When markers unify or a marker-aware floor can be declared |
+| `scikit-learn` | EntropicMem | >=1.5,<2 → 1.9.1 | `1.9.1` resolves only on Python >=3.14; the project supports Python 3.10 (3.10 marker pins `1.7.2`) | On Python 3.14+ support, or when `1.9.1` resolves on 3.10 |
+| `openai` | hermes-agent | 2.24.0 → 3.35.1 | Assessed **MIGRATION REQUIRED**: HTTPX2 becomes the default HTTP client and `httpx` is no longer installed automatically; `build_keepalive_http_client()` (`agent/process_bootstrap.py`) must return `httpx2` clients; SDK client injection in `agent/auxiliary_client.py` and `agent/agent_runtime_helpers.py` must be updated; `httpx` stays for non-SDK consumers | Separate implementation phase; revisit after the httpx2 migration and OpenAI SDK integration tests pass |
+| `rich` | hermes-agent | 14.3.3 → 15.0.0 | Assessed **SAFE** (only breaking change: Python 3.8 dropped; `hermes-agent` requires >=3.11) but not applied this round — constraint-only change in `pyproject.toml` | Next dependency cycle; no code changes required |
+| `cryptography` 50.x | entropic-dash, hermes-webui | 49.0.0 → 50.0.2 | Assessed **SAFE** (no DSA/FFDH/pkcs7/DH usage in our code) but not applied this round; `hermes-webui` deliberately bounds `<43.0` to avoid the major; `entropic-dash` has no direct `cryptography` pin (transitive via `python-jose[cryptography]`) | When the projects accept the `cryptography` 50.x major |
+
+#### Upgrade notes (user-visible / breaking impact)
+
+- **hermes-agent — `openai` 3.x (deferred, breaking):** consumers/devs who adopt `openai` 3.x must migrate `build_keepalive_http_client()` from `httpx.Client`/`httpx.AsyncClient` to `httpx2.Client`/`httpx2.AsyncClient`, pass `httpx2` clients through `agent/auxiliary_client.py` and `agent/agent_runtime_helpers.py`, add `httpx2>=0.28.1,<0.29` to `pyproject.toml` while keeping `httpx[socks]==0.28.1` for other consumers, and re-run the OpenAI SDK integration paths. Staying on `openai` 2.x requires no action.
+- All changes landed this round (patch/minor floors and upper bounds only) are non-breaking: no consumer action required for `hermes-webui`, `entropic-dash`, `EntropicMem`, or `hermes-portal`.
+
+**Not a re-assessment:** this entry records what landed and what was deferred; it does not re-rate any upgrade. Ratings quoted above come from the *Major Version Upgrade Risk Assessment* (2026-10-19).
+
 ### Added
 
 - **Graph edges now encode relationship strength in stroke weight.** Edge opacity (0.2–0.9) and width (1–2 px, below the node's 2.2 px selected border weight) map the graph model's per-edge `weight` through a small pure, unit-tested helper (`em/graph/assets/graph-strength.js`, `tests/unit/graph-strength.test.js`) applied in the exported viewer's SVG link render (`em/graph/assets/graph.js`). The model, the strength data and the layout algorithm are untouched: the extent is normalised across the edges in the current view; a single edge or all-equal strengths fall back to mid-range opacity (0.55); missing or zero strength renders at the lowest visible opacity (0.2, never 0). Existing palette tokens only (`--edge`), no new tokens. Verified in a real browser in both dark and light themes with no console errors; `node --check` clean; 10 unit tests pass; graph suites pass.
