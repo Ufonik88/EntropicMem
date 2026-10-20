@@ -146,6 +146,19 @@ body { background: var(--bg-grad); color: var(--text); font-family: var(--body);
 .node-group.selected .node-shape { stroke: var(--accent); stroke-width: 2.2; stroke-opacity: 0.9; filter: url(#node-glow-strong); }
 .node-group.on-path .node-shape { stroke: var(--accent); stroke-width: 2.2; stroke-opacity: 0.95; filter: url(#node-glow-strong); }
 
+/* ── Edge highlight on node hover ── */
+/* Connected edges brighten, non-connected edges dim slightly. The transition is
+   short and disabled under prefers-reduced-motion. stroke-opacity is animated
+   (not the stroke colour) so directional gradients keep showing while highlighted. */
+.links path {
+  transition: stroke-opacity 150ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .links path {
+    transition: none;
+  }
+}
+
 /* ── Modal ── */
 #modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: none; backdrop-filter: blur(4px); }
 #modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 78vw; max-width: 1000px; height: 80vh; max-height: 92vh; background: #111218; border: 1px solid var(--border); border-radius: 16px; z-index: 101; display: none; flex-direction: column; overflow: hidden; box-shadow: 0 24px 72px rgba(0,0,0,0.7), 0 0 0 1px rgba(90,228,170,0.12); }

@@ -422,6 +422,37 @@ class TestDesignTokens:
             "hover glow CSS rule missing"
 
 
+class TestEdgeHighlight:
+    """Edge highlight on node hover: connected edges brighten, non-connected
+    dim slightly, transition is short and reduced-motion safe, and the stroke
+    colour (and thus directional gradients) is never overridden."""
+
+    def test_edge_highlight_transition(self, populated_index):
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50)
+        assert "transition: stroke-opacity" in html, \
+            "edge highlight transition missing"
+        assert "150ms" in html, "edge highlight transition duration missing"
+
+    def test_edge_highlight_respects_reduced_motion(self, populated_index):
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50)
+        assert "prefers-reduced-motion" in html, \
+            "prefers-reduced-motion rule missing for edge highlight"
+
+    def test_edge_highlight_js_logic(self, populated_index):
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50)
+        assert "stroke-opacity" in html, "edge highlight stroke-opacity missing"
+        assert "EDGE_HOVER_CONNECTED_BOOST" in html, \
+            "connected-edge boost constant missing"
+        assert "EDGE_HOVER_UNCONNECTED_DIM" in html, \
+            "non-connected-edge dim constant missing"
+
+
 class TestJSSyntaxValid:
     """Guard: inline JS still parses without SyntaxError."""
 

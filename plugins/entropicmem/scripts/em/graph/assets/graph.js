@@ -42,6 +42,17 @@ function edgeDash(d) {
   return null;
 }
 
+/* ── Edge highlight on node hover ── */
+/* Connected edges are boosted toward the top of the visible opacity band;
+   non-connected edges are dimmed but stay visible. Both factors are monotonic
+   in the strength-encoded base opacity, so strength ordering survives the
+   highlight. The stroke colour is never touched — directional gradients keep
+   showing while highlighted — and no new palette tokens are introduced. */
+const EDGE_OPACITY_MAX = window.__emGraphStrength?.EDGE_OPACITY_MAX ?? 0.9;
+const EDGE_OPACITY_MIN = window.__emGraphStrength?.EDGE_OPACITY_MIN ?? 0.2;
+const EDGE_HOVER_CONNECTED_BOOST = 1.4; // multiply base opacity, clamped at max
+const EDGE_HOVER_UNCONNECTED_DIM = 0.5; // multiply base opacity, clamped at min
+
 /* ── Directional edges: gradient strokes reading source → target ── */
 // Wikilink and relation-triple edges carry a direction (source → target);
 // tag edges and anything else are undirected and keep a solid stroke.
@@ -88,9 +99,9 @@ function syncEdgeGradients(edges) {
     const id = dirGradId(d);
     want.add(id);
     let grad = dirGradById.get(id);
+    const s = nodeById.get(typeof d.source === "object" ? d.source.id : d.source);
+    const t = nodeById.get(typeof d.target === "object" ? d.target.id : d.target);
     if (!grad) {
-      const s = nodeById.get(typeof d.source === "object" ? d.source.id : d.source);
-      const t = nodeById.get(typeof d.target === "object" ? d.target.id : d.target);
       grad = defs.append("linearGradient")
         .attr("class", "dir-grad")
         .attr("id", id)
@@ -896,13 +907,22 @@ function render() {
     .attr("role", "button").attr("aria-label", d => `${d.title || d.id}, ${d.domain || "uncategorized"}`)
     .on("mouseover", (event, d) => {
       const incident = adjacency.get(d.id) || new Set();
-      linkG.style("opacity", e => (incident.has(e.source.id) || incident.has(e.target.id)) ? 1 : 0.15)
-          .attr("stroke", e => (incident.has(e.source.id) || incident.has(e.target.id)) ? "#8b7cf6" : (edgeColor(e)));
+      linkG.style("opacity", 1); // element fully opaque so stroke-opacity is effective
+      linkG.style("stroke-opacity", e => {
+        const s = typeof e.source === "object" ? e.source.id : e.source;
+        const t = typeof e.target === "object" ? e.target.id : e.target;
+        const connected = incident.has(s) || incident.has(t);
+        const base = strengthOf(e.weight, sLo, sHi).opacity;
+        return connected
+          ? Math.min(EDGE_OPACITY_MAX, base * EDGE_HOVER_CONNECTED_BOOST)
+          : Math.max(EDGE_OPACITY_MIN, base * EDGE_HOVER_UNCONNECTED_DIM);
+      });
       d3.select(event.currentTarget).select(".node-shape").attr("stroke", "#5AE4AA").attr("stroke-width", 2.2);
       if (labelG) labelG.style("opacity", computeLabelOpacity(currentTransform.k));
     })
     .on("mouseout", (event, d) => {
-      linkG.style("opacity", 0.65).attr("stroke", d => edgeColor(d));
+      linkG.style("opacity", null);
+      linkG.style("stroke-opacity", null);
       d3.select(event.currentTarget).select(".node-shape").attr("stroke", null).attr("stroke-width", null);
     })
     .call(d3.drag()
@@ -922,7 +942,11 @@ function render() {
     .on("mousemove", moveTooltip)
     .on("mouseout", hideTooltip)
     .on("focusin", (event, d) => { expandLabel(d); })
-    .on("focusout", (event, d) => { collapseLabel(d); });
+    .on("focusout", (event, d) => {
+      collapseLabel(d);
+      linkG.style("opacity", null);
+      linkG.style("stroke-opacity", null);
+    });
 
   // Restore positions for a smooth transition instead of a full re-scatter
   nodeG.each(function(d) {
