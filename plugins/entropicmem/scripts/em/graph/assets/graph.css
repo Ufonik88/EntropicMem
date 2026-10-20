@@ -53,6 +53,11 @@ body { background: var(--bg-grad); color: var(--text); font-family: var(--body);
 .zoom-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
 .zoom-btn:active { transform: scale(0.94); }
 #imp-val { color: var(--accent); font-weight: 600; }
+#time-control { margin-top: 2px; }
+#time-control[hidden] { display: none; }
+.time-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.time-row input[type=range] { flex: 1; min-width: 0; width: auto; }
+.time-label { flex: none; width: 78px; text-align: right; color: var(--accent); font-size: 10px; white-space: nowrap; }
 #search-results { margin-top: 6px; max-height: 220px; overflow-y: auto; border: 1px solid #333; border-radius: var(--radius-sm); background: #14141f; }
 #search-results[hidden] { display: none; }
 .search-hit { display: block; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid #222232; padding: 7px 9px; color: var(--text); cursor: pointer; font-family: var(--body); }

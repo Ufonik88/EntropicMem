@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from em.clock import parse_iso, to_iso
 from em_internal.index import VaultIndex
 
 # ── per-domain color palette (brand-inspired, colorblind-safe) ─────────────
@@ -284,10 +285,12 @@ class GraphEntity:
 
 @dataclass(frozen=True)
 class GraphRelation:
-    """One open relation between two entities in the same scope.
+    """One relation between two entities in the same scope.
 
     ``object_id`` is the other entity; literal relations never reach the model
     (they have no node to point at) and are counted by the loader instead.
+    ``valid_from`` / ``valid_to`` are nullable: either end can be open. The
+    model turns them into ``time_span`` ranks over the payload's time axis.
     """
 
     subject_id: str
@@ -326,6 +329,81 @@ class EntityGraph:
     hidden_relations: int = 0
 
 
+def _normalise_time_bound(value) -> Optional[str]:
+    """A relation bound as a canonical UTC instant, or a sentinel.
+
+    ``None`` (or empty) means the bound is open. An unparseable value returns
+    ``""``: the edge stays visible in every window rather than crashing an
+    export or silently acquiring a made-up date. The count, not the value, is
+    reported.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return to_iso(parse_iso(text))
+    except (TypeError, ValueError):
+        return ""
+
+
+def _time_axis(relations) -> tuple:
+    """Build the inclusive rank axis and per-edge spans (EM-605 slice 2.3).
+
+    The stops are the sorted, normalised instants named by the surviving
+    relation edges. A null ``valid_from`` ranks at ``-1`` and a null
+    ``valid_to`` at ``len(stops)``, so the viewer's integer window predicate
+    means the same thing as the timestamp predicate:
+
+        ``valid_from <= t1 and (valid_to is null or valid_to >= t0)``
+
+    Equal boundaries share one stop, which is what makes a point interval a
+    point. An edge with both bounds open has no span and is timeless; an edge
+    with one unparseable bound has no span either and is counted.
+    """
+    normalized = []
+    stops = set()
+    unparsed = 0
+    for relation in relations:
+        start = _normalise_time_bound(relation.valid_from)
+        end = _normalise_time_bound(relation.valid_to)
+        if start == "" or end == "":
+            unparsed += 1
+            normalized.append(None)
+            continue
+        normalized.append((start, end))
+        if start is not None:
+            stops.add(start)
+        if end is not None:
+            stops.add(end)
+
+    stops = sorted(stops)
+    rank = {instant: index for index, instant in enumerate(stops)}
+    spans = []
+    for item in normalized:
+        if item is None:
+            spans.append(None)
+            continue
+        start, end = item
+        if start is None and end is None:
+            spans.append(None)
+            continue
+        spans.append([
+            -1 if start is None else rank[start],
+            len(stops) if end is None else rank[end],
+        ])
+
+    block = {
+        "available": bool(stops),
+        "min": stops[0] if stops else "",
+        "max": stops[-1] if stops else "",
+        "stops": stops,
+        "unparsed_relations": unparsed,
+    }
+    return spans, block
+
+
 def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
     """Turn one EntityGraph into nodes, edges and its meta block.
 
@@ -338,7 +416,11 @@ def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
     * an entity with no surviving edge is not drawn (an isolated dot is noise);
     * the scope's losses are counted in ``hidden_entities`` /
       ``hidden_relations``, and the block carries no hidden name, id, alias,
-      predicate or endpoint — only the counts and the scope that produced them.
+      predicate or endpoint — only the counts and the scope that produced them;
+    * time losses are not scope losses: the payload carries every surviving
+      edge with an inclusive ``time_span`` rank, and the viewer counts what the
+      selected window hides (``timeHidden``), never adding it to
+      ``hidden_relations``. Entities are timeless and stay.
     """
     by_id = {e.entity_id: e for e in entity_graph.entities}
     kept = []
@@ -384,8 +466,9 @@ def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
         })
 
     node_ids = {n["id"] for n in nodes}
+    spans, time_block = _time_axis(kept)
     edges = []
-    for r in kept:
+    for r, span in zip(kept, spans):
         source = f"entity:{r.subject_id}"
         target = f"entity:{r.object_id}"
         if source not in node_ids or target not in node_ids:
@@ -400,6 +483,7 @@ def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
             "color": get_relation_color(r.predicate),
             "valid_from": r.valid_from,
             "valid_to": r.valid_to,
+            "time_span": span,
             "confidence": r.confidence,
         })
 
@@ -415,6 +499,7 @@ def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
         "truncated": entity_graph.truncated,
         "dropped_relations": dropped,
         "literal_relations": entity_graph.literal_relations,
+        "time": time_block,
     }
     return nodes, edges, block
 

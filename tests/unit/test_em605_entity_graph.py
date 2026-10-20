@@ -1,4 +1,4 @@
-"""EM-605 slice 2.1 — entity nodes and typed relation edges.
+"""EM-605 slices 2.1–2.3 — entity nodes, typed relation edges and the time axis.
 
 The graph's two stores do not share an id space. ``index.db`` keys notes by
 their vault-relative path (``note_id_for_path``); ``memory.db`` keys entities by
@@ -16,9 +16,13 @@ What is pinned here:
 * the "stores disagree" fixture: an entity whose id looks like a note id stays
   a separate node, and a ``memory_entities`` row pointing at a note id produces
   nothing (the loader does not read that table at all);
-* every relation that cannot become an edge — literal object, closed interval,
-  out-of-profile endpoint, or an endpoint trimmed by the entity cap — is
-  counted in ``meta.entities`` and emits no edge;
+* every relation that cannot become an edge — literal object, out-of-profile
+  endpoint, or an endpoint trimmed by the entity cap — is counted in
+  ``meta.entities`` and emits no edge; a **closed interval is an edge with both
+  bounds**, not a loss (slice 2.3);
+* the time axis is a server-built set of ranks: null becomes ±∞, equal
+  boundaries collapse to one stop, an unparseable bound is counted and left
+  visible, and the viewer's window is an inclusive rank range;
 * the body gate counts notes only, so entity nodes cannot fail a body export.
 
 Rules: invented data only (Acme / Globex, Alice / Bob Example, example.com).
@@ -28,6 +32,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -112,14 +117,20 @@ def _seed(
         alice = es.get_or_create_entity(alice_name, scope=scope, kind="person")
         acme = es.get_or_create_entity(acme_name, scope=scope, kind="org")
         widget = es.get_or_create_entity(widget_name, scope=scope, kind="product")
-        es.add_relation(
+        works_at = es.add_relation(
             scope=scope, subject_id=alice, predicate="works_at", object_id=acme
         )
-        es.add_relation(
+        makes = es.add_relation(
             scope=scope, subject_id=acme, predicate="makes", object_id=widget
         )
         es.add_alias(acme, acme_name.split()[0])
-    return {"alice": alice, "acme": acme, "widget": widget}
+    return {
+        "alice": alice,
+        "acme": acme,
+        "widget": widget,
+        "works_at": works_at,
+        "makes": makes,
+    }
 
 
 def _graph(memory, profile: str = "default", **kw):
@@ -135,6 +146,23 @@ def _payload(index, memory, **kw):
 def _endpoints_resolve(payload) -> bool:
     ids = {n["id"] for n in payload["nodes"]}
     return all(e["source"] in ids and e["target"] in ids for e in payload["edges"])
+
+
+def _edge(payload, predicate):
+    return next(e for e in payload["edges"] if e.get("predicate") == predicate)
+
+
+def _visible(span, lo, hi) -> bool:
+    """The viewer's inclusive-window predicate, over rank indices."""
+    return span[0] <= hi and span[1] >= lo
+
+
+def _set_interval(memory, relation_id, *, valid_from, valid_to):
+    with memory.writer() as conn:
+        conn.execute(
+            "UPDATE relations SET valid_from=?, valid_to=? WHERE id=?",
+            (valid_from, valid_to, relation_id),
+        )
 
 
 # ── the happy path: typed nodes and typed edges ─────────────────────────────
@@ -277,8 +305,12 @@ def test_note_ids_and_entity_ids_never_join(index, memory):
 # ── relations that cannot be edges are counted, never invented ──────────────
 
 
-def test_literal_and_closed_relations_emit_no_edge(index, memory):
+def test_a_literal_relation_emits_no_edge_and_a_closed_one_carries_its_bounds(
+    index, memory
+):
+    """2.1 dropped closed intervals; 2.3 draws them with their interval."""
     ids = _seed(memory)
+    closed_at = to_iso(utc_now())
     with memory.writer() as conn:
         es = EntityStore(conn)
         es.add_relation(
@@ -290,15 +322,21 @@ def test_literal_and_closed_relations_emit_no_edge(index, memory):
             object_id=ids["widget"],
         )
         conn.execute(
-            "UPDATE relations SET valid_to=? WHERE id=?", (to_iso(utc_now()), closed)
+            "UPDATE relations SET valid_to=? WHERE id=?", (closed_at, closed)
         )
 
     payload = _payload(index, memory)
     predicates = {e.get("predicate") for e in payload["edges"]}
     assert "born_in" not in predicates
-    assert "used_to_make" not in predicates
+    assert "used_to_make" in predicates
+    used = _edge(payload, "used_to_make")
+    assert used["valid_from"] is not None
+    assert used["valid_to"] == closed_at
+    assert used["time_span"] is not None
+    assert closed_at in payload["meta"]["entities"]["time"]["stops"]
     block = payload["meta"]["entities"]
     assert block["literal_relations"] == 1
+    assert block["time"]["unparsed_relations"] == 0
     assert _endpoints_resolve(payload)
 
 
@@ -737,6 +775,7 @@ def test_meta_reports_the_scope_without_naming_the_hidden(index, scoped):
         "truncated",
         "dropped_relations",
         "literal_relations",
+        "time",
     }
 
 
@@ -835,3 +874,181 @@ def test_cli_refuses_entities_for_dot(index, memory, tmp_path):
     )
     assert result.returncode == 2
     assert "only supported for --format html or json" in result.stderr
+
+
+# ── the time slider (slice 2.3) ─────────────────────────────────────────────
+
+T2019 = "2019-12-31T23:00:00.000Z"
+T2020 = "2020-01-01T00:00:00.000Z"
+T2021 = "2021-06-01T12:00:00.000Z"
+
+
+def test_a_closed_interval_is_an_edge_and_extends_the_time_axis(index, memory):
+    """2.1 counted closed intervals and drew nothing; 2.3 draws the interval."""
+    ids = _seed(memory)
+    _set_interval(memory, ids["works_at"], valid_from=T2020, valid_to=T2021)
+
+    payload = _payload(index, memory)
+    edge = _edge(payload, "works_at")
+    assert edge["valid_from"] == T2020
+    assert edge["valid_to"] == T2021
+    assert edge["time_span"] is not None
+    assert edge["time_span"][0] == 0
+    assert edge["time_span"][1] == 1
+
+    time = payload["meta"]["entities"]["time"]
+    assert time["available"] is True
+    assert time["min"] == T2020
+    assert T2021 in time["stops"]
+    assert time["stops"] == sorted(time["stops"])
+    assert time["unparsed_relations"] == 0
+    assert _endpoints_resolve(payload)
+
+
+def test_open_ended_intervals_get_infinite_ranks_on_the_missing_side(index, memory):
+    ids = _seed(memory)
+    _set_interval(memory, ids["works_at"], valid_from=T2020, valid_to=None)
+    _set_interval(memory, ids["makes"], valid_from=None, valid_to=T2019)
+
+    payload = _payload(index, memory)
+    time = payload["meta"]["entities"]["time"]
+    assert time["stops"] == [T2019, T2020]
+
+    works = _edge(payload, "works_at")["time_span"]
+    makes = _edge(payload, "makes")["time_span"]
+    assert works == [1, 2], "a null valid_to is +infinity, one past the last stop"
+    assert makes == [-1, 0], "a null valid_from is -infinity"
+    assert _visible(works, 1, 1) is True
+    assert _visible(makes, 0, 0) is True
+
+
+def test_equal_boundaries_are_a_point_interval(index, memory):
+    ids = _seed(memory)
+    _set_interval(memory, ids["works_at"], valid_from=T2021, valid_to=T2021)
+    _set_interval(memory, ids["makes"], valid_from=T2020, valid_to=None)
+
+    payload = _payload(index, memory)
+    time = payload["meta"]["entities"]["time"]
+    span = _edge(payload, "works_at")["time_span"]
+    assert span[0] == span[1]
+    assert time["stops"][span[0]] == T2021
+
+    assert _visible(span, 0, 0) is False
+    assert _visible(span, 1, 1) is True
+    assert _visible(span, 2, 2) is False
+
+
+def test_an_interval_outside_the_window_is_hidden_but_not_scope_hidden(index, memory):
+    ids = _seed(memory)
+    _set_interval(memory, ids["works_at"], valid_from=T2020, valid_to=T2020)
+    _set_interval(memory, ids["makes"], valid_from=T2021, valid_to=T2021)
+
+    payload = _payload(index, memory)
+    works = _edge(payload, "works_at")["time_span"]
+    makes = _edge(payload, "makes")["time_span"]
+    assert _visible(works, 1, 1) is False
+    assert _visible(makes, 1, 1) is True
+
+    block = payload["meta"]["entities"]
+    assert block["hidden_relations"] == 0, "time is a separate axis from scope"
+    assert block["time"]["unparsed_relations"] == 0
+
+
+def test_an_unparsed_bound_is_counted_and_left_visible(index, memory):
+    ids = _seed(memory)
+    _set_interval(memory, ids["works_at"], valid_from="not-a-timestamp", valid_to=None)
+
+    payload = _payload(index, memory)
+    edge = _edge(payload, "works_at")
+    assert edge["time_span"] is None, "an unfilterable edge is never hidden by time"
+    time = payload["meta"]["entities"]["time"]
+    assert time["available"] is True, "the other relation still supplies an axis"
+    assert time["unparsed_relations"] == 1
+    assert _visible([-1, len(time["stops"])], 0, len(time["stops"]) - 1)
+
+
+def test_no_bound_means_no_axis_and_no_filtering(index, memory):
+    ids = _seed(memory)
+    _set_interval(memory, ids["works_at"], valid_from=None, valid_to=None)
+    _set_interval(memory, ids["makes"], valid_from=None, valid_to=None)
+
+    payload = _payload(index, memory)
+    time = payload["meta"]["entities"]["time"]
+    assert time["available"] is False
+    assert time["stops"] == []
+    assert time["min"] == ""
+    assert time["max"] == ""
+    assert time["unparsed_relations"] == 0
+    for predicate in ("works_at", "makes"):
+        assert _edge(payload, predicate)["time_span"] is None
+
+
+def test_the_viewer_ships_a_time_window_control():
+    template = graph_assets.template()
+    for marker in (
+        'id="time-control"',
+        'id="time-from"',
+        'id="time-to"',
+        'id="time-from-label"',
+        'id="time-to-label"',
+    ):
+        assert marker in template, f"time slider markup missing: {marker}"
+
+    js = graph_assets.asset("graph.js")
+    assert "function buildTimeSlider()" in js
+    assert "DATA.meta.entities" in js
+    assert "time.stops" in js
+    assert 'getElementById("time-from").addEventListener("input"' in js
+    assert 'getElementById("time-to").addEventListener("input"' in js
+
+    build = re.search(r"function buildTimeSlider\(\) \{(.*?)\n\}", js, re.S)
+    assert build, "buildTimeSlider body not found"
+    body = build.group(1)
+    assert "const last = time.stops.length - 1" in body
+    assert "timeFrom = 0" in body
+    assert "timeTo = last" in body
+    assert 'from.value = "0"' in body
+    assert "to.value = String(last)" in body
+    assert "timeReady = true" in body
+    assert "box.hidden = true" in body
+
+    sync = re.search(r"function syncTimeWindow\(changed\) \{(.*?)\n\}", js, re.S)
+    assert sync, "syncTimeWindow body not found"
+    assert "if (timeFrom > timeTo)" in sync.group(1)
+    assert 'changed === "from"' in sync.group(1)
+
+
+def test_the_viewer_filters_only_relation_edges_by_the_serialized_span():
+    js = graph_assets.asset("graph.js")
+
+    predicate = re.search(r"function timeVisible\(e\) \{(.*?)\n\}", js, re.S)
+    assert predicate, "timeVisible helper not found"
+    body = predicate.group(1)
+    assert 'e.kind !== "relation"' in body
+    assert "!e.time_span" in body
+    assert "e.time_span[0] <= timeTo" in body
+    assert "e.time_span[1] >= timeFrom" in body
+
+    edge_filter = re.search(
+        r"const edges = DATA\.edges\.filter\(e => \{(.*?)\n  \}\);", js, re.S
+    )
+    assert edge_filter, "edge filter body not found"
+    assert "timeVisible(e)" in edge_filter.group(1)
+
+
+def test_time_hidden_is_counted_outside_the_scope_axis():
+    js = graph_assets.asset("graph.js")
+    stats = re.search(r"function updateStats\(\) \{(.*?)\n\}", js, re.S)
+    assert stats, "updateStats body not found"
+    body = stats.group(1)
+    assert "timeHidden" in body
+    assert "outside time window" in body
+    assert "hidden_relations" not in body, "scope losses are not time losses"
+
+    reset = re.search(r"function resetFilters\(\) \{(.*?)\n\}", js, re.S)
+    assert reset, "resetFilters body not found"
+    body = reset.group(1)
+    assert 'getElementById("time-from").value = "0"' in body
+    assert 'getElementById("time-to").value = String(last)' in body
+    assert "timeFrom = 0" in body
+    assert "timeTo = last" in body

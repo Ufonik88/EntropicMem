@@ -8,6 +8,14 @@ therefore loads a self-contained entity subgraph; the model prefixes its node
 ids with ``entity:`` and never infers a note↔entity edge. A relation whose
 endpoint is not one of the selected entities is counted, not drawn.
 
+Relations are loaded **whether open or closed** (EM-605 slice 2.3): a closed
+relation was true for a bounded period and belongs on the timeline. Both
+``valid_from`` and ``valid_to`` are nullable; the graph model turns the pair
+into an inclusive rank span over a sorted axis of the surviving edges, and the
+viewer applies the selected window to those ranks. The loader itself does not
+filter by time: it loads the whole scoped subgraph, so moving the slider never
+needs another database read.
+
 The database is opened ``mode=ro``: a read can never create or migrate the
 file, and a missing/foreign database is an empty graph with a path-free
 ``reason`` rather than an exception. ``scope_profile`` is required — a caller
@@ -56,7 +64,7 @@ def load_entity_graph(
     scope: str = SCOPE_OWNER,
     max_entities: int = 200,
 ) -> EntityGraph:
-    """Load one profile's entities and open relations for the graph.
+    """Load one profile's entities and relations for the graph.
 
     Only entities participating in at least one relation are candidates: an
     entity node with no edge is an isolated dot, so it is not drawn. Candidates
@@ -151,7 +159,7 @@ def load_entity_graph(
                 " r.valid_from, r.valid_to, r.confidence,"
                 " m.scope_profile AS memory_profile, m.scope_user AS memory_user"
                 " FROM relations r LEFT JOIN memories m ON m.id = r.memory_id"
-                " WHERE r.scope_profile=? AND r.valid_to IS NULL"
+                " WHERE r.scope_profile=?"
                 " ORDER BY r.subject_id, r.predicate, r.object_id, r.id",
                 (profile,),
             )

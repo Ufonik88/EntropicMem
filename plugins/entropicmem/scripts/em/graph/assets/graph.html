@@ -56,6 +56,17 @@ __ENTROPICMEM_CSS__</style>
   <label class="domain-check"><input type="checkbox" id="orphan-toggle" aria-label="Highlight orphan notes"> Highlight orphans</label>
   <label for="imp-slider">Min importance: <span id="imp-val">0.0</span></label>
   <input type="range" id="imp-slider" min="0" max="1" step="0.05" value="0" aria-label="Minimum importance filter">
+  <label>Time window</label>
+  <div id="time-control" hidden>
+    <div class="time-row">
+      <input type="range" id="time-from" min="0" max="0" step="1" value="0" aria-label="Earliest relation time">
+      <span class="time-label" id="time-from-label">—</span>
+    </div>
+    <div class="time-row">
+      <input type="range" id="time-to" min="0" max="0" step="1" value="0" aria-label="Latest relation time">
+      <span class="time-label" id="time-to-label">—</span>
+    </div>
+  </div>
   <div class="zoom-row" role="group" aria-label="Zoom controls">
     <button class="zoom-btn" id="btn-zoom-in" type="button" aria-label="Zoom in (+)" title="Zoom in (+)"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
     <button class="zoom-btn" id="btn-zoom-out" type="button" aria-label="Zoom out (-)" title="Zoom out (-)"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>

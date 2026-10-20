@@ -73,6 +73,10 @@ function haloGradientRef(color) {
 let simulation, svg, rootG, linkG, nodeG, labelG;
 let mmSvg, mmNodeG, mmViewport;
 let currentDomain = "", currentMinImp = 0, currentTag = "";
+// EM-605 2.3: relation edges carry an inclusive [start, end] rank over the
+// time axis in DATA.meta.entities.time. The scope filter is server-side; this
+// is only the time window.
+let timeFrom = 0, timeTo = 0, timeReady = false;
 let focusedId = null;
 let pathStart = null;       // first endpoint of a shift-click path query
 let activePath = null;      // rendered shortest path (array of node ids)
@@ -253,6 +257,64 @@ function buildTagSuggestions() {
   });
 }
 
+/* ── Time window (EM-605 slice 2.3) ── */
+function formatTimeLabel(value) {
+  return value ? value.slice(0, 10) : "—";
+}
+
+function timeVisible(e) {
+  if (!timeReady || e.kind !== "relation" || !e.time_span) return true;
+  return e.time_span[0] <= timeTo && e.time_span[1] >= timeFrom;
+}
+
+function updateTimeLabels() {
+  const time = DATA.meta.entities && DATA.meta.entities.time;
+  const stops = (time && time.stops) || [];
+  const fromEl = document.getElementById("time-from-label");
+  const toEl = document.getElementById("time-to-label");
+  if (fromEl) fromEl.textContent = formatTimeLabel(stops[timeFrom]);
+  if (toEl) toEl.textContent = formatTimeLabel(stops[timeTo]);
+}
+
+function buildTimeSlider() {
+  const box = document.getElementById("time-control");
+  if (!box) return;
+  const time = DATA.meta.entities && DATA.meta.entities.time;
+  if (!time || !time.available || !time.stops || !time.stops.length) {
+    box.hidden = true;
+    timeReady = false;
+    return;
+  }
+  const last = time.stops.length - 1;
+  timeFrom = 0;
+  timeTo = last;
+  timeReady = true;
+  const from = document.getElementById("time-from");
+  const to = document.getElementById("time-to");
+  from.min = to.min = "0";
+  from.max = to.max = String(last);
+  from.value = "0";
+  to.value = String(last);
+  updateTimeLabels();
+  box.hidden = false;
+}
+
+function syncTimeWindow(changed) {
+  if (!timeReady) return;
+  const from = document.getElementById("time-from");
+  const to = document.getElementById("time-to");
+  timeFrom = parseInt(from.value, 10) || 0;
+  timeTo = parseInt(to.value, 10) || 0;
+  if (timeFrom > timeTo) {
+    if (changed === "from") timeTo = timeFrom;
+    else timeFrom = timeTo;
+    from.value = String(timeFrom);
+    to.value = String(timeTo);
+  }
+  updateTimeLabels();
+  updateFilters();
+}
+
 /* ── Filtering ── */
 function getFilteredData() {
   let nodes = DATA.nodes;
@@ -269,7 +331,7 @@ function getFilteredData() {
   const edges = DATA.edges.filter(e => {
     const s = typeof e.source === "object" ? e.source.id : e.source;
     const t = typeof e.target === "object" ? e.target.id : e.target;
-    return ids.has(s) && ids.has(t);
+    return ids.has(s) && ids.has(t) && timeVisible(e);
   });
   return { nodes, edges };
 }
@@ -289,7 +351,14 @@ function updateStats() {
   const el = document.getElementById("stats-text");
   if (!el) return;
   const { nodes, edges } = getFilteredData();
-  const dropped = DATA.edges.length - edges.length;
+  const visibleIds = new Set(nodes.map(n => n.id));
+  const timeHidden = DATA.edges.reduce((count, e) => {
+    if (timeVisible(e)) return count;
+    const s = typeof e.source === "object" ? e.source.id : e.source;
+    const t = typeof e.target === "object" ? e.target.id : e.target;
+    return visibleIds.has(s) && visibleIds.has(t) ? count + 1 : count;
+  }, 0);
+  const dropped = DATA.edges.length - edges.length - timeHidden;
   const orphans = nodes.filter(n => (n.degree || 0) === 0).length;
   // The scope is decided in the model, before serialisation; this line only
   // reports it. A viewer-side filter would leave the hidden rows in the file.
@@ -300,6 +369,7 @@ function updateStats() {
   el.textContent =
     `${nodes.length} nodes / ${edges.length} edges` +
     (dropped > 0 ? ` (${dropped} hidden by filters)` : "") +
+    (timeHidden > 0 ? ` (${timeHidden} outside time window)` : "") +
     ` | ${DATA.meta.domains.length} domains` +
     ` | ${orphans} orphans` +
     scope;
@@ -312,6 +382,14 @@ function resetFilters() {
   document.getElementById("node-search").value = "";
   currentDomain = ""; currentMinImp = 0; currentTag = "";
   document.getElementById("imp-val").textContent = "0.0";
+  if (timeReady) {
+    const last = DATA.meta.entities.time.stops.length - 1;
+    document.getElementById("time-from").value = "0";
+    document.getElementById("time-to").value = String(last);
+    timeFrom = 0;
+    timeTo = last;
+    updateTimeLabels();
+  }
   clearFocus();
   render();
   updateStats();
@@ -1147,6 +1225,7 @@ document.addEventListener("DOMContentLoaded", () => {
   buildLegend();
   buildDomainChecks();
   buildTagSuggestions();
+  buildTimeSlider();
   restoreOverlayStates();
 
   document.getElementById("color-mode").addEventListener("change", (e) => {
@@ -1171,6 +1250,8 @@ document.addEventListener("DOMContentLoaded", () => {
     applyDimming();
   });
   document.getElementById("imp-slider").addEventListener("input", updateFilters);
+  document.getElementById("time-from").addEventListener("input", () => syncTimeWindow("from"));
+  document.getElementById("time-to").addEventListener("input", () => syncTimeWindow("to"));
   document.getElementById("tag-search").addEventListener("input", updateFilters);
   document.getElementById("node-search").addEventListener("keydown", (e) => { if (e.key === "Enter") handleSearch(); });
   document.getElementById("vault-search").addEventListener("input", () => {
