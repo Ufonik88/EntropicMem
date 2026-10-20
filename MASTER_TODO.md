@@ -770,7 +770,7 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing is in flight. Chunk 43, the EM-605 slice-1 follow-up, landed 2026-10-19 (`5258b46`; 11/11 check-runs green on the exact SHA, CI 3.12 2954 / 4 / 2 read there):
+**Graph pan with drag and momentum/inertia — kanban task `t_e7765a5e` (`frontend-fucker`):** landed on `main` (merge `7447365`). **Graph label typography, truncation and hover-to-expand — kanban task `t_113a29d5` (`frontend-fucker`):** COMPLETE — committed on branch `wt/t_113a29d5` as `411d7cc` (not yet merged to `main`). Node labels render in Space Grotesk (`--display`) at a radius-scaled 10–14px below each node, centered; long titles shorten with a measured ellipsis at the default node width; hover expands a shortened label in place to the full title and collapses on mouse-out; Tab focus reveals the full title, blur collapses it; WCAG AA verified in both themes (13.67:1 dark / 11.37:1 light; expanded 17.70:1 / 15.48:1); real-browser verification, no console errors. No memory data, graph layout/model or unrelated UI behavior changed. Nothing else is in flight. Chunk 43, the EM-605 slice-1 follow-up, landed 2026-10-19 (`5258b46`; 11/11 check-runs green on the exact SHA, CI 3.12 2954 / 4 / 2 read there):
 the viewer assets declared as a package so the wheel ships them warning-free (and the
 export verified from an installed wheel outside the repo), the figures of record now
 measured by a script and checked by a guard instead of hand-typed into five places, and
@@ -791,6 +791,8 @@ tests, **8 mutation checks all red**; CI 3.12 **2936 / 4 / 2** read at `2fd7812`
 **2860 / 16 / 2**, digest **2861 / 15 / 2**, CI-equivalent **2938 / 2 / 2**. **Slice 2 —
 entity nodes and relation edges, the time slider over `valid_from`/`valid_to`, the
 owner-only scope filter, dashed superseded edges — is the next chunk.**
+
+- Graph viewer theming (kanban t_152eada8) — COMPLETE: plugins/entropicmem/scripts/em/graph/assets/graph.css repaired on branch wt/t_566b902e-fix (additive [data-theme="light"] token block over intact origin/main; all pre-existing rules preserved; theme toggle wired in graph.html/graph.js). Committed as d39f20a4a9e80c4c02f63b6b7e118088b713be97 and pushed to origin/wt/t_566b902e-fix. Browser-verified in both themes over HTTP via the canonical export path; text contrast passes WCAG AA in both modes (13.67:1 dark / 11.37:1 light); thin edges below 3:1 in both modes is pre-existing stroke/opacity, flagged for t_b56c89dc. Children t_b56c89dc/t_113a29d5 unblocked.
 
 **Chunk 41 — EM-604, the opt-in ingestion of human vault edits —
 landed 2026-10-19 (`31a7323`, on `em-604-vault-ingest`, then ff-merged and the branch
