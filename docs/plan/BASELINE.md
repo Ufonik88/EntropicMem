@@ -26,16 +26,18 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2991 passed, 4 skipped, 2 xfailed** *(projected from this box's CI-equivalent run by the host-pin relation — CI has not run for this landing: it is committed locally and not pushed, so there is no run id to cite)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2911 passed, 19 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2912 passed, 18 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2993 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **2991 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3003 passed, 4 skipped, 2 xfailed** *(projected from this box's CI-equivalent run by the host-pin relation — CI has not run for this landing: it is committed locally and not pushed, so there is no run id to cite)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2923 passed, 19 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2924 passed, 18 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3005 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3003 passed, 4 skipped, 2 xfailed** |
 
-Read as at `69dc223` (EM-605 slice 2.1 — entity nodes and typed relation edges) — measured on
-the clean tree at that commit. **CI has not run for it:** the commit is local and unpushed, so
+Read as at `1e5b739` (EM-605 slice 2.2 — the owner-only scope filter and its byte-level
+leak test) — measured for the tree at that commit. **CI has not run for it:** the commit is local and unpushed, so
 the CI figure is **projected** from the CI-equivalent run by the host-pin relation below; no run
-id is cited and no job is claimed green. **The previous record** was chunk 43 at `5258b46` —
+id is cited and no job is claimed green. **The previous record** was slice 2.1 at `69dc223` (bare **2911 / 19 / 2**, digest **2912 / 18 / 2**,
+CI-equivalent **2993 / 2 / 2**, 3.10 **2991 / 4 / 2**, CI **2991 / 4 / 2** projected); before it,
+chunk 43 at `5258b46` —
 **confirmed green on that exact SHA:** run **`39251351180`** (a `push` to `em-605-followups`),
 all 11 jobs success, `identity-guard` and `windows-import` included (1762 passed there), CI's
 3.12 count **2954 / 4 / 2**, all four legs of that matrix identical and read from the job log.
@@ -46,7 +48,7 @@ by run **`39237280578`**; before it `e6647e7` (run `39231027295`), `adb1439` (ru
 `39226716232`) and `4cde953` (run `39219386624`). CI's figure is **read from the job log**,
 never assumed: `gh run view <run-id> --log`; at that time all four CI legs (3.10–3.13)
 reported the identical triple. **The gap between this box's CI-equivalent reading and CI is in
-the middle column, not the total — `2993 / 2 / 2` versus `2991 / 4 / 2` is `−2 passed,
+the middle column, not the total — `3005 / 2 / 2` versus `3003 / 4 / 2` is `−2 passed,
 +2 skipped`, the two hermes-agent host pins that pass here and skip in CI**, the same pair the
 ladder below walks. **The five rows in this table are the figures of record and live in exactly
 one other place, [`suite_figures.json`](suite_figures.json), which
@@ -131,12 +133,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          2911 / 19 / 2
+bare          2923 / 19 / 2
 + extras      +81 passed, −16 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    2993 /  2 / 2
+= CI-equiv    3005 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          2991 /  4 / 2   (projected; not run — the landing is unpushed)
+= CI          3003 /  4 / 2   (projected; not run — the landing is unpushed)
 ```
 
 ## Citing CI evidence — one trap
