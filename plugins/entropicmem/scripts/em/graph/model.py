@@ -305,16 +305,25 @@ class EntityGraph:
     ``available`` is False when memory.db is missing or is not a v3 store;
     ``reason`` says which, in a path-free phrase (an export carries this block,
     and a home directory is not graph data).
+
+    ``scope`` records which filter produced this graph — ``owner`` (the
+    default) or ``all``. ``hidden_entities`` and ``hidden_relations`` are the
+    number of rows that filter removed; they are counts, never rows, so the
+    block cannot leak what it excluded. ``dropped_relations`` stays separate:
+    it counts shape and cap losses, not scope losses.
     """
 
     entities: tuple = ()
     relations: tuple = ()
     scope_profile: str = ""
+    scope: str = "owner"
     available: bool = True
     reason: str = ""
     truncated: bool = False
     dropped_relations: int = 0
     literal_relations: int = 0
+    hidden_entities: int = 0
+    hidden_relations: int = 0
 
 
 def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
@@ -326,7 +335,10 @@ def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
       the two stores have unrelated id spaces and no join is invented;
     * an edge exists only when both endpoint nodes are present in the export;
       every other relation is counted in ``dropped_relations``, never drawn;
-    * an entity with no surviving edge is not drawn (an isolated dot is noise).
+    * an entity with no surviving edge is not drawn (an isolated dot is noise);
+    * the scope's losses are counted in ``hidden_entities`` /
+      ``hidden_relations``, and the block carries no hidden name, id, alias,
+      predicate or endpoint — only the counts and the scope that produced them.
     """
     by_id = {e.entity_id: e for e in entity_graph.entities}
     kept = []
@@ -395,8 +407,11 @@ def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
         "available": entity_graph.available,
         "reason": entity_graph.reason,
         "scope_profile": entity_graph.scope_profile,
+        "scope": entity_graph.scope,
         "entity_count": len(nodes),
         "relation_edge_count": len(edges),
+        "hidden_entities": entity_graph.hidden_entities,
+        "hidden_relations": entity_graph.hidden_relations,
         "truncated": entity_graph.truncated,
         "dropped_relations": dropped,
         "literal_relations": entity_graph.literal_relations,

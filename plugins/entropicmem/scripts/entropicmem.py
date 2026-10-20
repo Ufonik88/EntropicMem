@@ -1073,7 +1073,9 @@ def cmd_graph(args) -> int:
                 )
                 return 2
             entity_graph = load_entity_graph(
-                _memory_db_path(), scope_profile=DEFAULT_PROFILE
+                _memory_db_path(),
+                scope_profile=DEFAULT_PROFILE,
+                scope=getattr(args, "scope", "owner"),
             )
 
         if fmt == "json":
@@ -1106,7 +1108,8 @@ def cmd_graph(args) -> int:
                 print(
                     f"Entities: {len(entity_graph.entities)} nodes, "
                     f"{len(entity_graph.relations)} relations "
-                    f"(profile {DEFAULT_PROFILE!r})"
+                    f"(profile {DEFAULT_PROFILE!r}, "
+                    f"scope {entity_graph.scope!r})"
                 )
             else:
                 print(f"Entities: not loaded ({entity_graph.reason})")

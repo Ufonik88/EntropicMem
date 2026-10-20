@@ -291,11 +291,18 @@ function updateStats() {
   const { nodes, edges } = getFilteredData();
   const dropped = DATA.edges.length - edges.length;
   const orphans = nodes.filter(n => (n.degree || 0) === 0).length;
+  // The scope is decided in the model, before serialisation; this line only
+  // reports it. A viewer-side filter would leave the hidden rows in the file.
+  const ent = DATA.meta.entities;
+  const scope = ent && ent.available
+    ? ` | ${ent.entity_count} entities (${ent.scope === "all" ? "all scopes" : "owner only"})`
+    : "";
   el.textContent =
     `${nodes.length} nodes / ${edges.length} edges` +
     (dropped > 0 ? ` (${dropped} hidden by filters)` : "") +
     ` | ${DATA.meta.domains.length} domains` +
-    ` | ${orphans} orphans`;
+    ` | ${orphans} orphans` +
+    scope;
 }
 
 function resetFilters() {

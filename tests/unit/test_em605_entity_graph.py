@@ -44,7 +44,7 @@ if str(SCRIPTS) not in sys.path:
 import graph_assets  # noqa: E402
 
 from em.clock import to_iso, utc_now  # noqa: E402
-from em.graph.export import export_html  # noqa: E402
+from em.graph.export import export_html, export_json  # noqa: E402
 from em.graph.model import (  # noqa: E402
     EntityGraph,
     GraphEntity,
@@ -441,6 +441,305 @@ def test_the_viewer_draws_an_edge_with_its_typed_colour():
     )
 
 
+# ── the owner-only scope filter (slice 2.2) ─────────────────────────────────
+
+GUEST = Scope(profile="default", user="guest-user")
+
+
+@pytest.fixture
+def scoped(memory):
+    """Owner and guest data in one profile, plus an entity both mention.
+
+    The owner's three entities are linked to profile-wide memories. The
+    guest's three are linked only to user-scoped memories. ``Shared Person``
+    is linked to both, so it survives on the owner's mention. The guest also
+    contributes a relation between two owner entities (hidden by its source
+    memory) and one with no source memory whose endpoint is guest-only
+    (hidden by the endpoint).
+    """
+    ids = {}
+    guest_memories = []
+    with memory.writer() as conn:
+        es = EntityStore(conn)
+        ms = MemoryStore(conn)
+
+        def entity(name, kind):
+            entity_id = es.get_or_create_entity(name, scope=OWNER, kind=kind)
+            ids[name] = entity_id
+            return entity_id
+
+        alice = entity("Alice Owner", "person")
+        acme = entity("Acme Owner Corp", "org")
+        widget = entity("Widget Owner", "product")
+        shared = entity("Shared Person", "person")
+        zelda = entity("Zelda Guest", "person")
+        zorblax = entity("Zorblax Guest Corp", "org")
+        gizmo = entity("Gizmo Guest", "product")
+
+        es.add_alias(acme, "acmeowneralias")
+        es.add_alias(zelda, "zeldaguestalias")
+        es.add_alias(zorblax, "zorblaxalias")
+        es.add_alias(gizmo, "gizmoguestalias")
+
+        def memory_row(content, scope, linked):
+            result = ms.add(
+                MemoryDraft(content=content), scope=scope, actor="tester"
+            )
+            assert result.ok, result
+            for entity_id in linked:
+                es.link_memory(result.id, entity_id)
+            return result.id
+
+        owner_mem = memory_row(
+            "Alice Owner works at Acme Owner Corp.", OWNER, (alice, acme)
+        )
+        owner_mem2 = memory_row(
+            "Acme Owner Corp makes Widget Owner.", OWNER, (acme, widget)
+        )
+        shared_owner_mem = memory_row(
+            "Shared Person knows Alice Owner.", OWNER, (shared, alice)
+        )
+        guest_mem = memory_row(
+            "Zelda Guest smuggles to Zorblax Guest Corp.",
+            GUEST,
+            (zelda, zorblax),
+        )
+        guest_mem2 = memory_row(
+            "Zorblax Guest Corp fabricates Gizmo Guest.",
+            GUEST,
+            (zorblax, gizmo),
+        )
+        shared_guest_mem = memory_row(
+            "Shared Person works with Zelda Guest.", GUEST, (shared, zelda)
+        )
+        guest_memories = [guest_mem, guest_mem2, shared_guest_mem]
+
+        def relation(scope, subject, predicate, obj, *, memory_id=None):
+            es.add_relation(
+                scope=scope,
+                subject_id=ids[subject],
+                predicate=predicate,
+                object_id=ids[obj],
+                memory_id=memory_id,
+            )
+
+        relation(OWNER, "Alice Owner", "works_at", "Acme Owner Corp", memory_id=owner_mem)
+        relation(OWNER, "Acme Owner Corp", "makes", "Widget Owner", memory_id=owner_mem2)
+        relation(OWNER, "Shared Person", "knows", "Alice Owner", memory_id=shared_owner_mem)
+        # No source memory: the endpoints decide. Both are owner-visible.
+        relation(OWNER, "Alice Owner", "mentors", "Widget Owner")
+
+        relation(GUEST, "Zelda Guest", "smuggles_to", "Zorblax Guest Corp", memory_id=guest_mem)
+        relation(GUEST, "Zorblax Guest Corp", "fabricates", "Gizmo Guest", memory_id=guest_mem2)
+        relation(GUEST, "Shared Person", "works_with", "Zelda Guest", memory_id=shared_guest_mem)
+        # Guest-originated relation between two owner entities: the memory wins.
+        relation(GUEST, "Alice Owner", "advises", "Acme Owner Corp", memory_id=guest_mem)
+        # No source memory, but a guest-only endpoint: the endpoint wins.
+        relation(GUEST, "Shared Person", "consorts_with", "Gizmo Guest")
+
+    return memory, ids, guest_memories
+
+
+#: Every distinctive string belonging to the guest side. The leak tests scan
+#: the whole document for each one — ids, labels, aliases, predicates and
+#: endpoints included. ``guest-user`` and the memory ids must not survive in
+#: meta either.
+GUEST_TOKENS = (
+    "Zelda Guest",
+    "zelda guest",
+    "zeldaguestalias",
+    "Zorblax Guest Corp",
+    "zorblax guest corp",
+    "zorblaxalias",
+    "Gizmo Guest",
+    "gizmo guest",
+    "gizmoguestalias",
+    "smuggles_to",
+    "fabricates",
+    "works_with",
+    "advises",
+    "consorts_with",
+    "guest-user",
+)
+
+
+def _guest_tokens(ids, guest_memories):
+    return GUEST_TOKENS + tuple(
+        ids[name]
+        for name in ("Zelda Guest", "Zorblax Guest Corp", "Gizmo Guest")
+    ) + tuple(guest_memories)
+
+
+def _offenders(text, tokens):
+    return [token for token in tokens if token in text]
+
+
+def test_owner_scope_hides_guest_only_entities_and_counts_them(index, scoped):
+    memory, ids, _ = scoped
+    graph = _graph(memory)
+
+    assert graph.scope == "owner"
+    assert {e.name for e in graph.entities} == {
+        "Alice Owner",
+        "Acme Owner Corp",
+        "Widget Owner",
+        "Shared Person",
+    }
+    assert graph.hidden_entities == 3
+    assert graph.hidden_relations == 5
+    assert graph.dropped_relations == 0
+    assert not _offenders(repr(graph), _guest_tokens(ids, ()))
+
+
+def test_owner_scope_keeps_a_shared_entity_and_only_its_owner_edge(index, scoped):
+    memory, ids, _ = scoped
+    payload = _payload(index, memory)
+    nodes = {n["id"]: n for n in payload["nodes"]}
+    shared = nodes[f"entity:{ids['Shared Person']}"]
+    assert shared["title"] == "Shared Person"
+
+    predicates = {e.get("predicate") for e in payload["edges"]}
+    assert "knows" in predicates          # owner memory, both endpoints visible
+    assert "mentors" in predicates        # no memory, owner endpoints
+    assert "works_with" not in predicates # guest memory, even though Shared is visible
+    assert _endpoints_resolve(payload)
+
+
+def test_scope_all_is_the_explicit_opt_in(index, scoped):
+    memory, ids, _ = scoped
+    graph = _graph(memory, scope="all")
+
+    assert graph.scope == "all"
+    assert graph.hidden_entities == 0
+    assert graph.hidden_relations == 0
+    assert {e.name for e in graph.entities} == {
+        "Alice Owner",
+        "Acme Owner Corp",
+        "Widget Owner",
+        "Shared Person",
+        "Zelda Guest",
+        "Zorblax Guest Corp",
+        "Gizmo Guest",
+    }
+    assert len(graph.relations) == 9
+
+
+def test_an_unknown_scope_is_refused(tmp_path):
+    with pytest.raises(ValueError):
+        load_entity_graph(
+            tmp_path / "memory.db", scope_profile="default", scope="everything"
+        )
+
+
+def test_a_relation_with_cross_profile_provenance_is_hidden(index, memory):
+    """A relation whose source memory is real but in another profile cannot be
+    resolved as owner data, so it fails closed."""
+    ids = _seed(memory)
+    with memory.writer() as conn:
+        other = MemoryStore(conn).add(
+            MemoryDraft(content="A fact in another profile."),
+            scope=Scope(profile="guest"),
+            actor="tester",
+        )
+        EntityStore(conn).add_relation(
+            scope=OWNER,
+            subject_id=ids["alice"],
+            predicate="orphaned",
+            object_id=ids["acme"],
+            memory_id=other.id,
+        )
+
+    graph = _graph(memory)
+    assert "orphaned" not in {r.predicate for r in graph.relations}
+    assert graph.hidden_relations == 1
+
+
+def test_the_cap_is_applied_after_the_scope_filter(index, scoped):
+    memory, ids, _ = scoped
+    payload = _payload(index, memory, max_entities=2)
+    block = payload["meta"]["entities"]
+
+    assert block["truncated"] is True
+    assert block["hidden_entities"] == 3
+    kept = {n["title"] for n in payload["nodes"] if n["kind"] == "entity"}
+    assert kept == {"Alice Owner", "Acme Owner Corp"}
+    # Four eligible owner relations were considered; one survived the two-node
+    # cap. The guest relations never entered the eligible set.
+    assert block["dropped_relations"] == 3
+    assert _endpoints_resolve(payload)
+
+
+def test_json_export_leaks_no_non_owner_token(index, scoped, tmp_path):
+    memory, ids, guest_memories = scoped
+    out = tmp_path / "json" / "graph.json"
+    export_json(index, out, entity_graph=_graph(memory))
+    text = out.read_bytes().decode("utf-8")
+
+    tokens = _guest_tokens(ids, guest_memories)
+    assert not _offenders(text, tokens)
+    # Positive controls: the owner side is present, so the scan is not passing
+    # because the export is empty.
+    for token in ("Alice Owner", "acmeowneralias", "works_at", "mentors"):
+        assert token in text
+    assert f"entity:{ids['Alice Owner']}" in text
+
+    block = json.loads(text)["meta"]["entities"]
+    assert block["scope"] == "owner"
+    assert block["hidden_entities"] == 3
+    assert block["hidden_relations"] == 5
+    assert not _offenders(repr(block), tokens)
+
+
+def test_html_export_leaks_no_non_owner_token(index, scoped, tmp_path):
+    memory, ids, guest_memories = scoped
+    tokens = _guest_tokens(ids, guest_memories)
+
+    # Control: none of the fixture's tokens already lives in the viewer assets.
+    # If one did, a byte scan could not tell the fixture from the shell.
+    baseline_dir = tmp_path / "baseline"
+    export_html(index, baseline_dir / "graph.html")
+    baseline = (baseline_dir / "graph.html").read_bytes().decode("utf-8")
+    assert not _offenders(baseline, tokens), "a fixture token is in the viewer shell"
+
+    out_dir = tmp_path / "leaky"
+    export_html(index, out_dir / "graph.html", entity_graph=_graph(memory))
+    for name in ("graph.html", "graph.json"):
+        text = (out_dir / name).read_bytes().decode("utf-8")
+        assert not _offenders(text, tokens), f"{name} leaked non-owner data"
+        for token in ("Alice Owner", "acmeowneralias", "works_at"):
+            assert token in text
+
+
+def test_the_scope_is_reported_and_the_viewer_filters_nothing():
+    js = graph_assets.asset("graph.js")
+    assert "DATA.meta.entities" in js
+    assert "owner only" in js and "all scopes" in js
+    # No client-side scope predicate: the data is already filtered.
+    assert "scope === \"owner\"" not in js
+
+
+def test_meta_reports_the_scope_without_naming_the_hidden(index, scoped):
+    memory, _, _ = scoped
+    block = _payload(index, memory)["meta"]["entities"]
+    assert block["scope"] == "owner"
+    assert block["scope_profile"] == "default"
+    assert block["hidden_entities"] == 3
+    assert block["hidden_relations"] == 5
+    assert set(block) == {
+        "available",
+        "reason",
+        "scope_profile",
+        "scope",
+        "entity_count",
+        "relation_edge_count",
+        "hidden_entities",
+        "hidden_relations",
+        "truncated",
+        "dropped_relations",
+        "literal_relations",
+    }
+
+
 # ── the CLI flag is the only way in, and it stays opt-in ────────────────────
 
 
@@ -473,9 +772,54 @@ def test_cli_exports_entities_only_when_asked(index, memory, tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "Entities: 3 nodes, 2 relations" in result.stdout
+    assert "scope 'owner'" in result.stdout
     payload = json.loads((out / "graph.json").read_text(encoding="utf-8"))
     assert {n["kind"] for n in payload["nodes"]} == {"note", "entity"}
     assert payload["meta"]["entities"]["available"] is True
+
+
+def test_cli_defaults_to_owner_scope(index, scoped, tmp_path):
+    memory, _, _ = scoped
+    out = tmp_path / "owner"
+    result = subprocess.run(
+        [
+            sys.executable, str(CLI), "graph", "export",
+            "--format", "json", "--entities", "--output-dir", str(out),
+        ],
+        env=_cli_env(tmp_path, memory),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Entities: 4 nodes, 4 relations" in result.stdout
+    assert "scope 'owner'" in result.stdout
+    text = (out / "graph.json").read_text(encoding="utf-8")
+    assert "Alice Owner" in text
+    assert "Zelda Guest" not in text
+    assert "zeldaguestalias" not in text
+
+
+def test_cli_scope_all_is_an_explicit_opt_in(index, scoped, tmp_path):
+    memory, _, _ = scoped
+    out = tmp_path / "all"
+    result = subprocess.run(
+        [
+            sys.executable, str(CLI), "graph", "export",
+            "--format", "json", "--entities", "--scope", "all",
+            "--output-dir", str(out),
+        ],
+        env=_cli_env(tmp_path, memory),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Entities: 7 nodes, 9 relations" in result.stdout
+    assert "scope 'all'" in result.stdout
+    text = (out / "graph.json").read_text(encoding="utf-8")
+    assert "Zelda Guest" in text
+    assert "zeldaguestalias" in text
 
 
 def test_cli_refuses_entities_for_dot(index, memory, tmp_path):
