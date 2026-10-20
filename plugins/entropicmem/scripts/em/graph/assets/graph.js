@@ -98,6 +98,15 @@ let panRaf = null;        // in-flight inertia loop id
 let panVx = 0, panVy = 0; // residual velocity, screen px per frame
 let W = window.innerWidth, H = window.innerHeight;
 
+/* ── Unified rAF render loop with zoom/pan interpolation ── */
+let animRaf = null;
+let zoomTarget = { k: 1, x: 0, y: 0 };
+let zoomCurrent = { k: 1, x: 0, y: 0 };
+let panTargetX = 0, panTargetY = 0;
+let panCurrentX = 0, panCurrentY = 0;
+const LERP_FACTOR = 0.15;
+const LERP_EPSILON = 0.01; // pixels/scale units to consider settled
+
 const zoom = d3.zoom().scaleExtent([CFG.zoom.min, CFG.zoom.max])
   // Pointer-drag panning is owned by the pan gesture below (empty canvas
   // only, with inertia on release): d3.zoom keeps wheel and programmatic
@@ -112,18 +121,68 @@ const zoom = d3.zoom().scaleExtent([CFG.zoom.min, CFG.zoom.max])
   })
   .on("zoom", (event) => { applyTransform(event.transform); });
 
-/* ── Transform applier: the single writer of currentTransform. It also keeps
-    d3-zoom's internal __zoom in sync so a wheel or gesture after a pan keeps
-    its delta from the current view instead of snapping back. ── */
-function applyTransform(t) {
-  currentTransform = t;
-  svg.node().__zoom = t;
-  if (rootG) rootG.attr("transform", t);
-  updateMinimapViewport();
-  updateLOD();
+/* ── Unified rAF render loop with interpolation ── */
+function startRenderLoop() {
+  if (animRaf !== null) return; // already running
+  function frame() {
+    let dx = zoomTarget.k - zoomCurrent.k;
+    let dyx = zoomTarget.x - zoomCurrent.x;
+    let dyy = zoomTarget.y - zoomCurrent.y;
+    zoomCurrent.k += dx * LERP_FACTOR;
+    zoomCurrent.x += dyx * LERP_FACTOR;
+    zoomCurrent.y += dyy * LERP_FACTOR;
+    const settled = Math.abs(dx) < LERP_EPSILON && Math.abs(dyx) < LERP_EPSILON && Math.abs(dyy) < LERP_EPSILON;
+    const t = d3.zoomIdentity.translate(zoomCurrent.x, zoomCurrent.y).scale(zoomCurrent.k);
+    if (rootG) {
+      // Apply interpolated transform through SVG transform attribute (equivalent to ctx transform)
+      rootG.attr("transform", t);
+    }
+    currentTransform = t;
+    if (svg && svg.node()) {
+      svg.node().__zoom = t;
+    }
+    updateMinimapViewport();
+    updateLOD();
+    if (settled && Math.abs(panVx) < CFG.pan.minVelocity && Math.abs(panVy) < CFG.pan.minVelocity) {
+      // Snap to target to avoid overshoot
+      zoomCurrent.k = zoomTarget.k;
+      zoomCurrent.x = zoomTarget.x;
+      zoomCurrent.y = zoomTarget.y;
+      const t2 = d3.zoomIdentity.translate(zoomCurrent.x, zoomCurrent.y).scale(zoomCurrent.k);
+      if (rootG) rootG.attr("transform", t2);
+      currentTransform = t2;
+      if (svg && svg.node()) svg.node().__zoom = t2;
+      updateMinimapViewport();
+      updateLOD();
+      animRaf = null;
+      return;
+    }
+    animRaf = requestAnimationFrame(frame);
+  }
+  animRaf = requestAnimationFrame(frame);
 }
 
-/* ── Zoom helpers (shared by buttons, keys, dblclick) ── */
+function stopRenderLoop() {
+  if (animRaf !== null) {
+    cancelAnimationFrame(animRaf);
+    animRaf = null;
+  }
+}
+
+/* ── Transform applier: sets targets and drives unified rAF loop with interpolation ── */
+function applyTransform(t) {
+  if (!t) return;
+  zoomTarget.k = t.k;
+  zoomTarget.x = t.x;
+  zoomTarget.y = t.y;
+  // Initialize current if not set
+  if (zoomCurrent.k === undefined || zoomCurrent.x === undefined) {
+    zoomCurrent.k = t.k;
+    zoomCurrent.x = t.x;
+    zoomCurrent.y = t.y;
+  }
+  startRenderLoop();
+}
 function zoomBy(factor, cx, cy) {
   if (!svg) return;
   cx = cx == null ? W / 2 : cx;
@@ -256,14 +315,23 @@ function panTick() {
   }
   panPoint.x += panVx;
   panPoint.y += panVy;
-  const k = panOrigin.k;
-  applyTransform(clampPan(panOrigin.translate((panPoint.x - panAnchor.x) / k, (panPoint.y - panAnchor.y) / k)));
+  const k = zoomCurrent.k;
+  const t = d3.zoomIdentity.translate(
+    (panPoint.x - panAnchor.x) / k + zoomCurrent.x,
+    (panPoint.y - panAnchor.y) / k + zoomCurrent.y
+  ).scale(k);
+  // Update target and start unified loop
+  zoomTarget.x = t.x;
+  zoomTarget.y = t.y;
+  zoomTarget.k = t.k;
+  startRenderLoop();
   panRaf = requestAnimationFrame(panTick);
 }
 
 function cancelInertia() {
   if (panRaf !== null) { cancelAnimationFrame(panRaf); panRaf = null; }
   panVx = panVy = 0;
+  stopRenderLoop();
 }
 
 function cancelPan() {
@@ -760,8 +828,17 @@ function render() {
   simulation.on("end", () => { if (focusedId === null) simulation.stop(); });
 
   rootG.attr("transform", currentTransform);
-  // Re-apply focus only when the focused node is part of the current view;
-  // a filtered-out id would dim every node (the applyFocus class bug).
+  // Initialize interpolation state from current transform
+  if (zoomCurrent) {
+    zoomCurrent.k = currentTransform.k;
+    zoomCurrent.x = currentTransform.x;
+    zoomCurrent.y = currentTransform.y;
+  }
+  if (zoomTarget) {
+    zoomTarget.k = currentTransform.k;
+    zoomTarget.x = currentTransform.x;
+    zoomTarget.y = currentTransform.y;
+  }
   if (focusedId && nodes.some(d => d.id === focusedId)) applyFocus(focusedId);
   else clearFocus();
   // nodeG was recreated — force LOD badge re-evaluation (zoom may be > badge threshold)
