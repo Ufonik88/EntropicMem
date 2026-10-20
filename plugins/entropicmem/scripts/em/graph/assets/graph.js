@@ -32,11 +32,93 @@ function edgeWidth(d) {
   if (kind === "tag") return 1.0;
   return 1.0;
 }
-function edgeColor(d) { return "var(--edge)"; }
+function edgeColor(d) {
+  if (isDirectionalEdge(d)) return `url(#${dirGradId(d)})`;
+  return "var(--edge)";
+}
 function edgeDash(d) {
   if (d.kind === "tag" || d.kind === "wikilink") return null;
   if (d.kind.startsWith("triple")) return "2,3";
   return null;
+}
+
+/* ── Directional edges: gradient strokes reading source → target ── */
+// Wikilink and relation-triple edges carry a direction (source → target);
+// tag edges and anything else are undirected and keep a solid stroke.
+// Nothing reads beyond the existing payload: source, target and kind.
+function isDirectionalEdge(d) {
+  const kind = (d.kind || "").toString();
+  return kind === "wikilink" || kind.startsWith("triple");
+}
+
+// Gradient id is stable per edge: (source, target, kind) is unique on the
+// graph_edges table, so re-renders and filter toggles reuse the same def
+// and never create duplicate ids. Defs live in the svg root and outlast the
+// .layer rebuild, so orphans are pruned on every render (see syncEdgeGradients).
+function dirGradId(d) {
+  const clean = (id) => String(id).replace(/[^A-Za-z0-9._:-]/g, "-");
+  const s = typeof d.source === "object" ? d.source.id : d.source;
+  const t = typeof d.target === "object" ? d.target.id : d.target;
+  return `dir-grad-${clean(s)}__${clean(t)}__${clean(d.kind || "")}`;
+}
+
+// Stop colors bind to the existing light/dark palette tokens only: the
+// muted edge colour at the source (tail) and the neon accent at the target
+// (head). The stroke reads as a lightflow in the direction of travel, in
+// both themes; no new tokens are added.
+const DIR_GRAD_STOPS = [
+  { offset: "0%", color: "var(--edge)" },
+  { offset: "100%", color: "var(--accent)" },
+];
+
+// Gradient defs keyed by their stable id. A Map (not a CSS #id selector)
+// so ids containing dots or slashes — note ids are vault paths like
+// "Infrastructure/Infrastructure Note 0.md" — can never mismatch on lookup
+// and silently spawn duplicate-id defs on re-render.
+const dirGradById = new Map();
+
+// Create (or reuse) gradient defs for exactly the directional edges being
+// rendered, oriented along each edge's current source → target vector, and
+// drop defs whose edge no longer renders so re-render / unmount never leaks
+// defs or collides on ids.
+function syncEdgeGradients(edges) {
+  const want = new Set();
+  for (const d of edges) {
+    if (!isDirectionalEdge(d)) continue;
+    const id = dirGradId(d);
+    want.add(id);
+    let grad = dirGradById.get(id);
+    if (!grad) {
+      const s = nodeById.get(typeof d.source === "object" ? d.source.id : d.source);
+      const t = nodeById.get(typeof d.target === "object" ? d.target.id : d.target);
+      grad = defs.append("linearGradient")
+        .attr("class", "dir-grad")
+        .attr("id", id)
+        .attr("gradientUnits", "userSpaceOnUse");
+      DIR_GRAD_STOPS.forEach((stop) => {
+        grad.append("stop")
+          .attr("offset", stop.offset)
+          .attr("stop-color", stop.color)
+          .attr("stop-opacity", 1);
+      });
+      dirGradById.set(id, grad);
+    }
+    // Orient along the current edge vector every render: positions pre-date
+    // the first simulation tick, and nodes may move between renders, so the
+    // stroke always reads source → target. userSpaceOnUse coords follow the
+    // rootG transform, so zoom and pan need no update here.
+    const sx = s && s.x != null ? s.x : 0;
+    const sy = s && s.y != null ? s.y : 0;
+    const tx = t && t.x != null ? t.x : 0;
+    const ty = t && t.y != null ? t.y : 0;
+    grad.attr("x1", sx).attr("y1", sy).attr("x2", tx).attr("y2", ty);
+  }
+  defs.selectAll("linearGradient.dir-grad").each(function () {
+    if (!want.has(this.id)) {
+      dirGradById.delete(this.id);
+      this.remove();
+    }
+  });
 }
 
 /* ── Tunable configuration (physics, zoom/LOD, halo, clipboard) ── */
@@ -76,7 +158,7 @@ function haloGradientRef(color) {
 }
 
 /* ── State ── */
-let simulation, svg, rootG, linkG, nodeG, labelG;
+let simulation, svg, defs, rootG, linkG, nodeG, labelG;
 let mmSvg, mmNodeG, mmViewport;
 let currentDomain = "", currentMinImp = 0, currentTag = "";
 let focusedId = null;
@@ -733,6 +815,7 @@ function render() {
 
   svg.selectAll(".layer").remove();
   rootG = svg.append("g").attr("class", "layer").style("will-change", "transform");
+  syncEdgeGradients(edges);
   linkG = rootG.append("g").attr("class", "links").style("mix-blend-mode", "screen").selectAll("path").data(edges).join("path")
     .attr("fill", "none").attr("stroke", d => edgeColor(d))
     .attr("stroke-width", d => strengthOf(d.weight, sLo, sHi).width)
@@ -831,6 +914,16 @@ function render() {
       const dx = tx - sx, dy = ty - sy;
       const dr = Math.sqrt(dx * dx + dy * dy) * 1.2;
       return `M${sx.toFixed(1)},${sy.toFixed(1)}A${dr.toFixed(1)},${dr.toFixed(1)} 0 0,1 ${tx.toFixed(1)},${ty.toFixed(1)}`;
+    });
+    // Keep directional gradient defs aligned with the edge vector as nodes move,
+    // so the stroke always reads source → target (userSpaceOnUse coords follow
+    // the rootG transform, so zoom/pan need no update here).
+    linkG.each(function (d) {
+      if (!isDirectionalEdge(d)) return;
+      const grad = defs.select("#" + dirGradId(d));
+      if (grad.empty()) return;
+      grad.attr("x1", d.source.x).attr("y1", d.source.y)
+        .attr("x2", d.target.x).attr("y2", d.target.y);
     });
     nodeG.attr("transform", d => `translate(${Math.round(d.x)},${Math.round(d.y)})`);
     labelG.attr("x", d => Math.round(d.x)).attr("y", d => Math.round(d.y));
@@ -1368,7 +1461,8 @@ document.addEventListener("keydown", (e) => {
 
 document.addEventListener("DOMContentLoaded", () => {
   svg = d3.select("#graph").append("svg").attr("width", "100%").attr("height", "100%");
-  svg.append("defs"); // for per-color halo gradients (haloGradientRef)
+  svg.append("defs"); // for per-color halo gradients (haloGradientRef) and edge direction gradients
+  defs = svg.select("defs");
   svg
     .call(zoom)
     .on("mousedown", panStart)

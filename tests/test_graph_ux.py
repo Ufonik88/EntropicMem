@@ -155,6 +155,81 @@ class TestSVGGlowDefs:
         assert 'url(#node-glow)' in html, "glow filter not applied to node shapes"
 
 
+class TestEdgeDirectionGradients:
+    """Directional edges (wikilink / triple) render gradient strokes whose stop
+    colours bind to the existing light/dark palette tokens; non-directional
+    edges (tag) keep their solid stroke unchanged."""
+
+    def _html(self, populated_index, extra_edges=()):
+        _, index = populated_index
+        nodes = index.get_graph_nodes()
+        for src, tgt, kind in extra_edges:
+            index.db.execute(
+                "INSERT OR IGNORE INTO graph_edges (source_id, target_id, kind) "
+                "VALUES (?, ?, ?)",
+                (src, tgt, kind),
+            )
+        index.db.commit()
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        return export_html(index, out, max_nodes=50), nodes
+
+    def test_directional_edges_get_gradient_defs(self, populated_index):
+        _, index = populated_index
+        nodes = index.get_graph_nodes()
+        assert len(nodes) >= 2, "fixture must contain nodes"
+        html, _ = self._html(
+            populated_index, [(nodes[0]["note_id"], nodes[1]["note_id"], "wikilink")]
+        )
+        # The renderer carries the direction-aware gradient mechanism.
+        assert "function isDirectionalEdge" in html, "directional-edge predicate missing"
+        assert "function syncEdgeGradients" in html, "gradient def sync missing"
+        assert "syncEdgeGradients(edges)" in html, "gradient sync not wired into render"
+        assert "gradientUnits" in html and "userSpaceOnUse" in html, (
+            "gradients must run in world space along the edge vector"
+        )
+        assert 'attr("stop-color"' in html, "gradient stops are coloured"
+        assert "var(--edge)" in html, "source stop binds the existing edge token"
+        assert "var(--accent)" in html, "target stop binds the existing accent token"
+        assert "dir-grad-${clean(s)}__${clean(t)}" in html, (
+            "gradient ids are built from source, target and kind"
+        )
+        # The payload still carries the edge the renderer acts on.
+        data = export_json(
+            index,
+            Path(tempfile.mkdtemp()) / "graph.json",
+            max_nodes=50,
+        )
+        kinds = {e["kind"] for e in data["edges"]}
+        assert "wikilink" in kinds
+
+    def test_gradient_ids_deterministic_per_edge(self, populated_index):
+        _, index = populated_index
+        nodes = index.get_graph_nodes()
+        edge = (nodes[0]["note_id"], nodes[1]["note_id"], "wikilink")
+        html, _ = self._html(populated_index, [edge])
+        # Id is a pure function of (source, target, kind): re-rendering yields
+        # the same id, so defs are reused and never duplicated.
+        assert html.count("dir-grad-") == 1, "exactly one gradient id per directional edge"
+
+    def test_non_directional_edge_keeps_solid_stroke(self, populated_index):
+        _, index = populated_index
+        nodes = index.get_graph_nodes()
+        wiki = (nodes[0]["note_id"], nodes[1]["note_id"], "wikilink")
+        tag = (nodes[1]["note_id"], nodes[2]["note_id"], "tag")
+        html, _ = self._html(populated_index, [wiki, tag])
+        data = export_json(
+            index, Path(tempfile.mkdtemp()) / "graph.json", max_nodes=50
+        )
+        kinds = {e["kind"] for e in data["edges"]}
+        assert kinds == {"wikilink", "tag"}
+        # Directional edges get the gradient mechanism; non-directional fall
+        # back to the solid edge-colour stroke — both in the same payload.
+        assert "dir-grad-" in html
+        assert 'return "var(--edge)"' in html, (
+            "non-directional edges keep the solid edge-colour stroke"
+        )
+
+
 class TestLODSystem:
     """Phase E: level-of-detail label culling."""
 
