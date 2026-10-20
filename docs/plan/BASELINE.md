@@ -26,27 +26,30 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2954 passed, 4 skipped, 2 xfailed** *(read at `5258b46`; all four CI legs 3.10–3.13 report it identically)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2878 passed, 16 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2879 passed, 15 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2956 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **2954 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **2991 passed, 4 skipped, 2 xfailed** *(projected from this box's CI-equivalent run by the host-pin relation — CI has not run for this landing: it is committed locally and not pushed, so there is no run id to cite)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2911 passed, 19 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2912 passed, 18 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **2993 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **2991 passed, 4 skipped, 2 xfailed** |
 
-Read as at `5258b46` (chunk 43, the EM-605 slice-1 follow-up) — **confirmed green on that exact
-SHA:** run **`39251351180`** (a `push` to `em-605-followups`), all 11 jobs success,
-`identity-guard` and `windows-import` included (1762 passed there), CI's 3.12 count
-**2954 / 4 / 2**, all four legs identical and read from the job log. The run before it was
-**`39236004212`** (the
+Read as at `69dc223` (EM-605 slice 2.1 — entity nodes and typed relation edges) — measured on
+the clean tree at that commit. **CI has not run for it:** the commit is local and unpushed, so
+the CI figure is **projected** from the CI-equivalent run by the host-pin relation below; no run
+id is cited and no job is claimed green. **The previous record** was chunk 43 at `5258b46` —
+**confirmed green on that exact SHA:** run **`39251351180`** (a `push` to `em-605-followups`),
+all 11 jobs success, `identity-guard` and `windows-import` included (1762 passed there), CI's
+3.12 count **2954 / 4 / 2**, all four legs of that matrix identical and read from the job log.
+The run before it was **`39236004212`** (the
 `em-605-graph-split` push at `2fd7812`: all 11 jobs success, `identity-guard` and
 `windows-import` included, CI 3.12 **2936 / 4 / 2** on all four legs), re-verified on `main`
 by run **`39237280578`**; before it `e6647e7` (run `39231027295`), `adb1439` (run
 `39226716232`) and `4cde953` (run `39219386624`). CI's figure is **read from the job log**,
-never assumed: `gh run view <run-id> --log`; all four CI legs (3.10–3.13) report the
-identical triple. **The gap between this box's CI-equivalent reading and CI is in the middle
-column, not the total — `2956 / 2 / 2` versus `2954 / 4 / 2` is `−2 passed, +2 skipped`, the
-two hermes-agent host pins that pass here and skip in CI**, the same pair the ladder below
-walks. **The four triples in this table are the figures of record and live in exactly one
-other place, [`suite_figures.json`](suite_figures.json), which
+never assumed: `gh run view <run-id> --log`; at that time all four CI legs (3.10–3.13)
+reported the identical triple. **The gap between this box's CI-equivalent reading and CI is in
+the middle column, not the total — `2993 / 2 / 2` versus `2991 / 4 / 2` is `−2 passed,
++2 skipped`, the two hermes-agent host pins that pass here and skip in CI**, the same pair the
+ladder below walks. **The five rows in this table are the figures of record and live in exactly
+one other place, [`suite_figures.json`](suite_figures.json), which
 [`scripts/record_suite_figures.py`](../../scripts/record_suite_figures.py) writes from
 pytest summary lines and [`tests/test_suite_figures.py`](../../tests/test_suite_figures.py)
 checks them against.**
@@ -70,22 +73,23 @@ files with `HOME` pointed at an empty directory, which reproduces CI exactly:
 The last two **pass** on a dev box that has a `hermes-agent` checkout, which is
 why the CI-equivalent local run shows only 2 skips and 2 more passes.
 
-**Bare's 16 skips** — the same four above (2 of them), plus the optional
+**Bare's 19 skips** — the same four above (2 of them), plus the optional
 dependencies the bare venv does not install. Measured directly, file by file:
 
 | Reason | Skips | Files |
 |---|---|---|
 | `could not import 'fastapi'` | 4 | `test_graph_static.py`, `test_graph_server_v2_6.py`, `test_graph_server_titles.py`, `test_graph_server_security.py` |
 | `cryptography not installed` | 7 | `test_security_decrypt_guard.py` (5), `test_phase11.py` (2) |
+| `could not import 'cryptography'` | 3 | `test_storage_modes.py` |
 | `could not import 'numpy'` | 2 | `test_em_embedding_cache.py` |
 | internal ops workspace | 2 | `test_v2_1_8.py`, `test_v2_2_0.py` |
 | **private digest list not configured** | **1** | `tests/evals/test_no_personal_data.py` |
-| **Total** | **16** | |
+| **Total** | **19** | |
 
-Those seven dependency files are **+77 passed / −13 skipped** measured
-together (`41 passed, 13 skipped` bare vs `118 passed, 0 skipped` with extras).
+Those eight dependency files are **+81 passed / −16 skipped** measured
+together (`43 passed, 16 skipped` bare vs `124 passed, 0 skipped` with extras).
 
-**Why bare-with-digest shows 15, not 16.** `tests/evals/test_no_personal_data.py`
+**Why bare-with-digest shows 18, not 19.** `tests/evals/test_no_personal_data.py`
 skips when the private digest list is absent and **passes** when it is present —
 so pointing `ENTROPICMEM_PRIVACY_DIGESTS_FILE` at the list converts exactly one
 skip into one pass. **This is by design, not a flake:** the test is the privacy
@@ -95,7 +99,7 @@ as a pair. The dev box does not have the list at the default path
 `~/Documents/EntropicMem Dev docs/privacy-digests.txt`.
 
 **Python 3.10 is a supported target, and the full suite runs there before a landing.**
-`requires-python = ">=3.10"` and the `test` matrix runs 3.10–3.13, so 3.10 is not
+`requires-python = ">=3.10"` and the `test` matrix runs 3.10–3.14, so 3.10 is not
 best-effort: the row above is a full `pytest -q tests/` on this box's 3.10 venv, not
 the touched files. (An earlier record said "the 3.10 leg green for the touched
 files", which was the weaker check this replaces.)
@@ -121,17 +125,18 @@ tests for), which is infrastructure the repo does not have today; a runner canno
 manufacture the checkout without fetching and pinning a host, which is a release-
 adjacent decision. Until that job exists, a change touching the host contract must
 be verified on a box that has one — this box does, which is why the two pins show as
-*passes* in every row above.
+*passes* in the CI-equivalent 3.12 row above; the 3.10 venv has no host checkout, so
+its row shows the same four skips as CI.
 
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          2878 / 16 / 2
-+ extras      +77 passed, −13 skipped   (fastapi/crypto/numpy files)
+bare          2911 / 19 / 2
++ extras      +81 passed, −16 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    2956 /  2 / 2
+= CI-equiv    2993 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          2954 /  4 / 2
+= CI          2991 /  4 / 2   (projected; not run — the landing is unpushed)
 ```
 
 ## Citing CI evidence — one trap
@@ -148,17 +153,27 @@ content had already landed in main as `8dc725a`.
 
 ## Updating this file
 
-At the end of a chunk, after the pre-flight runs: re-measure and let the script
-write the record, then edit the four rows above and the `Read as at` SHA to match.
+At the end of a chunk: **commit the code and its tests first**, then measure the
+clean tree at that commit, then edit the five rows above and the `Read as at` SHA
+to match, and commit the docs. Measuring an uncommitted tree stamps a SHA that
+does not contain what was measured; the guard's ancestry check rejects it.
 
 ```
 python scripts/record_suite_figures.py --measure \
     --ci-run <the branch's run id> --ci-line "<the 3.12 job log's summary line>"
 ```
 
-That measures the three local variants from pytest's own summary lines, refuses a
+For a landing that is committed locally and not pushed, pass `--ci-run ""` with no
+`--ci-line`: an **explicit** empty value clears the run id and records
+`ci_projected: true`, while an omitted flag inherits the previous run id (the usual
+re-measure after reading CI). A projected record must say so in the CI row, and a
+read one must not — the guard checks both directions.
+
+That measures the four local variants from pytest's own summary lines, refuses a
 red run or a figure that breaks the host-pin arithmetic, writes
 [`suite_figures.json`](suite_figures.json) and then runs the guard. The guard
 fails when this table, the CHANGELOG, the MASTER_TODO ledger, plan §11 or
-`NEXT_CHUNK.md` state a triple that is neither current nor historical — which is
-the drift a hand-typed figure caused on 2026-10-19, twice.
+`NEXT_CHUNK.md` state a triple that is neither current nor historical, or when the
+newest commit touching the suite surface is not an ancestor of the measured SHA
+(the security-hardening commits added 17 tests after `5258b46` and every guard
+stayed green) — which is the drift a hand-typed figure caused on 2026-10-19, twice.
