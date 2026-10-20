@@ -42,12 +42,12 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 from pathlib import Path
-from typing import Callable, Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 from em.clock import parse_iso, utc_now
-from em.jobs.worker import JobContext, PermanentJobError
 from em.store.jobs import JobQueue
 from em.store.types import Scope
+
 # EM-603: vault projection modules are not available in this version.
 # The enqueue_reindex function below is self-contained and does not depend on them.
 
