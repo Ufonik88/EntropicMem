@@ -1,5 +1,7 @@
 :root {
   --bg: #0a0a0f;
+  --edge: #6b6b7d;
+  --edge-opacity: 0.75;
   --bg-grad: radial-gradient(ellipse at 50% 0%, #12121c 0%, #0a0a0f 60%);
   --panel: rgba(15,15,25,0.88);
   --border: #2a2a3a;
@@ -16,6 +18,22 @@
   --radius: 12px;
   --radius-sm: 6px;
   --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* ── Light theme: additive token overrides; dark (:root) stays the default ── */
+[data-theme="light"] {
+  --bg: #f8f9fa;
+  --bg-grad: linear-gradient(135deg, #ffffff 0%, #f1f3f5 100%);
+  --panel: rgba(255,255,255,0.92);
+  --border: #e1e4e8;
+  --border-subtle: rgba(90,228,170,0.12);
+  --accent: #009E73;
+  --accent-dim: #0072B2;
+  --accent-glow: rgba(0,158,115,0.2);
+  --text: #2d3748;
+  --text-dim: #718096;
+  --text-bright: #1a202c;
+  --edge: #2d3748;
+  --edge-opacity: 0.75;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; }
@@ -101,7 +119,7 @@ body { background: var(--bg-grad); color: var(--text); font-family: var(--body);
 #empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: var(--text-dim); font-size: 13px; z-index: 5; display: none; pointer-events: none; }
 #empty-state .empty-title { font-family: var(--display); font-size: 15px; color: var(--text); margin-bottom: 6px; }
 
-svg text { fill: #b9b9c6; font-size: 9px; pointer-events: none; font-family: var(--body); shape-rendering: geometricPrecision; }
+svg text { fill: var(--text); font-size: 9px; pointer-events: none; font-family: var(--body); shape-rendering: geometricPrecision; }
 .node-shape { cursor: pointer; transition: opacity var(--transition); }
 .node-halo { transition: opacity 0.3s ease-out, r 0.3s ease-out; }
 .node-group { transition: filter var(--transition), opacity var(--transition); }

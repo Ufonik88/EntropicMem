@@ -32,7 +32,7 @@ function edgeWidth(d) {
   if (kind === "tag") return 1.0;
   return 1.0;
 }
-function edgeColor(d) { return "#6b6b7d"; }
+function edgeColor(d) { return "var(--edge)"; }
 function edgeDash(d) {
   if (d.kind === "tag" || d.kind === "wikilink") return null;
   if (d.kind.startsWith("triple")) return "2,3";
@@ -1095,6 +1095,26 @@ function saveDisplayPrefs() {
   } catch (e) {}
 }
 
+/* ── Theme: dark default (:root), light via data-theme on <html> ── */
+const THEME_KEY = "entropicmem-graph-theme";
+function setTheme(theme) {
+  const root = document.documentElement;
+  const btn = document.getElementById("btn-theme");
+  if (theme === "light") {
+    root.setAttribute("data-theme", "light");
+    if (btn) btn.textContent = "Theme: Light";
+  } else {
+    root.removeAttribute("data-theme");
+    if (btn) btn.textContent = "Theme: Dark";
+  }
+  try { localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+}
+function restoreTheme() {
+  let saved = "dark";
+  try { saved = localStorage.getItem(THEME_KEY) || "dark"; } catch (e) {}
+  setTheme(saved === "light" ? "light" : "dark");
+}
+
 /* ── Wiring ── */
 document.addEventListener("keydown", (e) => {
   const modalOpen = document.getElementById("modal").style.display === "flex";
@@ -1133,6 +1153,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   initMinimap();
   restoreDisplayPrefs();
+  restoreTheme();
   buildLegend();
   buildDomainChecks();
   buildTagSuggestions();
@@ -1143,6 +1164,10 @@ document.addEventListener("DOMContentLoaded", () => {
     saveDisplayPrefs();
     buildLegend();
     render();
+  });
+  document.getElementById("btn-theme").addEventListener("click", () => {
+    const root = document.documentElement;
+    setTheme(root.hasAttribute("data-theme") ? "dark" : "light");
   });
   document.getElementById("island-toggle").addEventListener("change", (e) => {
     islandMode = e.target.checked;
