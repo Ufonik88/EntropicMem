@@ -158,7 +158,7 @@ function haloGradientRef(color) {
 }
 
 /* ── State ── */
-let simulation, svg, defs, rootG, linkG, nodeG, labelG;
+let simulation, svg, defs, rootG, linkG, nodeG, labelG, labelMeasure;
 let mmSvg, mmNodeG, mmViewport;
 let currentDomain = "", currentMinImp = 0, currentTag = "";
 let focusedId = null;
@@ -791,6 +791,65 @@ function selectSearchResult(r) {
   if (box) box.hidden = true;
 }
 
+/* ── Label typography ──
+    Display face (Space Grotesk), size scaled to node radius, ellipsis
+    truncation at the default node width, hover/focus reveal of the full
+    title, collapse on mouse-out/blur. Layout (node positions) is never
+    touched by any of this.
+*/
+const LABEL = { base: 11, min: 10, max: 14, pad: 8, ellipsis: "…" };
+const labelInfo = new Map();   // node id -> { full, shown, truncated }
+const labelEl = new Map();     // node id -> label <text> element
+
+function labelSize(d) {
+  return Math.max(LABEL.min, Math.min(LABEL.max, LABEL.base + (nodeRadius(d) - 10) * 0.25));
+}
+
+function labelMaxWidth(d) { return Math.max(40, nodeRadius(d) * 2 - LABEL.pad); }
+
+function labelMeasureText(text, sizePx) {
+  labelMeasure.style.font = `600 ${sizePx}px var(--label-font)`;
+  labelMeasure.textContent = text;
+  return labelMeasure.getComputedTextLength();
+}
+
+function fitLabel(d) {
+  const full = d.title || d.id;
+  const width = labelMaxWidth(d);
+  const size = labelSize(d);
+  let shown = full, truncated = false;
+  if (labelMeasureText(full, size) > width) {
+    // Binary search the longest prefix that fits next to the ellipsis.
+    let lo = 0, hi = full.length;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (labelMeasureText(full.slice(0, mid) + LABEL.ellipsis, size) <= width) lo = mid;
+      else hi = mid - 1;
+    }
+    shown = full.slice(0, lo) + (lo < full.length ? LABEL.ellipsis : "");
+    truncated = lo < full.length;
+  }
+  return { full, shown, truncated };
+}
+
+function expandLabel(d) {
+  const info = labelInfo.get(d.id);
+  if (!info || !info.truncated) return;
+  const el = labelEl.get(d.id);
+  if (!el) return;
+  el.textContent = info.full;
+  el.classList.add("expanded");
+}
+
+function collapseLabel(d) {
+  const info = labelInfo.get(d.id);
+  if (!info || !info.truncated) return;
+  const el = labelEl.get(d.id);
+  if (!el) return;
+  el.textContent = info.shown;
+  el.classList.remove("expanded");
+}
+
 /* ── Render ── */
 function render() {
   const { nodes, edges } = getFilteredData();
@@ -861,7 +920,9 @@ function render() {
     })
     .on("mouseover", (event, d) => showTooltip(event, d))
     .on("mousemove", moveTooltip)
-    .on("mouseout", hideTooltip);
+    .on("mouseout", hideTooltip)
+    .on("focusin", (event, d) => { expandLabel(d); })
+    .on("focusout", (event, d) => { collapseLabel(d); });
 
   // Restore positions for a smooth transition instead of a full re-scatter
   nodeG.each(function(d) {
@@ -896,8 +957,19 @@ function render() {
   });
 
   labelG = rootG.append("g").attr("class", "labels").selectAll("text").data(nodes, d => d.id).join("text")
-    .text(d => (d.title ? d.title.substring(0, 28) : d.id))
-    .attr("dy", d => nodeRadius(d) + 12).attr("text-anchor", "middle");
+    .attr("dy", d => nodeRadius(d) + 14)
+    .attr("text-anchor", "middle")
+    .each(function(d) {
+      const el = this;
+      labelEl.set(d.id, el);
+      const info = fitLabel(d);
+      labelInfo.set(d.id, info);
+      el.textContent = info.shown;
+      el.setAttribute("class", `node-label${info.truncated ? " truncatable" : ""}`);
+      el.setAttribute("font-size", labelSize(d) + "px");
+    })
+    .on("mouseover", (event, d) => { expandLabel(d); })
+    .on("mouseout", (event, d) => { collapseLabel(d); });
 
   simulation = d3.forceSimulation(nodes)
     .force("link", d3.forceLink(edges).id(d => d.id).distance(CFG.physics.linkDistance))
@@ -1463,6 +1535,7 @@ document.addEventListener("DOMContentLoaded", () => {
   svg = d3.select("#graph").append("svg").attr("width", "100%").attr("height", "100%");
   svg.append("defs"); // for per-color halo gradients (haloGradientRef) and edge direction gradients
   defs = svg.select("defs");
+  labelMeasure = svg.append("text").attr("x", -9999).attr("y", -9999).node(); // offscreen label-width measurement
   svg
     .call(zoom)
     .on("mousedown", panStart)

@@ -18,6 +18,12 @@
   --radius: 12px;
   --radius-sm: 6px;
   --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  /* ── Node label typography ── */
+  --label-font: var(--display);
+  --label-size: 11px;
+  --label-size-min: 10px;
+  --label-size-max: 14px;
+  --label-fill: var(--text);
 }
 /* ── Light theme: additive token overrides; dark (:root) stays the default ── */
 [data-theme="light"] {
@@ -119,7 +125,18 @@ body { background: var(--bg-grad); color: var(--text); font-family: var(--body);
 #empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: var(--text-dim); font-size: 13px; z-index: 5; display: none; pointer-events: none; }
 #empty-state .empty-title { font-family: var(--display); font-size: 15px; color: var(--text); margin-bottom: 6px; }
 
-svg text { fill: var(--text); font-size: 9px; pointer-events: none; font-family: var(--body); shape-rendering: geometricPrecision; }
+/* ── Node labels ── */
+.node-label {
+  font-family: var(--label-font);
+  font-weight: 600;
+  fill: var(--label-fill);
+  pointer-events: auto;
+  shape-rendering: geometricPrecision;
+}
+.node-label.expanded { fill: var(--text-bright); }
+.node-label.truncatable { cursor: pointer; }
+/* Badges stay small and never steal pointer events from the node. */
+.node-badge { pointer-events: none; shape-rendering: geometricPrecision; }
 .node-shape { cursor: pointer; transition: opacity var(--transition); }
 .node-halo { transition: opacity 0.3s ease-out, r 0.3s ease-out; }
 .node-group { transition: filter var(--transition), opacity var(--transition); }
