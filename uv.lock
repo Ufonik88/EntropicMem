@@ -548,16 +548,16 @@ serve = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cryptography", marker = "extra == 'security'", specifier = ">=50.0.0" },
-    { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.109.1,<1" },
-    { name = "fastembed", marker = "extra == 'semantic'", specifier = ">=0.3" },
-    { name = "graphviz", marker = "extra == 'graph'", specifier = ">=0.20" },
+    { name = "cryptography", marker = "extra == 'security'", specifier = ">=50.0.2" },
+    { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.154.0,<1" },
+    { name = "fastembed", marker = "extra == 'semantic'", specifier = ">=0.9.0" },
+    { name = "graphviz", marker = "extra == 'graph'", specifier = ">=0.21" },
     { name = "numpy", marker = "extra == 'semantic-st'", specifier = ">=1.24.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.1.1" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.17.1" },
     { name = "scikit-learn", marker = "extra == 'semantic-st'", specifier = ">=1.5,<2" },
     { name = "sentence-transformers", marker = "extra == 'semantic-st'", specifier = ">=5.6.0" },
-    { name = "uvicorn", marker = "extra == 'serve'", specifier = ">=0.30,<1" },
+    { name = "uvicorn", marker = "extra == 'serve'", specifier = ">=0.54.0,<1" },
 ]
 provides-extras = ["semantic", "semantic-st", "graph", "security", "serve", "dev"]
 
