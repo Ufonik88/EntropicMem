@@ -265,6 +265,7 @@ def _render_html(graph_json: str) -> str:
     html = (
         _read_asset("graph.html")
         .replace("__ENTROPICMEM_CSS__", _read_asset("graph.css"))
+        .replace("__ENTROPICMEM_STRENGTH_JS__", _read_asset("graph-strength.js"))
         .replace("__ENTROPICMEM_D3_JS__", _read_asset("d3.min.js"))
         .replace("__ENTROPICMEM_MARKED_JS__", _read_asset("marked.min.js"))
         .replace("__ENTROPICMEM_JS__", _read_asset("graph.js"))

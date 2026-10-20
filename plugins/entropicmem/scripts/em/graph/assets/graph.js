@@ -715,6 +715,18 @@ function render() {
   document.getElementById("empty-state").style.display = nodes.length ? "none" : "block";
   updateStats();
 
+  // Per-edge relationship strength rides on the model's per-edge `weight`;
+  // the model, the strength data and the layout algorithm are untouched.
+  // Normalise against the edges in this view and encode strength in stroke
+  // opacity (0.2-0.9) and width (1-2 px, below the node's 2.2 px selected
+  // border weight) via the pure helper in graph-strength.js.
+  const strengths = edges.map(e => Number(e.weight)).filter(s => Number.isFinite(s) && s > 0);
+  const sLo = strengths.length ? Math.min(...strengths) : 0;
+  const sHi = strengths.length ? Math.max(...strengths) : 0;
+  const strengthOf =
+    window.__emGraphStrength?.mapEdgeStrength ||
+    (d => ({ opacity: 0.65, width: edgeWidth(d) })); // module didn't load: flat look
+
   // Preserve positions of nodes that persist across re-renders
   const oldPos = new Map();
   if (nodeG) nodeG.each(function(d) { oldPos.set(d.id, { x: d.x, y: d.y, vx: d.vx, vy: d.vy }); });
@@ -722,16 +734,18 @@ function render() {
   svg.selectAll(".layer").remove();
   rootG = svg.append("g").attr("class", "layer").style("will-change", "transform");
   linkG = rootG.append("g").attr("class", "links").style("mix-blend-mode", "screen").selectAll("path").data(edges).join("path")
-    .attr("fill", "none").attr("stroke", d => edgeColor(d)).attr("stroke-width", d => edgeWidth(d))
-    .attr("stroke-opacity", 0.65).attr("stroke-dasharray", d => edgeDash(d))
+    .attr("fill", "none").attr("stroke", d => edgeColor(d))
+    .attr("stroke-width", d => strengthOf(d.weight, sLo, sHi).width)
+    .attr("stroke-opacity", d => strengthOf(d.weight, sLo, sHi).opacity)
+    .attr("stroke-dasharray", d => edgeDash(d))
     .attr("stroke-linecap", "round").attr("stroke-linejoin", "round");
   linkG.style("filter", "drop-shadow(0 0 2px rgba(107,107,125,0.3))")
     .on("mouseenter", function(event, d) {
-      d3.select(this).attr("stroke-opacity", 1).attr("stroke-width", edgeWidth(d) * 2.5);
+      d3.select(this).attr("stroke-opacity", 1).attr("stroke-width", strengthOf(d.weight, sLo, sHi).width * 2.5);
       if (labelG) labelG.style("opacity", 1);
     })
     .on("mouseleave", function(event, d) {
-      d3.select(this).attr("stroke-opacity", 0.65).attr("stroke-width", edgeWidth(d));
+      d3.select(this).attr("stroke-opacity", strengthOf(d.weight, sLo, sHi).opacity).attr("stroke-width", strengthOf(d.weight, sLo, sHi).width);
       if (labelG) labelG.style("opacity", computeLabelOpacity(currentTransform.k));
     });
 
