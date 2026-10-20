@@ -51,6 +51,13 @@ const CFG = {
   // optional cluster-centroid force (2D reading of the reference tool's
   // multi-galaxy; default off, toggle in the panel).
   cluster: { legendMax: 10, islandStrength: 0.08 },
+  pan: {
+    // Empty-canvas pointer drag pans the view; on release the residual
+    // velocity decays geometrically (velocity *= inertia per frame) until it
+    // falls below the stop threshold (px per frame) and the animation loop stops.
+    inertia: 0.92,
+    minVelocity: 0.5,
+  },
 };
 
 /* ── Per-color cached halo gradients (tinted radial fade) ── */
@@ -81,9 +88,21 @@ let orphanMode = false;     // highlight degree-0 notes (hygiene signal, no dele
 let searchTimer = null;     // debounce timer for the vault search input
 let currentTransform = d3.zoomIdentity;
 let lastTrigger = null;   // element that opened the modal, for focus return
+/* ── Pan state: empty-canvas drag with inertia on release ── */
+let panActive = false;    // a drag gesture is in progress
+let panOrigin = null;     // transform at drag start
+let panAnchor = { x: 0, y: 0 };   // pointer at drag start (screen px)
+let panPoint = { x: 0, y: 0 };    // pointer now (screen px)
+let panSamples = [];      // {t, x, y} sampled while dragging -> release velocity
+let panRaf = null;        // in-flight inertia loop id
+let panVx = 0, panVy = 0; // residual velocity, screen px per frame
 let W = window.innerWidth, H = window.innerHeight;
 
 const zoom = d3.zoom().scaleExtent([CFG.zoom.min, CFG.zoom.max])
+  // Pointer-drag panning is owned by the pan gesture below (empty canvas
+  // only, with inertia on release): d3.zoom keeps wheel and programmatic
+  // zoom and never fights the pan handlers for the transform.
+  .filter(event => event.type === "wheel")
   // deltaMode-normalized: 0=pixel (trackpads), 1=line (mouse wheels), 2=page.
   // Convert line/page deltas to pixels first so every device zooms at the same rate.
   .wheelDelta(event => {
@@ -91,12 +110,18 @@ const zoom = d3.zoom().scaleExtent([CFG.zoom.min, CFG.zoom.max])
     const raw = mode === 1 ? event.deltaY * 33 : mode === 2 ? event.deltaY * 1000 : event.deltaY;
     return -raw * CFG.zoom.wheelFactor;
   })
-  .on("zoom", (event) => {
-    currentTransform = event.transform;
-    if (rootG) rootG.attr("transform", event.transform);
-    updateMinimapViewport();
-    updateLOD();
-  });
+  .on("zoom", (event) => { applyTransform(event.transform); });
+
+/* ── Transform applier: the single writer of currentTransform. It also keeps
+    d3-zoom's internal __zoom in sync so a wheel or gesture after a pan keeps
+    its delta from the current view instead of snapping back. ── */
+function applyTransform(t) {
+  currentTransform = t;
+  svg.node().__zoom = t;
+  if (rootG) rootG.attr("transform", t);
+  updateMinimapViewport();
+  updateLOD();
+}
 
 /* ── Zoom helpers (shared by buttons, keys, dblclick) ── */
 function zoomBy(factor, cx, cy) {
@@ -134,6 +159,116 @@ function zoomFit() {
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
   const t = d3.zoomIdentity.translate(W / 2 - cx * k, H / 2 - cy * k).scale(k);
   svg.transition().duration(600).call(zoom.transform, t);
+}
+
+/* ── Clamp a transform so the graph cannot be dragged out of view entirely:
+    at least part of the graph's world extent stays inside the viewport. ── */
+function clampPan(t) {
+  if (!nodeG) return t;
+  const nodes = nodeG.data();
+  if (!nodes.length) return t;
+  const k = t.k;
+  const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  // Visible world rect is [-t.x/k .. (W - t.x)/k] x [-t.y/k .. (H - t.y)/k];
+  // keep it overlapping [minX..maxX] x [minY..maxY].
+  t.x = Math.max(-k * maxX, Math.min(W - k * minX, t.x));
+  t.y = Math.max(-k * maxY, Math.min(H - k * minY, t.y));
+  return t;
+}
+
+/* ── Empty-canvas pan: drag follows the pointer 1:1, release decays the
+    residual velocity geometrically until it stops on its own. ── */
+function pointerPos(event) {
+  const p = event.touches && event.touches.length ? event.touches[0] : event;
+  return { x: p.clientX, y: p.clientY };
+}
+
+function panStart(event) {
+  window.__panLog && window.__panLog.push("panStart target=" + (event.target && event.target.tagName) + " button=" + event.button);
+  // Nodes and edges keep their own gestures: only the empty canvas pans.
+  if (event.target !== svg.node()) return;
+  if (event.button !== undefined && event.button !== 0) return;
+  cancelInertia();
+  panActive = true;
+  panOrigin = currentTransform;
+  const p = pointerPos(event);
+  panAnchor = { x: p.x, y: p.y };
+  panPoint = { x: p.x, y: p.y };
+  panSamples = [{ t: performance.now(), x: p.x, y: p.y }];
+  event.preventDefault();
+}
+
+function panTouchStart(event) {
+  if (event.target !== svg.node()) return;
+  if (event.touches.length !== 1) return;
+  cancelInertia();
+  panActive = true;
+  panOrigin = currentTransform;
+  const p = pointerPos(event);
+  panAnchor = { x: p.x, y: p.y };
+  panPoint = { x: p.x, y: p.y };
+  panSamples = [{ t: performance.now(), x: p.x, y: p.y }];
+  event.preventDefault();
+}
+
+function panMove(x, y) {
+  panPoint = { x, y };
+  panSamples.push({ t: performance.now(), x, y });
+  if (panSamples.length > 60) panSamples.shift();
+  const k = panOrigin.k;
+  applyTransform(clampPan(panOrigin.translate((x - panAnchor.x) / k, (y - panAnchor.y) / k)));
+}
+
+function panRelease() {
+  window.__panLog && window.__panLog.push("panRelease panActive=" + panActive);
+  if (!panActive) return;
+  panActive = false;
+  // Residual velocity from the last ~100 ms of pointer motion, in px per frame.
+  const end = performance.now();
+  const windowMs = 100;
+  let base = panSamples[panSamples.length - 1];
+  for (let i = panSamples.length - 2; i >= 0; --i) {
+    if (end - panSamples[i].t <= windowMs) base = panSamples[i];
+    else break;
+  }
+  const dt = Math.max(1, end - base.t);
+  panVx = ((panPoint.x - base.x) / dt) * (1000 / 60);
+  panVy = ((panPoint.y - base.y) / dt) * (1000 / 60);
+  window.__panLog && window.__panLog.push("panRelease vx=" + panVx + " vy=" + panVy + " dt=" + dt + " samples=" + panSamples.length);
+  if (Math.abs(panVx) < CFG.pan.minVelocity && Math.abs(panVy) < CFG.pan.minVelocity) {
+    panVx = panVy = 0;
+    return;
+  }
+  cancelInertia();
+  panRaf = requestAnimationFrame(panTick);
+}
+
+function panTick() {
+  window.__panLog && window.__panLog.push("panTick vx=" + panVx + " vy=" + panVy);
+  panVx *= CFG.pan.inertia;
+  panVy *= CFG.pan.inertia;
+  if (Math.abs(panVx) < CFG.pan.minVelocity && Math.abs(panVy) < CFG.pan.minVelocity) {
+    panVx = panVy = 0;
+    panRaf = null;
+    return;
+  }
+  panPoint.x += panVx;
+  panPoint.y += panVy;
+  const k = panOrigin.k;
+  applyTransform(clampPan(panOrigin.translate((panPoint.x - panAnchor.x) / k, (panPoint.y - panAnchor.y) / k)));
+  panRaf = requestAnimationFrame(panTick);
+}
+
+function cancelInertia() {
+  if (panRaf !== null) { cancelAnimationFrame(panRaf); panRaf = null; }
+  panVx = panVy = 0;
+}
+
+function cancelPan() {
+  panActive = false;
+  cancelInertia();
 }
 
 /* ── Cluster force: gentle pull toward per-community centroids (islands) ── */
@@ -677,6 +812,7 @@ function updateLOD() {
 
 /* ── Tooltip ── */
 function showTooltip(event, d) {
+  if (panActive) return;
   const tip = document.getElementById("tooltip");
   tip.style.display = "block";
   tip.innerHTML = `<div class="tt-title" style="color:${nodeColor(d)}">${escapeHtml(d.title || d.id)}</div>
@@ -686,6 +822,7 @@ function showTooltip(event, d) {
   moveTooltip(event);
 }
 function moveTooltip(event) {
+  if (panActive) return;
   const tip = document.getElementById("tooltip");
   // Flip at viewport edges so the tooltip never clips offscreen.
   const flipX = event.pageX + 14 + tip.offsetWidth > window.innerWidth - 8;
@@ -1141,11 +1278,27 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("DOMContentLoaded", () => {
   svg = d3.select("#graph").append("svg").attr("width", "100%").attr("height", "100%");
   svg.append("defs"); // for per-color halo gradients (haloGradientRef)
-  svg.call(zoom).on("click", () => {
-    if (activePath || pathBannerVisible()) clearPath();
-    else clearFocus();
+  svg
+    .call(zoom)
+    .on("mousedown", panStart)
+    .on("touchstart", panTouchStart)
+    .on("click", () => {
+      if (activePath || pathBannerVisible()) clearPath();
+      else clearFocus();
+    });
+  window.addEventListener("mousemove", (event) => {
+    if (!panActive) return;
+    panMove(event.clientX, event.clientY);
+    event.preventDefault();
   });
-  // Double-click empty canvas zooms in at the cursor (nodes swallow their own clicks).
+  window.addEventListener("mouseup", panRelease);
+  window.addEventListener("blur", cancelPan);
+  svg.on("touchmove", (event) => {
+    if (!panActive) return;
+    panMove(event.touches[0].clientX, event.touches[0].clientY);
+    event.preventDefault();
+  }).on("touchend touchcancel", panRelease);
+  initMinimap();
   svg.on("dblclick", (event) => {
     event.preventDefault();
     const [mx, my] = d3.pointer(event, svg.node());

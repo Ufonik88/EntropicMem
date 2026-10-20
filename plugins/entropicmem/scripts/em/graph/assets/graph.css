@@ -39,7 +39,7 @@
 html, body { height: 100%; }
 body { background: var(--bg-grad); color: var(--text); font-family: var(--body); overflow: hidden; }
 #graph { position: absolute; inset: 0; width: 100vw; height: 100vh; }
-#graph svg { display: block; }
+#graph svg { display: block; touch-action: none; }
 
 /* ── Shared icon button / collapse affordances ── */
 .icon { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }

@@ -770,7 +770,7 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing is in flight. Chunk 43, the EM-605 slice-1 follow-up, landed 2026-10-19 (`5258b46`; 11/11 check-runs green on the exact SHA, CI 3.12 2954 / 4 / 2 read there):
+**Graph pan with drag and momentum/inertia — kanban task `t_e7765a5e` (`frontend-fucker`), in flight on branch `wt/t_e7765a5e`:** empty-canvas drag pan with decay-based inertia on release, clamped bounds and clean teardown, implemented in `plugins/entropicmem/scripts/em/graph/assets/graph.js` (d3.zoom's wheel/programmatic zoom is extended, not replaced). Nothing else is in flight. Chunk 43, the EM-605 slice-1 follow-up, landed 2026-10-19 (`5258b46`; 11/11 check-runs green on the exact SHA, CI 3.12 2954 / 4 / 2 read there):
 the viewer assets declared as a package so the wheel ships them warning-free (and the
 export verified from an installed wheel outside the repo), the figures of record now
 measured by a script and checked by a guard instead of hand-typed into five places, and
