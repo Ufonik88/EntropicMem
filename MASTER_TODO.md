@@ -792,6 +792,8 @@ tests, **8 mutation checks all red**; CI 3.12 **2936 / 4 / 2** read at `2fd7812`
 entity nodes and relation edges, the time slider over `valid_from`/`valid_to`, the
 owner-only scope filter, dashed superseded edges — is the next chunk.**
 
+- Graph viewer theming (kanban t_152eada8) — COMPLETE: plugins/entropicmem/scripts/em/graph/assets/graph.css repaired on branch wt/t_566b902e-fix (additive [data-theme="light"] token block over intact origin/main; all pre-existing rules preserved; theme toggle wired in graph.html/graph.js). Committed as d39f20a4a9e80c4c02f63b6b7e118088b713be97 and pushed to origin/wt/t_566b902e-fix. Browser-verified in both themes over HTTP via the canonical export path; text contrast passes WCAG AA in both modes (13.67:1 dark / 11.37:1 light); thin edges below 3:1 in both modes is pre-existing stroke/opacity, flagged for t_b56c89dc. Children t_b56c89dc/t_113a29d5 unblocked.
+
 **Chunk 41 — EM-604, the opt-in ingestion of human vault edits —
 landed 2026-10-19 (`31a7323`, on `em-604-vault-ingest`, then ff-merged and the branch
 deleted; 11/11 check-runs green on the exact SHA, `identity-guard` included; one recorded
