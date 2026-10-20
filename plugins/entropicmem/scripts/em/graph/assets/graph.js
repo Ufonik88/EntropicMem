@@ -32,10 +32,11 @@ function edgeWidth(d) {
   if (kind === "tag") return 1.0;
   return 1.0;
 }
-function edgeColor(d) { return "#6b6b7d"; }
+function edgeColor(d) { return d.color || "#6b6b7d"; }
 function edgeDash(d) {
-  if (d.kind === "tag" || d.kind === "wikilink") return null;
-  if (d.kind.startsWith("triple")) return "2,3";
+  const kind = String(d.kind || "");
+  if (kind === "tag" || kind === "wikilink") return null;
+  if (kind.startsWith("triple")) return "2,3";
   return null;
 }
 
@@ -679,8 +680,11 @@ function updateLOD() {
 function showTooltip(event, d) {
   const tip = document.getElementById("tooltip");
   tip.style.display = "block";
+  const meta = d.kind === "entity"
+    ? `${escapeHtml(d.entity_kind || "entity")} · ${d.degree || 0} relation${(d.degree || 0) === 1 ? "" : "s"}`
+    : `${escapeHtml(d.type)} · ${escapeHtml(d.domain || "uncategorized")} · importance ${(d.importance || 0).toFixed(2)}`;
   tip.innerHTML = `<div class="tt-title" style="color:${nodeColor(d)}">${escapeHtml(d.title || d.id)}</div>
-    <div class="tt-meta">${escapeHtml(d.type)} · ${escapeHtml(d.domain || "uncategorized")} · importance ${(d.importance || 0).toFixed(2)}</div>
+    <div class="tt-meta">${meta}</div>
     <div class="tt-meta">tags: ${escapeHtml((d.tags || []).join(", ") || "—")}</div>
     <div class="tt-meta" style="margin-top:3px;color:#5AE4AA;">click to open · shift-click path · drag to move</div>`;
   moveTooltip(event);

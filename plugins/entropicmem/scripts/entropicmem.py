@@ -49,6 +49,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 from em import __version__  # noqa: E402
 from em.cli.parser import build_parser  # noqa: E402 (the shared argparse tree; EM-408)
 from em.graph.export import export_canvas, export_dot, export_html, export_json  # noqa: E402
+from em.graph.source import DEFAULT_PROFILE, load_entity_graph  # noqa: E402
 from em.store.db import open_db  # noqa: E402 (audit verify opens read-only)
 from em.store.locking import FileLock  # noqa: E402 (EM-202: portable lock probe)
 from em_internal.index import VaultIndex  # noqa: E402
@@ -1063,11 +1064,24 @@ def cmd_graph(args) -> int:
         min_imp = args.min_importance
         max_n = args.max_nodes
 
+        entity_graph = None
+        if getattr(args, "entities", False):
+            if fmt not in ("json", "html"):
+                print(
+                    "Error: --entities is only supported for --format html or json.",
+                    file=sys.stderr,
+                )
+                return 2
+            entity_graph = load_entity_graph(
+                _memory_db_path(), scope_profile=DEFAULT_PROFILE
+            )
+
         if fmt == "json":
             export_json(
                 index, out_dir / "graph.json",
                 domain=domain, min_importance=min_imp, max_nodes=max_n,
                 include_bodies=getattr(args, "include_bodies", True),
+                entity_graph=entity_graph,
             )
             print(f"Exported: {out_dir / 'graph.json'}")
         elif fmt == "dot":
@@ -1079,12 +1093,23 @@ def cmd_graph(args) -> int:
                 domain=domain, min_importance=min_imp, max_nodes=max_n,
                 vault_root=vault_path,
                 include_bodies=getattr(args, "include_bodies", True),
+                entity_graph=entity_graph,
             )
             print(f"Exported: {out_dir / 'graph.html'}")
             print(f"Open with: file://{out_dir / 'graph.html'}")
         elif fmt == "canvas":
             export_canvas(index, out_dir / "graph.canvas", domain=domain, min_importance=min_imp, max_nodes=max_n)
             print(f"Exported: {out_dir / 'graph.canvas'}")
+
+        if entity_graph is not None:
+            if entity_graph.available:
+                print(
+                    f"Entities: {len(entity_graph.entities)} nodes, "
+                    f"{len(entity_graph.relations)} relations "
+                    f"(profile {DEFAULT_PROFILE!r})"
+                )
+            else:
+                print(f"Entities: not loaded ({entity_graph.reason})")
     elif args.graph_command == "serve":
         out_dir = Path(args.dir).resolve()
         if not (out_dir / "graph.html").exists():

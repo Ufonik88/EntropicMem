@@ -1,0 +1,493 @@
+"""EM-605 slice 2.1 — entity nodes and typed relation edges.
+
+The graph's two stores do not share an id space. ``index.db`` keys notes by
+their vault-relative path (``note_id_for_path``); ``memory.db`` keys entities by
+``ent_…`` and memories by ``mem_…``, and ``memory_entities`` links *memories*,
+not notes. Nothing joins a note to an entity, so the model must not pretend it
+does: entity node ids are prefixed ``entity:`` and a note id can never collide
+with one, which is what makes an invented note↔entity edge impossible.
+
+What is pinned here:
+
+* one loader reads ``memory.db`` read-only, scoped to one profile (no default —
+  a caller must name the profile, so cross-profile data cannot arrive by
+  omission), and never creates the file;
+* entity nodes carry their kind's colour, relation edges their predicate's;
+* the "stores disagree" fixture: an entity whose id looks like a note id stays
+  a separate node, and a ``memory_entities`` row pointing at a note id produces
+  nothing (the loader does not read that table at all);
+* every relation that cannot become an edge — literal object, closed interval,
+  out-of-profile endpoint, or an endpoint trimmed by the entity cap — is
+  counted in ``meta.entities`` and emits no edge;
+* the body gate counts notes only, so entity nodes cannot fail a body export.
+
+Rules: invented data only (Acme / Globex, Alice / Bob Example, example.com).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[2]
+SCRIPTS = REPO / "plugins" / "entropicmem" / "scripts"
+CLI = SCRIPTS / "entropicmem.py"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import graph_assets  # noqa: E402
+
+from em.clock import to_iso, utc_now  # noqa: E402
+from em.graph.export import export_html  # noqa: E402
+from em.graph.model import (  # noqa: E402
+    EntityGraph,
+    GraphEntity,
+    GraphRelation,
+    build_graph_payload,
+    get_entity_color,
+    get_relation_color,
+)
+from em.graph.source import load_entity_graph  # noqa: E402
+from em.store.db import Store  # noqa: E402
+from em.store.entities import EntityStore  # noqa: E402
+from em.store.memories import MemoryStore  # noqa: E402
+from em.store.migrations import migrate  # noqa: E402
+from em.store.types import MemoryDraft, Scope  # noqa: E402
+from em_internal.index import VaultIndex  # noqa: E402
+from em_internal.vault import Vault  # noqa: E402
+
+OWNER = Scope(profile="default")
+
+
+# ── fixtures: one real index.db, one real memory.db ─────────────────────────
+
+
+def _build_index(tmp_path: Path, titles=("Alpha", "Beta")):
+    root = tmp_path / "vault"
+    root.mkdir(parents=True, exist_ok=True)
+    vault = Vault(root)
+    for title in titles:
+        body = "Links: " + " ".join(f"[[{t}]]" for t in titles if t != title)
+        vault.write_note("Knowledge", title, body + "\n\nExample body text.", domain="Knowledge")
+    index = VaultIndex(tmp_path / "index.db")
+    for rel in vault.list_notes():
+        index.upsert_note(vault.read_note(rel))
+    index._rebuild_edges(vault)
+    return index
+
+
+@pytest.fixture
+def index(tmp_path):
+    idx = _build_index(tmp_path)
+    yield idx
+    idx.close()
+
+
+@pytest.fixture
+def memory(tmp_path):
+    store = Store(str(tmp_path / "memory.db"))
+    with store.writer() as conn:
+        migrate(conn)
+    yield store
+    store.close()
+
+
+def _seed(
+    memory,
+    *,
+    profile: str = "default",
+    names=("Alice Example", "Acme Corp", "Widget"),
+):
+    """Alice works at Acme; Acme makes Widget. Returns the entity ids."""
+    alice_name, acme_name, widget_name = names
+    scope = Scope(profile=profile)
+    with memory.writer() as conn:
+        es = EntityStore(conn)
+        alice = es.get_or_create_entity(alice_name, scope=scope, kind="person")
+        acme = es.get_or_create_entity(acme_name, scope=scope, kind="org")
+        widget = es.get_or_create_entity(widget_name, scope=scope, kind="product")
+        es.add_relation(
+            scope=scope, subject_id=alice, predicate="works_at", object_id=acme
+        )
+        es.add_relation(
+            scope=scope, subject_id=acme, predicate="makes", object_id=widget
+        )
+        es.add_alias(acme, acme_name.split()[0])
+    return {"alice": alice, "acme": acme, "widget": widget}
+
+
+def _graph(memory, profile: str = "default", **kw):
+    return load_entity_graph(
+        Path(memory.path), scope_profile=profile, **kw
+    )
+
+
+def _payload(index, memory, **kw):
+    return build_graph_payload(index, entity_graph=_graph(memory, **kw))
+
+
+def _endpoints_resolve(payload) -> bool:
+    ids = {n["id"] for n in payload["nodes"]}
+    return all(e["source"] in ids and e["target"] in ids for e in payload["edges"])
+
+
+# ── the happy path: typed nodes and typed edges ─────────────────────────────
+
+
+def test_entity_nodes_and_relation_edges_are_typed(index, memory):
+    ids = _seed(memory)
+    payload = _payload(index, memory)
+
+    nodes = {n["id"]: n for n in payload["nodes"]}
+    alice = nodes[f"entity:{ids['alice']}"]
+    assert alice["title"] == "Alice Example"
+    assert alice["kind"] == "entity"
+    assert alice["entity_kind"] == "person"
+    assert alice["color"] == get_entity_color("person")
+    assert alice["domain"] == ""
+    assert nodes[f"entity:{ids['acme']}"]["color"] == get_entity_color("org")
+
+    edges = {(e["source"], e["target"]): e for e in payload["edges"]}
+    works = edges[(f"entity:{ids['alice']}", f"entity:{ids['acme']}")]
+    assert works["predicate"] == "works_at"
+    assert works["kind"] == "relation"
+    assert works["color"] == get_relation_color("works_at")
+    # one predicate, one colour, in every export — across the whole vocabulary,
+    # not one pair (a two-value pin can collide by chance in an 8-slot palette)
+    for predicate in ("works_at", "makes", "born_in", "knows"):
+        assert get_relation_color(predicate) == get_relation_color(
+            f"  {predicate.upper()}  "
+        )
+
+    # note nodes are untouched: no prefix, and they declare their own class
+    alpha = nodes["Knowledge/Alpha"]
+    assert alpha["kind"] == "note"
+    assert alpha["color"] != ""
+    assert _endpoints_resolve(payload)
+
+
+def test_aliases_ride_the_entity_node(index, memory):
+    ids = _seed(memory)
+    payload = _payload(index, memory)
+    acme = next(n for n in payload["nodes"] if n["id"] == f"entity:{ids['acme']}")
+    assert "Acme" in acme["aliases"]
+
+
+def test_meta_reports_the_entity_block(index, memory):
+    _seed(memory)
+    payload = _payload(index, memory)
+    block = payload["meta"]["entities"]
+    assert block["available"] is True
+    assert block["scope_profile"] == "default"
+    assert block["entity_count"] == 3
+    assert block["relation_edge_count"] == 2
+    assert block["truncated"] is False
+    assert payload["meta"]["node_count"] == len(payload["nodes"])
+    assert payload["meta"]["edge_count"] == len(payload["edges"])
+
+
+# ── the profile is required, not guessed ────────────────────────────────────
+
+
+def test_the_loader_reads_one_profile_only(index, memory):
+    _seed(memory)
+    ids = _seed(
+        memory,
+        profile="guest",
+        names=("Bob Example", "Globex Corp", "Gadget"),
+    )
+
+    payload = _payload(index, memory)
+    rendered = repr(payload)
+    assert ids["alice"] not in rendered
+    assert "Bob Example" not in rendered
+    assert "Globex Corp" not in rendered
+    assert payload["meta"]["entities"]["scope_profile"] == "default"
+
+    # and the same tree, loaded for the guest, is the guest's own subgraph
+    guest = _graph(memory, profile="guest")
+    assert {e.name for e in guest.entities} == {
+        "Bob Example", "Globex Corp", "Gadget"
+    }
+
+
+# ── the stores disagree: ids from the two databases never cross ─────────────
+
+
+def test_note_ids_and_entity_ids_never_join(index, memory):
+    """A note id that *is* an entity id string stays two nodes, and a
+    ``memory_entities`` row pointing at a note id manufactures no edge."""
+    ids = _seed(memory)
+    now = to_iso(utc_now())
+    with memory.writer() as conn:
+        # Deliberately an id shaped like a note id — the join someone would
+        # reach for. It is a separate entity, not a note.
+        conn.execute(
+            "INSERT INTO entities (id, scope_profile, name, kind, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?)",
+            ("Knowledge/Alpha", "default", "Alpha (entity)", "thing", now, now),
+        )
+        EntityStore(conn).add_relation(
+            scope=OWNER,
+            subject_id=ids["alice"],
+            predicate="mentions",
+            object_id="Knowledge/Alpha",
+        )
+        # A memory id that *is* the note id: the old wrong assumption. The
+        # loader never reads memory_entities, so this must change nothing.
+        mem = MemoryStore(conn).add(
+            MemoryDraft(content="Alpha is the first note."),
+            scope=OWNER,
+            actor="tester",
+        )
+        conn.execute("UPDATE memories SET id=? WHERE id=?", ("Knowledge/Alpha", mem.id))
+        conn.execute(
+            "INSERT INTO memory_entities (memory_id, entity_id, role) VALUES (?,?,?)",
+            ("Knowledge/Alpha", ids["alice"], "mention"),
+        )
+
+    payload = _payload(index, memory)
+    ids_in_payload = {n["id"] for n in payload["nodes"]}
+    assert "Knowledge/Alpha" in ids_in_payload
+    assert "entity:Knowledge/Alpha" in ids_in_payload
+    entity_ids = {
+        n["id"] for n in payload["nodes"] if n["kind"] == "entity"
+    }
+    for e in payload["edges"]:
+        # a note may link to another note (its wikilinks); it may never link
+        # to the entity that happens to share its id
+        assert not (
+            e["source"] == "Knowledge/Alpha" and e["target"] in entity_ids
+        )
+        assert not (
+            e["target"] == "Knowledge/Alpha" and e["source"] in entity_ids
+        )
+    assert (
+        "entity:Knowledge/Alpha"
+    ) in {e["target"] for e in payload["edges"]}
+    assert _endpoints_resolve(payload)
+
+
+# ── relations that cannot be edges are counted, never invented ──────────────
+
+
+def test_literal_and_closed_relations_emit_no_edge(index, memory):
+    ids = _seed(memory)
+    with memory.writer() as conn:
+        es = EntityStore(conn)
+        es.add_relation(
+            scope=OWNER, subject_id=ids["alice"], predicate="born_in",
+            object_literal="1990",
+        )
+        closed = es.add_relation(
+            scope=OWNER, subject_id=ids["alice"], predicate="used_to_make",
+            object_id=ids["widget"],
+        )
+        conn.execute(
+            "UPDATE relations SET valid_to=? WHERE id=?", (to_iso(utc_now()), closed)
+        )
+
+    payload = _payload(index, memory)
+    predicates = {e.get("predicate") for e in payload["edges"]}
+    assert "born_in" not in predicates
+    assert "used_to_make" not in predicates
+    block = payload["meta"]["entities"]
+    assert block["literal_relations"] == 1
+    assert _endpoints_resolve(payload)
+
+
+def test_relations_trimmed_by_the_cap_are_counted_and_emit_nothing(index, memory):
+    ids = _seed(memory)
+    payload = _payload(index, memory, max_entities=2)
+
+    block = payload["meta"]["entities"]
+    assert block["truncated"] is True
+    assert block["entity_count"] == 2
+    assert block["dropped_relations"] == 1
+    kept = {n["entity_id"] for n in payload["nodes"] if n["kind"] == "entity"}
+    assert ids["widget"] not in kept
+    assert _endpoints_resolve(payload)
+
+
+def test_the_cap_keeps_the_highest_degree_then_the_name(index, memory):
+    with memory.writer() as conn:
+        es = EntityStore(conn)
+        hub = es.get_or_create_entity("Hub", scope=OWNER, kind="thing")
+        for leaf in ("Alpha leaf", "Beta leaf", "Gamma leaf"):
+            other = es.get_or_create_entity(leaf, scope=OWNER, kind="thing")
+            es.add_relation(
+                scope=OWNER, subject_id=hub, predicate="links", object_id=other
+            )
+
+    payload = _payload(index, memory, max_entities=2)
+    kept = {n["title"] for n in payload["nodes"] if n["kind"] == "entity"}
+    assert kept == {"Hub", "Alpha leaf"}
+    assert payload["meta"]["entities"]["truncated"] is True
+
+
+def test_an_endpoint_from_another_profile_is_not_an_edge(index, memory):
+    """Relations are scoped rows; an object entity in another profile cannot
+    appear as an edge endpoint even if the id is named."""
+    ids = _seed(memory)
+    other = _seed(memory, profile="guest")
+    with memory.writer() as conn:
+        EntityStore(conn).add_relation(
+            scope=OWNER,
+            subject_id=ids["alice"],
+            predicate="borrowed_from",
+            object_id=other["widget"],
+        )
+
+    payload = _payload(index, memory)
+    assert "borrowed_from" not in {e.get("predicate") for e in payload["edges"]}
+    assert payload["meta"]["entities"]["dropped_relations"] == 1
+    assert _endpoints_resolve(payload)
+
+
+# ── missing or foreign databases are explicit, not exceptions ───────────────
+
+
+def test_an_empty_profile_is_refused(tmp_path):
+    """No default scope: "every profile" must be a refusal, not an omission."""
+    db = tmp_path / "memory.db"
+    with pytest.raises(ValueError):
+        load_entity_graph(db, scope_profile="")
+    with pytest.raises(ValueError):
+        load_entity_graph(db, scope_profile="   ")
+
+
+def test_a_missing_memory_db_is_empty_not_created(tmp_path, index):
+    db = tmp_path / "absent.db"
+    graph = load_entity_graph(db, scope_profile="default")
+    assert graph.available is False
+    assert graph.reason == "memory.db not found"
+    assert graph.entities == ()
+    assert not db.exists(), "the read-only loader created the file"
+
+    payload = build_graph_payload(index, entity_graph=graph)
+    assert payload["meta"]["entities"]["available"] is False
+    assert payload["meta"]["entities"]["entity_count"] == 0
+
+
+def test_a_database_without_the_tables_is_unavailable(tmp_path, index):
+    db = tmp_path / "v2.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT)")
+    conn.commit()
+    conn.close()
+
+    graph = load_entity_graph(db, scope_profile="default")
+    assert graph.available is False
+    assert graph.entities == ()
+
+
+# ── the rest of the payload is unchanged ────────────────────────────────────
+
+
+def test_the_model_never_draws_an_edge_to_a_missing_node(index):
+    """The loader guarantees closed endpoints; the model must not rely on it.
+    A hand-built graph with a dangling relation produces neither a dangling
+    edge nor an isolated entity dot, and the relation is counted."""
+    graph = EntityGraph(
+        entities=(GraphEntity("ent_a", "Alpha"),),
+        relations=(GraphRelation("ent_a", "mentions", "ent_missing"),),
+        scope_profile="default",
+    )
+    payload = build_graph_payload(index, entity_graph=graph)
+    assert [e for e in payload["edges"] if e["kind"] == "relation"] == []
+    assert payload["meta"]["entities"]["entity_count"] == 0
+    assert payload["meta"]["entities"]["dropped_relations"] == 1
+    assert _endpoints_resolve(payload)
+
+
+def test_an_absent_entity_graph_leaves_notes_and_edges_alone(index):
+    plain = build_graph_payload(index)
+    empty = build_graph_payload(index, entity_graph=None)
+    assert [n["id"] for n in plain["nodes"]] == [n["id"] for n in empty["nodes"]]
+    assert plain["edges"] == empty["edges"]
+    assert len(plain["nodes"]) == 2
+
+
+def test_the_body_gate_counts_notes_not_entities(index, memory):
+    _seed(memory)
+    payload = build_graph_payload(
+        index, include_bodies=True, entity_graph=_graph(memory)
+    )
+    coverage = payload["meta"]["body_coverage"]
+    assert coverage["total"] == 2, "entity nodes have no body plane"
+    assert coverage["ok"] is True
+
+
+def test_html_export_embeds_entity_data(index, memory, tmp_path):
+    ids = _seed(memory)
+    out = tmp_path / "graph.html"
+    export_html(index, out, entity_graph=_graph(memory))
+    html = out.read_text(encoding="utf-8")
+    assert f"entity:{ids['alice']}" in html
+    assert "works_at" in html
+    assert "__ENTROPICMEM_" not in html
+
+
+def test_the_viewer_draws_an_edge_with_its_typed_colour():
+    js = graph_assets.asset("graph.js")
+    assert "function edgeColor(d) { return d.color ||" in js, (
+        "typed relation colours are in the payload but the viewer ignores them"
+    )
+
+
+# ── the CLI flag is the only way in, and it stays opt-in ────────────────────
+
+
+def _cli_env(tmp_path: Path, memory) -> dict:
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("ENTROPICMEM_")
+    }
+    env.update({
+        "ENTROPICMEM_VAULT_PATH": str(tmp_path / "vault"),
+        "ENTROPICMEM_INDEX_DB": str(tmp_path / "index.db"),
+        "ENTROPICMEM_MEMORY_DB": str(memory.path),
+    })
+    return env
+
+
+def test_cli_exports_entities_only_when_asked(index, memory, tmp_path):
+    _seed(memory)
+    out = tmp_path / "out"
+    result = subprocess.run(
+        [
+            sys.executable, str(CLI), "graph", "export",
+            "--format", "json", "--entities", "--output-dir", str(out),
+        ],
+        env=_cli_env(tmp_path, memory),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Entities: 3 nodes, 2 relations" in result.stdout
+    payload = json.loads((out / "graph.json").read_text(encoding="utf-8"))
+    assert {n["kind"] for n in payload["nodes"]} == {"note", "entity"}
+    assert payload["meta"]["entities"]["available"] is True
+
+
+def test_cli_refuses_entities_for_dot(index, memory, tmp_path):
+    result = subprocess.run(
+        [
+            sys.executable, str(CLI), "graph", "export",
+            "--format", "dot", "--entities", "--output-dir", str(tmp_path / "out"),
+        ],
+        env=_cli_env(tmp_path, memory),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 2
+    assert "only supported for --format html or json" in result.stderr

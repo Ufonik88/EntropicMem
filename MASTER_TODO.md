@@ -770,7 +770,11 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing is in flight. Chunk 43, the EM-605 slice-1 follow-up, landed 2026-10-19 (`5258b46`; 11/11 check-runs green on the exact SHA, CI 3.12 2954 / 4 / 2 read there):
+**EM-605 slice 2, slice 1 of its five — entity nodes and typed relation edges — is in flight (2026-10-20).** It is the documented next chunk (NEXT_CHUNK Part B), not a new card: one loader reading both `index.db` and `memory.db`, entity nodes and relation edges with typed colours, fixtures for both stores and one where the stores disagree, and the body gate taught that entity nodes have no body plane. It lands behind an explicit scope, with the CLI opt-in and the owner-only filter/leak test still slice 2.
+
+**One drift found and being fixed with this landing:** `docs/plan/suite_figures.json` is stale relative to the tree. The security-hardening commits after `5258b46` added 13 tests without re-measuring, so bare collection is now 2909 while the record's bare triple sums to 2896 (`2878 + 16 + 2`). The record is re-measured on this chunk's final tree; the five documents' triples and BASELINE's rows move with it. The guard could not see this (it checks docs against the record, not the record against the tree); a cheap ancestry check is added with the refresh so it cannot recur silently.
+
+**Chunk 43, the EM-605 slice-1 follow-up, landed 2026-10-19 (`5258b46`; 11/11 check-runs green on the exact SHA, CI 3.12 2954 / 4 / 2 read there):
 the viewer assets declared as a package so the wheel ships them warning-free (and the
 export verified from an installed wheel outside the repo), the figures of record now
 measured by a script and checked by a guard instead of hand-typed into five places, and
