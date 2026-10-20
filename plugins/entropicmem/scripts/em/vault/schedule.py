@@ -255,17 +255,11 @@ def enqueue_reindex(conn, *, root: "str | Path", index_db: "str | Path | None") 
 
         # The row is in flight (running) or already finished (done): its store
         # snapshot predates this request, so its render cannot contain it. Give
-        # the request its own follow-up keyed to that row — and, because the key
-        # is stable for the life of that row, further requests during the same
-        # run collapse onto this one follow-up instead of fanning out.
+        # the request its own follow-up keyed to that row, and walk on — the
+        # next pass re-queries at the follow-up key, so a second request during
+        # the same run collapses onto that one follow-up instead of being
+        # absorbed by it.
         key = f"{base}:{row['id']}"
-        # Create a follow-up job for this request
-        return queue.enqueue(
-            REINDEX_JOB_TYPE,
-            payload,
-            dedupe_key=key,
-            run_after=utc_now(),
-        )
 
     raise RuntimeError(
         f"{REINDEX_JOB_TYPE}: burst exceeded {_MAX_CHAIN} follow-up rows for {base!r}; "

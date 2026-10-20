@@ -9,6 +9,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[0]
 SCRIPTS = REPO / "plugins" / "entropicmem" / "scripts"
 for entry in (str(REPO), str(SCRIPTS)):
@@ -139,9 +141,15 @@ def test_enqueue_reindex_still_dedups_before_run(tmp_path):
         saved.close()
 
 
-def test_reindex_chain_respects_max_chain(tmp_path):
-    """Regression test: chain must respect _MAX_CHAIN boundary (like projection)."""
-    # Create vault root and index db path
+def test_reindex_chain_walks_past_a_running_followup(tmp_path):
+    """The chain must keep walking while follow-up rows are in flight.
+
+    QA (EM-603 review) showed the first cut of this fix returned immediately
+    after computing the follow-up key, so a follow-up row that was itself
+    running/done absorbed the request - the same defect one level deeper.
+    With r1 running and its follow-up r2 also running, a third request must
+    produce a NEW row, not r2.
+    """
     vault_root = tmp_path / "vault"
     vault_root.mkdir(exist_ok=True)
     index_db = tmp_path / "index.db"
@@ -151,18 +159,74 @@ def test_reindex_chain_respects_max_chain(tmp_path):
 
     try:
         with saved.transaction() as conn:
-            # Start a chain
-            first_id = enqueue_reindex(conn, root=vault_root, index_db=index_db)
+            from em.store.jobs import JobQueue
 
-            # Simulate rapid completion + enqueues that exceed _MAX_CHAIN
-            # This is harder to simulate without modifying the schedule code,
-            # but we can at least verify the initial behavior
-            assert first_id is not None, "Should be able to enqueue initial job"
+            queue = JobQueue(conn)
 
-            # We can't easily test the full chain without modifying enqueue_reindex,
-            # but we can verify the basic structure
-            print("✅ Test passed: Chain mechanism initialized")
-            print(f"   Initial job ID: {first_id}")
+            # r1: queued -> running
+            r1 = enqueue_reindex(conn, root=vault_root, index_db=index_db)
+            assert r1 is not None
+            queue.claim("test-worker")
+
+            # r2: the follow-up, also taken in flight
+            r2 = enqueue_reindex(conn, root=vault_root, index_db=index_db)
+            assert r2 is not None
+            assert r2 != r1, "second request must produce a new row"
+            queue.claim("test-worker")
+
+            # r3: both r1 and r2 are running - the chain must walk past BOTH
+            r3 = enqueue_reindex(conn, root=vault_root, index_db=index_db)
+            assert r3 is not None
+            assert r3 != r2, (
+                "third request was absorbed by the in-flight follow-up r2: the "
+                "chain stopped walking one level deep (EM-603 defect, again)"
+            )
+            assert len({r1, r2, r3}) == 3
+
+            rows = conn.execute(
+                f"SELECT id, status FROM jobs WHERE type='{REINDEX_JOB_TYPE}'"
+            ).fetchall()
+            assert len(rows) == 3, f"Expected 3 rows, got {len(rows)}"
+            assert [r["status"] for r in rows].count("running") == 2
+            assert [r["status"] for r in rows].count("queued") == 1
+
+    finally:
+        saved.close()
+
+
+def test_reindex_chain_respects_max_chain(tmp_path):
+    """A burst that exhausts the chain must raise, not silently drop the request.
+
+    Fills every slot so that the next walk cannot find a free key, and asserts
+    the terminal RuntimeError is actually reachable (it was dead code in the
+    first cut).
+    """
+    from em.vault.schedule import _MAX_CHAIN
+
+    vault_root = tmp_path / "vault"
+    vault_root.mkdir(exist_ok=True)
+    index_db = tmp_path / "index.db"
+    index_db.touch()
+
+    saved = _memory_store(tmp_path)
+
+    try:
+        with saved.transaction() as conn:
+            from em.store.jobs import JobQueue
+
+            queue = JobQueue(conn)
+
+            ids = []
+            for _ in range(_MAX_CHAIN):
+                jid = enqueue_reindex(conn, root=vault_root, index_db=index_db)
+                assert jid is not None, "chain should still hand out rows under the bound"
+                queue.claim("test-worker")  # take it in flight so the key stays occupied
+                ids.append(jid)
+
+            assert len(set(ids)) == _MAX_CHAIN, "each walk must allocate a distinct row"
+
+            with pytest.raises(RuntimeError):
+                enqueue_reindex(conn, root=vault_root, index_db=index_db)
 
     finally:
         saved.close()
