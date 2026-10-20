@@ -235,6 +235,59 @@ class TestZoomEnhancements:
             "scale extent clamp not applied in keyboard zoom"
 
 
+class TestPanInertia:
+    """Phase G: pan by dragging the empty canvas, with inertia on release."""
+
+    def _html(self, populated_index):
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        return export_html(index, out, max_nodes=50)
+
+    def test_pan_cfg_block(self, populated_index):
+        """The pan CFG block carries the inertia decay and stop threshold."""
+        html = self._html(populated_index)
+        assert "inertia: 0.92" in html, "pan inertia not in CFG"
+        assert "minVelocity: 0.5" in html, "pan min velocity not in CFG"
+
+    def test_pan_tuned_from_cfg(self, populated_index):
+        html = self._html(populated_index)
+        assert "CFG.pan.inertia" in html, "inertia decay not wired to CFG.pan.inertia"
+        assert "CFG.pan.minVelocity" in html, "stop threshold not wired to CFG.pan.minVelocity"
+
+    def test_pan_handles_empty_canvas_only(self, populated_index):
+        """Dragging that starts on a node or edge never pans the graph."""
+        html = self._html(populated_index)
+        assert "function panStart" in html, "panStart handler missing"
+        assert "function panTouchStart" in html, "touchstart pan handler missing"
+        assert "event.target !== svg.node()" in html, \
+            "pan must ignore drags that start on nodes or edges"
+        assert ".on(\"mousedown\", panStart)" in html, \
+            "mousedown pan handler not wired on the svg"
+        assert ".on(\"touchstart\", panTouchStart)" in html, \
+            "touchstart pan handler not wired on the svg"
+
+    def test_touch_action_none(self, populated_index):
+        html = self._html(populated_index)
+        assert "touch-action: none" in html, "svg must opt out of touch scroll"
+
+    def test_inertia_decay_loop(self, populated_index):
+        """Release captures residual velocity and decays it frame by frame."""
+        html = self._html(populated_index)
+        assert "requestAnimationFrame" in html, "inertia needs an animation loop"
+        assert "cancelAnimationFrame" in html, "inertia loop must be cancellable"
+        assert "panVx *= CFG.pan.inertia" in html, \
+            "geometric decay not implemented"
+        assert "function panRelease" in html and "function panTick" in html, \
+            "inertia release and tick missing"
+        assert "performance.now()" in html, "release velocity needs a clock"
+
+    def test_pan_is_clamped(self, populated_index):
+        """The pan offset is clamped so part of the graph stays in view."""
+        html = self._html(populated_index)
+        assert "function clampPan" in html, "pan clamp missing"
+        assert "clampPan(" in html, "clamp not applied on every transform update"
+
+
 class TestMinimapNavigation:
     """Phase E3: minimap click-to-pan."""
 
