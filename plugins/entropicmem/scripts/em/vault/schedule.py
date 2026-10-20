@@ -227,15 +227,43 @@ def enqueue_reindex(conn, *, root: "str | Path", index_db: "str | Path | None") 
     projection there is no per-write payload a request could lose — the refresh
     reads whatever the vault holds when it runs. Returns the row id, or
     ``None`` when either path is missing (nothing to refresh).
+
+    The enqueue follows the chain: while the row for a key is neither queued
+    nor failed, a follow-up keyed to that row is allocated, and further
+    requests collapse onto that one follow-up instead of the stale in-flight
+    row.
     """
     if not root or not index_db:
         return None
+    base = _reindex_key(root, index_db)
+    payload = {"root": str(root), "index_db": str(index_db)}
     queue = JobQueue(conn)
-    return queue.enqueue(
-        REINDEX_JOB_TYPE,
-        {"root": str(root), "index_db": str(index_db)},
-        dedupe_key=_reindex_key(root, index_db),
-        run_after=utc_now(),
+    key = base
+
+    for _ in range(_MAX_CHAIN):
+        row = conn.execute(
+            "SELECT id, status FROM jobs WHERE dedupe_key=?", (key,)
+        ).fetchone()
+
+        if row is None or row["status"] in ("queued", "failed"):
+            return queue.enqueue(
+                REINDEX_JOB_TYPE,
+                payload,
+                dedupe_key=key,
+                run_after=utc_now(),
+            )
+
+        # The row is in flight (running) or already finished (done): its store
+        # snapshot predates this request, so its render cannot contain it. Give
+        # the request its own follow-up keyed to that row, and walk on — the
+        # next pass re-queries at the follow-up key, so a second request during
+        # the same run collapses onto that one follow-up instead of being
+        # absorbed by it.
+        key = f"{base}:{row['id']}"
+
+    raise RuntimeError(
+        f"{REINDEX_JOB_TYPE}: burst exceeded {_MAX_CHAIN} follow-up rows for {base!r}; "
+        "refresh jobs are arriving faster than the vault index can rebuild"
     )
 
 
