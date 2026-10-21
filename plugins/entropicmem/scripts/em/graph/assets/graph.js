@@ -32,7 +32,14 @@ function edgeWidth(d) {
   if (kind === "tag") return 1.0;
   return 1.0;
 }
-function edgeColor(d) { return d.color || "#6b6b7d"; }
+function edgeColor(d) {
+  // Directional edges (wikilink / triple) read as a source → target gradient;
+  // entity relation edges keep the typed predicate colour EM-605 slice 2.1
+  // gives them, and everything else uses the palette's muted edge token.
+  if (isDirectionalEdge(d)) return `url(#${dirGradId(d)})`;
+  if (d.color) return d.color;
+  return "var(--edge)";
+}
 function edgeDash(d) {
   // EM-605 slice 2.4: the model marks a replaced claim; the viewer only draws
   // it. Checked before the kind rules so no other style can override it.
@@ -41,6 +48,96 @@ function edgeDash(d) {
   if (kind === "tag" || kind === "wikilink") return null;
   if (kind.startsWith("triple")) return "2,3";
   return null;
+}
+
+/* ── Edge highlight on node hover ── */
+/* Connected edges are boosted toward the top of the visible opacity band;
+   non-connected edges are dimmed but stay visible. Both factors are monotonic
+   in the strength-encoded base opacity, so strength ordering survives the
+   highlight. The stroke colour is never touched — directional gradients keep
+   showing while highlighted — and no new palette tokens are introduced. */
+const EDGE_OPACITY_MAX = window.__emGraphStrength?.EDGE_OPACITY_MAX ?? 0.9;
+const EDGE_OPACITY_MIN = window.__emGraphStrength?.EDGE_OPACITY_MIN ?? 0.2;
+const EDGE_HOVER_CONNECTED_BOOST = 1.4; // multiply base opacity, clamped at max
+const EDGE_HOVER_UNCONNECTED_DIM = 0.5; // multiply base opacity, clamped at min
+
+/* ── Directional edges: gradient strokes reading source → target ── */
+// Wikilink and relation-triple edges carry a direction (source → target);
+// tag edges and anything else are undirected and keep a solid stroke.
+// Nothing reads beyond the existing payload: source, target and kind.
+function isDirectionalEdge(d) {
+  const kind = (d.kind || "").toString();
+  return kind === "wikilink" || kind.startsWith("triple");
+}
+
+// Gradient id is stable per edge: (source, target, kind) is unique on the
+// graph_edges table, so re-renders and filter toggles reuse the same def
+// and never create duplicate ids. Defs live in the svg root and outlast the
+// .layer rebuild, so orphans are pruned on every render (see syncEdgeGradients).
+function dirGradId(d) {
+  const clean = (id) => String(id).replace(/[^A-Za-z0-9._:-]/g, "-");
+  const s = typeof d.source === "object" ? d.source.id : d.source;
+  const t = typeof d.target === "object" ? d.target.id : d.target;
+  return `dir-grad-${clean(s)}__${clean(t)}__${clean(d.kind || "")}`;
+}
+
+// Stop colors bind to the existing light/dark palette tokens only: the
+// muted edge colour at the source (tail) and the neon accent at the target
+// (head). The stroke reads as a lightflow in the direction of travel, in
+// both themes; no new tokens are added.
+const DIR_GRAD_STOPS = [
+  { offset: "0%", color: "var(--edge)" },
+  { offset: "100%", color: "var(--accent)" },
+];
+
+// Gradient defs keyed by their stable id. A Map (not a CSS #id selector)
+// so ids containing dots or slashes — note ids are vault paths like
+// "Infrastructure/Infrastructure Note 0.md" — can never mismatch on lookup
+// and silently spawn duplicate-id defs on re-render.
+const dirGradById = new Map();
+
+// Create (or reuse) gradient defs for exactly the directional edges being
+// rendered, oriented along each edge's current source → target vector, and
+// drop defs whose edge no longer renders so re-render / unmount never leaks
+// defs or collides on ids.
+function syncEdgeGradients(edges) {
+  const want = new Set();
+  for (const d of edges) {
+    if (!isDirectionalEdge(d)) continue;
+    const id = dirGradId(d);
+    want.add(id);
+    let grad = dirGradById.get(id);
+    const s = nodeById.get(typeof d.source === "object" ? d.source.id : d.source);
+    const t = nodeById.get(typeof d.target === "object" ? d.target.id : d.target);
+    if (!grad) {
+      grad = defs.append("linearGradient")
+        .attr("class", "dir-grad")
+        .attr("id", id)
+        .attr("gradientUnits", "userSpaceOnUse");
+      DIR_GRAD_STOPS.forEach((stop) => {
+        grad.append("stop")
+          .attr("offset", stop.offset)
+          .attr("stop-color", stop.color)
+          .attr("stop-opacity", 1);
+      });
+      dirGradById.set(id, grad);
+    }
+    // Orient along the current edge vector every render: positions pre-date
+    // the first simulation tick, and nodes may move between renders, so the
+    // stroke always reads source → target. userSpaceOnUse coords follow the
+    // rootG transform, so zoom and pan need no update here.
+    const sx = s && s.x != null ? s.x : 0;
+    const sy = s && s.y != null ? s.y : 0;
+    const tx = t && t.x != null ? t.x : 0;
+    const ty = t && t.y != null ? t.y : 0;
+    grad.attr("x1", sx).attr("y1", sy).attr("x2", tx).attr("y2", ty);
+  }
+  defs.selectAll("linearGradient.dir-grad").each(function () {
+    if (!want.has(this.id)) {
+      dirGradById.delete(this.id);
+      this.remove();
+    }
+  });
 }
 
 /* ── Tunable configuration (physics, zoom/LOD, halo, clipboard) ── */
@@ -55,6 +152,13 @@ const CFG = {
   // optional cluster-centroid force (2D reading of the reference tool's
   // multi-galaxy; default off, toggle in the panel).
   cluster: { legendMax: 10, islandStrength: 0.08 },
+  pan: {
+    // Empty-canvas pointer drag pans the view; on release the residual
+    // velocity decays geometrically (velocity *= inertia per frame) until it
+    // falls below the stop threshold (px per frame) and the animation loop stops.
+    inertia: 0.92,
+    minVelocity: 0.5,
+  },
 };
 
 /* ── Per-color cached halo gradients (tinted radial fade) ── */
@@ -73,7 +177,7 @@ function haloGradientRef(color) {
 }
 
 /* ── State ── */
-let simulation, svg, rootG, linkG, nodeG, labelG;
+let simulation, svg, defs, rootG, linkG, nodeG, labelG, labelMeasure;
 let mmSvg, mmNodeG, mmViewport;
 let currentDomain = "", currentMinImp = 0, currentTag = "";
 // EM-605 2.3: relation edges carry an inclusive [start, end] rank over the
@@ -89,9 +193,30 @@ let orphanMode = false;     // highlight degree-0 notes (hygiene signal, no dele
 let searchTimer = null;     // debounce timer for the vault search input
 let currentTransform = d3.zoomIdentity;
 let lastTrigger = null;   // element that opened the modal, for focus return
+/* ── Pan state: empty-canvas drag with inertia on release ── */
+let panActive = false;    // a drag gesture is in progress
+let panOrigin = null;     // transform at drag start
+let panAnchor = { x: 0, y: 0 };   // pointer at drag start (screen px)
+let panPoint = { x: 0, y: 0 };    // pointer now (screen px)
+let panSamples = [];      // {t, x, y} sampled while dragging -> release velocity
+let panRaf = null;        // in-flight inertia loop id
+let panVx = 0, panVy = 0; // residual velocity, screen px per frame
 let W = window.innerWidth, H = window.innerHeight;
 
+/* ── Unified rAF render loop with zoom/pan interpolation ── */
+let animRaf = null;
+let zoomTarget = { k: 1, x: 0, y: 0 };
+let zoomCurrent = { k: 1, x: 0, y: 0 };
+let panTargetX = 0, panTargetY = 0;
+let panCurrentX = 0, panCurrentY = 0;
+const LERP_FACTOR = 0.15;
+const LERP_EPSILON = 0.01; // pixels/scale units to consider settled
+
 const zoom = d3.zoom().scaleExtent([CFG.zoom.min, CFG.zoom.max])
+  // Pointer-drag panning is owned by the pan gesture below (empty canvas
+  // only, with inertia on release): d3.zoom keeps wheel and programmatic
+  // zoom and never fights the pan handlers for the transform.
+  .filter(event => event.type === "wheel")
   // deltaMode-normalized: 0=pixel (trackpads), 1=line (mouse wheels), 2=page.
   // Convert line/page deltas to pixels first so every device zooms at the same rate.
   .wheelDelta(event => {
@@ -99,14 +224,70 @@ const zoom = d3.zoom().scaleExtent([CFG.zoom.min, CFG.zoom.max])
     const raw = mode === 1 ? event.deltaY * 33 : mode === 2 ? event.deltaY * 1000 : event.deltaY;
     return -raw * CFG.zoom.wheelFactor;
   })
-  .on("zoom", (event) => {
-    currentTransform = event.transform;
-    if (rootG) rootG.attr("transform", event.transform);
+  .on("zoom", (event) => { applyTransform(event.transform); });
+
+/* ── Unified rAF render loop with interpolation ── */
+function startRenderLoop() {
+  if (animRaf !== null) return; // already running
+  function frame() {
+    let dx = zoomTarget.k - zoomCurrent.k;
+    let dyx = zoomTarget.x - zoomCurrent.x;
+    let dyy = zoomTarget.y - zoomCurrent.y;
+    zoomCurrent.k += dx * LERP_FACTOR;
+    zoomCurrent.x += dyx * LERP_FACTOR;
+    zoomCurrent.y += dyy * LERP_FACTOR;
+    const settled = Math.abs(dx) < LERP_EPSILON && Math.abs(dyx) < LERP_EPSILON && Math.abs(dyy) < LERP_EPSILON;
+    const t = d3.zoomIdentity.translate(zoomCurrent.x, zoomCurrent.y).scale(zoomCurrent.k);
+    if (rootG) {
+      // Apply interpolated transform through SVG transform attribute (equivalent to ctx transform)
+      rootG.attr("transform", t);
+    }
+    currentTransform = t;
+    if (svg && svg.node()) {
+      svg.node().__zoom = t;
+    }
     updateMinimapViewport();
     updateLOD();
-  });
+    if (settled && Math.abs(panVx) < CFG.pan.minVelocity && Math.abs(panVy) < CFG.pan.minVelocity) {
+      // Snap to target to avoid overshoot
+      zoomCurrent.k = zoomTarget.k;
+      zoomCurrent.x = zoomTarget.x;
+      zoomCurrent.y = zoomTarget.y;
+      const t2 = d3.zoomIdentity.translate(zoomCurrent.x, zoomCurrent.y).scale(zoomCurrent.k);
+      if (rootG) rootG.attr("transform", t2);
+      currentTransform = t2;
+      if (svg && svg.node()) svg.node().__zoom = t2;
+      updateMinimapViewport();
+      updateLOD();
+      animRaf = null;
+      return;
+    }
+    animRaf = requestAnimationFrame(frame);
+  }
+  animRaf = requestAnimationFrame(frame);
+}
 
-/* ── Zoom helpers (shared by buttons, keys, dblclick) ── */
+function stopRenderLoop() {
+  if (animRaf !== null) {
+    cancelAnimationFrame(animRaf);
+    animRaf = null;
+  }
+}
+
+/* ── Transform applier: sets targets and drives unified rAF loop with interpolation ── */
+function applyTransform(t) {
+  if (!t) return;
+  zoomTarget.k = t.k;
+  zoomTarget.x = t.x;
+  zoomTarget.y = t.y;
+  // Initialize current if not set
+  if (zoomCurrent.k === undefined || zoomCurrent.x === undefined) {
+    zoomCurrent.k = t.k;
+    zoomCurrent.x = t.x;
+    zoomCurrent.y = t.y;
+  }
+  startRenderLoop();
+}
 function zoomBy(factor, cx, cy) {
   if (!svg) return;
   cx = cx == null ? W / 2 : cx;
@@ -142,6 +323,125 @@ function zoomFit() {
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
   const t = d3.zoomIdentity.translate(W / 2 - cx * k, H / 2 - cy * k).scale(k);
   svg.transition().duration(600).call(zoom.transform, t);
+}
+
+/* ── Clamp a transform so the graph cannot be dragged out of view entirely:
+    at least part of the graph's world extent stays inside the viewport. ── */
+function clampPan(t) {
+  if (!nodeG) return t;
+  const nodes = nodeG.data();
+  if (!nodes.length) return t;
+  const k = t.k;
+  const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  // Visible world rect is [-t.x/k .. (W - t.x)/k] x [-t.y/k .. (H - t.y)/k];
+  // keep it overlapping [minX..maxX] x [minY..maxY].
+  t.x = Math.max(-k * maxX, Math.min(W - k * minX, t.x));
+  t.y = Math.max(-k * maxY, Math.min(H - k * minY, t.y));
+  return t;
+}
+
+/* ── Empty-canvas pan: drag follows the pointer 1:1, release decays the
+    residual velocity geometrically until it stops on its own. ── */
+function pointerPos(event) {
+  const p = event.touches && event.touches.length ? event.touches[0] : event;
+  return { x: p.clientX, y: p.clientY };
+}
+
+function panStart(event) {
+  window.__panLog && window.__panLog.push("panStart target=" + (event.target && event.target.tagName) + " button=" + event.button);
+  // Nodes and edges keep their own gestures: only the empty canvas pans.
+  if (event.target !== svg.node()) return;
+  if (event.button !== undefined && event.button !== 0) return;
+  cancelInertia();
+  panActive = true;
+  panOrigin = currentTransform;
+  const p = pointerPos(event);
+  panAnchor = { x: p.x, y: p.y };
+  panPoint = { x: p.x, y: p.y };
+  panSamples = [{ t: performance.now(), x: p.x, y: p.y }];
+  event.preventDefault();
+}
+
+function panTouchStart(event) {
+  if (event.target !== svg.node()) return;
+  if (event.touches.length !== 1) return;
+  cancelInertia();
+  panActive = true;
+  panOrigin = currentTransform;
+  const p = pointerPos(event);
+  panAnchor = { x: p.x, y: p.y };
+  panPoint = { x: p.x, y: p.y };
+  panSamples = [{ t: performance.now(), x: p.x, y: p.y }];
+  event.preventDefault();
+}
+
+function panMove(x, y) {
+  panPoint = { x, y };
+  panSamples.push({ t: performance.now(), x, y });
+  if (panSamples.length > 60) panSamples.shift();
+  const k = panOrigin.k;
+  applyTransform(clampPan(panOrigin.translate((x - panAnchor.x) / k, (y - panAnchor.y) / k)));
+}
+
+function panRelease() {
+  window.__panLog && window.__panLog.push("panRelease panActive=" + panActive);
+  if (!panActive) return;
+  panActive = false;
+  // Residual velocity from the last ~100 ms of pointer motion, in px per frame.
+  const end = performance.now();
+  const windowMs = 100;
+  let base = panSamples[panSamples.length - 1];
+  for (let i = panSamples.length - 2; i >= 0; --i) {
+    if (end - panSamples[i].t <= windowMs) base = panSamples[i];
+    else break;
+  }
+  const dt = Math.max(1, end - base.t);
+  panVx = ((panPoint.x - base.x) / dt) * (1000 / 60);
+  panVy = ((panPoint.y - base.y) / dt) * (1000 / 60);
+  window.__panLog && window.__panLog.push("panRelease vx=" + panVx + " vy=" + panVy + " dt=" + dt + " samples=" + panSamples.length);
+  if (Math.abs(panVx) < CFG.pan.minVelocity && Math.abs(panVy) < CFG.pan.minVelocity) {
+    panVx = panVy = 0;
+    return;
+  }
+  cancelInertia();
+  panRaf = requestAnimationFrame(panTick);
+}
+
+function panTick() {
+  window.__panLog && window.__panLog.push("panTick vx=" + panVx + " vy=" + panVy);
+  panVx *= CFG.pan.inertia;
+  panVy *= CFG.pan.inertia;
+  if (Math.abs(panVx) < CFG.pan.minVelocity && Math.abs(panVy) < CFG.pan.minVelocity) {
+    panVx = panVy = 0;
+    panRaf = null;
+    return;
+  }
+  panPoint.x += panVx;
+  panPoint.y += panVy;
+  const k = zoomCurrent.k;
+  const t = d3.zoomIdentity.translate(
+    (panPoint.x - panAnchor.x) / k + zoomCurrent.x,
+    (panPoint.y - panAnchor.y) / k + zoomCurrent.y
+  ).scale(k);
+  // Update target and start unified loop
+  zoomTarget.x = t.x;
+  zoomTarget.y = t.y;
+  zoomTarget.k = t.k;
+  startRenderLoop();
+  panRaf = requestAnimationFrame(panTick);
+}
+
+function cancelInertia() {
+  if (panRaf !== null) { cancelAnimationFrame(panRaf); panRaf = null; }
+  panVx = panVy = 0;
+  stopRenderLoop();
+}
+
+function cancelPan() {
+  panActive = false;
+  cancelInertia();
 }
 
 /* ── Cluster force: gentle pull toward per-community centroids (islands) ── */
@@ -599,11 +899,82 @@ function selectSearchResult(r) {
   if (box) box.hidden = true;
 }
 
+/* ── Label typography ──
+    Display face (Space Grotesk), size scaled to node radius, ellipsis
+    truncation at the default node width, hover/focus reveal of the full
+    title, collapse on mouse-out/blur. Layout (node positions) is never
+    touched by any of this.
+*/
+const LABEL = { base: 11, min: 10, max: 14, pad: 8, ellipsis: "…" };
+const labelInfo = new Map();   // node id -> { full, shown, truncated }
+const labelEl = new Map();     // node id -> label <text> element
+
+function labelSize(d) {
+  return Math.max(LABEL.min, Math.min(LABEL.max, LABEL.base + (nodeRadius(d) - 10) * 0.25));
+}
+
+function labelMaxWidth(d) { return Math.max(40, nodeRadius(d) * 2 - LABEL.pad); }
+
+function labelMeasureText(text, sizePx) {
+  labelMeasure.style.font = `600 ${sizePx}px var(--label-font)`;
+  labelMeasure.textContent = text;
+  return labelMeasure.getComputedTextLength();
+}
+
+function fitLabel(d) {
+  const full = d.title || d.id;
+  const width = labelMaxWidth(d);
+  const size = labelSize(d);
+  let shown = full, truncated = false;
+  if (labelMeasureText(full, size) > width) {
+    // Binary search the longest prefix that fits next to the ellipsis.
+    let lo = 0, hi = full.length;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (labelMeasureText(full.slice(0, mid) + LABEL.ellipsis, size) <= width) lo = mid;
+      else hi = mid - 1;
+    }
+    shown = full.slice(0, lo) + (lo < full.length ? LABEL.ellipsis : "");
+    truncated = lo < full.length;
+  }
+  return { full, shown, truncated };
+}
+
+function expandLabel(d) {
+  const info = labelInfo.get(d.id);
+  if (!info || !info.truncated) return;
+  const el = labelEl.get(d.id);
+  if (!el) return;
+  el.textContent = info.full;
+  el.classList.add("expanded");
+}
+
+function collapseLabel(d) {
+  const info = labelInfo.get(d.id);
+  if (!info || !info.truncated) return;
+  const el = labelEl.get(d.id);
+  if (!el) return;
+  el.textContent = info.shown;
+  el.classList.remove("expanded");
+}
+
 /* ── Render ── */
 function render() {
   const { nodes, edges } = getFilteredData();
   document.getElementById("empty-state").style.display = nodes.length ? "none" : "block";
   updateStats();
+
+  // Per-edge relationship strength rides on the model's per-edge `weight`;
+  // the model, the strength data and the layout algorithm are untouched.
+  // Normalise against the edges in this view and encode strength in stroke
+  // opacity (0.2-0.9) and width (1-2 px, below the node's 2.2 px selected
+  // border weight) via the pure helper in graph-strength.js.
+  const strengths = edges.map(e => Number(e.weight)).filter(s => Number.isFinite(s) && s > 0);
+  const sLo = strengths.length ? Math.min(...strengths) : 0;
+  const sHi = strengths.length ? Math.max(...strengths) : 0;
+  const strengthOf =
+    window.__emGraphStrength?.mapEdgeStrength ||
+    (d => ({ opacity: 0.65, width: edgeWidth(d) })); // module didn't load: flat look
 
   // Preserve positions of nodes that persist across re-renders
   const oldPos = new Map();
@@ -611,17 +982,20 @@ function render() {
 
   svg.selectAll(".layer").remove();
   rootG = svg.append("g").attr("class", "layer").style("will-change", "transform");
+  syncEdgeGradients(edges);
   linkG = rootG.append("g").attr("class", "links").style("mix-blend-mode", "screen").selectAll("path").data(edges).join("path")
-    .attr("fill", "none").attr("stroke", d => edgeColor(d)).attr("stroke-width", d => edgeWidth(d))
-    .attr("stroke-opacity", 0.65).attr("stroke-dasharray", d => edgeDash(d))
+    .attr("fill", "none").attr("stroke", d => edgeColor(d))
+    .attr("stroke-width", d => strengthOf(d.weight, sLo, sHi).width)
+    .attr("stroke-opacity", d => strengthOf(d.weight, sLo, sHi).opacity)
+    .attr("stroke-dasharray", d => edgeDash(d))
     .attr("stroke-linecap", "round").attr("stroke-linejoin", "round");
   linkG.style("filter", "drop-shadow(0 0 2px rgba(107,107,125,0.3))")
     .on("mouseenter", function(event, d) {
-      d3.select(this).attr("stroke-opacity", 1).attr("stroke-width", edgeWidth(d) * 2.5);
+      d3.select(this).attr("stroke-opacity", 1).attr("stroke-width", strengthOf(d.weight, sLo, sHi).width * 2.5);
       if (labelG) labelG.style("opacity", 1);
     })
     .on("mouseleave", function(event, d) {
-      d3.select(this).attr("stroke-opacity", 0.65).attr("stroke-width", edgeWidth(d));
+      d3.select(this).attr("stroke-opacity", strengthOf(d.weight, sLo, sHi).opacity).attr("stroke-width", strengthOf(d.weight, sLo, sHi).width);
       if (labelG) labelG.style("opacity", computeLabelOpacity(currentTransform.k));
     });
 
@@ -630,13 +1004,22 @@ function render() {
     .attr("role", "button").attr("aria-label", d => `${d.title || d.id}, ${d.domain || "uncategorized"}`)
     .on("mouseover", (event, d) => {
       const incident = adjacency.get(d.id) || new Set();
-      linkG.style("opacity", e => (incident.has(e.source.id) || incident.has(e.target.id)) ? 1 : 0.15)
-          .attr("stroke", e => (incident.has(e.source.id) || incident.has(e.target.id)) ? "#8b7cf6" : (edgeColor(e)));
+      linkG.style("opacity", 1); // element fully opaque so stroke-opacity is effective
+      linkG.style("stroke-opacity", e => {
+        const s = typeof e.source === "object" ? e.source.id : e.source;
+        const t = typeof e.target === "object" ? e.target.id : e.target;
+        const connected = incident.has(s) || incident.has(t);
+        const base = strengthOf(e.weight, sLo, sHi).opacity;
+        return connected
+          ? Math.min(EDGE_OPACITY_MAX, base * EDGE_HOVER_CONNECTED_BOOST)
+          : Math.max(EDGE_OPACITY_MIN, base * EDGE_HOVER_UNCONNECTED_DIM);
+      });
       d3.select(event.currentTarget).select(".node-shape").attr("stroke", "#5AE4AA").attr("stroke-width", 2.2);
       if (labelG) labelG.style("opacity", computeLabelOpacity(currentTransform.k));
     })
     .on("mouseout", (event, d) => {
-      linkG.style("opacity", 0.65).attr("stroke", d => edgeColor(d));
+      linkG.style("opacity", null);
+      linkG.style("stroke-opacity", null);
       d3.select(event.currentTarget).select(".node-shape").attr("stroke", null).attr("stroke-width", null);
     })
     .call(d3.drag()
@@ -654,7 +1037,13 @@ function render() {
     })
     .on("mouseover", (event, d) => showTooltip(event, d))
     .on("mousemove", moveTooltip)
-    .on("mouseout", hideTooltip);
+    .on("mouseout", hideTooltip)
+    .on("focusin", (event, d) => { expandLabel(d); })
+    .on("focusout", (event, d) => {
+      collapseLabel(d);
+      linkG.style("opacity", null);
+      linkG.style("stroke-opacity", null);
+    });
 
   // Restore positions for a smooth transition instead of a full re-scatter
   nodeG.each(function(d) {
@@ -689,8 +1078,19 @@ function render() {
   });
 
   labelG = rootG.append("g").attr("class", "labels").selectAll("text").data(nodes, d => d.id).join("text")
-    .text(d => (d.title ? d.title.substring(0, 28) : d.id))
-    .attr("dy", d => nodeRadius(d) + 12).attr("text-anchor", "middle");
+    .attr("dy", d => nodeRadius(d) + 14)
+    .attr("text-anchor", "middle")
+    .each(function(d) {
+      const el = this;
+      labelEl.set(d.id, el);
+      const info = fitLabel(d);
+      labelInfo.set(d.id, info);
+      el.textContent = info.shown;
+      el.setAttribute("class", `node-label${info.truncated ? " truncatable" : ""}`);
+      el.setAttribute("font-size", labelSize(d) + "px");
+    })
+    .on("mouseover", (event, d) => { expandLabel(d); })
+    .on("mouseout", (event, d) => { collapseLabel(d); });
 
   simulation = d3.forceSimulation(nodes)
     .force("link", d3.forceLink(edges).id(d => d.id).distance(CFG.physics.linkDistance))
@@ -708,6 +1108,16 @@ function render() {
       const dr = Math.sqrt(dx * dx + dy * dy) * 1.2;
       return `M${sx.toFixed(1)},${sy.toFixed(1)}A${dr.toFixed(1)},${dr.toFixed(1)} 0 0,1 ${tx.toFixed(1)},${ty.toFixed(1)}`;
     });
+    // Keep directional gradient defs aligned with the edge vector as nodes move,
+    // so the stroke always reads source → target (userSpaceOnUse coords follow
+    // the rootG transform, so zoom/pan need no update here).
+    linkG.each(function (d) {
+      if (!isDirectionalEdge(d)) return;
+      const grad = defs.select("#" + dirGradId(d));
+      if (grad.empty()) return;
+      grad.attr("x1", d.source.x).attr("y1", d.source.y)
+        .attr("x2", d.target.x).attr("y2", d.target.y);
+    });
     nodeG.attr("transform", d => `translate(${Math.round(d.x)},${Math.round(d.y)})`);
     labelG.attr("x", d => Math.round(d.x)).attr("y", d => Math.round(d.y));
     updateMinimap();
@@ -718,8 +1128,17 @@ function render() {
   simulation.on("end", () => { if (focusedId === null) simulation.stop(); });
 
   rootG.attr("transform", currentTransform);
-  // Re-apply focus only when the focused node is part of the current view;
-  // a filtered-out id would dim every node (the applyFocus class bug).
+  // Initialize interpolation state from current transform
+  if (zoomCurrent) {
+    zoomCurrent.k = currentTransform.k;
+    zoomCurrent.x = currentTransform.x;
+    zoomCurrent.y = currentTransform.y;
+  }
+  if (zoomTarget) {
+    zoomTarget.k = currentTransform.k;
+    zoomTarget.x = currentTransform.x;
+    zoomTarget.y = currentTransform.y;
+  }
   if (focusedId && nodes.some(d => d.id === focusedId)) applyFocus(focusedId);
   else clearFocus();
   // nodeG was recreated — force LOD badge re-evaluation (zoom may be > badge threshold)
@@ -770,6 +1189,7 @@ function updateLOD() {
 
 /* ── Tooltip ── */
 function showTooltip(event, d) {
+  if (panActive) return;
   const tip = document.getElementById("tooltip");
   tip.style.display = "block";
   const meta = d.kind === "entity"
@@ -782,6 +1202,7 @@ function showTooltip(event, d) {
   moveTooltip(event);
 }
 function moveTooltip(event) {
+  if (panActive) return;
   const tip = document.getElementById("tooltip");
   // Flip at viewport edges so the tooltip never clips offscreen.
   const flipX = event.pageX + 14 + tip.offsetWidth > window.innerWidth - 8;
@@ -1191,6 +1612,26 @@ function saveDisplayPrefs() {
   } catch (e) {}
 }
 
+/* ── Theme: dark default (:root), light via data-theme on <html> ── */
+const THEME_KEY = "entropicmem-graph-theme";
+function setTheme(theme) {
+  const root = document.documentElement;
+  const btn = document.getElementById("btn-theme");
+  if (theme === "light") {
+    root.setAttribute("data-theme", "light");
+    if (btn) btn.textContent = "Theme: Light";
+  } else {
+    root.removeAttribute("data-theme");
+    if (btn) btn.textContent = "Theme: Dark";
+  }
+  try { localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+}
+function restoreTheme() {
+  let saved = "dark";
+  try { saved = localStorage.getItem(THEME_KEY) || "dark"; } catch (e) {}
+  setTheme(saved === "light" ? "light" : "dark");
+}
+
 /* ── Wiring ── */
 document.addEventListener("keydown", (e) => {
   const modalOpen = document.getElementById("modal").style.display === "flex";
@@ -1216,12 +1657,30 @@ document.addEventListener("keydown", (e) => {
 
 document.addEventListener("DOMContentLoaded", () => {
   svg = d3.select("#graph").append("svg").attr("width", "100%").attr("height", "100%");
-  svg.append("defs"); // for per-color halo gradients (haloGradientRef)
-  svg.call(zoom).on("click", () => {
-    if (activePath || pathBannerVisible()) clearPath();
-    else clearFocus();
+  svg.append("defs"); // for per-color halo gradients (haloGradientRef) and edge direction gradients
+  defs = svg.select("defs");
+  labelMeasure = svg.append("text").attr("x", -9999).attr("y", -9999).node(); // offscreen label-width measurement
+  svg
+    .call(zoom)
+    .on("mousedown", panStart)
+    .on("touchstart", panTouchStart)
+    .on("click", () => {
+      if (activePath || pathBannerVisible()) clearPath();
+      else clearFocus();
+    });
+  window.addEventListener("mousemove", (event) => {
+    if (!panActive) return;
+    panMove(event.clientX, event.clientY);
+    event.preventDefault();
   });
-  // Double-click empty canvas zooms in at the cursor (nodes swallow their own clicks).
+  window.addEventListener("mouseup", panRelease);
+  window.addEventListener("blur", cancelPan);
+  svg.on("touchmove", (event) => {
+    if (!panActive) return;
+    panMove(event.touches[0].clientX, event.touches[0].clientY);
+    event.preventDefault();
+  }).on("touchend touchcancel", panRelease);
+  initMinimap();
   svg.on("dblclick", (event) => {
     event.preventDefault();
     const [mx, my] = d3.pointer(event, svg.node());
@@ -1229,6 +1688,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   initMinimap();
   restoreDisplayPrefs();
+  restoreTheme();
   buildLegend();
   buildDomainChecks();
   buildTagSuggestions();
@@ -1240,6 +1700,10 @@ document.addEventListener("DOMContentLoaded", () => {
     saveDisplayPrefs();
     buildLegend();
     render();
+  });
+  document.getElementById("btn-theme").addEventListener("click", () => {
+    const root = document.documentElement;
+    setTheme(root.hasAttribute("data-theme") ? "dark" : "light");
   });
   document.getElementById("island-toggle").addEventListener("change", (e) => {
     islandMode = e.target.checked;

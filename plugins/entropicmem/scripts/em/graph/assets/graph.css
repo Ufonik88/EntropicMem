@@ -1,5 +1,7 @@
 :root {
   --bg: #0a0a0f;
+  --edge: #6b6b7d;
+  --edge-opacity: 0.75;
   --bg-grad: radial-gradient(ellipse at 50% 0%, #12121c 0%, #0a0a0f 60%);
   --panel: rgba(15,15,25,0.88);
   --border: #2a2a3a;
@@ -16,12 +18,34 @@
   --radius: 12px;
   --radius-sm: 6px;
   --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  /* ── Node label typography ── */
+  --label-font: var(--display);
+  --label-size: 11px;
+  --label-size-min: 10px;
+  --label-size-max: 14px;
+  --label-fill: var(--text);
+}
+/* ── Light theme: additive token overrides; dark (:root) stays the default ── */
+[data-theme="light"] {
+  --bg: #f8f9fa;
+  --bg-grad: linear-gradient(135deg, #ffffff 0%, #f1f3f5 100%);
+  --panel: rgba(255,255,255,0.92);
+  --border: #e1e4e8;
+  --border-subtle: rgba(90,228,170,0.12);
+  --accent: #009E73;
+  --accent-dim: #0072B2;
+  --accent-glow: rgba(0,158,115,0.2);
+  --text: #2d3748;
+  --text-dim: #718096;
+  --text-bright: #1a202c;
+  --edge: #2d3748;
+  --edge-opacity: 0.75;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; }
 body { background: var(--bg-grad); color: var(--text); font-family: var(--body); overflow: hidden; }
 #graph { position: absolute; inset: 0; width: 100vw; height: 100vh; }
-#graph svg { display: block; }
+#graph svg { display: block; touch-action: none; }
 
 /* ── Shared icon button / collapse affordances ── */
 .icon { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
@@ -106,7 +130,18 @@ body { background: var(--bg-grad); color: var(--text); font-family: var(--body);
 #empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: var(--text-dim); font-size: 13px; z-index: 5; display: none; pointer-events: none; }
 #empty-state .empty-title { font-family: var(--display); font-size: 15px; color: var(--text); margin-bottom: 6px; }
 
-svg text { fill: #b9b9c6; font-size: 9px; pointer-events: none; font-family: var(--body); shape-rendering: geometricPrecision; }
+/* ── Node labels ── */
+.node-label {
+  font-family: var(--label-font);
+  font-weight: 600;
+  fill: var(--label-fill);
+  pointer-events: auto;
+  shape-rendering: geometricPrecision;
+}
+.node-label.expanded { fill: var(--text-bright); }
+.node-label.truncatable { cursor: pointer; }
+/* Badges stay small and never steal pointer events from the node. */
+.node-badge { pointer-events: none; shape-rendering: geometricPrecision; }
 .node-shape { cursor: pointer; transition: opacity var(--transition); }
 .node-halo { transition: opacity 0.3s ease-out, r 0.3s ease-out; }
 .node-group { transition: filter var(--transition), opacity var(--transition); }
@@ -115,6 +150,19 @@ svg text { fill: #b9b9c6; font-size: 9px; pointer-events: none; font-family: var
 .node-group:focus .node-shape { stroke: #fff; stroke-width: 2; }
 .node-group.selected .node-shape { stroke: var(--accent); stroke-width: 2.2; stroke-opacity: 0.9; filter: url(#node-glow-strong); }
 .node-group.on-path .node-shape { stroke: var(--accent); stroke-width: 2.2; stroke-opacity: 0.95; filter: url(#node-glow-strong); }
+
+/* ── Edge highlight on node hover ── */
+/* Connected edges brighten, non-connected edges dim slightly. The transition is
+   short and disabled under prefers-reduced-motion. stroke-opacity is animated
+   (not the stroke colour) so directional gradients keep showing while highlighted. */
+.links path {
+  transition: stroke-opacity 150ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .links path {
+    transition: none;
+  }
+}
 
 /* ── Modal ── */
 #modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: none; backdrop-filter: blur(4px); }

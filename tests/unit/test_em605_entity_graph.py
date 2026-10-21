@@ -474,9 +474,18 @@ def test_html_export_embeds_entity_data(index, memory, tmp_path):
 
 def test_the_viewer_draws_an_edge_with_its_typed_colour():
     js = graph_assets.asset("graph.js")
-    assert "function edgeColor(d) { return d.color ||" in js, (
+    body = re.search(r"function edgeColor\(d\) \{(.*?)\n\}", js, re.S)
+    assert body, "edgeColor helper not found"
+    code = body.group(1)
+    assert "d.color" in code, (
         "typed relation colours are in the payload but the viewer ignores them"
     )
+    # The claim, not the spelling: a directional edge keeps its source→target
+    # gradient, an entity relation keeps its predicate colour, and anything
+    # else falls back to the palette's muted edge token. (Repointed when the
+    # graph-UI merge replaced the one-line helper.)
+    assert "isDirectionalEdge(d)" in code
+    assert "var(--edge)" in code
 
 
 # ── the owner-only scope filter (slice 2.2) ─────────────────────────────────

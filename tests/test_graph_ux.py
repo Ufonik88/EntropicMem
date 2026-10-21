@@ -155,6 +155,81 @@ class TestSVGGlowDefs:
         assert 'url(#node-glow)' in html, "glow filter not applied to node shapes"
 
 
+class TestEdgeDirectionGradients:
+    """Directional edges (wikilink / triple) render gradient strokes whose stop
+    colours bind to the existing light/dark palette tokens; non-directional
+    edges (tag) keep their solid stroke unchanged."""
+
+    def _html(self, populated_index, extra_edges=()):
+        _, index = populated_index
+        nodes = index.get_graph_nodes()
+        for src, tgt, kind in extra_edges:
+            index.db.execute(
+                "INSERT OR IGNORE INTO graph_edges (source_id, target_id, kind) "
+                "VALUES (?, ?, ?)",
+                (src, tgt, kind),
+            )
+        index.db.commit()
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        return export_html(index, out, max_nodes=50), nodes
+
+    def test_directional_edges_get_gradient_defs(self, populated_index):
+        _, index = populated_index
+        nodes = index.get_graph_nodes()
+        assert len(nodes) >= 2, "fixture must contain nodes"
+        html, _ = self._html(
+            populated_index, [(nodes[0]["note_id"], nodes[1]["note_id"], "wikilink")]
+        )
+        # The renderer carries the direction-aware gradient mechanism.
+        assert "function isDirectionalEdge" in html, "directional-edge predicate missing"
+        assert "function syncEdgeGradients" in html, "gradient def sync missing"
+        assert "syncEdgeGradients(edges)" in html, "gradient sync not wired into render"
+        assert "gradientUnits" in html and "userSpaceOnUse" in html, (
+            "gradients must run in world space along the edge vector"
+        )
+        assert 'attr("stop-color"' in html, "gradient stops are coloured"
+        assert "var(--edge)" in html, "source stop binds the existing edge token"
+        assert "var(--accent)" in html, "target stop binds the existing accent token"
+        assert "dir-grad-${clean(s)}__${clean(t)}" in html, (
+            "gradient ids are built from source, target and kind"
+        )
+        # The payload still carries the edge the renderer acts on.
+        data = export_json(
+            index,
+            Path(tempfile.mkdtemp()) / "graph.json",
+            max_nodes=50,
+        )
+        kinds = {e["kind"] for e in data["edges"]}
+        assert "wikilink" in kinds
+
+    def test_gradient_ids_deterministic_per_edge(self, populated_index):
+        _, index = populated_index
+        nodes = index.get_graph_nodes()
+        edge = (nodes[0]["note_id"], nodes[1]["note_id"], "wikilink")
+        html, _ = self._html(populated_index, [edge])
+        # Id is a pure function of (source, target, kind): re-rendering yields
+        # the same id, so defs are reused and never duplicated.
+        assert html.count("dir-grad-") == 1, "exactly one gradient id per directional edge"
+
+    def test_non_directional_edge_keeps_solid_stroke(self, populated_index):
+        _, index = populated_index
+        nodes = index.get_graph_nodes()
+        wiki = (nodes[0]["note_id"], nodes[1]["note_id"], "wikilink")
+        tag = (nodes[1]["note_id"], nodes[2]["note_id"], "tag")
+        html, _ = self._html(populated_index, [wiki, tag])
+        data = export_json(
+            index, Path(tempfile.mkdtemp()) / "graph.json", max_nodes=50
+        )
+        kinds = {e["kind"] for e in data["edges"]}
+        assert kinds == {"wikilink", "tag"}
+        # Directional edges get the gradient mechanism; non-directional fall
+        # back to the solid edge-colour stroke — both in the same payload.
+        assert "dir-grad-" in html
+        assert 'return "var(--edge)"' in html, (
+            "non-directional edges keep the solid edge-colour stroke"
+        )
+
+
 class TestLODSystem:
     """Phase E: level-of-detail label culling."""
 
@@ -235,6 +310,59 @@ class TestZoomEnhancements:
             "scale extent clamp not applied in keyboard zoom"
 
 
+class TestPanInertia:
+    """Phase G: pan by dragging the empty canvas, with inertia on release."""
+
+    def _html(self, populated_index):
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        return export_html(index, out, max_nodes=50)
+
+    def test_pan_cfg_block(self, populated_index):
+        """The pan CFG block carries the inertia decay and stop threshold."""
+        html = self._html(populated_index)
+        assert "inertia: 0.92" in html, "pan inertia not in CFG"
+        assert "minVelocity: 0.5" in html, "pan min velocity not in CFG"
+
+    def test_pan_tuned_from_cfg(self, populated_index):
+        html = self._html(populated_index)
+        assert "CFG.pan.inertia" in html, "inertia decay not wired to CFG.pan.inertia"
+        assert "CFG.pan.minVelocity" in html, "stop threshold not wired to CFG.pan.minVelocity"
+
+    def test_pan_handles_empty_canvas_only(self, populated_index):
+        """Dragging that starts on a node or edge never pans the graph."""
+        html = self._html(populated_index)
+        assert "function panStart" in html, "panStart handler missing"
+        assert "function panTouchStart" in html, "touchstart pan handler missing"
+        assert "event.target !== svg.node()" in html, \
+            "pan must ignore drags that start on nodes or edges"
+        assert ".on(\"mousedown\", panStart)" in html, \
+            "mousedown pan handler not wired on the svg"
+        assert ".on(\"touchstart\", panTouchStart)" in html, \
+            "touchstart pan handler not wired on the svg"
+
+    def test_touch_action_none(self, populated_index):
+        html = self._html(populated_index)
+        assert "touch-action: none" in html, "svg must opt out of touch scroll"
+
+    def test_inertia_decay_loop(self, populated_index):
+        """Release captures residual velocity and decays it frame by frame."""
+        html = self._html(populated_index)
+        assert "requestAnimationFrame" in html, "inertia needs an animation loop"
+        assert "cancelAnimationFrame" in html, "inertia loop must be cancellable"
+        assert "panVx *= CFG.pan.inertia" in html, \
+            "geometric decay not implemented"
+        assert "function panRelease" in html and "function panTick" in html, \
+            "inertia release and tick missing"
+        assert "performance.now()" in html, "release velocity needs a clock"
+
+    def test_pan_is_clamped(self, populated_index):
+        """The pan offset is clamped so part of the graph stays in view."""
+        html = self._html(populated_index)
+        assert "function clampPan" in html, "pan clamp missing"
+        assert "clampPan(" in html, "clamp not applied on every transform update"
+
+
 class TestMinimapNavigation:
     """Phase E3: minimap click-to-pan."""
 
@@ -292,6 +420,37 @@ class TestDesignTokens:
         html = export_html(index, out, max_nodes=50)
         assert "node-group:hover .node-shape" in html, \
             "hover glow CSS rule missing"
+
+
+class TestEdgeHighlight:
+    """Edge highlight on node hover: connected edges brighten, non-connected
+    dim slightly, transition is short and reduced-motion safe, and the stroke
+    colour (and thus directional gradients) is never overridden."""
+
+    def test_edge_highlight_transition(self, populated_index):
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50)
+        assert "transition: stroke-opacity" in html, \
+            "edge highlight transition missing"
+        assert "150ms" in html, "edge highlight transition duration missing"
+
+    def test_edge_highlight_respects_reduced_motion(self, populated_index):
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50)
+        assert "prefers-reduced-motion" in html, \
+            "prefers-reduced-motion rule missing for edge highlight"
+
+    def test_edge_highlight_js_logic(self, populated_index):
+        _, index = populated_index
+        out = Path(tempfile.mkdtemp()) / "graph.html"
+        html = export_html(index, out, max_nodes=50)
+        assert "stroke-opacity" in html, "edge highlight stroke-opacity missing"
+        assert "EDGE_HOVER_CONNECTED_BOOST" in html, \
+            "connected-edge boost constant missing"
+        assert "EDGE_HOVER_UNCONNECTED_DIM" in html, \
+            "non-connected-edge dim constant missing"
 
 
 class TestJSSyntaxValid:
