@@ -26,16 +26,16 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3020 passed, 4 skipped, 2 xfailed** *(projected from this box's CI-equivalent run by the host-pin relation — CI has not run for this landing: it is committed locally and not pushed, so there is no run id to cite)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2940 passed, 19 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2941 passed, 18 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3022 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3020 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3023 passed, 4 skipped, 2 xfailed** *(projected from this box's CI-equivalent run by the host-pin relation — CI has not run for this landing: it is committed locally and not pushed, so there is no run id to cite)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2943 passed, 19 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2944 passed, 18 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3025 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3023 passed, 4 skipped, 2 xfailed** |
 
-Read as at `6936574` (EM-605 slice 2.4 — dashed superseded edges) — measured for
-the tree at that commit. **CI has not run for it:** the commit is local and unpushed, so
+Read as at `0c40385` (EM-605 slice 2.5 — the 5k-node export AC and the body read it
+found) — measured for the tree at that commit. **CI has not run for it:** the commit is local and unpushed, so
 the CI figure is **projected** from the CI-equivalent run by the host-pin relation below; no run
-id is cited and no job is claimed green. **The previous record** was slice 2.3 at `e08694a` (bare **2932 / 19 / 2**, digest **2933 / 18 / 2**, CI-equivalent **3014 / 2 / 2**, 3.10 **3012 / 4 / 2**, CI **3012 / 4 / 2** projected); before it, slice 2.2 at `1e5b739` (bare **2923 / 19 / 2**, digest **2924 / 18 / 2**, CI-equivalent **3005 / 2 / 2**, 3.10 **3003 / 4 / 2**, CI **3003 / 4 / 2** projected); before it, slice 2.1 at `69dc223` (bare **2911 / 19 / 2**, digest **2912 / 18 / 2**,
+id is cited and no job is claimed green. **The previous record** was slice 2.4 at `6936574` (bare **2940 / 19 / 2**, digest **2941 / 18 / 2**, CI-equivalent **3022 / 2 / 2**, 3.10 **3020 / 4 / 2**, CI **3020 / 4 / 2** projected); before it, slice 2.3 at `e08694a` (bare **2932 / 19 / 2**, digest **2933 / 18 / 2**, CI-equivalent **3014 / 2 / 2**, 3.10 **3012 / 4 / 2**, CI **3012 / 4 / 2** projected); before it, slice 2.2 at `1e5b739` (bare **2923 / 19 / 2**, digest **2924 / 18 / 2**, CI-equivalent **3005 / 2 / 2**, 3.10 **3003 / 4 / 2**, CI **3003 / 4 / 2** projected); before it, slice 2.1 at `69dc223` (bare **2911 / 19 / 2**, digest **2912 / 18 / 2**,
 CI-equivalent **2993 / 2 / 2**, 3.10 **2991 / 4 / 2**, CI **2991 / 4 / 2** projected); before it,
 chunk 43 at `5258b46` —
 **confirmed green on that exact SHA:** run **`39251351180`** (a `push` to `em-605-followups`),
@@ -48,7 +48,7 @@ by run **`39237280578`**; before it `e6647e7` (run `39231027295`), `adb1439` (ru
 `39226716232`) and `4cde953` (run `39219386624`). CI's figure is **read from the job log**,
 never assumed: `gh run view <run-id> --log`; at that time all four CI legs (3.10–3.13)
 reported the identical triple. **The gap between this box's CI-equivalent reading and CI is in
-the middle column, not the total — `3022 / 2 / 2` versus `3020 / 4 / 2` is `−2 passed,
+the middle column, not the total — `3025 / 2 / 2` versus `3023 / 4 / 2` is `−2 passed,
 +2 skipped`, the two hermes-agent host pins that pass here and skip in CI**, the same pair the
 ladder below walks. **The five rows in this table are the figures of record and live in exactly
 one other place, [`suite_figures.json`](suite_figures.json), which
@@ -133,12 +133,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          2940 / 19 / 2
+bare          2943 / 19 / 2
 + extras      +81 passed, −16 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3022 /  2 / 2
+= CI-equiv    3025 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3020 /  4 / 2   (projected; not run — the landing is unpushed)
+= CI          3023 /  4 / 2   (projected; not run — the landing is unpushed)
 ```
 
 ## Citing CI evidence — one trap
