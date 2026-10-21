@@ -90,7 +90,7 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # it was compared against. Neither is a commit; both stay checkable.
     "39612171910": "GitHub Actions run id, not a commit: the 2026-10-21 EM-605/EM-606 landing branch run",
     "39629454711": "GitHub Actions run id, not a commit: the 2026-10-21 green run on 73bed69, the EM-605/EM-606 landing on main (BASELINE.md)",
-    "39639283705": "GitHub Actions run id, not a commit: the 2026-10-21 green run on 65f42df, the cited-SHA reachability fix (BASELINE.md)",
+    "39640594895": "GitHub Actions run id, not a commit: the 2026-10-21 green run on 06c39fd, the cited-SHA reachability fix landing (MASTER_TODO.md, BASELINE.md, CHANGELOG.md)",
     "39620615391": "GitHub Actions run id, not a commit: the 2026-10-21 EM-605/EM-606 landing run whose 3.12 log the figures were read from",
     "39465614611": "GitHub Actions run id, not a commit: main's red identity-guard run at a46adda (2026-10-21)",
     "39251351180": "GitHub Actions run id, not a commit: the 2026-10-19 green run on 5258b46, chunk 43, the EM-605 slice-1 follow-up (BASELINE.md)",

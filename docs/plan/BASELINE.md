@@ -26,7 +26,7 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3062 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `39639283705`, which ran on `65f42df`; the landing's run `39620615391` on `e129ff6` and the landed tip's run `39629454711` on `73bed69` read the identical triple)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3062 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `39640594895`, which ran on `06c39fd`; the landing's run `39620615391` on `e129ff6` and the landed tip's run `39629454711` on `73bed69` read the identical triple)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2967 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2968 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3064 passed, 2 skipped, 2 xfailed** |
@@ -34,7 +34,7 @@ other three.
 
 Read as at `ed61766` (the cited-SHA guard's reachability fix, split from the
 2026-10-20 dependency round and landed on its own) — measured for the tree at that commit.
-**CI ran for this tree:** run `39639283705` ran on `65f42df` and the CI row above is **read** from
+**CI ran for this tree:** run `39640594895` ran on `06c39fd` and the CI row above is **read** from
 that run's 3.12 job log — not projected. The figure is unchanged from the landing: the
 landing's run `39620615391` on `e129ff6` and the landed tip's run `39629454711` on `73bed69`
 read the identical triple, because this fix changed the guard's resolution and added no test.
