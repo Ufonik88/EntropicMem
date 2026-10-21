@@ -116,6 +116,9 @@
 - **Gates and figures:** in [`BASELINE.md`](BASELINE.md) — the one place they live. The branch run
   `39666424863` on `e0f39a5` is **13/13 green** and its 3.12 log reads **3092 passed, 4 skipped,
   2 xfailed**; the build commit's own run (`39661990213`) was red on the figures guard alone.
+  One recorded re-run: `90d1fd0`'s `test (3.13)` leg tripped the numpy 50k search guard at best
+  27.97 ms against 25 ms on a contended runner (3.5 ms on this box, every window inflated); the
+  re-run of the same SHA was green.
 
 ### The merge with `origin/main` (2026-10-21, `b99437a`) — what reconciliation cost
 
