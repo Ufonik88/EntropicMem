@@ -7,8 +7,8 @@ All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd
 | Command | Description |
 |---------|-------------|
 | `init [--vault PATH] [--index-db PATH] [--force] [--dry-run]` | Bootstrap vault + index + env vars (`--dry-run` previews, `--force` overwrites seed files with `.bak` copies) |
-| `ingest [source] [--domain D]` | URL/file/stdin to notes (default domain `Knowledge`) |
-| `ingest-pile <dir> [--domain D]` | Batch ingest a directory |
+| `ingest [source] [--domain D] [--no-llm]` | URL/file/stdin to **one chunked note under `Sources/`**; its claims become `pending` memories (`source=ingest`, the URL as evidence). `--domain` sets the note's frontmatter domain and the claims' domain; `--no-llm` skips the optional key-point pass (default `Knowledge`) |
+| `ingest-pile <dir> [--domain D]` | Batch ingest a directory (one literature note per readable file) |
 | `query "<q>" [--top-k N] [--semantic] [--domain D]` | Vault search with citations (FTS + wikilink expansion; `--semantic` enables re-rank) |
 | `note [title] [--domain D] [--tags T]` | Stdin to permanent note |
 | `research "<q>" [--rounds N]` | Research brief in inbox (default 3 rounds) |

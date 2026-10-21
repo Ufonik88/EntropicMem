@@ -68,6 +68,11 @@ def evaluate_write(
     # rather than the live store, so the user's own note is confirmed first.
     if source == "vault_edit":
         return "quarantine", "vault_edit_requires_review"
+    # An ingested document's claims (EM-607) are the same shape of proposal: a
+    # fetched article is third-party text, and nothing it says is the user's
+    # word. It is queued for review, never written straight into durable recall.
+    if source == "ingest":
+        return "quarantine", "ingest_requires_review"
     if source in ("promoted", "pending_promoted"):
         return "allow", None
     if domain in ("Finance", "People") and source in ("auto_extracted", "conversation"):

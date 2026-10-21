@@ -30,7 +30,6 @@ import hashlib
 import io
 import json
 import os
-import re
 import shutil
 import sqlite3
 import sys
@@ -50,6 +49,17 @@ from em import __version__  # noqa: E402
 from em.cli.parser import build_parser  # noqa: E402 (the shared argparse tree; EM-408)
 from em.graph.export import export_canvas, export_dot, export_html, export_json  # noqa: E402
 from em.graph.source import DEFAULT_PROFILE, load_entity_graph  # noqa: E402
+from em.ingest import (  # noqa: E402 (EM-607 ingest v2)
+    MAX_SOURCE_BYTES,
+    SOURCES_FOLDER,
+    QueueReport,
+    SourceTooLarge,
+    build_note,
+    check_source_size,
+    key_points,
+    prepare,
+    queue_claims,
+)
 from em.store.db import open_db  # noqa: E402 (audit verify opens read-only)
 from em.store.locking import FileLock  # noqa: E402 (EM-202: portable lock probe)
 from em_internal.index import VaultIndex  # noqa: E402
@@ -824,104 +834,148 @@ def cmd_open(args) -> int:
 # ── subcommand: ingest ──────────────────────────────────────────────────────
 
 def cmd_ingest(args) -> int:
+    """Read one source into a single ``Sources/`` note and queue its claims.
+
+    EM-607 replaced the v2 behaviour: that path wrote a literature note into
+    ``inbox`` plus one *atomic* note per capitalised phrase, so ingesting a
+    single article littered the vault with notes for every proper noun in it.
+    Now one document makes one chunked note, and the knowledge it carries
+    becomes **pending** memories (``source=ingest``, the URL as evidence) that a
+    human promotes — the same review queue EM-604's vault edits use.
+
+    The memory half needs a store that already exists; ingest never creates one,
+    because a one-shot CLI read should not bootstrap a memory database as a side
+    effect. Without a store the source note is still written.
+    """
     vault_path, index_path = _resolve_env()
     vault = Vault(vault_path)
-    index = VaultIndex(index_path)
+    domain = validate_domain(args.domain or "Knowledge")
 
-    source = args.source
-    if source == "-" or not source:
-        text = sys.stdin.read().strip()
-        if not text:
-            print("Error: no source specified and no stdin input.", file=sys.stderr)
-            return 1
-        title = "Stdin Capture"
-        source_label = "stdin"
-    elif source.startswith("http://") or source.startswith("https://"):
-        import http.client
+    try:
+        raw, label, is_html, title_hint = _read_ingest_source(args.source)
+    except (OSError, ValueError) as exc:
+        print(f"Error reading source: {exc}", file=sys.stderr)
+        return 1
+    if not raw.strip():
+        print("Error: the source had no content.", file=sys.stderr)
+        return 1
 
-        # Validate URL to prevent SSRF (scheme, internal hosts, DNS rebinding)
+    try:
+        source = prepare(raw, url=label, title=title_hint, is_html=is_html)
+    except SourceTooLarge as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    if not source.text:
+        print("Error: no readable text in the source.", file=sys.stderr)
+        return 1
+
+    llm = None if getattr(args, "no_llm", False) else _ingest_llm()
+    points = key_points(source.text, llm=llm)
+
+    report = QueueReport()
+    skipped: list[str] = []
+    db_path = _memory_db_path()
+    if db_path.is_file():
+        engine = _engine()
         try:
-            source = validate_url(source)
-        except ValueError as e:
-            print(f"Error: invalid URL: {e}", file=sys.stderr)
-            return 1
+            report = queue_claims(engine, points.claims, url=source.url, domain=domain)
+        except Exception as exc:  # the note still gets written; say why the queue did not
+            skipped.append(f"memory queue failed: {exc}")
+        finally:
+            engine.close()
 
-        try:
-            # safe_fetch re-validates every redirect hop and caps the body size.
-            text = safe_fetch(source)
-        except (OSError, ValueError, http.client.HTTPException) as e:
-            print(f"Error fetching URL: {e}", file=sys.stderr)
-            return 1
-        text = re.sub(r'<script.*?</script>', '', text, flags=re.S | re.I)
-        text = re.sub(r'<style.*?</style>', '', text, flags=re.S | re.I)
-        text = re.sub(r'<[^>]+>', ' ', text)
-        text = re.sub(r'\n\s*\n+', '\n\n', text)
-        text = re.sub(r'[ \t]+', ' ', text).strip()
-        title = vault.sanitize(source.split("/")[-1] or "Web Capture")
-        source_label = source
-    else:
-        p = Path(source)
-        if not p.exists():
-            print(f"Error: file not found: {source}", file=sys.stderr)
-            return 1
-        text = p.read_text(encoding="utf-8", errors="ignore")
-        title = vault.sanitize(p.stem)
-        source_label = source
-
-    domain = args.domain or "Knowledge"
-
-    entities = set(re.findall(r'\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})\b', text))
-    stop_words = {"The","This","That","When","Where","What","Which","After","Before","There","Their","These","Those","From","With","About","Every","Daily","Your","They"}
-    entities = {e for e in entities if e.split()[0] not in stop_words and len(e) > 3}
-    known_titles = set(vault.get_all_titles().keys())
-    entities = entities - known_titles
-
-    lines = [line.strip() for line in text.split("\n") if line.strip() and len(line.strip()) > 20]
-    key_points = lines[:15]
-
-    lit_body = (
-        f"**Source:** {source_label}\n\n"
-        f"## Key Points\n"
-        + "\n".join(f"- {p[:200]}" for p in key_points)
-        + "\n\n## Extracted Entities\n"
-        + "\n".join(f"- [[{e}]]" for e in sorted(entities)[:15])
-        + "\n\n## Links\n- [[Wiki-Cache]]\n"
-    )
-    lit_path = vault.write_note(
-        "inbox", f"Lit - {title}",
-        lit_body,
-        tags=["literature", "auto-ingested"],
-        source=source_label,
-        source_url=source if source_label.startswith("http") else "",
+    title, body = build_note(source, points, entities=report.entities)
+    is_url = source.url.startswith(("http://", "https://"))
+    path = vault.write_note(
+        SOURCES_FOLDER,
+        title,
+        body,
+        tags=["literature", "ingested"],
+        source="ingest",
+        source_url=source.url if is_url else "",
         note_type="literature",
         domain=domain,
     )
-    lit_note = vault.read_note(lit_path)
-    index.upsert_note(lit_note)
-    print(f"  Literature: {lit_path}")
-
-    atomic_count = 0
-    all_titles = set(vault.get_all_titles().keys())
-    for entity in sorted(entities)[:15]:
-        if entity in all_titles:
-            continue
-        m = re.search(rf'.{{0,80}}{re.escape(entity)}.{{0,120}}', text)
-        snippet = m.group(0).strip() if m else f"Concept extracted from {title}."
-        body = (
-            f"## Context\n{snippet}\n\n"
-            f"## Source\n- [[Lit - {title}]]\n\n"
-            f"## Links\n- [[{domain}/Index]]\n- [[Wiki-Cache]]\n"
-        )
-        path = vault.write_note(domain, entity, body, tags=["permanent","auto-ingested"], source=source_label, domain=domain)
-        note = vault.read_note(path)
-        index.upsert_note(note)
-        index.upsert_edges_for_note(vault, note)
-        atomic_count += 1
-        all_titles.add(entity)
-
+    index = VaultIndex(index_path)
+    note = vault.read_note(path)
+    index.upsert_note(note)
+    index.upsert_edges_for_note(vault, note)
     index.close()
-    print(f"Ingested: 1 literature + {atomic_count} atomic notes (domain: {domain})")
+
+    print(f"  Source note: {path}")
+    print(
+        f"Ingested: 1 source note, {len(report.pending_ids)} pending memories, "
+        f"{len(report.entities)} entity links"
+    )
+    if points.from_llm:
+        print("  Key points: configured LLM")
+    if source.truncated:
+        print(
+            f"  Note: source truncated to {len(source.text):,} of "
+            f"{source.original_chars:,} characters"
+        )
+    if not db_path.is_file():
+        print(f"  Memory: no store at {db_path} - source note only")
+    for line in skipped:
+        print(f"  Warning: {line}", file=sys.stderr)
     return 0
+
+
+def _read_ingest_source(source_arg) -> tuple[str, str, bool, str]:
+    """Return ``(raw, label, is_html, title_hint)`` for one source argument.
+
+    ``-``/absent reads stdin as text; ``http(s)`` fetches and is HTML; anything
+    else is a file, and its suffix decides whether it is parsed as HTML. The
+    label is what the note records as its source: the URL itself, the path, or
+    ``""`` for stdin.
+    """
+    if source_arg in (None, "", "-"):
+        return sys.stdin.read(), "", False, "Stdin Capture"
+
+    source = str(source_arg)
+    if source.startswith(("http://", "https://")):
+        import http.client
+
+        url = validate_url(source)
+        try:
+            raw = safe_fetch(url)
+        except (OSError, ValueError, http.client.HTTPException) as exc:
+            raise ValueError(f"{url}: {exc}") from exc
+        check_source_size(raw)
+        return raw, url, True, ""
+
+    path = Path(source)
+    if not path.exists():
+        raise ValueError(f"file not found: {source}")
+    if path.stat().st_size > MAX_SOURCE_BYTES:
+        raise SourceTooLarge(path.stat().st_size)
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    check_source_size(raw)
+    is_html = path.suffix.lower() in (".html", ".htm", ".xhtml")
+    return raw, str(path), is_html, ""
+
+
+def _ingest_llm():
+    """The configured formation backend, or ``None`` when none is available.
+
+    Appendix C.6's key-point pass is optional by the card, so this returns
+    ``None`` unless a backend actually answers ``available()``: the Hermes
+    auxiliary client when the host is importable, else an OpenAI-compatible
+    endpoint configured by ``ENTROPICMEM_LLM_BASE_URL``/``..._MODEL``. Nothing
+    here reads the host's ``config.yaml`` — the provider does that for the
+    session paths, and ``ingest --no-llm`` is this command's own switch.
+    """
+    try:
+        from em.formation.llm import FormationLLM, select_backend
+    except Exception:  # a broken optional import must not break ingest
+        return None
+    try:
+        backend = select_backend("auto")
+        if not backend.available():
+            return None
+        return FormationLLM(backend)
+    except Exception:
+        return None
 
 
 # ── subcommand: ingest-pile ─────────────────────────────────────────────────

@@ -18,8 +18,9 @@ from em_internal.vault import Vault
 
 
 def _run(*args, **env):
-    """Run the CLI with env vars."""
-    full_env = {**os.environ, **env}
+    """Run the CLI with env vars, never inheriting a live-store ``ENTROPICMEM_*``."""
+    full_env = {k: v for k, v in os.environ.items() if not k.startswith("ENTROPICMEM_")}
+    full_env.update(env)
     return subprocess.run(
         [sys.executable, _CLI, *args],
         capture_output=True, text=True, env=full_env,
@@ -32,10 +33,12 @@ def seeded_vault():
     with tempfile.TemporaryDirectory() as td:
         vp = Path(td) / "vault"
         ip = Path(td) / "index.db"
+        mp = Path(td) / "memory.db"
 
         # init
         r = _run("init", "--vault", str(vp), "--index-db", str(ip),
-                 ENTROPICMEM_VAULT_PATH=str(vp), ENTROPICMEM_INDEX_DB=str(ip))
+                 ENTROPICMEM_VAULT_PATH=str(vp), ENTROPICMEM_INDEX_DB=str(ip),
+                 ENTROPICMEM_MEMORY_DB=str(mp))
         assert r.returncode == 0
 
         # Create test document
@@ -53,37 +56,42 @@ EntropicMem builds on Mnemosyne to provide durable, linked knowledge storage.
 """, encoding="utf-8")
 
         # ingest
-        r = _run("ingest", str(test_doc), "--domain", "Knowledge",
-                 ENTROPICMEM_VAULT_PATH=str(vp), ENTROPICMEM_INDEX_DB=str(ip))
+        r = _run("ingest", str(test_doc), "--domain", "Knowledge", "--no-llm",
+                 ENTROPICMEM_VAULT_PATH=str(vp), ENTROPICMEM_INDEX_DB=str(ip),
+                 ENTROPICMEM_MEMORY_DB=str(mp))
         assert r.returncode == 0
-        assert "atomic" in r.stdout.lower()
+        assert "source note" in r.stdout.lower()
 
         yield vp, ip
 
 
 class TestIngest:
-    def test_ingest_creates_literature_note(self, seeded_vault):
+    def test_ingest_creates_one_source_note(self, seeded_vault):
+        """EM-607: one document, one note under ``Sources/``."""
         vp, ip = seeded_vault
         vault = Vault(vp)
-        inbox_notes = vault.list_notes(folder="inbox")
-        lit_notes = [n for n in inbox_notes if n.name.lower().startswith("lit - ") or n.name.lower().startswith("lit-")]
-        assert len(lit_notes) >= 1, f"No literature note found in {inbox_notes}"
+        sources = vault.list_notes(folder="Sources")
+        assert len(sources) == 1, f"expected one source note, got {sources}"
+        note = vault.read_note(sources[0])
+        assert note.note_type == "literature"
+        assert note.title.startswith("Source - ")
 
-    def test_ingest_creates_atomic_notes(self, seeded_vault):
+    def test_ingest_creates_no_atomic_notes(self, seeded_vault):
+        """The v2 bug: every capitalised phrase became a note. It is gone."""
         vp, ip = seeded_vault
         vault = Vault(vp)
-        knowledge_notes = vault.list_notes(folder="Knowledge")
-        # Should have Hermes Agent, VaultKnox, Mnemosyne, EntropicMem
-        assert len(knowledge_notes) >= 3
+        assert vault.list_notes(folder="Knowledge") == []
+        everything = [str(path) for path in vault.list_notes()]
+        assert len([path for path in everything if path.startswith(("Knowledge", "inbox"))]) == 0
 
-    def test_ingest_atomic_notes_have_frontmatter(self, seeded_vault):
+    def test_the_source_note_is_chunked_and_cites_its_source(self, seeded_vault):
         vp, ip = seeded_vault
         vault = Vault(vp)
-        for rel in vault.list_notes(folder="Knowledge"):
-            note = vault.read_note(rel)
-            assert note.entropic_id, f"Missing entropic_id: {rel}"
-            assert note.domain == "Knowledge", f"Wrong domain: {rel}"
-            assert note.note_type == "permanent", f"Wrong type: {rel}"
+        note = vault.read_note(vault.list_notes(folder="Sources")[0])
+        assert "## Key Points" in note.body
+        assert "## Chunk 1" in note.body
+        assert note.source == "ingest"
+
 
     def test_ingest_pile(self, seeded_vault):
         vp, ip = seeded_vault

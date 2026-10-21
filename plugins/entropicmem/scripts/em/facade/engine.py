@@ -744,6 +744,7 @@ class V3Engine:
         session_id: str = "",
         sensitivity: Optional[str] = None,
         actor: Optional[str] = None,
+        evidence: str = "",
     ) -> str:
         """Store a durable fact and return its id.
 
@@ -754,6 +755,11 @@ class V3Engine:
         content collapses onto the existing row and returns its id
         (``remember-idempotent``); a policy block raises, as v2 did; a policy
         quarantine lands in ``pending``, as v2's quarantine did.
+
+        ``evidence`` is EM-607's addition: an ingested claim carries the URL it
+        came from, and the column already existed (v2 had no way to pass it).
+        Empty means "no evidence recorded", which is what every caller but
+        ingest means.
         """
         from em_internal.policy import normalize_sensitivity  # local: shared optional module
 
@@ -771,6 +777,7 @@ class V3Engine:
             importance=importance,
             tags=tuple(tags or ()),
             status="active",
+            evidence=evidence,
             legacy_id=self._legacy_id(text),
             pii_locales=self.pii_locales,
         )

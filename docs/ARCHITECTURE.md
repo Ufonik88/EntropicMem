@@ -22,6 +22,7 @@ All engine code lives under `plugins/entropicmem/scripts/`, inside the plugin di
 | Retrieval | `plugins/entropicmem/scripts/retrieval.py` | Composed stack: hot cache, FTS5, wikilink expansion, optional semantic rerank |
 | Triple extraction | `plugins/entropicmem/scripts/triple_extract.py` | Rule-based subject, predicate, object extraction |
 | Graph export | `plugins/entropicmem/scripts/em/graph/` (`model.py`, `export.py`, `assets/`) | D3 HTML viewer (with markdown sanitize pass) + json/dot/canvas export |
+| Ingest v2 | `plugins/entropicmem/scripts/em/ingest/` (`html_text.py`, `article.py`) | stdlib `html.parser` → text, size caps, chunking, Appendix C.6 key points, and `pending` claims linked through `EntityLinker`; the CLI's `ingest` writes one note under `Sources/` |
 | CLI | `plugins/entropicmem/scripts/entropicmem.py` | 35 top-level commands over the modules above |
 | Plugin | `plugins/entropicmem/` | Hermes `MemoryProvider`: 9 tools, 6 lifecycle hooks, config schema |
 | Graph server | `scripts/graph_server/server.py` | FastAPI: `/refresh` (always token-gated, the one writer), `/api/note/{id}`, `/api/note/by-title/{title}`, `/api/search` (10 rps token bucket), `/api/path`, `/health`; reads open `index.db` `mode=ro`; loopback bind enforced, Host allowlist, CSP, static or per-run token, sensitive-domain bodies served as summaries |
@@ -55,6 +56,7 @@ single version source for the whole repo.
 | `em.jobs.worker` | `JobWorker` + `HandlerRegistry`: claim, run outside the write transaction (invariant 2), lease heartbeat, retry with backoff |
 | `em.jobs.cli` | `entropicmem worker run`: the job entry point a cron can call |
 | `em.formation.entity_linker` | The two-sighting linker **and** `make_link_handler`: it runs as a `link:<memory_id>:<version>` job, never inside a write (invariant 2) |
+| `em.ingest` | EM-607's document path: `html_text.html_to_text` (stdlib parser, chrome dropped, headings/lists kept), `article.prepare`/`chunk_text`/`key_points`/`build_note`, and `queue_claims` (pending rows via the write policy, mentions via `EntityLinker`) |
 | `em.facade.contract` | The provider contract derived by AST scan over the provider source; `tests/parity/` is its gate. `PROVIDER_ATTRIBUTES` is empty, so the provider reaches the engine only through methods both engines implement |
 | `em.facade.engine` | `V3Engine`: the whole `LegacyEngine` API over `em.store` — reads, writes and the mirror call. Complete as a library, **not wired in**; see the facade rules in [`V3_FOUNDATIONS.md`](V3_FOUNDATIONS.md) |
 | `em.retrieval.query` | EM-301's `QueryAnalyzer`: text normalisation, IDF term selection, intent, entity detection, and the common temporal shapes |

@@ -93,7 +93,7 @@ All commands run through the engine CLI under the plugin directory, `python3 ~/.
 
 ```bash
 python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py init                       # Bootstrap vault + memory engine
-python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py ingest "https://..."       # Source to notes
+python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py ingest "https://..."       # One chunked note under Sources/ (+ pending claims)
 python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py query "topic" --top-k 10   # Cited vault search
 python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py recall "durable fact"      # Memory engine search
 python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py remember "durable fact"    # Store in memory engine

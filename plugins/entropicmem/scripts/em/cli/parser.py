@@ -46,7 +46,14 @@ def add_commands(parser: argparse.ArgumentParser, *, dest: str = "command") -> a
     # ingest
     p_ingest = sub.add_parser("ingest", help="Ingest a source (URL, file, or stdin)")
     p_ingest.add_argument("source", nargs="?", help="URL or file path")
-    p_ingest.add_argument("--domain", default="Knowledge", help="Target domain folder")
+    p_ingest.add_argument(
+        "--domain", default="Knowledge",
+        help="Domain for the note's frontmatter and its pending claims",
+    )
+    p_ingest.add_argument(
+        "--no-llm", action="store_true",
+        help="Skip the optional LLM key-points pass (EM-607)",
+    )
 
     # ingest-pile
     p_pile = sub.add_parser("ingest-pile", help="Batch ingest a directory")

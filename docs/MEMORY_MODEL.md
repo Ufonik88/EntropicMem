@@ -34,7 +34,7 @@ Embeddings (`embeddings` table) attach 384-dim vectors to facts and enable hybri
 
 Tokens are plain strings today (`"fts"`); the field also accepts enriched dicts (`{"signal": "fts", "score": 0.41}`) so numeric contributions can be added later without breaking consumers. The list is deterministic and requires no LLM.
 
-**Write policy:** stable facts via `remember`; source knowledge via `ingest`/`note`; ephemeral reasoning, do not persist. Secret and credential content is blocked; high-confidence `api_key`/`password` findings are auto-redacted; other PII types are warn-only findings. Auto-extracted candidates are quarantined in `pending_facts` until promoted.
+**Write policy:** stable facts via `remember`; source knowledge via `ingest`/`note`; ephemeral reasoning, do not persist. Secret and credential content is blocked; high-confidence `api_key`/`password` findings are auto-redacted; other PII types are warn-only findings. Auto-extracted candidates are quarantined in `pending_facts` until promoted. Ingested documents (EM-607) are the same kind of proposal: one note under `Sources/`, and their claims land `pending` with `source=ingest` and the source URL as evidence, so a fetched article never writes straight into durable recall.
 
 **Identity:** `entropic_id = SHA256(content)[:16]` deduplicates facts and links vault notes to memory rows.
 
