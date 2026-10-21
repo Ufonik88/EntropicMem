@@ -92,6 +92,14 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "39629454711": "GitHub Actions run id, not a commit: the 2026-10-21 green run on 73bed69, the EM-605/EM-606 landing on main (BASELINE.md)",
     "39640594895": "GitHub Actions run id, not a commit: the 2026-10-21 green run on 06c39fd, the cited-SHA reachability fix landing (MASTER_TODO.md, BASELINE.md, CHANGELOG.md)",
     "39620615391": "GitHub Actions run id, not a commit: the 2026-10-21 EM-605/EM-606 landing run whose 3.12 log the figures were read from",
+    # EM-607's landing run: green on its 13 check-runs, and the 3.12 job log the
+    # figures of record are read from (BASELINE.md, MASTER_TODO.md, CHANGELOG.md).
+    "39666424863": "GitHub Actions run id, not a commit: the 2026-10-21 EM-607 landing branch run on e0f39a5",
+    # The EM-607 build commit's own run: red on one job, the figures guard's
+    # ancestry assertion, which the docs record as the expected shape of a
+    # commit that touches tests/ before the record is re-stamped. Cited as the
+    # red half of that pair, never as a green figure.
+    "39661990213": "GitHub Actions run id, not a commit: the 2026-10-21 EM-607 build-commit run, red on the figures ancestry assertion alone",
     "39465614611": "GitHub Actions run id, not a commit: main's red identity-guard run at a46adda (2026-10-21)",
     "39251351180": "GitHub Actions run id, not a commit: the 2026-10-19 green run on 5258b46, chunk 43, the EM-605 slice-1 follow-up (BASELINE.md)",
     # Cited on purpose BECAUSE it does not resolve: BASELINE.md's "Citing CI

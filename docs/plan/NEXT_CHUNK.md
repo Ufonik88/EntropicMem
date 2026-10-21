@@ -113,7 +113,9 @@
   the policy branch, the source stamp, the evidence, the v2/v3 branch, the entity
   linking, the no-wikilinks rule, the truncation line, the `Sources/` folder, a
   note per claim, and the store-creation guard.
-- **Gates and figures:** in [`BASELINE.md`](BASELINE.md) — the one place they live.
+- **Gates and figures:** in [`BASELINE.md`](BASELINE.md) — the one place they live. The branch run
+  `39666424863` on `e0f39a5` is **13/13 green** and its 3.12 log reads **3092 passed, 4 skipped,
+  2 xfailed**; the build commit's own run (`39661990213`) was red on the figures guard alone.
 
 ### The merge with `origin/main` (2026-10-21, `b99437a`) — what reconciliation cost
 

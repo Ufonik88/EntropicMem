@@ -26,7 +26,7 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3092 passed, 4 skipped, 2 xfailed** *(**projected** at `af0cf98` from this box's CI-equivalent by the host-pin relation, because the commit was local when it was stamped; the branch's own CI run reads the identical triple and the read figure plus its run id are recorded on the branch's green tip)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3092 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `39666424863`, which ran on `e0f39a5`, the EM-607 record commit; the build commit `af0cf98`'s own run `39661990213` was red on the figures guard alone — the ancestry assertion this re-stamp exists to satisfy — so its 3.12 log reads `1 failed, 3091 passed`, and the green run above is the one whose number this row states)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2997 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2998 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3094 passed, 2 skipped, 2 xfailed** |
@@ -35,13 +35,13 @@ other three.
 Read as at `af0cf98` (EM-607's ingest-v2 build on `em-607-ingest-v2` — parsed HTML, one
 chunked note under `Sources/`, `pending` claims with `source=ingest`, mentions via
 `EntityLinker`, 30 new tests and 20 red mutation checks) — measured for the tree at that
-commit. **CI has not been read for this tree at the moment of this stamp:** the commit was
-local, so the CI row above is **projected** from the CI-equivalent reading by the host-pin
-relation (below), which is the relation the landing has always held. The branch's own CI
-run then reads the identical triple, and the read figure plus the run id are recorded on the
-branch's green tip in the docs commit that follows — the ancestry rule requires exactly that
-order, because a commit touching `tests/` can never be an ancestor of a record written before
-it. **The previous record** was the cited-SHA reachability fix at `cf872e5` (bare 2967 / 20 / 2,
+commit. **CI ran for this tree:** run `39666424863` on `e0f39a5` — the docs commit whose parent
+is this build — is 13/13 green and its `test (3.12)` job log reads **3092 passed, 4 skipped,
+2 xfailed**, so the CI row above is **read**, not projected. The build commit's own run
+(`39661990213` on `af0cf98`) was red on one job, and it is the expected red: the figures record
+still named the previous surface commit, which is the ancestry assertion the re-stamp satisfies.
+That is why this record is stamped at the build commit and the read figure is cited from the
+record commit — a commit touching `tests/` can never be an ancestor of a record written before it. **The previous record** was the cited-SHA reachability fix at `cf872e5` (bare 2967 / 20 / 2,
 digest 2968 / 19 / 2, CI-equivalent 3064 / 2 / 2, 3.10 3062 / 4 / 2, CI 3062 / 4 / 2 read from
 run `39640594895`, and the landed tip's run `39629454711` on `73bed69` read the
 identical triple), and before it EM-606 at `575eb06` (bare **2943 / 20 / 2**, digest **2944 / 19 / 2**, CI-equivalent **3040 / 2 / 2**, 3.10 **3038 / 4 / 2**, CI **3038 / 4 / 2** projected), not move the suite surface itself. **The previous record** was EM-606 at `575eb06` (bare **2943 / 20 / 2**, digest **2944 / 19 / 2**, CI-equivalent **3040 / 2 / 2**, 3.10 **3038 / 4 / 2**, CI **3038 / 4 / 2** projected); before it, EM-605 slice 2.5 at `0c40385` (bare **2943 / 19 / 2**, digest **2944 / 18 / 2**, CI-equivalent **3025 / 2 / 2**, 3.10 **3023 / 4 / 2**, CI **3023 / 4 / 2** projected); before it, slice 2.4 at `6936574` (bare **2940 / 19 / 2**, digest **2941 / 18 / 2**, CI-equivalent **3022 / 2 / 2**, 3.10 **3020 / 4 / 2**, CI **3020 / 4 / 2** projected); before it, slice 2.3 at `e08694a` (bare **2932 / 19 / 2**, digest **2933 / 18 / 2**, CI-equivalent **3014 / 2 / 2**, 3.10 **3012 / 4 / 2**, CI **3012 / 4 / 2** projected); before it, slice 2.2 at `1e5b739` (bare **2923 / 19 / 2**, digest **2924 / 18 / 2**, CI-equivalent **3005 / 2 / 2**, 3.10 **3003 / 4 / 2**, CI **3003 / 4 / 2** projected); before it, slice 2.1 at `69dc223` (bare **2911 / 19 / 2**, digest **2912 / 18 / 2**,
@@ -147,7 +147,7 @@ bare          2997 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3094 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3092 /  4 / 2   (projected at af0cf98; the read figure lands on the green branch tip)
+= CI          3092 /  4 / 2   (read from run 39666424863, 3.12 job log)
 ```
 
 ## Citing CI evidence — one trap
