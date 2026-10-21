@@ -46,6 +46,7 @@ def export_json(
     include_bodies: bool = False,
     *,
     entity_graph: Optional[EntityGraph] = None,
+    redact_sensitive: bool = False,
 ) -> dict:
     """
     Export nodes + edges as JSON. Primary format consumed by graph.html.
@@ -56,6 +57,8 @@ def export_json(
     modal reading on a trusted machine.
 
     ``entity_graph`` optionally adds the memory.db subgraph (EM-605 2.1).
+    ``redact_sensitive`` embeds a sensitive-domain note's body as the policy's
+    redacted summary instead (EM-606).
 
     Returns the dict that was written (for testing).
     """
@@ -67,6 +70,7 @@ def export_json(
         include_bodies=include_bodies,
         context=f"export_json({output_path})",
         entity_graph=entity_graph,
+        redact_sensitive=redact_sensitive,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -171,6 +175,7 @@ def export_html(
     include_bodies: bool = False,
     *,
     entity_graph: Optional[EntityGraph] = None,
+    redact_sensitive: bool = False,
 ) -> str:
     """
     Export as a single self-contained HTML file with embedded graph data.
@@ -195,6 +200,7 @@ def export_html(
         domain=domain, min_importance=min_importance, max_nodes=max_nodes,
         include_bodies=include_bodies,
         entity_graph=entity_graph,
+        redact_sensitive=redact_sensitive,
     )
 
     # Attach full bodies only when explicitly requested.

@@ -17,6 +17,7 @@ from typing import Optional
 
 from em.clock import parse_iso, to_iso
 from em_internal.index import VaultIndex
+from em_internal.policy import normalize_sensitivity, redact_for_prefetch
 
 # ── per-domain color palette (brand-inspired, colorblind-safe) ─────────────
 
@@ -532,12 +533,21 @@ def build_graph_payload(
     *,
     context: Optional[str] = None,
     entity_graph: Optional[EntityGraph] = None,
+    redact_sensitive: bool = False,
 ) -> dict:
     """Build the nodes + edges + meta payload the renderers serialise.
 
     Note bodies (body_preview/full_body) are only embedded when
     include_bodies=True, so a shared/exported graph.json never leaks vault
     content by default.
+
+    ``redact_sensitive`` (EM-606) applies the policy's own tier rule to those
+    bodies: a note whose domain tier is ``sensitive`` or ``secret``
+    (``em_internal.policy.normalize_sensitivity``) is embedded as the redacted
+    summary ``redact_for_prefetch`` produces, never as the full body. The graph
+    server passes True — its payload lands in a browser over HTTP — while the
+    CLI keeps the default, because an export written to the owner's own disk is
+    the owner's artifact and ``--include-bodies`` is already its opt-in.
 
     ``entity_graph`` (EM-605 slice 2.1) adds the second store's entities and
     relations. It is None by default, in which case the payload is exactly the
@@ -612,6 +622,14 @@ def build_graph_payload(
             # path helps the modal frontmatter; only with bodies (same trust plane)
             if n.get("path"):
                 node_list[-1]["path"] = n["path"]
+            if redact_sensitive:
+                tier = normalize_sensitivity(None, n.get("domain", ""))
+                if tier in ("sensitive", "secret"):
+                    for key in ("body_preview", "full_body"):
+                        if node_list[-1].get(key):
+                            node_list[-1][key] = redact_for_prefetch(
+                                node_list[-1][key], tier
+                            )
 
     # Build edge list (only edges where both nodes exist in the export set)
     node_ids = {n["id"] for n in node_list}

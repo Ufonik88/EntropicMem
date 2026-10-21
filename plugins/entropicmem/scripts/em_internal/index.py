@@ -167,17 +167,61 @@ def content_hash(note: Note) -> str:
 
 # ── index class ─────────────────────────────────────────────────────────────
 
+class IndexRequiresMigration(RuntimeError):
+    """A read-only reader met an index older than this build understands.
+
+    Readers never write, so they cannot migrate — the migration's owner is the
+    writer (``entropicmem index refresh``). Failing loudly is the point:
+    silently reading a v0 file would serve half a graph.
+    """
+
+
 class VaultIndex:
     """SQLite FTS5 index over an EntropicMem vault."""
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, *, readonly: bool = False):
         self.db_path = Path(db_path).resolve()
+        self.readonly = bool(readonly)
+        if self.readonly:
+            self.db = self._open_read_only()
+            return
         self.db = sqlite3.connect(str(self.db_path), timeout=30)
         chmod_posix(self.db_path, 0o600)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
+
+    def _open_read_only(self):
+        """Open an existing index with no write path at all (EM-606).
+
+        ``mode=ro`` is enforced by SQLite itself, so this handle cannot create,
+        migrate, chmod or WAL-write the file. A GET-time reader that could do
+        any of those was the graph server's finding; this is the one place the
+        rule is implemented so every reader inherits it.
+        """
+        if not self.db_path.is_file():
+            raise FileNotFoundError(
+                f"index database not found (read-only open): {self.db_path}"
+            )
+        conn = sqlite3.connect(self.db_path.as_uri() + "?mode=ro", uri=True, timeout=30)
+        conn.row_factory = sqlite3.Row
+        try:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+        except sqlite3.DatabaseError as exc:  # not a database at all
+            conn.close()
+            raise IndexRequiresMigration(
+                f"{self.db_path} is not a readable index: {exc}"
+            ) from exc
+        if version < SCHEMA_VERSION:
+            conn.close()
+            raise IndexRequiresMigration(
+                f"{self.db_path} is schema v{version}, this build reads "
+                f"v{SCHEMA_VERSION}; run `entropicmem index refresh` to migrate "
+                "it (read-only readers never write)"
+            )
+        return conn
+
 
     def _init_schema(self) -> None:
         """Create tables if they don't exist, then run lightweight migrations."""
