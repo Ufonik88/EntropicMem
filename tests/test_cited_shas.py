@@ -29,7 +29,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Set, Tuple
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -40,6 +40,9 @@ REPO = Path(__file__).resolve().parents[1]
 _TOKEN_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
 
 #: Tokens cited on purpose that cannot resolve in this repository, each with its reason.
+#: "Cannot resolve" means unreachable from every ref: a commit object that lingers as a
+#: dangling object in one clone is not a citation a reader can check out anywhere else,
+#: so such a token stays allowlisted even when a local clone still holds it.
 #: An entry is legal only while it is both cited in tracked markdown and unresolvable;
 #: the honesty test below fails otherwise, so this cannot become a parking place for a
 #: typo. The dead SHAs are documented in ``REMAINING_PLAN.md`` §2 and ``MARKETPLACE.md``.
@@ -56,6 +59,15 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "437c89b": "dead SHA: the 2.8.0 catalog pin the republish made vanish",
     # Upstream, never in this repository: the fork branch the 2.8.0 catalog PR ended in.
     "cdfcd83": "upstream commit in NousResearch/hermes-agent, not this repo",
+    # Commits the 2026-10-20 dependency round touched in sibling repositories;
+    # each was verified against its owning repo but cannot resolve here.
+    "374736c": "upstream commit in entropic-dash (verified against local clone), not this repo",
+    "5f59904d": "upstream commit in nesquena/hermes-webui, not this repo",
+    "7d68ab50eb": "upstream commit in NousResearch/hermes-agent (chore/deps-hermes-agent-2026-10-20), not this repo",
+    "ba9d706": "upstream commit in rpmalouin/Hermes-Portal (verified against local clone; remote unreachable), not this repo",
+    # Annotated tag object for release v2.8.0; cited as tag metadata in
+    # docs/plan/REMAINING_PLAN.md, not as a commit citation.
+    "09a5459": "annotated tag object for release v2.8.0; cited as tag metadata, not a commit citation",
     # Not a SHA at all: the date in the `rollback/pre-s1-20260924` tag name.
     "20260924": "not a SHA: the date in the rollback/pre-s1-20260924 tag name",
     # GitHub Actions ids, not commits: the EM-407 hardening record cites the failing
@@ -103,32 +115,36 @@ def _tokens(text: str) -> List[str]:
     return _TOKEN_RE.findall(text)
 
 
-def _resolved(tokens: Iterable[str]) -> Dict[str, bool]:
-    """Which tokens resolve to a commit, in one ``git cat-file --batch-check`` call.
+def _reachable_commits() -> Set[str]:
+    """Every commit a reader of this repository could check out.
 
-    The peel ``^{commit}`` is what is asked for, so a blob or tree hash is not a
-    citation of a commit. ``--batch-check`` answers in input order, so the mapping back
-    is positional -- for a resolving abbreviation it prints the full object name, not
-    the input token.
+    Reachability from any ref plus HEAD, not object existence: a developer's clone can
+    hold a dangling commit object the published repository never had (cb88d47 is the
+    worked example in docs/plan/BASELINE.md), and a citation nobody can check out is a
+    broken citation no matter whose clone the scan runs in.
+    """
+    out = _git("rev-list", "--all", "HEAD")
+    return set(out.split())
+
+
+def _resolved(tokens: Iterable[str]) -> Dict[str, bool]:
+    """Which tokens name a commit in this repository's history.
+
+    Resolved = reachable from a ref, verified by git's own abbreviation rules: an
+    abbreviated token counts only if exactly one reachable commit starts with it, just
+    as git would refuse an ambiguous abbreviation. A token that names no commit at all
+    is an invented citation; a token naming a commit only present as a dangling object
+    in one clone is not resolvable anywhere else. Either way it must be fixed or
+    allowlisted.
     """
     ordered = sorted(set(tokens))
     if not ordered:
         return {}
-    result = subprocess.run(
-        ["git", "cat-file", "--batch-check"],
-        cwd=REPO,
-        input="\n".join(f"{token}^{{commit}}" for token in ordered) + "\n",
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, f"git cat-file failed: {result.stderr.strip()}"
-    lines = result.stdout.splitlines()
-    assert len(lines) == len(ordered), "batch-check did not answer every token"
+    reachable = _reachable_commits()
     resolved: Dict[str, bool] = {}
-    for token, line in zip(ordered, lines):
-        parts = line.split()
-        resolved[token] = len(parts) >= 2 and parts[1] == "commit"
+    for token in ordered:
+        matches = [sha for sha in reachable if sha.startswith(token)]
+        resolved[token] = len(matches) == 1
     return resolved
 
 
