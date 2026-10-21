@@ -291,6 +291,13 @@ class GraphRelation:
     (they have no node to point at) and are counted by the loader instead.
     ``valid_from`` / ``valid_to`` are nullable: either end can be open. The
     model turns them into ``time_span`` ranks over the payload's time axis.
+
+    ``superseded`` is the loader's reading of the store (EM-605 slice 2.4): the
+    claim behind this relation was replaced, so the edge is drawn dashed. It is
+    decided from ``memories.status = 'superseded'`` — never from ``valid_to``
+    (a closed claim merely ended) and never from ``superseded_by`` (history
+    survives a restore) — and it is a model field so the viewer has nothing to
+    infer.
     """
 
     subject_id: str
@@ -299,6 +306,7 @@ class GraphRelation:
     valid_from: Optional[str] = None
     valid_to: Optional[str] = None
     confidence: float = 0.7
+    superseded: bool = False
 
 
 @dataclass(frozen=True)
@@ -420,7 +428,11 @@ def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
     * time losses are not scope losses: the payload carries every surviving
       edge with an inclusive ``time_span`` rank, and the viewer counts what the
       selected window hides (``timeHidden``), never adding it to
-      ``hidden_relations``. Entities are timeless and stay.
+      ``hidden_relations``. Entities are timeless and stay;
+    * a superseded claim is still drawn (dashed, never hidden): the edge carries
+      the loader's ``superseded`` flag and ``superseded_relations`` counts the
+      drawn ones, on its own axis — not ``hidden_relations`` (scope) and not
+      ``time`` (interval).
     """
     by_id = {e.entity_id: e for e in entity_graph.entities}
     kept = []
@@ -468,12 +480,15 @@ def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
     node_ids = {n["id"] for n in nodes}
     spans, time_block = _time_axis(kept)
     edges = []
+    superseded_relations = 0
     for r, span in zip(kept, spans):
         source = f"entity:{r.subject_id}"
         target = f"entity:{r.object_id}"
         if source not in node_ids or target not in node_ids:
             dropped += 1
             continue
+        if r.superseded:
+            superseded_relations += 1
         edges.append({
             "source": source,
             "target": target,
@@ -485,6 +500,7 @@ def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
             "valid_to": r.valid_to,
             "time_span": span,
             "confidence": r.confidence,
+            "superseded": r.superseded,
         })
 
     block = {
@@ -494,6 +510,7 @@ def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
         "scope": entity_graph.scope,
         "entity_count": len(nodes),
         "relation_edge_count": len(edges),
+        "superseded_relations": superseded_relations,
         "hidden_entities": entity_graph.hidden_entities,
         "hidden_relations": entity_graph.hidden_relations,
         "truncated": entity_graph.truncated,

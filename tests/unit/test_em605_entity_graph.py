@@ -776,6 +776,7 @@ def test_meta_reports_the_scope_without_naming_the_hidden(index, scoped):
         "dropped_relations",
         "literal_relations",
         "time",
+        "superseded_relations",
     }
 
 
@@ -1052,3 +1053,170 @@ def test_time_hidden_is_counted_outside_the_scope_axis():
     assert 'getElementById("time-to").value = String(last)' in body
     assert "timeFrom = 0" in body
     assert "timeTo = last" in body
+
+
+# ── dashed superseded edges (slice 2.4) ─────────────────────────────────────
+
+def _back_with_memory(memory, relation_id, content):
+    """Give one relation a memory behind it; returns that memory's id."""
+    with memory.writer() as conn:
+        mem = MemoryStore(conn).add(
+            MemoryDraft(content=content), scope=OWNER, actor="tester"
+        )
+        conn.execute(
+            "UPDATE relations SET memory_id=? WHERE id=?", (mem.id, relation_id)
+        )
+    return mem.id
+
+
+def _supersede_memory(memory, memory_id, content):
+    with memory.writer() as conn:
+        result = MemoryStore(conn).supersede(
+            memory_id,
+            MemoryDraft(content=content),
+            scope=OWNER,
+            actor="tester",
+            reason="update",
+        )
+    assert result.ok, result.reason_code
+    return result.id
+
+
+def test_a_superseded_source_memory_marks_exactly_its_edge(index, memory):
+    """The dashed edge is the one whose claim was replaced, and only that one."""
+    ids = _seed(memory)
+    old = _back_with_memory(
+        memory, ids["works_at"], "Alice Example works at Acme Corp."
+    )
+    _supersede_memory(memory, old, "Alice Example works at Globex Corp.")
+
+    payload = _payload(index, memory)
+    assert _edge(payload, "works_at")["superseded"] is True
+    assert _edge(payload, "makes")["superseded"] is False
+    assert payload["meta"]["entities"]["superseded_relations"] == 1
+
+
+def test_a_closed_interval_is_history_not_supersession(index, memory):
+    """``valid_to`` says the claim ended; it does not say one replaced it."""
+    ids = _seed(memory)
+    _back_with_memory(memory, ids["works_at"], "Alice Example works at Acme Corp.")
+    _set_interval(memory, ids["works_at"], valid_from=T2020, valid_to=T2021)
+
+    payload = _payload(index, memory)
+    edge = _edge(payload, "works_at")
+    assert edge["valid_to"] == T2021, "the closure still reaches the timeline"
+    assert edge["superseded"] is False
+    assert payload["meta"]["entities"]["superseded_relations"] == 0
+
+
+def test_a_relation_without_provenance_is_never_superseded(index, memory):
+    """No memory id means no replacement record — fail solid, not dashed."""
+    _seed(memory)  # both relations carry memory_id NULL
+    payload = _payload(index, memory)
+    relations = [e for e in payload["edges"] if e["kind"] == "relation"]
+    assert relations, "the fixture must draw relation edges"
+    assert all(e["superseded"] is False for e in relations)
+    assert payload["meta"]["entities"]["superseded_relations"] == 0
+
+
+def test_a_restored_memory_is_solid_again_despite_its_successor_pointer(index, memory):
+    """``superseded_by`` is history and survives a restore; status is the state."""
+    ids = _seed(memory)
+    old = _back_with_memory(
+        memory, ids["works_at"], "Alice Example works at Acme Corp."
+    )
+    successor = _supersede_memory(memory, old, "Alice Example works at Globex Corp.")
+    with memory.writer() as conn:
+        restored = MemoryStore(conn).set_status(
+            old, "active", actor="tester", reason="restore"
+        )
+        row = conn.execute(
+            "SELECT status, superseded_by FROM memories WHERE id=?", (old,)
+        ).fetchone()
+    assert restored.ok, restored.reason_code
+    assert row["status"] == "active"
+    assert row["superseded_by"] == successor, (
+        "the store keeps the history pointer through the restore"
+    )
+
+    payload = _payload(index, memory)
+    assert _edge(payload, "works_at")["superseded"] is False
+    assert payload["meta"]["entities"]["superseded_relations"] == 0
+
+
+def test_an_archived_memory_is_not_superseded(index, memory):
+    """Archiving retires a claim; it does not record a replacement for it."""
+    ids = _seed(memory)
+    old = _back_with_memory(
+        memory, ids["works_at"], "Alice Example works at Acme Corp."
+    )
+    with memory.writer() as conn:
+        archived = MemoryStore(conn).set_status(
+            old, "archived", actor="tester", reason="archive"
+        )
+    assert archived.ok, archived.reason_code
+
+    payload = _payload(index, memory)
+    assert _edge(payload, "works_at")["superseded"] is False
+    assert payload["meta"]["entities"]["superseded_relations"] == 0
+
+
+def test_supersession_is_neither_a_time_nor_a_scope_loss(index, memory):
+    """A superseded edge is drawn, counted, and on the timeline — just dashed."""
+    ids = _seed(memory)
+    old = _back_with_memory(
+        memory, ids["works_at"], "Alice Example works at Acme Corp."
+    )
+    _supersede_memory(memory, old, "Alice Example works at Globex Corp.")
+
+    payload = _payload(index, memory)
+    block = payload["meta"]["entities"]
+    edge = _edge(payload, "works_at")
+    assert block["relation_edge_count"] == 2, "the dashed edge is still an edge"
+    assert block["hidden_relations"] == 0, "supersession is not a scope loss"
+    assert block["hidden_entities"] == 0
+    assert block["dropped_relations"] == 0
+    assert edge["time_span"] is not None, "supersede closes the relation; 2.3 keeps it"
+    assert block["time"]["unparsed_relations"] == 0
+    assert block["superseded_relations"] == 1, (
+        "the count is of the drawn superseded edges, and it is its own axis"
+    )
+    assert _endpoints_resolve(payload)
+
+
+def test_the_viewer_dashes_the_flag_the_model_computed():
+    """The viewer reads the flag; it must not know how supersession is stored."""
+    js = graph_assets.asset("graph.js")
+
+    dash = re.search(r"function edgeDash\(d\) \{(.*?)\n\}", js, re.S)
+    assert dash, "edgeDash helper not found"
+    body = dash.group(1)
+    assert "d.superseded" in body
+    assert 'return "6,4"' in body
+    code = "\n".join(
+        line for line in body.splitlines() if not line.strip().startswith("//")
+    )
+    assert code.index("d.superseded") < code.index("kind"), (
+        "the flag is checked before any kind rule, so a tripled kind cannot "
+        "override a replaced claim"
+    )
+    for forbidden in ("status", "superseded_by", "valid_to"):
+        assert forbidden not in body, (
+            f"the viewer must not decide supersession from {forbidden!r}"
+        )
+    assert "superseded_by" not in js, (
+        "the storage shape belongs to the loader, not the viewer"
+    )
+
+
+def test_the_legend_explains_the_dashed_superseded_stroke():
+    js = graph_assets.asset("graph.js")
+    assert "supersededlink" in js
+    legend = re.search(r"function buildLegend\(\) \{(.*?)\n\}", js, re.S)
+    assert legend, "buildLegend body not found"
+    body = legend.group(1)
+    assert "supersededlink" in body
+    assert "superseded relation" in body
+    assert "DATA.edges.some(e => e.superseded)" in body, (
+        "the row is shown only when a dashed edge is on the graph"
+    )

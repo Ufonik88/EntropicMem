@@ -32,6 +32,13 @@ visible endpoints, or a ``memory_id`` that resolves to a profile-wide memory in
 the same profile. ``scope="all"`` is the explicit opt-in that turns attribution
 off. Hidden rows are counted, never named, so ``meta.entities`` cannot leak the
 data it filtered.
+
+The same join answers slice 2.4 as well: a relation whose source memory is in
+the store's ``superseded`` state is a **replaced claim**, and it is loaded with
+``superseded=True`` so the edge can be drawn dashed. That is a state read, not
+an inference — neither ``valid_to`` (the claim ended) nor ``superseded_by``
+(history that survives a restore) decides it, and a relation with no source
+memory has no replacement record, so it stays solid.
 """
 
 from __future__ import annotations
@@ -157,7 +164,8 @@ def load_entity_graph(
             for row in conn.execute(
                 "SELECT r.id, r.subject_id, r.predicate, r.object_id, r.memory_id,"
                 " r.valid_from, r.valid_to, r.confidence,"
-                " m.scope_profile AS memory_profile, m.scope_user AS memory_user"
+                " m.scope_profile AS memory_profile, m.scope_user AS memory_user,"
+                " m.status AS memory_status"
                 " FROM relations r LEFT JOIN memories m ON m.id = r.memory_id"
                 " WHERE r.scope_profile=?"
                 " ORDER BY r.subject_id, r.predicate, r.object_id, r.id",
@@ -277,6 +285,12 @@ def load_entity_graph(
                     if r["confidence"] is not None
                     else 0.7
                 ),
+                # Supersession is the store's own state (EM-605 slice 2.4): the
+                # claim's source memory is superseded. ``valid_to`` is not
+                # evidence (a closed claim merely ended) and ``superseded_by``
+                # is not either (history survives a restore), so neither is
+                # consulted here.
+                superseded=r["memory_status"] == "superseded",
             )
             for r in kept
         ),

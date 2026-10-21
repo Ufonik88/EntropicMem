@@ -34,6 +34,9 @@ function edgeWidth(d) {
 }
 function edgeColor(d) { return d.color || "#6b6b7d"; }
 function edgeDash(d) {
+  // EM-605 slice 2.4: the model marks a replaced claim; the viewer only draws
+  // it. Checked before the kind rules so no other style can override it.
+  if (d.superseded) return "6,4";
   const kind = String(d.kind || "");
   if (kind === "tag" || kind === "wikilink") return null;
   if (kind.startsWith("triple")) return "2,3";
@@ -189,6 +192,7 @@ const SHAPE_SVGS = {
   triangle: '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1 L11 10.5 L1 10.5 Z" fill="currentColor"/></svg>',
   link: '<svg width="14" height="12" viewBox="0 0 14 12"><line x1="1" y1="6" x2="13" y2="6" stroke="currentColor" stroke-width="1.6"/></svg>',
   taglink: '<svg width="14" height="12" viewBox="0 0 14 12"><line x1="1" y1="6" x2="13" y2="6" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.4"/></svg>',
+  supersededlink: '<svg width="14" height="12" viewBox="0 0 14 12"><line x1="1" y1="6" x2="13" y2="6" stroke="currentColor" stroke-width="1.6" stroke-dasharray="6 4"/></svg>',
 };
 function buildLegend() {
   const legend = document.getElementById("legend-content");
@@ -223,6 +227,9 @@ function buildLegend() {
   html += '<div class="lg-title" style="margin-top:8px;">Edges</div>';
   html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.link}</span> wikilink</div>`;
   html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.taglink}</span> tag link</div>`;
+  if (DATA.edges.some(e => e.superseded)) {
+    html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.supersededlink}</span> superseded relation</div>`;
+  }
   legend.innerHTML = html;
 }
 
