@@ -63,10 +63,6 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # was verified against its owning repo, but none of them is published: they live
     # only on local branches, so no reader can check them out yet. The reasons say so
     # rather than call them upstream commits, which would be untrue.
-    "374736c": "local-only commit in an entropic-dash clone (branch chore/deps-entropic-dash-2026-10-19), not published",
-    "5f59904d": "local-only commit in a hermes-webui clone (branch chore/deps-hermes-webui-2026-10-19), not published",
-    "7d68ab50eb": "local-only commit in a hermes-agent clone (branch chore/deps-hermes-agent-2026-10-20), not published",
-    "ba9d706": "local-only commit in a hermes-portal clone (branch chore/deps-hermes-portal-2026-10-20), not published",
     # Not a SHA at all: the date in the `rollback/pre-s1-20260924` tag name.
     "20260924": "not a SHA: the date in the rollback/pre-s1-20260924 tag name",
     # GitHub Actions ids, not commits: the EM-407 hardening record cites the failing
