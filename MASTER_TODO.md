@@ -1695,6 +1695,8 @@ Each is a deliberate, recorded decision. The full table with reasons is in
 
 ## Things that will waste your time if you don't know them
 
+- **Running the suite from a Hermes session needs a TMPDIR outside `~/.hermes`.** The live-store guard (`em/store/migrations/__init__.py`) refuses to migrate any path under `~/.hermes` that has an `entropicmem` path component, and a pytest tmp dir under the default Hermes scratch (`~/.hermes/cache/scratch/pytest-of-.../<test>/homeA/entropicmem/memory.db`) has exactly that component — so the harness suites error with `MigrationRefused` and the run looks broken. It is the guard working, not a product fault: `export TMPDIR=/tmp/entropicmem-tests` and the same suites pass. Worth knowing before reading a red suite as a regression.
+
 - **GitHub access is configured from this machine.** `~/.local/bin/ghx` wraps the
   CLI with a keychain-held token; `git push` uses the same keychain credential.
   See the access note under [Open blockers](#open-blockers) for what it can and

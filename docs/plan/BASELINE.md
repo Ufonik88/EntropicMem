@@ -32,12 +32,12 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3064 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3062 passed, 4 skipped, 2 xfailed** |
 
-Read as at `9820b93` (EM-605 slices 2.1–2.5 and EM-606, merged with main's graph-UI
+Read as at `0d41304` (EM-605 slices 2.1–2.5 and EM-606, merged with main's graph-UI
 work, the identity guard's named exception, the citation allowlist for the landing's
 run ids, and the 2026-10-20 dependency round with the cited-SHA guard's reachability
 fix) — measured for the tree at that commit. **The figure is the one CI read, and it
 still describes this tree:** the merge changed no test (the same 2691 test definitions
-as `46c0b26`), and the CI figure of record is **3062 / 4 / 2**, read from the 3.12 job
+as `46c0b26`), and the CI figure is **3062 / 4 / 2**, read from the 3.12 job
 log of run `39620615391` on `e129ff6` and confirmed again by run `39629454711` on
 `73bed69`, which read the identical triple. **This branch is not yet pushed, so no run
 exists for `9820b93` itself** — the run id cited is the landing's, and the re-stamp at
