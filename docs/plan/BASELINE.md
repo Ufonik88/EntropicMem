@@ -32,12 +32,13 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3064 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3062 passed, 4 skipped, 2 xfailed** |
 
-Read as at `f240f8a` (EM-605 slices 2.1–2.5 and EM-606, merged with main's graph-UI
+Read as at `76b967d` (EM-605 slices 2.1–2.5 and EM-606, merged with main's graph-UI
 work, the identity guard's named exception, the citation allowlist for the landing's
 run ids, and the 2026-10-20 dependency round with the cited-SHA guard's reachability
 fix) — measured for the tree at that commit. **CI ran for this tree:** run `39636784876` ran on
 `f240f8a` and read **13/13 jobs green**, and the CI row above is **read** from that run's
-3.12 job log — not projected. **The figure still describes this tree:** the merge changed
+3.12 job log — not projected. (The one commit after `f240f8a` is this tree's allowlist entry
+for that run id; it adds no test, so the figure still describes it.) **The figure still describes this tree:** the merge changed
 no test (the same 2691 test definitions as `46c0b26`), and the landing's run `39620615391`
 on `e129ff6` and the landed tip's run `39629454711` on `73bed69` read the identical
 triple — so the number is confirmed three times, on three different SHAs. The re-stamp at
