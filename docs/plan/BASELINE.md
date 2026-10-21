@@ -26,13 +26,13 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3062 passed, 4 skipped, 2 xfailed** *(projected from this box's CI-equivalent run by the host-pin relation. The branch's own run `39620615391` read this row's figure from its 3.12 job log — **3062 / 4 / 2** — and the record is stamped from that read in the docs commit that follows; until that stamp lands, the projection is what the record holds)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3062 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of the landing run `39620615391` on `46c0b26` — the branch was pushed, and this line comes from the job itself)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2967 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2968 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3064 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3062 passed, 4 skipped, 2 xfailed** |
 
-Read as at `7d475c2` (EM-605 slices 2.1–2.5 and EM-606, merged with main's graph-UI
+Read as at `46c0b26` (EM-605 slices 2.1–2.5 and EM-606, merged with main's graph-UI
 work, the identity guard's named exception, and the citation allowlist for the landing's
 run ids) — measured for the tree at that commit. **CI has not run for it:** the commit is local and unpushed, so
 the CI figure is **projected** from the CI-equivalent run by the host-pin relation below; no run
@@ -139,7 +139,7 @@ bare          2967 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3064 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3062 /  4 / 2   (projected; not run — the landing is unpushed)
+= CI          3062 /  4 / 2   (read from run 39620615391, 3.12 job log)
 ```
 
 ## Citing CI evidence — one trap
