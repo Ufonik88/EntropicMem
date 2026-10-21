@@ -220,7 +220,16 @@ def test_the_bucket_refills_at_the_configured_rate():
     assert bucket.take() > 0.0
 
 
-def test_an_exhausted_search_bucket_answers_429(client, mod):
+def test_an_exhausted_search_bucket_answers_429(client, mod, monkeypatch):
+    # A frozen clock is the point of the test: with the real one, ten requests
+    # on a slow runner take longer than a token interval, the bucket refills
+    # mid-loop and the eleventh is allowed — this flaked on the 3.12 CI leg.
+    frozen = [1_000.0]
+    monkeypatch.setattr(
+        mod,
+        "_SEARCH_LIMITER",
+        mod.TokenBucket(mod.SEARCH_RATE_PER_SECOND, clock=lambda: frozen[0]),
+    )
     for _ in range(int(mod.SEARCH_RATE_PER_SECOND)):
         assert client.get("/api/search?q=Alpha").status_code == 200
 
