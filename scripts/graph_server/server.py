@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import math
 
 # Canonical source for the graph server. Deployed (symlink-free) copy runs
 # from ~/.hermes/entropicmem/graph_server/server.py under the systemd user
@@ -39,6 +40,22 @@ import json
 # poisoned ENTROPICMEM_* env cannot point refresh at a dead /tmp dataset
 # (same hard-pin policy as the v2.1.8 index watchdog).
 #
+# EM-606 hardening (round 2):
+#   * every read path opens index.db with a ``mode=ro`` URI
+#     (``VaultIndex(..., readonly=True)``), so a GET can never create,
+#     migrate, chmod or WAL-write the file; ``/refresh`` is the one writer,
+#     because rebuilding the index is its whole job, and that split is pinned
+#     by tests;
+#   * ``/api/search`` is rate limited by a one-key token bucket
+#     (``SEARCH_RATE_PER_SECOND`` = 10 rps, burst = rate); a refused request
+#     answers 429 with Retry-After;
+#   * note bodies are redacted by the write policy's own tier rule
+#     (``em_internal.policy.normalize_sensitivity``: Finance / People / Events
+#     are sensitive by default) — the API payloads and the export this server
+#     regenerates carry the redacted summary instead of the body. The static
+#     CLI export keeps full bodies on purpose: it writes to the owner's disk,
+#     and ``--include-bodies`` is already its explicit opt-in.
+#
 # Note bodies (v2.2.2):
 #   Local authenticated refresh defaults include_bodies=True so the modal
 #   can show markdown. Static export CLI still defaults False (security).
@@ -48,6 +65,7 @@ import os
 import secrets
 import sqlite3
 import sys
+import time
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -118,6 +136,10 @@ if str(SCRIPTS_DIR) not in sys.path:
 from em.graph.export import export_html, export_json  # noqa: E402
 from em.graph.model import resolve_note_path  # noqa: E402
 from em_internal.index import VaultIndex, build_fts_query  # noqa: E402
+from em_internal.policy import (  # noqa: E402
+    normalize_sensitivity,
+    redact_for_prefetch,
+)
 from em_internal.vault import Vault, resolve_vault_path  # noqa: E402
 
 BASE_DIR = _resolve_export_dir()
@@ -203,6 +225,77 @@ def _remove_run_token_file(*, force: bool = False) -> None:
             RUN_TOKEN_FILE.unlink()
     except (FileNotFoundError, OSError):
         pass
+
+
+# ── search rate limit (EM-606) ──────────────────────────────────────────────
+
+#: The card's number: ten searches per second.
+SEARCH_RATE_PER_SECOND = 10.0
+
+
+class TokenBucket:
+    """One-key token bucket: burst == rate, refilled continuously.
+
+    ``take()`` returns 0.0 when the request may proceed, otherwise the seconds
+    until the next token — so the route can answer 429 with a Retry-After
+    without ever sleeping. The clock is injectable, so no test waits.
+    """
+
+    def __init__(self, rate: float, *, burst: float | None = None, clock=None):
+        self.rate = float(rate)
+        self.capacity = float(burst if burst is not None else rate)
+        self._tokens = self.capacity
+        self._clock = clock or time.monotonic
+        self._last: float | None = None
+
+    def take(self, now: float | None = None) -> float:
+        now = self._clock() if now is None else float(now)
+        if self._last is None:
+            self._last = now
+        else:
+            elapsed = max(0.0, now - self._last)
+            self._tokens = min(self.capacity, self._tokens + elapsed * self.rate)
+            self._last = now
+        if self._tokens >= 1.0 - 1e-9:  # float refill at the boundary counts
+            self._tokens = max(0.0, self._tokens - 1.0)
+            return 0.0
+        return (1.0 - self._tokens) / self.rate
+
+
+_SEARCH_LIMITER = TokenBucket(SEARCH_RATE_PER_SECOND)
+
+
+# ── sensitivity redaction (EM-606) ──────────────────────────────────────────
+
+def _tier_for(domain: str) -> str:
+    """The policy's own tier rule, not a second vocabulary."""
+    return normalize_sensitivity(None, domain or "")
+
+
+def _redact_note_bodies(payload: dict) -> dict:
+    """Serve a sensitive-domain note as its summary, never its body.
+
+    The tier comes from ``em_internal.policy`` (Finance / People / Events are
+    sensitive by default), so the server and the write path cannot disagree
+    about what "sensitive" means. Metadata stays: the modal still knows which
+    note it opened, and the full text is one step away in the vault.
+    """
+    tier = _tier_for(payload.get("domain", ""))
+    if tier in ("sensitive", "secret"):
+        summary = redact_for_prefetch(
+            payload.get("full_body") or payload.get("body_preview") or "", tier
+        )
+        payload["full_body"] = summary
+        payload["body_preview"] = summary
+    return payload
+
+
+def _redact_hit(row: dict) -> dict:
+    """A search snippet is body text: redact it on the same rule."""
+    tier = _tier_for(row.get("domain", ""))
+    if tier in ("sensitive", "secret"):
+        row["snippet"] = redact_for_prefetch(row.get("snippet") or "", tier)
+    return row
 
 
 # ── bind policy (enforces the loopback-only claim) ──────────────────────────
@@ -524,6 +617,7 @@ def _regenerate(*, include_bodies: bool = True) -> dict:
             BASE_DIR / "graph.json",
             max_nodes=500,
             include_bodies=include_bodies,
+            redact_sensitive=True,
         )
         export_html(
             index,
@@ -531,6 +625,7 @@ def _regenerate(*, include_bodies: bool = True) -> dict:
             max_nodes=500,
             vault_root=vault_root if include_bodies else None,
             include_bodies=include_bodies,
+            redact_sensitive=True,
         )
         payload.setdefault("meta", {})["index_rebuilt_notes"] = rebuilt
         payload.setdefault("meta", {})["include_bodies"] = include_bodies
@@ -549,7 +644,7 @@ def _note_payload(note_id: str) -> dict:
     if not note_id:
         raise HTTPException(status_code=400, detail="note_id required")
 
-    index = VaultIndex(INDEX_DB)
+    index = VaultIndex(INDEX_DB, readonly=True)
     try:
         row = index.db.execute(
             """SELECT m.note_id, m.title, m.domain, m.note_type, m.importance,
@@ -583,7 +678,7 @@ def _note_payload(note_id: str) -> dict:
         elif not isinstance(tags, list):
             tags = []
 
-        return {
+        return _redact_note_bodies({
             "id": d["note_id"],
             "title": d.get("title") or d["note_id"],
             "domain": d.get("domain") or "",
@@ -593,7 +688,7 @@ def _note_payload(note_id: str) -> dict:
             "path": d.get("path") or "",
             "body_preview": (d.get("body_preview") or "")[:400],
             "full_body": body,
-        }
+        })
     finally:
         index.close()
 
@@ -649,7 +744,7 @@ def get_note_by_title(title: str, x_entropicmem_token: str | None = Header(defau
     if not title:
         raise HTTPException(status_code=400, detail="title required")
 
-    index = VaultIndex(INDEX_DB)
+    index = VaultIndex(INDEX_DB, readonly=True)
     try:
         row = index.db.execute(
             """SELECT note_id FROM notes_meta WHERE lower(title) = lower(?) LIMIT 1""",
@@ -702,6 +797,13 @@ def search_notes(
     A query that sanitizes to an empty FTS expression is a clean 400.
     """
     _require_token_if_exposed(x_entropicmem_token)
+    retry_after = _SEARCH_LIMITER.take()
+    if retry_after:
+        raise HTTPException(
+            status_code=429,
+            detail="search rate limit exceeded",
+            headers={"Retry-After": str(max(1, math.ceil(retry_after)))},
+        )
     query = (q or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="q required")
@@ -715,7 +817,7 @@ def search_notes(
     except (TypeError, ValueError):
         limit = 20
 
-    index = VaultIndex(INDEX_DB)
+    index = VaultIndex(INDEX_DB, readonly=True)
     try:
         try:
             hits = index.search_fts(query, top_k=limit)
@@ -727,7 +829,7 @@ def search_notes(
             "query": query,
             "mode": "fts",
             "results": [
-                {
+                _redact_hit({
                     "note_id": h.note_id,
                     "title": h.title,
                     "domain": h.domain,
@@ -735,7 +837,7 @@ def search_notes(
                     "importance": h.importance,
                     "tags": h.tags,
                     "snippet": h.snippet,
-                }
+                })
                 for h in hits
             ],
         })
@@ -769,7 +871,7 @@ def shortest_path(
     except (TypeError, ValueError):
         max_depth = 10
 
-    index = VaultIndex(INDEX_DB)
+    index = VaultIndex(INDEX_DB, readonly=True)
     try:
         adjacency: dict[str, list[str]] = {}
         for source, target in index.db.execute(

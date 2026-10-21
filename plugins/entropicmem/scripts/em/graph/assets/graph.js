@@ -33,14 +33,33 @@ function edgeWidth(d) {
   return 1.0;
 }
 function edgeColor(d) {
+  // Directional edges (wikilink / triple) read as a source → target gradient;
+  // entity relation edges keep the typed predicate colour EM-605 slice 2.1
+  // gives them, and everything else uses the palette's muted edge token.
   if (isDirectionalEdge(d)) return `url(#${dirGradId(d)})`;
+  if (d.color) return d.color;
   return "var(--edge)";
 }
 function edgeDash(d) {
-  if (d.kind === "tag" || d.kind === "wikilink") return null;
-  if (d.kind.startsWith("triple")) return "2,3";
+  // EM-605 slice 2.4: the model marks a replaced claim; the viewer only draws
+  // it. Checked before the kind rules so no other style can override it.
+  if (d.superseded) return "6,4";
+  const kind = String(d.kind || "");
+  if (kind === "tag" || kind === "wikilink") return null;
+  if (kind.startsWith("triple")) return "2,3";
   return null;
 }
+
+/* ── Edge highlight on node hover ── */
+/* Connected edges are boosted toward the top of the visible opacity band;
+   non-connected edges are dimmed but stay visible. Both factors are monotonic
+   in the strength-encoded base opacity, so strength ordering survives the
+   highlight. The stroke colour is never touched — directional gradients keep
+   showing while highlighted — and no new palette tokens are introduced. */
+const EDGE_OPACITY_MAX = window.__emGraphStrength?.EDGE_OPACITY_MAX ?? 0.9;
+const EDGE_OPACITY_MIN = window.__emGraphStrength?.EDGE_OPACITY_MIN ?? 0.2;
+const EDGE_HOVER_CONNECTED_BOOST = 1.4; // multiply base opacity, clamped at max
+const EDGE_HOVER_UNCONNECTED_DIM = 0.5; // multiply base opacity, clamped at min
 
 /* ── Directional edges: gradient strokes reading source → target ── */
 // Wikilink and relation-triple edges carry a direction (source → target);
@@ -88,9 +107,9 @@ function syncEdgeGradients(edges) {
     const id = dirGradId(d);
     want.add(id);
     let grad = dirGradById.get(id);
+    const s = nodeById.get(typeof d.source === "object" ? d.source.id : d.source);
+    const t = nodeById.get(typeof d.target === "object" ? d.target.id : d.target);
     if (!grad) {
-      const s = nodeById.get(typeof d.source === "object" ? d.source.id : d.source);
-      const t = nodeById.get(typeof d.target === "object" ? d.target.id : d.target);
       grad = defs.append("linearGradient")
         .attr("class", "dir-grad")
         .attr("id", id)
@@ -161,6 +180,10 @@ function haloGradientRef(color) {
 let simulation, svg, defs, rootG, linkG, nodeG, labelG, labelMeasure;
 let mmSvg, mmNodeG, mmViewport;
 let currentDomain = "", currentMinImp = 0, currentTag = "";
+// EM-605 2.3: relation edges carry an inclusive [start, end] rank over the
+// time axis in DATA.meta.entities.time. The scope filter is server-side; this
+// is only the time window.
+let timeFrom = 0, timeTo = 0, timeReady = false;
 let focusedId = null;
 let pathStart = null;       // first endpoint of a shift-click path query
 let activePath = null;      // rendered shortest path (array of node ids)
@@ -469,6 +492,7 @@ const SHAPE_SVGS = {
   triangle: '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1 L11 10.5 L1 10.5 Z" fill="currentColor"/></svg>',
   link: '<svg width="14" height="12" viewBox="0 0 14 12"><line x1="1" y1="6" x2="13" y2="6" stroke="currentColor" stroke-width="1.6"/></svg>',
   taglink: '<svg width="14" height="12" viewBox="0 0 14 12"><line x1="1" y1="6" x2="13" y2="6" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.4"/></svg>',
+  supersededlink: '<svg width="14" height="12" viewBox="0 0 14 12"><line x1="1" y1="6" x2="13" y2="6" stroke="currentColor" stroke-width="1.6" stroke-dasharray="6 4"/></svg>',
 };
 function buildLegend() {
   const legend = document.getElementById("legend-content");
@@ -503,6 +527,9 @@ function buildLegend() {
   html += '<div class="lg-title" style="margin-top:8px;">Edges</div>';
   html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.link}</span> wikilink</div>`;
   html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.taglink}</span> tag link</div>`;
+  if (DATA.edges.some(e => e.superseded)) {
+    html += `<div class="row"><span class="shape-glyph">${SHAPE_SVGS.supersededlink}</span> superseded relation</div>`;
+  }
   legend.innerHTML = html;
 }
 
@@ -537,6 +564,64 @@ function buildTagSuggestions() {
   });
 }
 
+/* ── Time window (EM-605 slice 2.3) ── */
+function formatTimeLabel(value) {
+  return value ? value.slice(0, 10) : "—";
+}
+
+function timeVisible(e) {
+  if (!timeReady || e.kind !== "relation" || !e.time_span) return true;
+  return e.time_span[0] <= timeTo && e.time_span[1] >= timeFrom;
+}
+
+function updateTimeLabels() {
+  const time = DATA.meta.entities && DATA.meta.entities.time;
+  const stops = (time && time.stops) || [];
+  const fromEl = document.getElementById("time-from-label");
+  const toEl = document.getElementById("time-to-label");
+  if (fromEl) fromEl.textContent = formatTimeLabel(stops[timeFrom]);
+  if (toEl) toEl.textContent = formatTimeLabel(stops[timeTo]);
+}
+
+function buildTimeSlider() {
+  const box = document.getElementById("time-control");
+  if (!box) return;
+  const time = DATA.meta.entities && DATA.meta.entities.time;
+  if (!time || !time.available || !time.stops || !time.stops.length) {
+    box.hidden = true;
+    timeReady = false;
+    return;
+  }
+  const last = time.stops.length - 1;
+  timeFrom = 0;
+  timeTo = last;
+  timeReady = true;
+  const from = document.getElementById("time-from");
+  const to = document.getElementById("time-to");
+  from.min = to.min = "0";
+  from.max = to.max = String(last);
+  from.value = "0";
+  to.value = String(last);
+  updateTimeLabels();
+  box.hidden = false;
+}
+
+function syncTimeWindow(changed) {
+  if (!timeReady) return;
+  const from = document.getElementById("time-from");
+  const to = document.getElementById("time-to");
+  timeFrom = parseInt(from.value, 10) || 0;
+  timeTo = parseInt(to.value, 10) || 0;
+  if (timeFrom > timeTo) {
+    if (changed === "from") timeTo = timeFrom;
+    else timeFrom = timeTo;
+    from.value = String(timeFrom);
+    to.value = String(timeTo);
+  }
+  updateTimeLabels();
+  updateFilters();
+}
+
 /* ── Filtering ── */
 function getFilteredData() {
   let nodes = DATA.nodes;
@@ -553,7 +638,7 @@ function getFilteredData() {
   const edges = DATA.edges.filter(e => {
     const s = typeof e.source === "object" ? e.source.id : e.source;
     const t = typeof e.target === "object" ? e.target.id : e.target;
-    return ids.has(s) && ids.has(t);
+    return ids.has(s) && ids.has(t) && timeVisible(e);
   });
   return { nodes, edges };
 }
@@ -573,13 +658,28 @@ function updateStats() {
   const el = document.getElementById("stats-text");
   if (!el) return;
   const { nodes, edges } = getFilteredData();
-  const dropped = DATA.edges.length - edges.length;
+  const visibleIds = new Set(nodes.map(n => n.id));
+  const timeHidden = DATA.edges.reduce((count, e) => {
+    if (timeVisible(e)) return count;
+    const s = typeof e.source === "object" ? e.source.id : e.source;
+    const t = typeof e.target === "object" ? e.target.id : e.target;
+    return visibleIds.has(s) && visibleIds.has(t) ? count + 1 : count;
+  }, 0);
+  const dropped = DATA.edges.length - edges.length - timeHidden;
   const orphans = nodes.filter(n => (n.degree || 0) === 0).length;
+  // The scope is decided in the model, before serialisation; this line only
+  // reports it. A viewer-side filter would leave the hidden rows in the file.
+  const ent = DATA.meta.entities;
+  const scope = ent && ent.available
+    ? ` | ${ent.entity_count} entities (${ent.scope === "all" ? "all scopes" : "owner only"})`
+    : "";
   el.textContent =
     `${nodes.length} nodes / ${edges.length} edges` +
     (dropped > 0 ? ` (${dropped} hidden by filters)` : "") +
+    (timeHidden > 0 ? ` (${timeHidden} outside time window)` : "") +
     ` | ${DATA.meta.domains.length} domains` +
-    ` | ${orphans} orphans`;
+    ` | ${orphans} orphans` +
+    scope;
 }
 
 function resetFilters() {
@@ -589,6 +689,14 @@ function resetFilters() {
   document.getElementById("node-search").value = "";
   currentDomain = ""; currentMinImp = 0; currentTag = "";
   document.getElementById("imp-val").textContent = "0.0";
+  if (timeReady) {
+    const last = DATA.meta.entities.time.stops.length - 1;
+    document.getElementById("time-from").value = "0";
+    document.getElementById("time-to").value = String(last);
+    timeFrom = 0;
+    timeTo = last;
+    updateTimeLabels();
+  }
   clearFocus();
   render();
   updateStats();
@@ -896,13 +1004,22 @@ function render() {
     .attr("role", "button").attr("aria-label", d => `${d.title || d.id}, ${d.domain || "uncategorized"}`)
     .on("mouseover", (event, d) => {
       const incident = adjacency.get(d.id) || new Set();
-      linkG.style("opacity", e => (incident.has(e.source.id) || incident.has(e.target.id)) ? 1 : 0.15)
-          .attr("stroke", e => (incident.has(e.source.id) || incident.has(e.target.id)) ? "#8b7cf6" : (edgeColor(e)));
+      linkG.style("opacity", 1); // element fully opaque so stroke-opacity is effective
+      linkG.style("stroke-opacity", e => {
+        const s = typeof e.source === "object" ? e.source.id : e.source;
+        const t = typeof e.target === "object" ? e.target.id : e.target;
+        const connected = incident.has(s) || incident.has(t);
+        const base = strengthOf(e.weight, sLo, sHi).opacity;
+        return connected
+          ? Math.min(EDGE_OPACITY_MAX, base * EDGE_HOVER_CONNECTED_BOOST)
+          : Math.max(EDGE_OPACITY_MIN, base * EDGE_HOVER_UNCONNECTED_DIM);
+      });
       d3.select(event.currentTarget).select(".node-shape").attr("stroke", "#5AE4AA").attr("stroke-width", 2.2);
       if (labelG) labelG.style("opacity", computeLabelOpacity(currentTransform.k));
     })
     .on("mouseout", (event, d) => {
-      linkG.style("opacity", 0.65).attr("stroke", d => edgeColor(d));
+      linkG.style("opacity", null);
+      linkG.style("stroke-opacity", null);
       d3.select(event.currentTarget).select(".node-shape").attr("stroke", null).attr("stroke-width", null);
     })
     .call(d3.drag()
@@ -922,7 +1039,11 @@ function render() {
     .on("mousemove", moveTooltip)
     .on("mouseout", hideTooltip)
     .on("focusin", (event, d) => { expandLabel(d); })
-    .on("focusout", (event, d) => { collapseLabel(d); });
+    .on("focusout", (event, d) => {
+      collapseLabel(d);
+      linkG.style("opacity", null);
+      linkG.style("stroke-opacity", null);
+    });
 
   // Restore positions for a smooth transition instead of a full re-scatter
   nodeG.each(function(d) {
@@ -1071,8 +1192,11 @@ function showTooltip(event, d) {
   if (panActive) return;
   const tip = document.getElementById("tooltip");
   tip.style.display = "block";
+  const meta = d.kind === "entity"
+    ? `${escapeHtml(d.entity_kind || "entity")} · ${d.degree || 0} relation${(d.degree || 0) === 1 ? "" : "s"}`
+    : `${escapeHtml(d.type)} · ${escapeHtml(d.domain || "uncategorized")} · importance ${(d.importance || 0).toFixed(2)}`;
   tip.innerHTML = `<div class="tt-title" style="color:${nodeColor(d)}">${escapeHtml(d.title || d.id)}</div>
-    <div class="tt-meta">${escapeHtml(d.type)} · ${escapeHtml(d.domain || "uncategorized")} · importance ${(d.importance || 0).toFixed(2)}</div>
+    <div class="tt-meta">${meta}</div>
     <div class="tt-meta">tags: ${escapeHtml((d.tags || []).join(", ") || "—")}</div>
     <div class="tt-meta" style="margin-top:3px;color:#5AE4AA;">click to open · shift-click path · drag to move</div>`;
   moveTooltip(event);
@@ -1568,6 +1692,7 @@ document.addEventListener("DOMContentLoaded", () => {
   buildLegend();
   buildDomainChecks();
   buildTagSuggestions();
+  buildTimeSlider();
   restoreOverlayStates();
 
   document.getElementById("color-mode").addEventListener("change", (e) => {
@@ -1596,6 +1721,8 @@ document.addEventListener("DOMContentLoaded", () => {
     applyDimming();
   });
   document.getElementById("imp-slider").addEventListener("input", updateFilters);
+  document.getElementById("time-from").addEventListener("input", () => syncTimeWindow("from"));
+  document.getElementById("time-to").addEventListener("input", () => syncTimeWindow("to"));
   document.getElementById("tag-search").addEventListener("input", updateFilters);
   document.getElementById("node-search").addEventListener("keydown", (e) => { if (e.key === "Enter") handleSearch(); });
   document.getElementById("vault-search").addEventListener("input", () => {

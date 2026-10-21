@@ -58,7 +58,7 @@ All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd
 | `index rebuild [--include-archive]` | Full or incremental rebuild: reindex vault notes + graph edges |
 | `index refresh [--include-archive]` | Incremental refresh: only notes whose file stat changed are read (EM-603) |
 | `index status` | Report index freshness without touching anything |
-| `graph export [--format json\|dot\|html\|canvas] [--output-dir DIR] [--max-nodes N] [--domain D] [--min-importance F] [--include-bodies\|--no-bodies]` | Export visual graph (default `html`, `./export`, 500 nodes; bodies on by default, `--no-bodies` for a lean shell) |
+| `graph export [--format json\|dot\|html\|canvas] [--output-dir DIR] [--max-nodes N] [--domain D] [--min-importance F] [--entities] [--scope owner\|all] [--include-bodies\|--no-bodies]` | Export visual graph (default `html`, `./export`, 500 nodes; bodies on by default, `--no-bodies` for a lean shell). `--entities` adds `memory.db`'s entities and typed relations from the owner profile (html/json only; off by default). `--scope owner` (default) keeps entity/relation data attributed to profile-wide memories; `--scope all` is the explicit opt-in to every user scope in the profile |
 | `graph serve [--port 8069] [--bind 127.0.0.1] [--dir DIR]` | Serve `graph.html`/`graph.json` from DIR (non-loopback bind refused unless `ENTROPICMEM_GRAPH_EXPOSE=1`; Host allowlist + CSP; no token, see [VISUALIZER.md](VISUALIZER.md)) |
 | `graph show <target> [--depth N]` | Show connected notes for a target (default depth 1) |
 

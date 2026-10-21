@@ -105,6 +105,13 @@ def add_commands(parser: argparse.ArgumentParser, *, dest: str = "command") -> a
     g_export.add_argument("--max-nodes", type=int, default=500, help="Max nodes (default: 500)")
     g_export.add_argument("--domain", help="Filter by domain")
     g_export.add_argument("--min-importance", type=float, default=0.0, help="Min importance filter")
+    g_export.add_argument("--entities", action="store_true", default=False,
+                          help="Include entities and typed relations from memory.db"
+                               " (owner profile 'default'; html/json only)")
+    g_export.add_argument("--scope", choices=["owner", "all"], default="owner",
+                          help="Entity/relation scope: owner keeps profile-wide rows"
+                               " only (default); all opts into every user in the profile."
+                               " Only meaningful with --entities")
     g_export.add_argument("--include-bodies", dest="include_bodies", action="store_true", default=True,
                           help="Embed note bodies in HTML/JSON (default: ON so modals show markdown)")
     g_export.add_argument("--no-bodies", dest="include_bodies", action="store_false",

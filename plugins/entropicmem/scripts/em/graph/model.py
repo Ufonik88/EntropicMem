@@ -9,11 +9,15 @@ graph server's refresh path shares.
 Stdlib only.
 """
 
+import hashlib
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from em.clock import parse_iso, to_iso
 from em_internal.index import VaultIndex
+from em_internal.policy import normalize_sensitivity, redact_for_prefetch
 
 # ── per-domain color palette (brand-inspired, colorblind-safe) ─────────────
 
@@ -48,6 +52,51 @@ def get_color(domain: str) -> str:
 
 def get_shape(note_type: str) -> str:
     return TYPE_SHAPES.get(note_type, "circle")
+
+
+# ── entity kind → color, relation predicate → color (EM-605 slice 2.1) ────
+
+ENTITY_PALETTE = {
+    "person": "#FF6B6B",
+    "org": "#4FC3F7",
+    "organization": "#4FC3F7",
+    "organisation": "#4FC3F7",
+    "company": "#4FC3F7",
+    "product": "#FF9800",
+    "project": "#9CCC65",
+    "place": "#FFB800",
+    "event": "#7C4DFF",
+    "thing": "#1DCF8E",
+}
+
+ENTITY_DEFAULT_COLOR = "#B0B0B8"
+
+#: Free-form predicates get a stable colour from this palette: the digest of
+#: the predicate picks one, so "works_at" is the same colour in every export,
+#: on every machine, without a hard-coded vocabulary that drifts from the
+#: extractor. Python's ``hash()`` is deliberately not used (it is salted).
+RELATION_PALETTE = (
+    "#8AB4F8",
+    "#F28B82",
+    "#81C995",
+    "#FDD663",
+    "#C58AF9",
+    "#78D9EC",
+    "#FF8BCB",
+    "#A8D08D",
+)
+
+
+def get_entity_color(kind: str) -> str:
+    return ENTITY_PALETTE.get(str(kind or "").strip().lower(), ENTITY_DEFAULT_COLOR)
+
+
+def get_relation_color(predicate: str) -> str:
+    key = str(predicate or "").strip().lower()
+    if not key:
+        return ENTITY_DEFAULT_COLOR
+    digest = hashlib.sha256(key.encode("utf-8")).digest()
+    return RELATION_PALETTE[digest[0] % len(RELATION_PALETTE)]
 
 
 # ─ community palette + detection (structure layer, stdlib) ───────────────
@@ -134,11 +183,14 @@ def body_coverage(nodes: list) -> dict:
     """Return body coverage stats for a graph node list.
 
     Used by the graph server, refresh wrapper, and health check so empty
-    modals can never go silent again.
+    modals can never go silent again. Entity nodes (``kind == "entity"``) have
+    no body plane, so they are not in the denominator — otherwise adding an
+    entity subgraph to a body export would trip the empty-modal gate.
     """
-    total = len(nodes or [])
+    notes = [n for n in (nodes or []) if n.get("kind") != "entity"]
+    total = len(notes)
     with_body = 0
-    for n in nodes or []:
+    for n in notes:
         if (n.get("full_body") or n.get("body_preview") or "").strip():
             with_body += 1
     empty = total - with_body
@@ -220,6 +272,256 @@ def resolve_note_path(vault_root: Path, rel_path) -> Path:
     return full
 
 
+# ── the entity subgraph (EM-605 slice 2.1) ──────────────────────────────────
+
+@dataclass(frozen=True)
+class GraphEntity:
+    """One entity from memory.db, already scoped and selected."""
+
+    entity_id: str
+    name: str
+    kind: str = "thing"
+    aliases: tuple = ()
+
+
+@dataclass(frozen=True)
+class GraphRelation:
+    """One relation between two entities in the same scope.
+
+    ``object_id`` is the other entity; literal relations never reach the model
+    (they have no node to point at) and are counted by the loader instead.
+    ``valid_from`` / ``valid_to`` are nullable: either end can be open. The
+    model turns them into ``time_span`` ranks over the payload's time axis.
+
+    ``superseded`` is the loader's reading of the store (EM-605 slice 2.4): the
+    claim behind this relation was replaced, so the edge is drawn dashed. It is
+    decided from ``memories.status = 'superseded'`` — never from ``valid_to``
+    (a closed claim merely ended) and never from ``superseded_by`` (history
+    survives a restore) — and it is a model field so the viewer has nothing to
+    infer.
+    """
+
+    subject_id: str
+    predicate: str
+    object_id: str
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    confidence: float = 0.7
+    superseded: bool = False
+
+
+@dataclass(frozen=True)
+class EntityGraph:
+    """The second store's contribution, loaded before the payload is built.
+
+    ``available`` is False when memory.db is missing or is not a v3 store;
+    ``reason`` says which, in a path-free phrase (an export carries this block,
+    and a home directory is not graph data).
+
+    ``scope`` records which filter produced this graph — ``owner`` (the
+    default) or ``all``. ``hidden_entities`` and ``hidden_relations`` are the
+    number of rows that filter removed; they are counts, never rows, so the
+    block cannot leak what it excluded. ``dropped_relations`` stays separate:
+    it counts shape and cap losses, not scope losses.
+    """
+
+    entities: tuple = ()
+    relations: tuple = ()
+    scope_profile: str = ""
+    scope: str = "owner"
+    available: bool = True
+    reason: str = ""
+    truncated: bool = False
+    dropped_relations: int = 0
+    literal_relations: int = 0
+    hidden_entities: int = 0
+    hidden_relations: int = 0
+
+
+def _normalise_time_bound(value) -> Optional[str]:
+    """A relation bound as a canonical UTC instant, or a sentinel.
+
+    ``None`` (or empty) means the bound is open. An unparseable value returns
+    ``""``: the edge stays visible in every window rather than crashing an
+    export or silently acquiring a made-up date. The count, not the value, is
+    reported.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return to_iso(parse_iso(text))
+    except (TypeError, ValueError):
+        return ""
+
+
+def _time_axis(relations) -> tuple:
+    """Build the inclusive rank axis and per-edge spans (EM-605 slice 2.3).
+
+    The stops are the sorted, normalised instants named by the surviving
+    relation edges. A null ``valid_from`` ranks at ``-1`` and a null
+    ``valid_to`` at ``len(stops)``, so the viewer's integer window predicate
+    means the same thing as the timestamp predicate:
+
+        ``valid_from <= t1 and (valid_to is null or valid_to >= t0)``
+
+    Equal boundaries share one stop, which is what makes a point interval a
+    point. An edge with both bounds open has no span and is timeless; an edge
+    with one unparseable bound has no span either and is counted.
+    """
+    normalized = []
+    stops = set()
+    unparsed = 0
+    for relation in relations:
+        start = _normalise_time_bound(relation.valid_from)
+        end = _normalise_time_bound(relation.valid_to)
+        if start == "" or end == "":
+            unparsed += 1
+            normalized.append(None)
+            continue
+        normalized.append((start, end))
+        if start is not None:
+            stops.add(start)
+        if end is not None:
+            stops.add(end)
+
+    stops = sorted(stops)
+    rank = {instant: index for index, instant in enumerate(stops)}
+    spans = []
+    for item in normalized:
+        if item is None:
+            spans.append(None)
+            continue
+        start, end = item
+        if start is None and end is None:
+            spans.append(None)
+            continue
+        spans.append([
+            -1 if start is None else rank[start],
+            len(stops) if end is None else rank[end],
+        ])
+
+    block = {
+        "available": bool(stops),
+        "min": stops[0] if stops else "",
+        "max": stops[-1] if stops else "",
+        "stops": stops,
+        "unparsed_relations": unparsed,
+    }
+    return spans, block
+
+
+def _entity_graph_parts(entity_graph: EntityGraph, note_ids: set) -> tuple:
+    """Turn one EntityGraph into nodes, edges and its meta block.
+
+    Invariants, all tested:
+
+    * an entity node id is ``entity:<id>``, so it can never equal a note id —
+      the two stores have unrelated id spaces and no join is invented;
+    * an edge exists only when both endpoint nodes are present in the export;
+      every other relation is counted in ``dropped_relations``, never drawn;
+    * an entity with no surviving edge is not drawn (an isolated dot is noise);
+    * the scope's losses are counted in ``hidden_entities`` /
+      ``hidden_relations``, and the block carries no hidden name, id, alias,
+      predicate or endpoint — only the counts and the scope that produced them;
+    * time losses are not scope losses: the payload carries every surviving
+      edge with an inclusive ``time_span`` rank, and the viewer counts what the
+      selected window hides (``timeHidden``), never adding it to
+      ``hidden_relations``. Entities are timeless and stay;
+    * a superseded claim is still drawn (dashed, never hidden): the edge carries
+      the loader's ``superseded`` flag and ``superseded_relations`` counts the
+      drawn ones, on its own axis — not ``hidden_relations`` (scope) and not
+      ``time`` (interval).
+    """
+    by_id = {e.entity_id: e for e in entity_graph.entities}
+    kept = []
+    dropped = entity_graph.dropped_relations
+    touched = set()
+    for r in entity_graph.relations:
+        if r.subject_id in by_id and r.object_id in by_id:
+            kept.append(r)
+            touched.add(r.subject_id)
+            touched.add(r.object_id)
+        else:
+            dropped += 1
+
+    degree = {}
+    for r in kept:
+        degree[r.subject_id] = degree.get(r.subject_id, 0) + 1
+        degree[r.object_id] = degree.get(r.object_id, 0) + 1
+
+    nodes = []
+    for e in entity_graph.entities:
+        if e.entity_id not in touched:
+            continue
+        node_id = f"entity:{e.entity_id}"
+        if node_id in note_ids:  # cannot happen with the prefix; fail closed
+            dropped += degree.get(e.entity_id, 0)
+            continue
+        nodes.append({
+            "id": node_id,
+            "kind": "entity",
+            "entity_id": e.entity_id,
+            "entity_kind": e.kind,
+            "title": e.name,
+            "type": "entity",
+            "domain": "",
+            "importance": 0.5,
+            "tags": [],
+            "aliases": list(e.aliases),
+            "color": get_entity_color(e.kind),
+            "shape": "circle",
+            "community": None,
+            "community_color": DEFAULT_COLOR,
+            "degree": degree.get(e.entity_id, 0),
+        })
+
+    node_ids = {n["id"] for n in nodes}
+    spans, time_block = _time_axis(kept)
+    edges = []
+    superseded_relations = 0
+    for r, span in zip(kept, spans):
+        source = f"entity:{r.subject_id}"
+        target = f"entity:{r.object_id}"
+        if source not in node_ids or target not in node_ids:
+            dropped += 1
+            continue
+        if r.superseded:
+            superseded_relations += 1
+        edges.append({
+            "source": source,
+            "target": target,
+            "weight": 1.0,
+            "kind": "relation",
+            "predicate": r.predicate,
+            "color": get_relation_color(r.predicate),
+            "valid_from": r.valid_from,
+            "valid_to": r.valid_to,
+            "time_span": span,
+            "confidence": r.confidence,
+            "superseded": r.superseded,
+        })
+
+    block = {
+        "available": entity_graph.available,
+        "reason": entity_graph.reason,
+        "scope_profile": entity_graph.scope_profile,
+        "scope": entity_graph.scope,
+        "entity_count": len(nodes),
+        "relation_edge_count": len(edges),
+        "superseded_relations": superseded_relations,
+        "hidden_entities": entity_graph.hidden_entities,
+        "hidden_relations": entity_graph.hidden_relations,
+        "truncated": entity_graph.truncated,
+        "dropped_relations": dropped,
+        "literal_relations": entity_graph.literal_relations,
+        "time": time_block,
+    }
+    return nodes, edges, block
+
+
 # ── the payload ─────────────────────────────────────────────────────────────
 
 def build_graph_payload(
@@ -230,12 +532,29 @@ def build_graph_payload(
     include_bodies: bool = False,
     *,
     context: Optional[str] = None,
+    entity_graph: Optional[EntityGraph] = None,
+    redact_sensitive: bool = False,
 ) -> dict:
     """Build the nodes + edges + meta payload the renderers serialise.
 
     Note bodies (body_preview/full_body) are only embedded when
     include_bodies=True, so a shared/exported graph.json never leaks vault
     content by default.
+
+    ``redact_sensitive`` (EM-606) applies the policy's own tier rule to those
+    bodies: a note whose domain tier is ``sensitive`` or ``secret``
+    (``em_internal.policy.normalize_sensitivity``) is embedded as the redacted
+    summary ``redact_for_prefetch`` produces, never as the full body. The graph
+    server passes True — its payload lands in a browser over HTTP — while the
+    CLI keeps the default, because an export written to the owner's own disk is
+    the owner's artifact and ``--include-bodies`` is already its opt-in.
+
+    ``entity_graph`` (EM-605 slice 2.1) adds the second store's entities and
+    relations. It is None by default, in which case the payload is exactly the
+    note graph it always was. When supplied — even empty or unavailable — the
+    payload's ``meta.entities`` block records what was loaded and what could not
+    become an edge. The two stores share no ids, so entity nodes are prefixed
+    and no note↔entity edge is ever inferred.
 
     Args:
         index: the vault index the graph is read from.
@@ -263,7 +582,10 @@ def build_graph_payload(
     community_of = detect_communities((e.source_id, e.target_id) for e in all_edges)
 
     nodes = index.get_graph_nodes(
-        domain=domain, min_importance=min_importance, max_nodes=max_nodes
+        domain=domain,
+        min_importance=min_importance,
+        max_nodes=max_nodes,
+        include_bodies=include_bodies,
     )
 
     # Build node list with visual properties
@@ -278,6 +600,7 @@ def build_graph_payload(
         community_id = community_of.get(n["note_id"])
         node_list.append({
             "id": n["note_id"],
+            "kind": "note",
             "title": n.get("title", n["note_id"]),
             "type": n.get("note_type", "permanent"),
             "domain": n.get("domain", ""),
@@ -299,6 +622,14 @@ def build_graph_payload(
             # path helps the modal frontmatter; only with bodies (same trust plane)
             if n.get("path"):
                 node_list[-1]["path"] = n["path"]
+            if redact_sensitive:
+                tier = normalize_sensitivity(None, n.get("domain", ""))
+                if tier in ("sensitive", "secret"):
+                    for key in ("body_preview", "full_body"):
+                        if node_list[-1].get(key):
+                            node_list[-1][key] = redact_for_prefetch(
+                                node_list[-1][key], tier
+                            )
 
     # Build edge list (only edges where both nodes exist in the export set)
     node_ids = {n["id"] for n in node_list}
@@ -321,17 +652,35 @@ def build_graph_payload(
                 "kind": e.kind,
             })
 
+    # Note-only statistics are measured before the entity subgraph is added:
+    # "domains" and "max_importance" describe notes, and they are what the
+    # note filters read. node_count/edge_count stay totals.
+    note_count = len(node_list)
+    note_domains = list(set(n.get("domain", "") for n in node_list))
+    note_max_importance = max(
+        (n.get("importance", 0) for n in node_list), default=0
+    )
+
+    entity_block = None
+    if entity_graph is not None:
+        entity_nodes, entity_edges, entity_block = _entity_graph_parts(
+            entity_graph, set(node_ids)
+        )
+        node_list.extend(entity_nodes)
+        edge_list.extend(entity_edges)
+
     payload = {
         "nodes": node_list,
         "edges": edge_list,
         "meta": {
             "generated": "",
             "node_count": len(node_list),
+            "note_count": note_count,
             "edge_count": len(edge_list),
             "include_bodies": include_bodies,
-            "domains": list(set(n.get("domain", "") for n in node_list)),
+            "domains": note_domains,
             "community_count": len(set(community_of.values())),
-            "max_importance": max((n.get("importance", 0) for n in node_list), default=0),
+            "max_importance": note_max_importance,
             "filters": {
                 "domain": domain,
                 "min_importance": min_importance,
@@ -339,6 +688,8 @@ def build_graph_payload(
             },
         },
     }
+    if entity_block is not None:
+        payload["meta"]["entities"] = entity_block
 
     payload["meta"]["generated"] = datetime.now(timezone.utc).isoformat()
     payload["meta"]["body_coverage"] = body_coverage(node_list)

@@ -204,7 +204,10 @@ def main(argv=None) -> int:
 
     record = {
         "sha": sha,
-        "ci_run": args.ci_run or old.get("ci_run", ""),
+        # An omitted --ci-run inherits (the usual re-measure after a CI read);
+        # an explicit empty one clears it, which is how a projected landing is
+        # recorded without silently citing the previous run id against it.
+        "ci_run": args.ci_run if args.ci_run is not None else old.get("ci_run", ""),
         "ci_projected": projected,
         "comment": (
             "Written only by scripts/record_suite_figures.py, from pytest summary lines. "

@@ -9,9 +9,11 @@ the numbers would have fixed nothing; this makes the numbers checkable.
 `docs/plan/suite_figures.json` is the record, written only by
 `scripts/record_suite_figures.py` from pytest summary lines. This guard fails when:
 
-* BASELINE's four table rows do not equal the record;
+* BASELINE's five table rows do not equal the record;
 * BASELINE's ladder does not reproduce the record arithmetically;
 * `Read as at <sha>` or the cited CI run id disagrees with the record;
+* the newest commit touching the suite surface is not an ancestor of the
+  recorded sha (the docs and the record can agree while the tree has moved);
 * the ordering rule or the `failed is always 0` rule has gone from the legend;
 * **any of the five documents states a triple that is neither current nor
   historical** — the shape the incident took.
@@ -207,6 +209,38 @@ def test_the_read_as_at_sha_and_the_ci_run_agree_with_the_record():
         assert "projected" in text, (
             "the record carries a projected CI figure but BASELINE does not mark it projected"
         )
+
+    # The record can go stale in the other direction: docs and record agree with
+    # each other while the *tree* has moved past the measurement. The
+    # security-hardening commits added 17 tests after 5258b46 and every guard
+    # stayed green, because nothing compared the record to the tree. Rule: the
+    # newest commit touching the suite surface must be an ancestor of the
+    # recorded sha. tests/test_suite_figures.py is excluded because it is the
+    # checker itself — its edits add no tests to the count, so they must not
+    # invalidate the measurement they check.
+    newest = subprocess.run(
+        [
+            "git", "log", "-1", "--format=%H", "--",
+            "tests", ":(exclude)tests/test_suite_figures.py",
+            "conftest.py", "pyproject.toml",
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+    )
+    assert newest.returncode == 0, newest.stderr
+    newest_sha = newest.stdout.strip()
+    assert newest_sha, "git found no commit touching tests/, conftest.py or pyproject.toml"
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", newest_sha, sha],
+        cwd=REPO,
+        capture_output=True,
+    )
+    assert ancestor.returncode == 0, (
+        f"the newest commit touching the suite surface ({newest_sha[:7]}) is not an "
+        f"ancestor of the recorded sha ({sha}); the figures describe an older tree — "
+        "re-measure with scripts/record_suite_figures.py --measure"
+    )
 
 
 def test_a_projected_ci_figure_is_marked_projected_in_baseline():
