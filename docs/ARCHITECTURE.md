@@ -24,7 +24,7 @@ All engine code lives under `plugins/entropicmem/scripts/`, inside the plugin di
 | Graph export | `plugins/entropicmem/scripts/em/graph/` (`model.py`, `export.py`, `assets/`) | D3 HTML viewer (with markdown sanitize pass) + json/dot/canvas export |
 | CLI | `plugins/entropicmem/scripts/entropicmem.py` | 35 top-level commands over the modules above |
 | Plugin | `plugins/entropicmem/` | Hermes `MemoryProvider`: 9 tools, 6 lifecycle hooks, config schema |
-| Graph server | `scripts/graph_server/server.py` | FastAPI: `/refresh` (always token-gated), `/api/note/{id}`, `/api/note/by-title/{title}`, `/api/search`, `/api/path`, `/health`; loopback bind enforced, Host allowlist, CSP, static or per-run token |
+| Graph server | `scripts/graph_server/server.py` | FastAPI: `/refresh` (always token-gated, the one writer), `/api/note/{id}`, `/api/note/by-title/{title}`, `/api/search` (10 rps token bucket), `/api/path`, `/health`; reads open `index.db` `mode=ro`; loopback bind enforced, Host allowlist, CSP, static or per-run token, sensitive-domain bodies served as summaries |
 | Static graph server | `plugins/entropicmem/scripts/graph_static.py` | stdlib server behind `graph serve`: `graph.html`/`graph.json` only, same bind rule, Host allowlist and CSP, no token |
 
 ## The v3 storage core (`em/`, on `main`, not live yet)
