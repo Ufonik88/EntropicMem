@@ -29,7 +29,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
-from typing import Dict, Iterable, List, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -59,15 +59,14 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "437c89b": "dead SHA: the 2.8.0 catalog pin the republish made vanish",
     # Upstream, never in this repository: the fork branch the 2.8.0 catalog PR ended in.
     "cdfcd83": "upstream commit in NousResearch/hermes-agent, not this repo",
-    # Commits the 2026-10-20 dependency round touched in sibling repositories;
-    # each was verified against its owning repo but cannot resolve here.
-    "374736c": "upstream commit in entropic-dash (verified against local clone), not this repo",
-    "5f59904d": "upstream commit in nesquena/hermes-webui, not this repo",
-    "7d68ab50eb": "upstream commit in NousResearch/hermes-agent (chore/deps-hermes-agent-2026-10-20), not this repo",
-    "ba9d706": "upstream commit in rpmalouin/Hermes-Portal (verified against local clone; remote unreachable), not this repo",
-    # Annotated tag object for release v2.8.0; cited as tag metadata in
-    # docs/plan/REMAINING_PLAN.md, not as a commit citation.
-    "09a5459": "annotated tag object for release v2.8.0; cited as tag metadata, not a commit citation",
+    # Commits the 2026-10-20 dependency round touched in sibling repositories. Each
+    # was verified against its owning repo, but none of them is published: they live
+    # only on local branches, so no reader can check them out yet. The reasons say so
+    # rather than call them upstream commits, which would be untrue.
+    "374736c": "local-only commit in an entropic-dash clone (branch chore/deps-entropic-dash-2026-10-19), not published",
+    "5f59904d": "local-only commit in a hermes-webui clone (branch chore/deps-hermes-webui-2026-10-19), not published",
+    "7d68ab50eb": "local-only commit in a hermes-agent clone (branch chore/deps-hermes-agent-2026-10-20), not published",
+    "ba9d706": "local-only commit in a hermes-portal clone (branch chore/deps-hermes-portal-2026-10-20), not published",
     # Not a SHA at all: the date in the `rollback/pre-s1-20260924` tag name.
     "20260924": "not a SHA: the date in the rollback/pre-s1-20260924 tag name",
     # GitHub Actions ids, not commits: the EM-407 hardening record cites the failing
@@ -129,29 +128,60 @@ def _reachable_commits() -> Set[str]:
     worked example in docs/plan/BASELINE.md), and a citation nobody can check out is a
     broken citation no matter whose clone the scan runs in.
     """
+    if _git("rev-parse", "--is-shallow-repository").strip() == "true":
+        raise AssertionError(
+            "this clone is shallow, so the cited-SHA guard cannot see the history it "
+            "has to check; fetch it first: git fetch --unshallow --tags --all"
+        )
     out = _git("rev-list", "--all", "HEAD")
     return set(out.split())
+
+
+def _peel_to_commits(tokens: List[str]) -> Dict[str, Optional[str]]:
+    """Each token peeled to the full SHA of the commit it names, or None.
+
+    The peel ``^{commit}`` is what is asked for, so a blob or tree hash is not a
+    citation of a commit, and an annotated tag peels to the commit it points at.
+    ``--batch-check`` answers in input order, so the mapping back is positional, and
+    for a resolving abbreviation it prints the full object name, not the input token.
+    """
+    result = subprocess.run(
+        ["git", "cat-file", "--batch-check"],
+        cwd=REPO,
+        input="\n".join(f"{token}^{{commit}}" for token in tokens) + "\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"git cat-file failed: {result.stderr.strip()}"
+    lines = result.stdout.splitlines()
+    assert len(lines) == len(tokens), "batch-check did not answer every token"
+    peeled: Dict[str, Optional[str]] = {}
+    for token, line in zip(tokens, lines):
+        parts = line.split()
+        peeled[token] = parts[0] if len(parts) >= 2 and parts[1] == "commit" else None
+    return peeled
 
 
 def _resolved(tokens: Iterable[str]) -> Dict[str, bool]:
     """Which tokens name a commit in this repository's history.
 
-    Resolved = reachable from a ref, verified by git's own abbreviation rules: an
-    abbreviated token counts only if exactly one reachable commit starts with it, just
-    as git would refuse an ambiguous abbreviation. A token that names no commit at all
-    is an invented citation; a token naming a commit only present as a dangling object
-    in one clone is not resolvable anywhere else. Either way it must be fixed or
-    allowlisted.
+    Two questions, and a citation has to pass both. It must peel to a commit, so a
+    blob or tree hash is not a commit citation and an annotated tag counts as a
+    citation of the commit it points at. And that commit must be reachable from a
+    ref, because a citation nobody can check out is broken: a developer's clone can
+    hold a dangling commit object the published repository never had (cb88d47 is the
+    worked example in docs/plan/BASELINE.md).
     """
     ordered = sorted(set(tokens))
     if not ordered:
         return {}
+    peeled = _peel_to_commits(ordered)
     reachable = _reachable_commits()
-    resolved: Dict[str, bool] = {}
-    for token in ordered:
-        matches = [sha for sha in reachable if sha.startswith(token)]
-        resolved[token] = len(matches) == 1
-    return resolved
+    return {
+        token: sha is not None and sha in reachable
+        for token, sha in peeled.items()
+    }
 
 
 def _tracked_markdown() -> List[Path]:
@@ -173,8 +203,13 @@ def _doc_citations() -> Dict[str, List[str]]:
 
 def _base_ref() -> str:
     """The branch a landing commit is measured against. Fails closed, like the
-    identity guard: a range git cannot resolve is an error, never a pass."""
-    for ref in ("main", "origin/main"):
+    identity guard: a range git cannot resolve is an error, never a pass.
+
+    ``origin/main`` first, not the local ``main``: a local main can be stale, and a
+    stale base makes already-landed commits look like they are about to land, so
+    their messages get scanned and their citations flagged for no reason.
+    """
+    for ref in ("origin/main", "main"):
         probe = subprocess.run(
             ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
             cwd=REPO,
