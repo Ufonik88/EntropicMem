@@ -13,7 +13,7 @@ Team record of the dependency work landed across the five active projects in the
 **Sources of truth (the only ones used):**
 - The five parent dependency tasks — branches and commits are listed under each project below.
 - *Major Version Upgrade Risk Assessment* (2026-10-19, @Rikus Research).
-- Merged/opened PR list: no PRs were opened this round (`gh` is unauthenticated on all remotes); the changes exist as local branches and commits, ready to be opened as PRs.
+- Merged/opened PR list: none opened. The four sibling branches are published on Ufonik88-owned remotes — `Ufonik88/hermes-agent`, `Ufonik88/hermes-webui` (fork), `Ufonik88/entropic-dash` (private), `Ufonik88/Hermes-Portal` (fork) — so the commits cited below are checkable by a reader. `gh` is not authenticated on either machine; the pushes used the GitHub credential git has stored.
 
 **Verification:** every version delta was checked against the commit diff in the owning repo (`git show <sha>`). Installed versions for entropic-dash were additionally verified by import (`fastapi 0.148.0`, `uvicorn 0.54.0`, `httpx 0.28.1`). This task is documentation only: no dependency was installed or upgraded here, and no application code, build config, or lockfile was changed beyond what the parent tasks already landed.
 
@@ -21,7 +21,7 @@ Team record of the dependency work landed across the five active projects in the
 
 #### Changes by project
 
-**hermes-agent** — branch `chore/deps-hermes-agent-2026-10-20`, commit `7d68ab50eb` (`pyproject.toml` only: manifest-only, live venv untouched, `uv.lock` not regenerated — documented gap)
+**hermes-agent** — branch `chore/deps-hermes-agent-2026-10-20`, commit `7d68ab50eb`, published on `Ufonik88/hermes-agent` (`pyproject.toml` only: manifest-only, live venv untouched, `uv.lock` not regenerated — documented gap)
 
 Patch/minor bumps:
 - `truststore` 0.10.4 → 0.10.5 (patch)
@@ -34,7 +34,7 @@ Not applied: `certifi` 2026.10.18 → 2026.5.20 was proposed and then **reverted
 
 Upgrade note: none — patch/minor only, no breaking change, no consumer action required.
 
-**hermes-webui** — commit `5f59904d` (`package.json`, `requirements.txt`, `package-lock.json` regenerated, `uv.lock` regenerated)
+**hermes-webui** — branch `chore/deps-hermes-webui-2026-10-19`, commit `5f59904d`, published on `Ufonik88/hermes-webui` (a fork; `package.json`, `requirements.txt`, `package-lock.json` regenerated, `uv.lock` regenerated)
 
 Patch/minor changes:
 - `eslint` (devDependency) ^10.4.0 → ^10.13.0 (patch/minor within range)
@@ -44,7 +44,7 @@ File change only, no version delta: `requirements.txt` was rewritten to the sing
 
 Upgrade note: none — no breaking change; the `<43.0` bound prevents `cryptography` 50.x from being pulled in.
 
-**entropic-dash** — commit `374736c` (`requirements.txt` only; full suite 43 tests pass; imports verified)
+**entropic-dash** — branch `chore/deps-entropic-dash-2026-10-19`, commit `374736c`, published on `Ufonik88/entropic-dash` (private, so only its owner can check the commit out; `requirements.txt` only; full suite 43 tests pass; imports verified)
 
 Bound tightening (floors unchanged; installed versions verified working):
 - `fastapi` >=0.133.0 → >=0.133.0,<0.149.0 (installed 0.148.0)
@@ -68,9 +68,9 @@ Pytest is not green: 7 failures, all proven pre-existing or environmental (follo
 
 Upgrade note: none — same-major floors, no breaking change in declared usage, no consumer action required.
 
-**hermes-portal** — branch `chore/deps-hermes-portal-2026-10-20`, commit `ba9d706` (`pyproject.toml` documents the standard-library-only nature)
+**hermes-portal** — branch `chore/deps-hermes-portal-2026-10-20`, commit `ba9d706`, published on `Ufonik88/Hermes-Portal` (a fork; `pyproject.toml` documents the standard-library-only nature)
 
-`hermes-portal` has no external dependencies, so there is nothing to bump. No dependency changes this round; the commit documents that status rather than changing any pin. Publish note: remote `rpmalouin/Hermes-Portal` access is denied (403), so the branch is local only.
+`hermes-portal` has no external dependencies, so there is nothing to bump. No dependency changes this round; the commit documents that status rather than changing any pin. Publish note: the branch is on the fork `Ufonik88/Hermes-Portal`; the earlier note that the `rpmalouin/Hermes-Portal` remote was denied (403) was wrong — the upstream is reachable, it is simply not ours to push to.
 
 Upgrade note: none.
 

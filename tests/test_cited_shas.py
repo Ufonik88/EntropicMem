@@ -60,13 +60,13 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # Upstream, never in this repository: the fork branch the 2.8.0 catalog PR ended in.
     "cdfcd83": "upstream commit in NousResearch/hermes-agent, not this repo",
     # Commits the 2026-10-20 dependency round touched in sibling repositories. Each
-    # was verified against its owning repo, but none of them is published: they live
-    # only on local branches, so no reader can check them out yet. The reasons say so
-    # rather than call them upstream commits, which would be untrue.
-    "374736c": "local-only commit in an entropic-dash clone (branch chore/deps-entropic-dash-2026-10-19), not published",
-    "5f59904d": "local-only commit in a hermes-webui clone (branch chore/deps-hermes-webui-2026-10-19), not published",
-    "7d68ab50eb": "local-only commit in a hermes-agent clone (branch chore/deps-hermes-agent-2026-10-20), not published",
-    "ba9d706": "local-only commit in a hermes-portal clone (branch chore/deps-hermes-portal-2026-10-20), not published",
+    # is published on a Ufonik88-owned remote, so a reader can check it out:
+    # verified from outside this clone with `git ls-remote`. entropic-dash's repo is
+    # private, so only its owner can check that one out.
+    "374736c": "commit in Ufonik88/entropic-dash (branch chore/deps-entropic-dash-2026-10-19), not this repo; private, so owner-only",
+    "5f59904d": "commit in Ufonik88/hermes-webui (branch chore/deps-hermes-webui-2026-10-19), not this repo",
+    "7d68ab50eb": "commit in Ufonik88/hermes-agent (branch chore/deps-hermes-agent-2026-10-20), not this repo",
+    "ba9d706": "commit in Ufonik88/Hermes-Portal (branch chore/deps-hermes-portal-2026-10-20), not this repo",
     # Not a SHA at all: the date in the `rollback/pre-s1-20260924` tag name.
     "20260924": "not a SHA: the date in the rollback/pre-s1-20260924 tag name",
     # GitHub Actions ids, not commits: the EM-407 hardening record cites the failing
