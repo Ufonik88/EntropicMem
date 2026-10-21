@@ -26,7 +26,7 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3062 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of the landing run `39620615391` on `e129ff6` — the branch was pushed, and this line comes from the job itself; confirmed by run `39629454711` on `73bed69`, which read the identical triple)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3062 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `39620615391`, which ran on `e129ff6`; the landed tip `73bed69` re-ran the matrix and read the identical triple)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2967 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2968 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3064 passed, 2 skipped, 2 xfailed** |
@@ -35,14 +35,14 @@ other three.
 Read as at `0d41304` (EM-605 slices 2.1–2.5 and EM-606, merged with main's graph-UI
 work, the identity guard's named exception, the citation allowlist for the landing's
 run ids, and the 2026-10-20 dependency round with the cited-SHA guard's reachability
-fix) — measured for the tree at that commit. **The figure is the one CI read, and it
-still describes this tree:** the merge changed no test (the same 2691 test definitions
-as `46c0b26`), and the CI figure is **3062 / 4 / 2**, read from the 3.12 job
-log of run `39620615391` on `e129ff6` and confirmed again by run `39629454711` on
-`73bed69`, which read the identical triple. **This branch is not yet pushed, so no run
-exists for `9820b93` itself** — the run id cited is the landing's, and the re-stamp at
-the merge commit is what the figures guard's ancestry rule requires (a merge commit that
-touches `tests/` is never an ancestor of the sha recorded before it). **The previous record** was EM-606 at `575eb06` (bare **2943 / 20 / 2**, digest **2944 / 19 / 2**, CI-equivalent **3040 / 2 / 2**, 3.10 **3038 / 4 / 2**, CI **3038 / 4 / 2** projected); before it, EM-605 slice 2.5 at `0c40385` (bare **2943 / 19 / 2**, digest **2944 / 18 / 2**, CI-equivalent **3025 / 2 / 2**, 3.10 **3023 / 4 / 2**, CI **3023 / 4 / 2** projected); before it, slice 2.4 at `6936574` (bare **2940 / 19 / 2**, digest **2941 / 18 / 2**, CI-equivalent **3022 / 2 / 2**, 3.10 **3020 / 4 / 2**, CI **3020 / 4 / 2** projected); before it, slice 2.3 at `e08694a` (bare **2932 / 19 / 2**, digest **2933 / 18 / 2**, CI-equivalent **3014 / 2 / 2**, 3.10 **3012 / 4 / 2**, CI **3012 / 4 / 2** projected); before it, slice 2.2 at `1e5b739` (bare **2923 / 19 / 2**, digest **2924 / 18 / 2**, CI-equivalent **3005 / 2 / 2**, 3.10 **3003 / 4 / 2**, CI **3003 / 4 / 2** projected); before it, slice 2.1 at `69dc223` (bare **2911 / 19 / 2**, digest **2912 / 18 / 2**,
+fix) — measured for the tree at that commit. **CI ran for this landing:** the branch's run
+`39620615391` ran on `e129ff6`, the landed tip `73bed69` re-ran every job green on its own
+SHA, and the CI row above is **read** from that run's 3.12 job log — not projected. **The
+figure still describes this tree:** the merge changed no test (the same 2691 test
+definitions as `46c0b26`), and the identical triple was read on both runs. **This branch is
+not yet pushed, so no run exists for its own tip** — the run id cited is the landing's, and
+the re-stamp at the merge commit is what the figures guard's ancestry rule requires (a merge
+commit that touches `tests/` is never an ancestor of the sha recorded before it). **The previous record** was EM-606 at `575eb06` (bare **2943 / 20 / 2**, digest **2944 / 19 / 2**, CI-equivalent **3040 / 2 / 2**, 3.10 **3038 / 4 / 2**, CI **3038 / 4 / 2** projected); before it, EM-605 slice 2.5 at `0c40385` (bare **2943 / 19 / 2**, digest **2944 / 18 / 2**, CI-equivalent **3025 / 2 / 2**, 3.10 **3023 / 4 / 2**, CI **3023 / 4 / 2** projected); before it, slice 2.4 at `6936574` (bare **2940 / 19 / 2**, digest **2941 / 18 / 2**, CI-equivalent **3022 / 2 / 2**, 3.10 **3020 / 4 / 2**, CI **3020 / 4 / 2** projected); before it, slice 2.3 at `e08694a` (bare **2932 / 19 / 2**, digest **2933 / 18 / 2**, CI-equivalent **3014 / 2 / 2**, 3.10 **3012 / 4 / 2**, CI **3012 / 4 / 2** projected); before it, slice 2.2 at `1e5b739` (bare **2923 / 19 / 2**, digest **2924 / 18 / 2**, CI-equivalent **3005 / 2 / 2**, 3.10 **3003 / 4 / 2**, CI **3003 / 4 / 2** projected); before it, slice 2.1 at `69dc223` (bare **2911 / 19 / 2**, digest **2912 / 18 / 2**,
 CI-equivalent **2993 / 2 / 2**, 3.10 **2991 / 4 / 2**, CI **2991 / 4 / 2** projected); before it,
 chunk 43 at `5258b46` —
 **confirmed green on that exact SHA:** run **`39251351180`** (a `push` to `em-605-followups`),
@@ -177,6 +177,20 @@ For a landing that is committed locally and not pushed, pass `--ci-run ""` with 
 `ci_projected: true`, while an omitted flag inherits the previous run id (the usual
 re-measure after reading CI). A projected record must say so in the CI row, and a
 read one must not — the guard checks both directions.
+
+**A merge commit that touches `tests/` reddens the ancestry rule by construction.** The
+rule wants the newest commit on the suite surface to be an *ancestor* of the recorded SHA,
+and a merge commit is never an ancestor of the commits it merges — even when it changes no
+test count. So a landing that merges a branch touching `tests/` takes **one extra docs-only
+commit after the merge** that re-stamps `suite_figures.json`'s `sha` and this page's
+`Read as at` at the merge commit; the re-stamp is docs, so it does not move the suite
+surface, and the pair is green together. The history alternates exactly this way
+(`b99437a` red → `55eb8c5` green; `0705d21` red → `aa9a451` green).
+
+**When a read figure replaces a projection, flip the prose in the same commit.** Two
+landings' worth of drift came from doing it in halves: the CI row said "read" while the
+paragraph under the table still said "CI has not run for it … projected". Both statements
+sit on this page, so the guard cannot catch the contradiction — only reading it can.
 
 That measures the four local variants from pytest's own summary lines, refuses a
 red run or a figure that breaks the host-pin arithmetic, writes
