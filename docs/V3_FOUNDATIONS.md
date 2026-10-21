@@ -47,6 +47,12 @@ em.facade  (EM-211)       contract.py: the exact API + behaviours the provider r
         |                    cutover is the owner's act.)
         v
 em.formation              entity_linker.py (EM-208): turns memories into graph links
+em.ingest (EM-607)       html_text.py: stdlib HTML -> text (chrome dropped, headings
+                          and lists kept); article.py: the size caps, paragraph
+                          chunking, Appendix C.6 key points/claims, the one Sources/
+                          note body, and queue_claims (pending rows through the write
+                          policy, mentions through EntityLinker). The CLI's ingest
+                          composes it; no hook calls it.
 em.retrieval (S3)        query.py: AnalyzedQuery + analyze() — EM-301's text
                           normalisation, IDF term selection, intent, entity
                           detection and the common temporal shapes; stopwords.py:
