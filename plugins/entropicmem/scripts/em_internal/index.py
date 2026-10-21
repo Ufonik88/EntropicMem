@@ -730,24 +730,41 @@ class VaultIndex:
         domain: Optional[str] = None,
         min_importance: float = 0.0,
         max_nodes: int = 500,
+        include_bodies: bool = False,
     ) -> List[dict]:
-        """Return nodes for graph visualization."""
+        """Return nodes for graph visualization.
+
+        ``include_bodies`` gates the ``notes_fts`` join: reading every note's
+        full body is only needed when the caller embeds bodies (the modal and
+        ``--include-bodies`` exports). EM-605 slice 2.5 measured it as the whole
+        cost of a 5k-node export — 7.7 s of a 7.7 s export against 1.1 s with
+        the join dropped — so the default path reads ``notes_meta`` only and
+        reports the preview it already has.
+        """
         where = "WHERE m.importance >= ?"
         params: tuple = (min_importance,)
         if domain:
             where += " AND m.domain = ?"
             params = (min_importance, domain)
 
-        rows = self.db.execute(
-            f"""SELECT m.note_id, m.title, m.domain, m.note_type, m.importance,
-                       m.tags, m.path, m.body_preview, f.body AS full_body
+        columns = (
+            "m.note_id, m.title, m.domain, m.note_type, m.importance,"
+            " m.tags, m.path, m.body_preview"
+        )
+        if include_bodies:
+            sql = f"""SELECT {columns}, f.body AS full_body
             FROM notes_meta m
             LEFT JOIN notes_fts f ON f.note_id = m.note_id
             {where}
             ORDER BY m.importance DESC
-            LIMIT ?""",
-            (*params, max_nodes),
-        ).fetchall()
+            LIMIT ?"""
+        else:
+            sql = f"""SELECT {columns}
+            FROM notes_meta m
+            {where}
+            ORDER BY m.importance DESC
+            LIMIT ?"""
+        rows = self.db.execute(sql, (*params, max_nodes)).fetchall()
         results = []
         for r in rows:
             d = dict(r)

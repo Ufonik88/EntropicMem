@@ -572,7 +572,10 @@ def build_graph_payload(
     community_of = detect_communities((e.source_id, e.target_id) for e in all_edges)
 
     nodes = index.get_graph_nodes(
-        domain=domain, min_importance=min_importance, max_nodes=max_nodes
+        domain=domain,
+        min_importance=min_importance,
+        max_nodes=max_nodes,
+        include_bodies=include_bodies,
     )
 
     # Build node list with visual properties
