@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3064 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3062 passed, 4 skipped, 2 xfailed** |
 
-Read as at `ed61766` (the cited-SHA guard's reachability fix, split from the
+Read as at `cf872e5` (the cited-SHA guard's reachability fix, split from the
 2026-10-20 dependency round and landed on its own) — measured for the tree at that commit.
 **CI ran for this tree:** run `39640594895` ran on `06c39fd` and the CI row above is **read** from
 that run's 3.12 job log — not projected. The figure is unchanged from the landing: the
