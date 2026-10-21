@@ -18,7 +18,23 @@
 #   * <anything>@users.noreply.github.com   GitHub's per-account noreply
 #   * noreply@github.com                    GitHub web-flow / merge commits
 #   * noreply@anthropic.com                 bot/agent commits
+#
+# Named exceptions (by full SHA, never by pattern) are commits already published
+# on main that predate the guard reaching them. Published history is never
+# rewritten (a catalog pin points at an exact commit), so such a commit is named
+# with its reason instead of hidden. tests/test_identity_guard.py asserts every
+# entry is still needed — if the commit disappears or its identity becomes
+# acceptable, that test fails and the entry must be removed. A *new* non-noreply
+# commit still fails: the exception is the SHA, not the address.
 set -euo pipefail
+
+ALLOWED_SHAS=(
+  # Merge commit 14925b3 (2026-10-20) made by the kanban worktree tooling under
+  # a local bot identity (kanban-kat@localhost). It was pushed to main before
+  # this guard ran over that history, so it fails the address rule every push
+  # from then on. Recorded here rather than rewritten.
+  14925b301995ee2640b4c61ec7c284582da54888
+)
 
 RANGE="${1:?usage: check_commit_identity.sh <range>}"
 
@@ -33,8 +49,12 @@ if [ -z "$ALL" ]; then
 fi
 
 ALLOWED_RE='(@users\.noreply\.github\.com$|^noreply@github\.com$|^noreply@anthropic\.com$)'
+ALLOWED_SHA_LIST=$(IFS=,; echo "${ALLOWED_SHAS[*]:-}")
 BAD=$(printf '%s\n' "$ALL" | xargs -r git log --no-walk --format='%H%x09%ae%x09%ce%x09%s' \
-      | awk -F'\t' -v re="$ALLOWED_RE" '$2 !~ re || $3 !~ re {print}')
+      | awk -F'\t' -v re="$ALLOWED_RE" -v shas=",$ALLOWED_SHA_LIST," \
+            'index(shas, ","$1",") {next} $2 !~ re || $3 !~ re {print}')
+EXEMPT=$(printf '%s\n' "$ALL" | xargs -r git log --no-walk --format='%H' \
+      | awk -v shas=",$ALLOWED_SHA_LIST," 'index(shas, ","$1",")' | wc -l | tr -d ' ')
 
 COUNT=$(printf '%s\n' "$ALL" | wc -l | tr -d ' ')
 if [ -n "$BAD" ]; then
@@ -51,4 +71,9 @@ if [ -n "$BAD" ]; then
   exit 1
 fi
 
-echo "identity-guard: OK. $COUNT commit(s) in '$RANGE', all noreply."
+if [ "$EXEMPT" -gt 0 ]; then
+  echo "identity-guard: OK. $COUNT commit(s) in '$RANGE', all noreply" \
+       "($EXEMPT named exception(s) by SHA, see ALLOWED_SHAS)."
+else
+  echo "identity-guard: OK. $COUNT commit(s) in '$RANGE', all noreply."
+fi
