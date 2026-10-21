@@ -440,6 +440,8 @@ Cards are grouped by the master plan's sprints. **"(plan text needed)"** marks c
 
 ### 6.5 S6–S9 (only if the gate in §6.6 says continue)
 
+> **2026-10-21: EM-605 (slices 2.1–2.5) and EM-606 are LANDED** on `main` at `73bed69` — CI run `39629454711`, 13/13 green on that exact SHA, CI figure of record 3062 / 4 / 2 read from the job log. The rows below are the cards as they were specified; the landing record is in `MASTER_TODO.md`'s in-flight block and in the CHANGELOG.
+
 **S6: vault and graph upgrades.** Goal: the vault becomes a clean, human-first projection of memory (not a note-per-fact dump), robust to hand edits; the graph shows entities and time. A parked idea: opening the memory graph from a phone or another computer. Drop it unless someone asks.
 
 - **EM-601 — Vault projection v3 · L.**

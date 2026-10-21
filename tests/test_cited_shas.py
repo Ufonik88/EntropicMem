@@ -92,6 +92,7 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # The EM-605/EM-606 landing: CI's first run on the branch (12/13 green, the
     # sole red the pre-existing identity-guard defect) and main's red guard run
     # it was compared against. Neither is a commit; both stay checkable.
+    "39629454711": "GitHub Actions run id, not a commit: the 2026-10-21 green run on 73bed69, the EM-605/EM-606 landing on main (MASTER_TODO.md, BASELINE.md)",
     "39612171910": "GitHub Actions run id, not a commit: the 2026-10-21 EM-605/EM-606 landing branch run",
     "39620615391": "GitHub Actions run id, not a commit: the 2026-10-21 EM-605/EM-606 landing run whose 3.12 log the figures were read from",
     "39465614611": "GitHub Actions run id, not a commit: main's red identity-guard run at a46adda (2026-10-21)",

@@ -6,6 +6,10 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 > Entries below that also shipped in the 2.8.1 patch are listed again, verbatim, in the `[2.8.1]` section.
 
+### Fixed
+
+- **The cited-SHA guard now resolves a citation by reachability, not by object existence.** `tests/test_cited_shas.py` asked `git cat-file` whether a cited token names a commit, so a clone that still held an unreachable commit object (the rebased-away `cb88d47` that BASELINE.md uses as its worked example) would fail the guard even though the published repository never had that commit — a developer's clone could turn a green citation red. The guard now asks which commits a reader of the repository could actually check out: reachability from any ref plus `HEAD`, not whether this particular clone happens to hold the object. A shallow clone is refused with the remedy rather than silently scanning a partial history. The citations that belong to sibling repositories (`Ufonik88/entropic-dash`, `hermes-webui`, `hermes-agent`, `Hermes-Portal`) are allowlisted with their reasons, so they stay checkable by their owners without being unresolvable here.
+
 ### Dependency Update — 2026-10-20
 
 Team record of the dependency work landed across the five active projects in the week of 2026-10-20: what changed, what was deferred, and what consumers must do.
