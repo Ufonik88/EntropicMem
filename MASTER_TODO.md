@@ -41,6 +41,12 @@ points at.
 > after the ff-merge). With it the six-card S6 list
 > (`EM-602`…`EM-607`) is complete; the next piece is not agent-owned by default — S7
 > security, EM-806 packaging and S9's drills/release stay behind their own gates.
+> **2026-10-23: the owner said "continue with the next chunk of development". Per §6.6
+> (the agent decides whether S5–S9 are worth continuing; the owner can veto at any time),
+> the agent opened S7's two buildable cards as one chunk — EM-703 (write-path injection
+> screening & trust policy) and EM-705 (`purge` also removes embeddings and vault
+> projections) — in flight on branch `em-703-705-security`.** EM-806 packaging
+> and S9's drills/release stay behind their own gates.
 
 ---
 
