@@ -106,6 +106,10 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # documented pre-stamp shape.
     "39951235609": "GitHub Actions run id, not a commit: the 2026-10-23 EM-703/EM-705 build-tip run, red on the figures-guard pair alone (the expected pre-stamp shape)",
     "39465614611": "GitHub Actions run id, not a commit: main's red identity-guard run at a46adda (2026-10-21)",
+    # The S7 pair's landing run on the record tip: green on its 13 check-runs,
+    # and the 3.12 job log the figures of record are read from (BASELINE.md,
+    # CHANGELOG.md, NEXT_CHUNK.md, MASTER_TODO.md).
+    "39957746506": "GitHub Actions run id, not a commit: the 2026-10-23 EM-703/EM-705 landing run on 17684d9 whose 3.12 log the figures were read from",
     "39251351180": "GitHub Actions run id, not a commit: the 2026-10-19 green run on 5258b46, chunk 43, the EM-605 slice-1 follow-up (BASELINE.md)",
     # Cited on purpose BECAUSE it does not resolve: BASELINE.md's "Citing CI
     # evidence" section uses it as the worked example of a run whose head_sha

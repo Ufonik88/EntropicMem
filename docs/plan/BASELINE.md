@@ -26,24 +26,27 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3135 passed, 4 skipped, 2 xfailed** *(**projected** from this box's CI-equivalent by the host-pin relation, because no green CI run exists for this tree yet: the build tip's run `39951235609` was red on the figures-guard pair alone — the record then named the previous docs tip and these four figures were not yet in it, the documented pre-stamp shape — and the landing's green run on the record tip re-reads this row)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3135 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `39957746506`, which ran on `17684d9` — 13/13 jobs green on that tip and again on `main`'s post-landing push; the build tip's own run `39951235609` on `b570065` had been red on the figures-guard pair alone, the documented pre-stamp shape, and the record commits re-stamped the figures before this run)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3040 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3041 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3137 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3135 passed, 4 skipped, 2 xfailed** |
 
-Read as at `f7fb7a1` (EM-703 + EM-705 built as `859f12d` + `b570065` on `em-703-705-security`:
+Read as at `17684d9` (EM-703 + EM-705 built as `859f12d` + `b570065` on `em-703-705-security`:
 every store write screens for prompt injection in overlapping windows, the trust policy decides what a
 flagged shape means, and `purge` erases the memory's vectors and schedules the vault's regeneration;
 43 new tests and 30 red mutation checks, plus the figures re-stamp, the docs record and the run-id
-allowlist) — measured for the tree at that commit. **CI has not been read for this tree:** the
-build tip's own run `39951235609` was red on the figures-guard pair alone — the ancestry
-assertion (the record then still named `e4910c7`) and these four figures not yet being in the
-record, the documented pre-stamp shape — so the CI row above is **projected** from the
-CI-equivalent reading by the host-pin relation, which is the relation the landing has always held.
-The docs-record commit carries the run-id allowlist, so it touches `tests/`, and a commit touching
-`tests/` is never an ancestor of a record written before it: **the companion docs-only commit that made this tip re-stamped
-the record at this record's commit; the landing tip's green run then re-reads the CI row.**
+allowlist) — measured for the tree at that commit. **CI has run for this tree, and this row's
+figure is read.** The build tip's own run `39951235609` was red on the figures-guard pair alone —
+the ancestry assertion (the record then still named `e4910c7`) and these four figures not yet
+being in the record, the documented pre-stamp shape — so the CI row above stood **projected**
+from the CI-equivalent reading by the host-pin relation; the record commits (`f7fb7a1` +
+`17684d9`) then landed the figures into the record and re-stamped it, and the landing run
+`39957746506` read **3135 passed, 4 skipped, 2 xfailed** from its `test (3.12)` job log on
+`17684d9` — 13/13 jobs green, exactly what the host-pin relation had projected from the
+CI-equivalent. Commits that touch `tests/` (this read pass's own run-id allowlist entry) are
+never ancestors of a record written before them: **the companion docs-only commit re-stamps the
+record at this pass's commit** — the figure stays the landing tree's figure.
 **The previous record** was EM-607 at `e4910c7` (bare 2997 / 20 / 2, digest 2998 / 19 / 2,
 CI-equivalent 3094 / 2 / 2, 3.10 3092 / 4 / 2, CI 3092 / 4 / 2 **read** from run `39666424863`,
 which ran on `e0f39a5`), and before it the cited-SHA reachability fix at `cf872e5` (bare 2967 / 20 / 2,
@@ -152,7 +155,7 @@ bare          3040 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3137 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3135 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
+= CI          3135 /  4 / 2   (read from run 39957746506, 3.12 job log)
 ```
 
 ## Citing CI evidence — one trap

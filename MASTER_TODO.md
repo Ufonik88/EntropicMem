@@ -45,10 +45,10 @@ points at.
 > (the agent decides whether S5–S9 are worth continuing; the owner can veto at any time),
 > the agent opened S7's two buildable cards as one chunk — EM-703 (write-path injection
 > screening & trust policy) and EM-705 (`purge` also removes embeddings and vault
-> projections) — and both are BUILT and committed on branch `em-703-705-security`
-> (`859f12d` + `b570065`, pushed; the build tip's own run `39951235609` is red on the
-> figures-guard pair alone, the expected pre-stamp shape). The landing waits for the
-> figures-record commits and a green CI run on their tip, then `--ff-only`; detail in
+> projections) — and both are LANDED on `main` at `17684d9` (`859f12d` + `b570065`): 13/13
+> green check-runs on that exact SHA and again on `main`'s push (the build tip's own run
+> `39951235609` was red on the figures-guard pair alone, the expected pre-stamp shape; the
+> record pass `f7fb7a1` landed the figures before the landing ran). Detail in
 > `docs/plan/NEXT_CHUNK.md` Part A.** EM-806 packaging
 > and S9's drills/release stay behind their own gates.
 
@@ -114,7 +114,7 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-21, against branch `main` at `5f0670c` (the EM-607 ingest-v2 landing; the build is `af0cf98` on the deleted `em-607-ingest-v2`, the previous reconciliation was the EM-605/EM-606 landing at `73bed69`, and before that 2026-10-19 against `2079bd3`) (security
+**Last reconciled:** 2026-10-23, against branch `main` at `17684d9` (the EM-703 + EM-705 write-path security landing; code `859f12d` + `b570065` on `em-703-705-security`, deleted once this record pass lands; the previous reconciliation was the EM-607 ingest-v2 landing at `5f0670c`, and before that 2026-10-19 against `2079bd3`) (security
 hardening applied in the working tree; see the note above) — **EM-605 slice 1 (the
 graph model / renderers / viewer-assets split) landed (`2fd7812`, all 11 check-runs green on
 the exact SHA), and EM-603's 5k AC is de-flaked (landed `adb1439`, reconciled as `e6647e7`);
@@ -789,8 +789,8 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**The S7 write-path security pair — EM-703 + EM-705 — is BUILT and committed on branch
-`em-703-705-security` (2026-10-23):** code `859f12d` (EM-703: `injection_screen.screen_text_windows`
+**The S7 write-path security pair — EM-703 + EM-705 — is COMPLETE: LANDED on `main` at
+`17684d9` (2026-10-23):** code `859f12d` (EM-703: `injection_screen.screen_text_windows`
 screens every store write in overlapping windows, `evaluate_injection` turns flagged shapes into
 the card's decision — extracted sources quarantine by the write policy's own reason, direct
 sources are pending from birth, a drop is an audited refusal on both routes, and every unusable
@@ -800,11 +800,13 @@ trust policy to every write and carries it in every extraction enqueue) and `b57
 callback inside the erase transaction, so a hard erase takes the embeddings with it and
 schedules the vault's one regeneration). **43 new tests and 30 mutation checks, all red**, each
 mutant restored from a byte copy. The figures of record live in `docs/plan/BASELINE.md` and
-`docs/plan/suite_figures.json` — CI's figure is **projected** there from the CI-equivalent by
-the host-pin relation, because the build tip's run `39951235609` is red on the figures-guard
-pair alone (the record then named `e4910c7` and these figures were not yet in it — the
-documented pre-stamp shape). **Next: the docs-record commits that re-stamp the figures at the
-record tip, a green CI run on that tip, then the `--ff-only` landing.**
+`docs/plan/suite_figures.json` — CI's figure is **read** there from the landing run
+`39957746506`'s `test (3.12)` job log (13/13 jobs green on `17684d9`, and again on `main`'s
+push), which is exactly what the host-pin relation projected from the CI-equivalent. The build
+tip's own run `39951235609` was red on the figures-guard pair alone — the record then named
+`e4910c7` and these figures were not yet in it, the documented pre-stamp shape — and the record
+pass `f7fb7a1` landed the figures into the record before the landing ran. **The branch is
+deleted once this record pass lands; nothing else is in flight.**
 
 **EM-607 — ingest v2 — is COMPLETE and LANDED on `main` at `5f0670c` (2026-10-21)** — built at `af0cf98` on `em-607-ingest-v2`, fast-forwarded after 13/13 green check-runs on the branch tip (`5f0670c`), branch deleted. It is the last of S6's six cards, and its build is a replacement rather than an addition: the v2 `ingest` path wrote a literature note plus **one permanent note per capitalised phrase**, and that pass is gone. A source now makes **one chunked note under `Sources/`** (`note_type=literature`, `source=ingest`), and what it teaches becomes **`pending`** memories (`source=ingest`, the URL as `evidence`, `pending_reason=ingest_requires_review`) — the review queue EM-604's vault edits land in, so a fetched article never writes straight into durable recall. **New `em/ingest/`:** `html_text.py` is a stdlib `html.parser` pass that drops `script`/`style`/`nav`/`footer`, keeps headings and list items, decodes charrefs and survives malformed input; `article.py` holds the two caps (**2 MiB** refusal, **60,000-character** truncation at a paragraph boundary, recorded in the note), paragraph chunking (~4,000 chars, oversized paragraphs split at spaces), Appendix C.6 key points and claims through the EM-501 LLM seam per chunk (<=3 chunks, <=10 each, `evidence_quote` must be a verbatim substring) with a deterministic sentence scan as the fail-soft fallback, the note body, and `queue_claims` (store writes through `engine.remember(source="ingest")` -> the policy's new `ingest_requires_review` quarantine; mentions linked through **`EntityLinker`**, so a new phrase stays a proposal until a second memory and no mention ever becomes a note). The claim set *is* the key-point set, which is what makes "<= 10 pending" a property of one path. `cmd_ingest` gains `--no-llm`, keeps `--domain` (frontmatter + claims), and **never creates a memory store**: with none present it writes the note and says `source note only`. The v2-store path is kept (`pending_facts` via the same policy branch) because the owner's live store is v2. 30 new tests in `tests/unit/test_em607_ingest_v2.py` (the AC is one: a 50 KB article -> **1 source note, <= 10 pending, 0 entity rows and no note outside `Sources/`**), and the three `tests/test_phase2.py` ingest pins are repointed to the new contract instead of the atomic-note one (its runner also stopped inheriting `ENTROPICMEM_*`, which could reach the live store). **20 mutation checks, all red**, each restored from a byte copy. **CI:** the branch run `39666424863` on `e0f39a5` is **13/13 green** and its 3.12 job log reads **3092 passed, 4 skipped, 2 xfailed** — the read figure of record, matching the projection exactly; the build commit's own run `39661990213` was red on the figures guard alone (the ancestry assertion the re-stamp satisfies). One job needed a recorded re-run: `test (3.13)`'s numpy 50k search guard read best 27.97 ms against 25 ms on a contended runner (3.5 ms on this box, every window inflated); the re-run of the same SHA was green. **Landed branch-first:** four docs commits on `em-607-ingest-v2` after the code commit carry the record (the figures re-stamp, the run-id allowlist and the read CI figure), the tip `5f0670c` is **13/13 green** and was fast-forwarded into `main`, and this paragraph is the post-merge record. Two jobs across the landing needed a recorded re-run, both on tests this card does not touch: the numpy 50k search guard on `test (3.13)` (best 27.97 ms against 25 ms, every window inflated by the same ~8x; 3.5 ms on this box) and `windows-import`'s EM-405 rewind-budget pin (0.296 s against 250 ms, the second instance of the documented Windows-only flap); each re-run of the same SHA was green.
 
