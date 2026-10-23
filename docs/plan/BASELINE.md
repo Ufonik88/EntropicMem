@@ -26,25 +26,30 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3092 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `39666424863`, which ran on `e0f39a5`, the EM-607 record commit; the build commit `af0cf98`'s own run `39661990213` was red on the figures guard alone — the ancestry assertion this re-stamp exists to satisfy — so its 3.12 log reads `1 failed, 3091 passed`, and the green run above is the one whose number this row states)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **2997 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **2998 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3094 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3092 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3135 passed, 4 skipped, 2 xfailed** *(**projected** from this box's CI-equivalent by the host-pin relation, because no green CI run exists for this tree yet: the build tip's run `39951235609` was red on the figures-guard pair alone — the record then named the previous docs tip and these four figures were not yet in it, the documented pre-stamp shape — and the landing's green run on the record tip re-reads this row)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3040 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3041 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3137 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3135 passed, 4 skipped, 2 xfailed** |
 
-Read as at `e4910c7` (EM-607's ingest-v2 build `af0cf98` — parsed HTML, one chunked note
-under `Sources/`, `pending` claims with `source=ingest`, mentions via `EntityLinker`, 30 new
-tests and 20 red mutation checks — plus the docs record and the run-id allowlist). The record
-names the allowlist commit rather than the build commit because a commit touching `tests/` is
-never an ancestor of a record written before it: **CI ran for this tree**, run `39666424863` on
-`e0f39a5`, **13/13 green**, and its `test (3.12)` job log reads **3092 passed, 4 skipped,
-2 xfailed** — so the CI row above is **read**, not projected. The build commit's own run
-(`39661990213` on `af0cf98`) was red on one job, and that red is the expected shape: the record
-still named the previous surface commit, which is exactly the ancestry assertion this re-stamp
-satisfies. **The previous record** was the cited-SHA reachability fix at `cf872e5` (bare 2967 / 20 / 2,
+Read as at `b570065` (EM-703 + EM-705 built as `859f12d` + `b570065` on `em-703-705-security`:
+every store write screens for prompt injection in overlapping windows, the trust policy decides what a
+flagged shape means, and `purge` erases the memory's vectors and schedules the vault's regeneration;
+43 new tests and 30 red mutation checks, plus the figures re-stamp, the docs record and the run-id
+allowlist) — measured for the tree at that commit. **CI has not been read for this tree:** the
+build tip's own run `39951235609` was red on the figures-guard pair alone — the ancestry
+assertion (the record then still named `e4910c7`) and these four figures not yet being in the
+record, the documented pre-stamp shape — so the CI row above is **projected** from the
+CI-equivalent reading by the host-pin relation, which is the relation the landing has always held.
+The docs-record commit carries the run-id allowlist, so it touches `tests/`, and a commit touching
+`tests/` is never an ancestor of a record written before it: **a companion docs-only commit re-stamps
+the record at this record's commit, and the landing tip's green run then re-reads the CI row.**
+**The previous record** was EM-607 at `e4910c7` (bare 2997 / 20 / 2, digest 2998 / 19 / 2,
+CI-equivalent 3094 / 2 / 2, 3.10 3092 / 4 / 2, CI 3092 / 4 / 2 **read** from run `39666424863`,
+which ran on `e0f39a5`), and before it the cited-SHA reachability fix at `cf872e5` (bare 2967 / 20 / 2,
 digest 2968 / 19 / 2, CI-equivalent 3064 / 2 / 2, 3.10 3062 / 4 / 2, CI 3062 / 4 / 2 read from
 run `39640594895`, and the landed tip's run `39629454711` on `73bed69` read the
-identical triple), and before it EM-606 at `575eb06` (bare **2943 / 20 / 2**, digest **2944 / 19 / 2**, CI-equivalent **3040 / 2 / 2**, 3.10 **3038 / 4 / 2**, CI **3038 / 4 / 2** projected), not move the suite surface itself. **The previous record** was EM-606 at `575eb06` (bare **2943 / 20 / 2**, digest **2944 / 19 / 2**, CI-equivalent **3040 / 2 / 2**, 3.10 **3038 / 4 / 2**, CI **3038 / 4 / 2** projected); before it, EM-605 slice 2.5 at `0c40385` (bare **2943 / 19 / 2**, digest **2944 / 18 / 2**, CI-equivalent **3025 / 2 / 2**, 3.10 **3023 / 4 / 2**, CI **3023 / 4 / 2** projected); before it, slice 2.4 at `6936574` (bare **2940 / 19 / 2**, digest **2941 / 18 / 2**, CI-equivalent **3022 / 2 / 2**, 3.10 **3020 / 4 / 2**, CI **3020 / 4 / 2** projected); before it, slice 2.3 at `e08694a` (bare **2932 / 19 / 2**, digest **2933 / 18 / 2**, CI-equivalent **3014 / 2 / 2**, 3.10 **3012 / 4 / 2**, CI **3012 / 4 / 2** projected); before it, slice 2.2 at `1e5b739` (bare **2923 / 19 / 2**, digest **2924 / 18 / 2**, CI-equivalent **3005 / 2 / 2**, 3.10 **3003 / 4 / 2**, CI **3003 / 4 / 2** projected); before it, slice 2.1 at `69dc223` (bare **2911 / 19 / 2**, digest **2912 / 18 / 2**,
+identical triple), and before it EM-606 at `575eb06` (bare **2943 / 20 / 2**, digest **2944 / 19 / 2**, CI-equivalent **3040 / 2 / 2**, 3.10 **3038 / 4 / 2**, CI **3038 / 4 / 2** projected); before it, EM-605 slice 2.5 at `0c40385` (bare **2943 / 19 / 2**, digest **2944 / 18 / 2**, CI-equivalent **3025 / 2 / 2**, 3.10 **3023 / 4 / 2**, CI **3023 / 4 / 2** projected); before it, slice 2.4 at `6936574` (bare **2940 / 19 / 2**, digest **2941 / 18 / 2**, CI-equivalent **3022 / 2 / 2**, 3.10 **3020 / 4 / 2**, CI **3020 / 4 / 2** projected); before it, slice 2.3 at `e08694a` (bare **2932 / 19 / 2**, digest **2933 / 18 / 2**, CI-equivalent **3014 / 2 / 2**, 3.10 **3012 / 4 / 2**, CI **3012 / 4 / 2** projected); before it, slice 2.2 at `1e5b739` (bare **2923 / 19 / 2**, digest **2924 / 18 / 2**, CI-equivalent **3005 / 2 / 2**, 3.10 **3003 / 4 / 2**, CI **3003 / 4 / 2** projected); before it, slice 2.1 at `69dc223` (bare **2911 / 19 / 2**, digest **2912 / 18 / 2**,
 CI-equivalent **2993 / 2 / 2**, 3.10 **2991 / 4 / 2**, CI **2991 / 4 / 2** projected); before it,
 chunk 43 at `5258b46` —
 **confirmed green on that exact SHA:** run **`39251351180`** (a `push` to `em-605-followups`),
@@ -57,7 +62,7 @@ by run **`39237280578`**; before it `e6647e7` (run `39231027295`), `adb1439` (ru
 `39226716232`) and `4cde953` (run `39219386624`). CI's figure is **read from the job log**,
 never assumed: `gh run view <run-id> --log`; at that time all four CI legs (3.10–3.13)
 reported the identical triple. **The gap between this box's CI-equivalent reading and CI is in
-the middle column, not the total — `3064 / 2 / 2` versus `3062 / 4 / 2` is `−2 passed,
+the middle column, not the total — `3137 / 2 / 2` versus `3135 / 4 / 2` is `−2 passed,
 +2 skipped`, the two hermes-agent host pins that pass here and skip in CI**, the same pair the
 ladder below walks. **The five rows in this table are the figures of record and live in exactly
 one other place, [`suite_figures.json`](suite_figures.json), which
@@ -142,12 +147,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          2997 / 20 / 2
+bare          3040 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3094 /  2 / 2
+= CI-equiv    3137 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3092 /  4 / 2   (read from run 39666424863, 3.12 job log)
+= CI          3135 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap

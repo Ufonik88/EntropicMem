@@ -100,6 +100,11 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # commit that touches tests/ before the record is re-stamped. Cited as the
     # red half of that pair, never as a green figure.
     "39661990213": "GitHub Actions run id, not a commit: the 2026-10-21 EM-607 build-commit run, red on the figures ancestry assertion alone",
+    # The S7 pair's build tip: red on the figures-guard pair alone (the record
+    # then named the previous docs tip and the four new triples were not yet in
+    # the record), cited in NEXT_CHUNK Part A as the third instance of the
+    # documented pre-stamp shape.
+    "39951235609": "GitHub Actions run id, not a commit: the 2026-10-23 EM-703/EM-705 build-tip run, red on the figures-guard pair alone (the expected pre-stamp shape)",
     "39465614611": "GitHub Actions run id, not a commit: main's red identity-guard run at a46adda (2026-10-21)",
     "39251351180": "GitHub Actions run id, not a commit: the 2026-10-19 green run on 5258b46, chunk 43, the EM-605 slice-1 follow-up (BASELINE.md)",
     # Cited on purpose BECAUSE it does not resolve: BASELINE.md's "Citing CI
