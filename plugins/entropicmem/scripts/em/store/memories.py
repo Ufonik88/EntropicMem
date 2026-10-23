@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from typing import Any, Iterable, Literal, Mapping, Sequence
+from typing import Any, Callable, Iterable, Literal, Mapping, Sequence
 
 from ..clock import new_id, to_iso, utc_now
 from .audit import append as audit_append
@@ -1042,10 +1042,33 @@ class MemoryStore:
                 [now, *ids],
             )
 
-    def purge(self, memory_id: str, *, actor: str) -> None:
+    def purge(
+        self,
+        memory_id: str,
+        *,
+        actor: str,
+        schedule_projection: "Callable[[str], None] | None" = None,
+    ) -> None:
         """Hard delete: row, versions, relations, entity links, outbox rows and
-        entity sightings. (EM-705 extends this to embeddings and the vault
-        projection.)"""
+        entity sightings.
+
+        EM-705 closes the two holes the erase acceptance named: the memory's
+        vector rows go too (``embeddings`` is this database's own table, so one
+        DELETE covers every model, and only ``owner_type='memory'`` — an
+        episode's vector is not this fact), and an optional
+        ``schedule_projection`` callback is invoked **once** with the purged id
+        after every delete. It is a callback, not a store→vault import:
+        ``em.vault`` imports ``em.store``, so the reverse import would cycle.
+        The callback is called plainly — no try/except here — because a
+        swallowed producer error would leave the caller believing a
+        regeneration is scheduled while the vault still renders the purged
+        fact; callers pass fail-soft callbacks.
+
+        Stale ``embed:<id>:<version>`` job rows are deliberately not cleaned:
+        the embed handler permanent-errors on a missing owner, so they cost a
+        queue entry and nothing else. Queued ``project_vault`` dedupe keys
+        cover the regeneration the callback asks for.
+        """
         row = self._conn.execute(
             "SELECT id, scope_profile FROM memories WHERE id=?", (memory_id,)
         ).fetchone()
@@ -1053,6 +1076,7 @@ class MemoryStore:
             raise KeyError(memory_id)
         self._conn.execute("DELETE FROM memory_versions WHERE memory_id=?", (memory_id,))
         self._conn.execute("DELETE FROM relations WHERE memory_id=?", (memory_id,))
+        self._conn.execute("DELETE FROM embeddings WHERE owner_type='memory' AND owner_id=?", (memory_id,))
         self._conn.execute("DELETE FROM sync_outbox WHERE fact_id=?", (memory_id,))
         # memory_entities.memory_id is a FK to memories(id) with no ON DELETE
         # CASCADE, so without this the DELETE below raises IntegrityError and
@@ -1066,6 +1090,10 @@ class MemoryStore:
 
         EntityStore(self._conn).forget_sightings(memory_id, profile=row["scope_profile"])
         audit_append(self._conn, "purge", actor, memory_id, {"reason": "hard_delete"})
+        if schedule_projection is not None:
+            # Last, inside the caller's transaction: a raising callback rolls
+            # the whole erase back rather than leaving the erasure half-done.
+            schedule_projection(memory_id)
 
 
 def _scope_of(row: Mapping[str, Any]) -> Scope:
