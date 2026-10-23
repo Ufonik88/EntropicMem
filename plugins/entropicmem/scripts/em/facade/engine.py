@@ -303,6 +303,10 @@ class V3Engine:
         # v2 store) leaves every read exactly as it was.
         embed_query: Any = None,
         embedding_model: str = "",
+        # EM-703: the injection trust pair ``(extracted, direct)`` from the
+        # typed config's ``trust.injection_policy_*``. ``None`` keeps the card's
+        # own defaults; a v2 store has no such seam and accepts (ignores) it.
+        injection_policy: Any = None,
     ) -> None:
         self.db_path = Path(db_path)
         self.store = Store(self.db_path)
@@ -314,6 +318,10 @@ class V3Engine:
         self._rank_weights = rank_weights
         self._embed_query = embed_query
         self._embedding_model = str(embedding_model or "")
+        #: EM-703: the injection trust pair every v3 write this engine drives
+        #: forwards to the store's decision point. ``None`` = the store's own
+        #: defaults (extracted quarantine, direct flag-through).
+        self._injection_policy = injection_policy
         # Profile-wide by default (v2 had one owner per DB): the facade maps a
         # v2 profile onto Scope(profile=..., user="") — §3.5's profile-wide
         # read, which is also the owner context, so the default facade reads and
@@ -783,7 +791,8 @@ class V3Engine:
         )
         with self.store.transaction() as conn:
             result = MemoryStore(conn).add(
-                draft, scope=self.scope, actor=actor or "facade"
+                draft, scope=self.scope, actor=actor or "facade",
+                injection_policy=self._injection_policy,
             )
         if not result.ok:
             # The store already wrote the refusal to the audit chain.
@@ -926,7 +935,8 @@ class V3Engine:
         )
         with self.store.transaction() as conn:
             store = MemoryStore(conn)
-            result = store.add(draft, scope=self.scope, actor="facade")
+            result = store.add(draft, scope=self.scope, actor="facade",
+                               injection_policy=self._injection_policy)
             if not result.ok or not result.id:
                 return None
             pending = result.status == "pending"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional, Tuple
+from typing import Any, Optional, Sequence, Tuple
 
 SENSITIVITY_LEVELS = ("public", "internal", "sensitive", "secret")
 
@@ -78,6 +78,79 @@ def evaluate_write(
     if domain in ("Finance", "People") and source in ("auto_extracted", "conversation"):
         return "quarantine", "sensitive_domain_needs_explicit_remember"
     return "allow", None
+
+
+# --- EM-703: the injection trust policy ---------------------------------------
+
+#: Sources whose content is *proposal* text — extracted claims, an ingested
+#: document, a human vault edit — rather than a speaker's own word. EM-703's
+#: split follows it: a flagged **extracted** source defaults to quarantine
+#: (the candidate is already a proposal, so parking it pending is honest), a
+#: flagged **direct** source defaults to flag-through (the v2.7 warning-marker
+#: behaviour, and the owner's own sentence). Every other source — ``agent``,
+#: ``agent_tool``, ``guest_tool``, ``user_stated``, ``promoted`` — is direct.
+EXTRACTED_SOURCES = frozenset({
+    "auto_extracted",
+    "auto_extract",
+    "ingest",
+    "vault_edit",
+})
+
+#: The actions a trust policy may name. A member outside this set fails OPEN to
+#: ``flag`` — the write is recorded, never blocked, and never invented: an
+#: unusable policy spelling must not be able to take the write path down, and
+#: must not quietly launder flagged content either.
+_INJECTION_ACTIONS = frozenset({"flag", "quarantine", "drop"})
+
+
+def _injection_member(value: object) -> str:
+    """Normalise one policy member; anything unusable fails open to ``flag``."""
+    text = str(value if value is not None else "").strip().lower()
+    return text if text in _INJECTION_ACTIONS else "flag"
+
+
+def evaluate_injection(
+    shapes: "Sequence[str]",
+    *,
+    source: str = "agent",
+    policy: "Any | None" = None,
+) -> Tuple[str, Optional[str]]:
+    """Turn the screen's shapes into a write decision: (action, reason).
+
+    ``action`` is one of ``allow`` (nothing flagged), ``flag`` (write through
+    with the ``injection:<shape>`` marks — the default for direct sources),
+    ``quarantine`` (the write lands/re-routes pending with
+    ``pending_reason='injection_quarantined'``) or ``drop`` (an audited
+    refusal with no row — EM-705's purge is the only thing that may erase
+    content; the add path may refuse to create it).
+
+    ``policy`` is the ``(extracted, direct)`` pair the typed config's
+    ``trust.injection_policy_extracted|_direct`` carries. ``None`` — and an
+    unusable member inside the pair — keeps the card's own defaults, so the
+    store, the CLI and the job readers all mean the same thing without any
+    wiring: **extracted quarantine, direct flag**.
+    """
+    shapes = tuple(shape for shape in (shapes or ()) if shape)
+    if not shapes:
+        return "allow", None
+    if policy is None:
+        member_extracted, member_direct = "quarantine", "flag"
+    else:
+        try:
+            raw_extracted, raw_direct = policy
+        except (TypeError, ValueError):
+            # A malformed pair fails open as a whole: two unusable members are
+            # worth exactly the same write-decision as none at all.
+            member_extracted = member_direct = "flag"
+        else:
+            member_extracted = _injection_member(raw_extracted)
+            member_direct = _injection_member(raw_direct)
+    action = member_extracted if source in EXTRACTED_SOURCES else member_direct
+    if action == "quarantine":
+        return "quarantine", "injection_quarantined"
+    if action == "drop":
+        return "drop", "injection_dropped"
+    return "flag", None
 
 
 def redact_for_prefetch(content: str, sensitivity: str) -> str:

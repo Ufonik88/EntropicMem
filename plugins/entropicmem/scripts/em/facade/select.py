@@ -108,6 +108,11 @@ def open_engine(
     # no such path and ignores the pair.
     embed_query: Any = None,
     embedding_model: str = "",
+    # EM-703: the injection trust pair ``(extracted, direct)``; forwarded to
+    # the v3 engine, whose writes hand it to the store's decision point. A v2
+    # engine has no such seam and accepts (ignores) it, so callers can pass it
+    # unconditionally.
+    injection_policy: Any = None,
 ):
     """Open the engine the store's schema calls for.
 
@@ -141,6 +146,7 @@ def open_engine(
             rank_weights=rank_weights,
             embed_query=embed_query,
             embedding_model=embedding_model,
+            injection_policy=injection_policy,
         )
 
     from memory_engine import MemoryEngine

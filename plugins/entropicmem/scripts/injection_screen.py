@@ -599,3 +599,72 @@ def screen_text(text: str, *, unvetted: bool = False) -> ScreenResult:
         truncated=truncated,
         error=error,
     )
+
+
+def screen_text_windows(
+    text: str,
+    *,
+    window: int = MAX_INPUT_CHARS,
+    overlap: int = 500,
+) -> ScreenResult:
+    """Screen text of *any* length in overlapping windows (EM-703).
+
+    ``screen_text`` studies at most ``MAX_INPUT_CHARS`` characters and marks
+    the rest only as ``truncated`` — which is a hole on the write path, where
+    store content is not capped at 20k and a payload past the cap would be
+    screened not at all. This entry point walks the *normalised* text in
+    ``window``-wide slices that advance by ``window - overlap`` characters, so
+    every character is studied at least once and a cue straddling a boundary is
+    seen whole by the next window. Never raises (each window delegates to
+    ``screen_text``'s own fail-open; the union degrades only as far as the
+    failed window did).
+
+    ``MAX_URLS`` stays a *per-window* budget: a long document made of nothing
+    but links fails its window as ``link-flood`` exactly as a 20k passage
+    would, and the budget cannot be walked around by length alone.
+
+    Findings are deduplicated by ``(shape, absolute offset)`` — the overlap
+    legitimately redetects what two windows both see, and must report it
+    once. Each finding is rebuilt from the whole normalised text at its
+    absolute offset, so the two windows' copies of one straddling cue carry
+    identical evidence and the survivor is the same finding a single-window
+    screen would have produced.
+
+    ``truncated`` keeps ``screen_text``'s meaning ("the input exceeded one
+    window"); nothing is lost here, the flag is the long-input signal only.
+    """
+    try:
+        probe = _normalize(text or "")
+    except Exception as exc:  # noqa: BLE001 - fail-open is the load-bearing property
+        return ScreenResult(flagged=False, findings=(), screened_chars=0,
+                            truncated=False, error=repr(exc))
+
+    total = len(probe)
+    if window <= 0:
+        window = MAX_INPUT_CHARS
+    overlap = max(0, min(overlap, window - 1))
+    step = max(1, window - overlap)
+
+    matched: dict[Tuple[str, int], Finding] = {}
+    error = ""
+    for base in range(0, max(total, 1), step):
+        slice_text = probe[base:base + window]
+        result = screen_text(slice_text)
+        if result.error and not error:
+            error = result.error
+        for finding in result.findings:
+            key = (finding.shape, base + finding.offset)
+            if key in matched:
+                continue
+            rebuilt = _finding_for(finding.shape, base + finding.offset, probe)
+            if rebuilt is not None:
+                matched[key] = rebuilt
+
+    findings = sorted(matched.values(), key=lambda f: f.offset)
+    return ScreenResult(
+        flagged=bool(findings),
+        findings=tuple(findings),
+        screened_chars=total,
+        truncated=total > window,
+        error=error,
+    )

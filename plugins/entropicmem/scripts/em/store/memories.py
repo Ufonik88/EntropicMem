@@ -160,20 +160,40 @@ class MemoryStore:
         scope_key = f"{scope.profile}\x1f{scope.user}\x1f{scope.chat}"
         return hashlib.sha256(f"{content}\x1f{scope_key}".encode("utf-8")).hexdigest()
 
-    def _screen(self, content: str) -> list[str]:
-        """Injection screen -> trust flags. Never blocks here (EM-703 owns
-        that decision); the flags are recorded so it can.
+    def _screen(
+        self, content: str, *, source: str, injection_policy: Any = None
+    ) -> tuple[list[str], str, str]:
+        """Injection screen -> ``(trust flags, action, reason)`` (EM-703).
 
-        Only the *shapes* are stored, never the matched evidence text: a flag
-        has to be safe to write into the audit trail and the sync outbox.
+        The screen runs in **overlapping windows** via
+        ``screen_text_windows``: store content is not capped at the screen's
+        own 20,000-character single window, so a payload past the cap must
+        still be screened — the tail cannot lose the service for being long.
+
+        The flags carry the card's ``injection:<shape>`` format. Only the
+        *shapes* are stored, never the matched evidence text: a flag has to be
+        safe to write into the audit trail and the sync outbox.
+
+        ``evaluate_injection`` then turns the shapes into the write decision
+        the caller's ``(extracted, direct)`` pair asks for; ``None`` keeps the
+        card's own defaults (extracted quarantine, direct flag-through), so a
+        call site that passes nothing still means the same thing. Never
+        raises: a raise inside the screen is the fail-open case — no flags, a
+        clean verdict, and the write proceeds exactly as it did before this
+        policy existed.
         """
-        from injection_screen import screen_text  # local: heavy, optional dep
+        from em_internal.policy import evaluate_injection
+        from injection_screen import screen_text_windows  # local: heavy, optional dep
 
         try:
-            result = screen_text(content)
+            result = screen_text_windows(content)
+            shapes = sorted({finding.shape for finding in getattr(result, "findings", ())})
         except Exception:  # pragma: no cover - screening must never break a write
-            return []
-        return sorted({f.shape for f in getattr(result, "findings", ())})
+            shapes = []
+        action, reason = evaluate_injection(
+            shapes, source=source or "agent", policy=injection_policy
+        )
+        return [f"injection:{shape}" for shape in shapes], action, reason
 
     def _redact(self, content: str, sensitivity: str, locales: Sequence[str] = ()) -> str:
         """Redact for a sensitive/secret row, honouring the configured packs.
@@ -379,11 +399,20 @@ class MemoryStore:
 
     # --- public API ------------------------------------------------------
 
-    def add(self, draft: MemoryDraft, *, scope: Scope, actor: str) -> WriteResult:
+    def add(
+        self, draft: MemoryDraft, *, scope: Scope, actor: str, injection_policy: Any = None
+    ) -> WriteResult:
         """Run the full add pipeline and return the decision.
 
-        normalise -> policy -> PII redaction -> injection screen -> hash ->
-        exact-duplicate check -> insert -> outbox -> audit -> enqueue embed.
+        normalise -> policy -> PII redaction -> injection screen (windowed) ->
+        trust decision -> hash -> exact-duplicate check -> insert -> outbox ->
+        audit -> enqueue embed.
+
+        ``injection_policy`` is EM-703's ``(extracted, direct)`` pair from the
+        typed config's ``trust.injection_policy_*``; ``None`` keeps the card's
+        own defaults. A flagged source whose action is ``quarantine`` re-routes
+        the write to ``pending`` (its birth status — never a demotion), and
+        ``drop`` is an audited refusal with no row.
         """
         content = (draft.content or "").strip()
         if not content:
@@ -398,18 +427,57 @@ class MemoryStore:
 
         if action == "quarantine":
             # A quarantined write still gets a row: it lands in `pending` so a
-            # later promotion can accept it, and the reason is recorded.
+            # later promotion can accept it, and the reason is recorded. The
+            # injection decision still consults the policy here: `drop` refuses
+            # even a proposal, and a `quarantine` verdict keeps the write
+            # policy's own pending reason (an extracted row's proposal status
+            # is evaluate_write's word, not the screen's).
             return self._add_as_pending(
-                draft, scope=scope, actor=actor, content=content, reason_code=reason or "quarantined"
+                draft, scope=scope, actor=actor, content=content,
+                reason_code=reason or "quarantined", injection_policy=injection_policy,
             )
 
-        return self._add_as_live(draft, scope=scope, actor=actor, content=content, reason_code=reason)
+        return self._add_as_live(
+            draft, scope=scope, actor=actor, content=content,
+            reason_code=reason, injection_policy=injection_policy,
+        )
 
     def _add_as_live(
-        self, draft: MemoryDraft, *, scope: Scope, actor: str, content: str, reason_code: str
+        self,
+        draft: MemoryDraft,
+        *,
+        scope: Scope,
+        actor: str,
+        content: str,
+        reason_code: str,
+        injection_policy: Any = None,
     ) -> WriteResult:
         redacted = self._redact(content, draft.sensitivity, draft.pii_locales)
-        flags = self._screen(redacted)
+        flags, injection_action, injection_reason = self._screen(
+            redacted, source=draft.source, injection_policy=injection_policy
+        )
+        if injection_action == "drop":
+            seq = audit_append(
+                self._conn, "add", actor, "",
+                {"reason": injection_reason or "injection_dropped"},
+                ok=False, session_id=draft.source_session,
+            )
+            return WriteResult(
+                ok=False, decision="blocked",
+                reason_code=injection_reason or "injection_dropped", audit_seq=seq,
+            )
+        if injection_action == "quarantine":
+            # The policy's quarantine of a flagged *new* write: the row lands
+            # pending from birth (not a demotion of a live row, which §3.4 has
+            # no allowed transition for). Extracted sources already land here
+            # via evaluate_write and keep its reason; this is the branch that
+            # makes a *direct* source's quarantine policy bite.
+            return self._add_as_pending(
+                draft, scope=scope, actor=actor, content=content,
+                reason_code=injection_reason or "injection_quarantined",
+                injection_policy=injection_policy,
+            )
+
         content_hash = self._content_hash(redacted, scope)
 
         dup = self._find_duplicate(content_hash, scope)
@@ -462,10 +530,37 @@ class MemoryStore:
         return WriteResult(ok=True, id=mid, status=status, decision="created", reason_code=reason_code, audit_seq=seq)
 
     def _add_as_pending(
-        self, draft: MemoryDraft, *, scope: Scope, actor: str, content: str, reason_code: str
+        self,
+        draft: MemoryDraft,
+        *,
+        scope: Scope,
+        actor: str,
+        content: str,
+        reason_code: str,
+        injection_policy: Any = None,
     ) -> WriteResult:
         redacted = self._redact(content, draft.sensitivity, draft.pii_locales)
-        flags = self._screen(redacted)
+        flags, injection_action, injection_reason = self._screen(
+            redacted, source=draft.source, injection_policy=injection_policy
+        )
+        if injection_action == "drop":
+            # `drop` refuses even a proposal: a policy that says "an injected
+            # negotiation is never a row" means the same thing on the pending
+            # path, so the write is an audited refusal with no row here too.
+            seq = audit_append(
+                self._conn, "add", actor, "",
+                {"reason": injection_reason or "injection_dropped"},
+                ok=False, session_id=draft.source_session,
+            )
+            return WriteResult(
+                ok=False, decision="blocked",
+                reason_code=injection_reason or "injection_dropped", audit_seq=seq,
+            )
+        # A `quarantine` verdict does not rewrite the pending reason: the row
+        # is a proposal for *evaluate_write's* reason (extract_requires_
+        # promotion, a vault edit, an ingest), and the injection flags ride
+        # along — that combination is exactly what `commit_policy` reads to
+        # keep the candidate in review.
         content_hash = self._content_hash(redacted, scope)
 
         dup = self._find_duplicate(content_hash, scope)
@@ -497,8 +592,27 @@ class MemoryStore:
         )
         return WriteResult(ok=True, id=mid, status="pending", decision="quarantined", reason_code=reason_code, audit_seq=seq)
 
-    def update(self, memory_id: str, patch: MemoryPatch, *, actor: str, reason: str) -> WriteResult:
-        """In-place edit: bump ``version``, snapshot the old content, audit."""
+    def update(
+        self,
+        memory_id: str,
+        patch: MemoryPatch,
+        *,
+        actor: str,
+        reason: str,
+        injection_policy: Any = None,
+    ) -> WriteResult:
+        """In-place edit: bump ``version``, snapshot the old content, audit.
+
+        ``injection_policy`` (EM-703): a content edit re-screens the new text
+        and **refreshes** the row's injection flags — merged with any
+        non-injection flags (EM-503's ``conflict:*``), so a cleaned-up edit
+        cannot leave a stale injection mark standing. A policy action of
+        ``quarantine`` or ``drop`` refuses the edit outright: §3.4's
+        ``LEGAL_TRANSITIONS`` deliberately has no active→pending demotion, so
+        there is no allowed transition that expresses the quarantine, and a
+        ``drop`` edit would otherwise overwrite live content without
+        replacing it.
+        """
         fields = patch.as_dict()
         if not fields:
             return WriteResult(ok=False, decision="blocked", reason_code="empty_patch")
@@ -513,6 +627,7 @@ class MemoryStore:
             )
 
         new_hash: str | None = None
+        merged_flags: list[str] | None = None
         if "content" in fields:
             # A content change invalidates the dedup hash, so redaction and
             # re-hashing happen BEFORE anything is written. Two reasons:
@@ -523,6 +638,17 @@ class MemoryStore:
             #   2. The version snapshot must capture the *pre-edit* content, so
             #      it cannot be taken until the edit is known to be valid.
             new_content = self._redact(fields["content"].strip(), row["sensitivity"])
+            flags, injection_action, injection_reason = self._screen(
+                new_content, source=row["source"], injection_policy=injection_policy
+            )
+            if injection_action in ("quarantine", "drop"):
+                # The refusal happens before the version snapshot, so a
+                # refused edit writes nothing at all — no snapshot, no flag
+                # update, no version bump.
+                return WriteResult(
+                    ok=False, id=memory_id, status=row["status"], decision="blocked",
+                    reason_code=injection_reason or "injection_dropped",
+                )
             new_hash = self._content_hash(new_content, _scope_of(row))
             clash = self._find_duplicate(new_hash, _scope_of(row))
             if clash is not None and clash["id"] != memory_id:
@@ -531,6 +657,13 @@ class MemoryStore:
                     decision="blocked", reason_code="duplicate_content",
                 )
             fields["content"] = new_content
+            # The refreshed injection flags replace the stored ones; the row's
+            # other flags (a conflict marker) are carried across untouched.
+            injection_flags = [f for f in flags if f.startswith("injection:")]
+            kept_flags = [
+                f for f in _loads(row["trust_flags"], []) if not str(f).startswith("injection:")
+            ]
+            merged_flags = list(dict.fromkeys(kept_flags + injection_flags))
 
         # Snapshot the *previous* content, now that the edit is known to be
         # valid and nothing has been written yet.
@@ -550,6 +683,9 @@ class MemoryStore:
             values.append(new_hash)
             sets.append("token_estimate=?")
             values.append(_token_estimate(fields["content"]))
+            if merged_flags is not None:
+                sets.append("trust_flags=?")
+                values.append(json.dumps(merged_flags, separators=(",", ":")))
         sets.append("version=version+1")
         sets.append("updated_at=?")
         values.append(to_iso(utc_now()))
@@ -567,11 +703,27 @@ class MemoryStore:
         )
         return WriteResult(ok=True, id=memory_id, status=row["status"], decision="updated", reason_code=reason, audit_seq=seq)
 
-    def supersede(self, old_id: str, draft: MemoryDraft, *, scope: Scope, actor: str, reason: str) -> WriteResult:
+    def supersede(
+        self,
+        old_id: str,
+        draft: MemoryDraft,
+        *,
+        scope: Scope,
+        actor: str,
+        reason: str,
+        injection_policy: Any = None,
+    ) -> WriteResult:
         """Replace a memory with a new one, in a single transaction.
 
         Old row goes ``superseded`` with ``valid_to`` set and ``superseded_by``
         pointing at the new id; any open relations on the old row are closed.
+
+        ``injection_policy`` (EM-703) applies to the *replacement*: the old row
+        is untouched by a flagged replacement text under a ``quarantine`` or
+        ``drop`` policy (§3.4 has no active→pending demotion, so there is no
+        honest way to park the replacement — refusing to take the old row down
+        is the decision, and the caller re-signals it), while a ``flag`` action
+        writes the replacement through with its ``injection:`` marks.
         """
         old = self._conn.execute("SELECT * FROM memories WHERE id=?", (old_id,)).fetchone()
         if old is None:
@@ -581,7 +733,21 @@ class MemoryStore:
                 ok=False, id=old_id, status=old["status"], decision="blocked", reason_code="not_supersedable"
             )
 
-        result = self._add_as_live(draft, scope=scope, actor=actor, content=(draft.content or "").strip(), reason_code=reason)
+        _, injection_action, injection_reason = self._screen(
+            (draft.content or "").strip(),
+            source=draft.source,
+            injection_policy=injection_policy,
+        )
+        if injection_action in ("quarantine", "drop"):
+            return WriteResult(
+                ok=False, id=old_id, status=old["status"], decision="blocked",
+                reason_code=injection_reason or "injection_dropped",
+            )
+
+        result = self._add_as_live(
+            draft, scope=scope, actor=actor, content=(draft.content or "").strip(),
+            reason_code=reason, injection_policy=injection_policy,
+        )
         if not result.ok or result.decision == "noop_duplicate":
             return result
 

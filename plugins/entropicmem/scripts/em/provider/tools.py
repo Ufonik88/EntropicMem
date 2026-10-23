@@ -568,10 +568,15 @@ class ToolHandlers:
                 memories = MemoryStore(conn)
                 if supersedes:
                     result = memories.supersede(
-                        supersedes, draft, scope=write_scope, actor=actor, reason="supersedes"
+                        supersedes, draft, scope=write_scope, actor=actor, reason="supersedes",
+                        # EM-703: the same trust pair the add path consults.
+                        injection_policy=self._injection_policy,
                     )
                 else:
-                    result = memories.add(draft, scope=write_scope, actor=actor)
+                    result = memories.add(
+                        draft, scope=write_scope, actor=actor,
+                        injection_policy=self._injection_policy,
+                    )
                 if result.ok:
                     self._enqueue_projection(conn, write_scope)
         finally:
@@ -1111,7 +1116,12 @@ class ToolHandlers:
                             content=content,
                             importance=None if importance is None else float(importance),
                         )
-                        result = memories.update(row["id"], patch, actor=actor, reason=reason)
+                        result = memories.update(
+                            row["id"], patch, actor=actor, reason=reason,
+                            # EM-703: the edit refreshes the injection flags
+                            # under the same trust pair.
+                            injection_policy=self._injection_policy,
+                        )
                     else:
                         draft = MemoryDraft(
                             content=content,
@@ -1125,7 +1135,8 @@ class ToolHandlers:
                             status="active",
                         )
                         result = memories.supersede(
-                            row["id"], draft, scope=write_scope, actor=actor, reason=reason
+                            row["id"], draft, scope=write_scope, actor=actor, reason=reason,
+                            injection_policy=self._injection_policy,
                         )
                     if result.ok:
                         self._enqueue_projection(conn, write_scope)

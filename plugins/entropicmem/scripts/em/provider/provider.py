@@ -212,6 +212,9 @@ class EntropicMemProvider(ToolHandlers):
         self._config_errors: Tuple[Any, ...] = ()
         self._gate_config: Any = None
         self._rank_weights: Any = None
+        #: EM-703: the injection trust pair (extracted, direct); built by
+        #: ``_load_typed_config``, ``None`` until then / on typed-load failure.
+        self._injection_policy: Any = None
         self._scripts_dir: Optional[Path] = None
         self._hermes_home: Optional[Path] = None
         self._profile_id: Optional[str] = None
@@ -483,6 +486,14 @@ class EntropicMemProvider(ToolHandlers):
             volatile_half_life_days=cfg.ranking.volatile_half_life_days,
             standard_floor=cfg.ranking.standard_floor,
         )
+        #: EM-703: the injection trust pair, built once beside the gate seams
+        #: so every write the provider drives consults the same decision. The
+        #: typed loader rejects an invalid member before this point, and the
+        #: store's policy evaluation fails any survivor open to ``flag``.
+        self._injection_policy = (
+            str(cfg.trust.injection_policy_extracted),
+            str(cfg.trust.injection_policy_direct),
+        )
         if loaded.errors and not getattr(self.__class__, "_config_errors_logged", False):
             self.__class__._config_errors_logged = True
             logger.warning(
@@ -540,6 +551,7 @@ class EntropicMemProvider(ToolHandlers):
             self._config_errors = ()
             self._gate_config = None
             self._rank_weights = None
+            self._injection_policy = None
         self._scripts_dir = self._host.resolve_scripts_dir(self._hermes_home)
         # §3.5 (EM-402): resolve the session's ScopeContext from the host's
         # init kwargs + config. This is the one identity every read and write
@@ -842,6 +854,27 @@ class EntropicMemProvider(ToolHandlers):
             "min_confidence": float(formation.auto_commit_min_confidence),
             "kinds": list(formation.auto_commit_kinds),
             "ttl_days": int(formation.pending_ttl_days),
+        }
+
+    def _injection_trust_payload(self) -> Dict[str, Any]:
+        """EM-703: the injection trust pair, for the extraction-job payloads.
+
+        Same reason the commit block rides the job: the worker has no provider
+        config. The block is present on every enqueue this provider makes once
+        it lands, deliberately — an extraction whose payload lost its policy
+        must fall back to the *card's own defaults* (the store's), not to a
+        silent weakening of a quarantine into a flag-through; a block that is
+        present but half-formed fails the missing/garbage member open to
+        ``flag`` in the reader, never to silence. The values come from the
+        typed config directly, so the decode is what the config said, not what
+        ``_injection_policy``'s build may have folded in a failed load (the
+        failure path resets to the default ``Config()``, whose own defaults
+        are exactly the card's).
+        """
+        trust = self._typed_config.trust
+        return {
+            "extracted": str(trust.injection_policy_extracted),
+            "direct": str(trust.injection_policy_direct),
         }
 
     def _prefetch_service_for_turn(self):
@@ -1706,6 +1739,7 @@ class EntropicMemProvider(ToolHandlers):
                     "confidence_cap": 0.6,
                     "scope": self._scope_payload(),
                     "commit": self._commit_policy_payload(),
+                    "trust": self._injection_trust_payload(),
                 },
             )
 
@@ -2322,6 +2356,7 @@ class EntropicMemProvider(ToolHandlers):
                     "reason": reason,
                     "scope": self._scope_payload(),
                     "commit": self._commit_policy_payload(),
+                    "trust": self._injection_trust_payload(),
                 },
                 dedupe_key=key,
             )
@@ -2616,6 +2651,9 @@ class EntropicMemProvider(ToolHandlers):
             rank_weights=self._rank_weights,
             embed_query=embedder,
             embedding_model=(embedder.model if embedder is not None else ""),
+            # EM-703: the injection trust pair every v3 write consults; a v2
+            # store ignores it.
+            injection_policy=self._injection_policy,
         )
 
     def _memory_engine(self):

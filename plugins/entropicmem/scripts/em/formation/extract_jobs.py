@@ -23,7 +23,7 @@ means a bad extractor cannot silently publish.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from ..clock import to_iso, utc_now
 from ..jobs.worker import PermanentJobError
@@ -39,6 +39,7 @@ __all__ = [
     "EXTRACT_ACTOR",
     "EXTRACT_SESSION",
     "EXTRACT_WINDOW",
+    "injection_policy_from_payload",
     "make_extract_session_handler",
     "make_extract_window_handler",
     "make_reconcile_handler",
@@ -81,6 +82,37 @@ def _commit_block(payload: Dict[str, Any]) -> Dict[str, Any]:
     return dict(raw) if isinstance(raw, dict) else {}
 
 
+#: Valid members of the EM-703 injection trust pair. Anything else a payload
+#: carries (or fails to carry) fails open — see :func:`injection_policy_from_payload`.
+_INJECTION_ACTIONS = frozenset({"flag", "quarantine", "drop"})
+
+
+def injection_policy_from_payload(payload: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+    """The job's EM-703 injection trust pair ``(extracted, direct)``, or ``None``.
+
+    The provider enqueues the block on every extraction job once it lands, so
+    ``None`` here means one of two things, both honest: the block is absent
+    (a payload from before the field existed — the worker cannot know what the
+    provider intended, and falling back to the store's own **card defaults** is
+    the card's stated fail-open, never a silent weakening of a recorded
+    quarantine into a flag-through), or the block is malformed as a whole.
+
+    A block that is present is honoured member-by-member: a value outside the
+    valid set fails open to ``flag`` (record the mark, never block, never
+    invent), and a partial block fails only its missing member open — the
+    member the payload *did* carry is still the job's policy.
+    """
+    raw = payload.get("trust")
+    if not isinstance(raw, dict) or not raw:
+        return None
+
+    def member(value: Any) -> str:
+        text = str(value if value is not None else "").strip().lower()
+        return text if text in _INJECTION_ACTIONS else "flag"
+
+    return (member(raw.get("extracted")), member(raw.get("direct")))
+
+
 def _ttl_days(payload: Dict[str, Any]) -> int:
     try:
         return max(0, int(_commit_block(payload).get("ttl_days", 30)))
@@ -118,6 +150,7 @@ def _write_candidates(
     origin: str,
     confidence_cap: Optional[float] = None,
     pending_ttl_days: int = 30,
+    injection_policy: Optional[Tuple[str, str]] = None,
 ) -> int:
     """Quarantine each candidate as a pending memory; return how many were new.
 
@@ -127,6 +160,11 @@ def _write_candidates(
     (``extracted_llm`` for a delegation, ``auto_extracted`` for a window) is kept
     as a tag, not as the policy source, so an LLM-extracted delegation cannot
     bypass quarantine.
+
+    ``injection_policy`` (EM-703) is the payload's ``(extracted, direct)`` trust
+    pair (or ``None`` for the store's card defaults); ``add`` records the
+    ``injection:<shape>`` marks for a flagged candidate and, under a
+    ``drop`` member, refuses it outright — the candidate simply writes nothing.
 
     ``MemoryStore.add`` collapses an exact ``(content, scope)`` duplicate to a
     no-op, so a retried job converges onto the rows the first run wrote.
@@ -160,7 +198,7 @@ def _write_candidates(
             legacy_id="",
             visibility="",
         )
-        result = store.add(draft, scope=scope, actor=EXTRACT_ACTOR)
+        result = store.add(draft, scope=scope, actor=EXTRACT_ACTOR, injection_policy=injection_policy)
         if result.ok:
             written += 1
     return written
@@ -203,6 +241,7 @@ def make_extract_window_handler():
                 session_id=session_id,
                 origin="auto_extracted",
                 pending_ttl_days=_ttl_days(payload),
+                injection_policy=injection_policy_from_payload(payload),
             )
             if written:
                 _enqueue_reconcile(conn, payload, scope)
@@ -253,6 +292,7 @@ def make_extract_session_handler():
                 origin=source,
                 confidence_cap=confidence_cap,
                 pending_ttl_days=_ttl_days(payload),
+                injection_policy=injection_policy_from_payload(payload),
             )
             if written:
                 _enqueue_reconcile(conn, payload, scope)
