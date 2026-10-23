@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3137 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3135 passed, 4 skipped, 2 xfailed** |
 
-Read as at `17684d9` (EM-703 + EM-705 built as `859f12d` + `b570065` on `em-703-705-security`:
+Read as at `a15892e` (EM-703 + EM-705 built as `859f12d` + `b570065` on `em-703-705-security`:
 every store write screens for prompt injection in overlapping windows, the trust policy decides what a
 flagged shape means, and `purge` erases the memory's vectors and schedules the vault's regeneration;
 43 new tests and 30 red mutation checks, plus the figures re-stamp, the docs record and the run-id
@@ -45,8 +45,8 @@ from the CI-equivalent reading by the host-pin relation; the record commits (`f7
 `39957746506` read **3135 passed, 4 skipped, 2 xfailed** from its `test (3.12)` job log on
 `17684d9` — 13/13 jobs green, exactly what the host-pin relation had projected from the
 CI-equivalent. Commits that touch `tests/` (this read pass's own run-id allowlist entry) are
-never ancestors of a record written before them: **the companion docs-only commit re-stamps the
-record at this pass's commit** — the figure stays the landing tree's figure.
+never ancestors of a record written before them: **the companion docs-only commit that made this
+tip re-stamped the record at this pass's commit** — the figure stays the landing tree's figure.
 **The previous record** was EM-607 at `e4910c7` (bare 2997 / 20 / 2, digest 2998 / 19 / 2,
 CI-equivalent 3094 / 2 / 2, 3.10 3092 / 4 / 2, CI 3092 / 4 / 2 **read** from run `39666424863`,
 which ran on `e0f39a5`), and before it the cited-SHA reachability fix at `cf872e5` (bare 2967 / 20 / 2,
