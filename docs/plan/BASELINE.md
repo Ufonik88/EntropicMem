@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3137 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3135 passed, 4 skipped, 2 xfailed** |
 
-Read as at `b570065` (EM-703 + EM-705 built as `859f12d` + `b570065` on `em-703-705-security`:
+Read as at `f7fb7a1` (EM-703 + EM-705 built as `859f12d` + `b570065` on `em-703-705-security`:
 every store write screens for prompt injection in overlapping windows, the trust policy decides what a
 flagged shape means, and `purge` erases the memory's vectors and schedules the vault's regeneration;
 43 new tests and 30 red mutation checks, plus the figures re-stamp, the docs record and the run-id
@@ -42,8 +42,8 @@ assertion (the record then still named `e4910c7`) and these four figures not yet
 record, the documented pre-stamp shape — so the CI row above is **projected** from the
 CI-equivalent reading by the host-pin relation, which is the relation the landing has always held.
 The docs-record commit carries the run-id allowlist, so it touches `tests/`, and a commit touching
-`tests/` is never an ancestor of a record written before it: **a companion docs-only commit re-stamps
-the record at this record's commit, and the landing tip's green run then re-reads the CI row.**
+`tests/` is never an ancestor of a record written before it: **the companion docs-only commit that made this tip re-stamped
+the record at this record's commit; the landing tip's green run then re-reads the CI row.**
 **The previous record** was EM-607 at `e4910c7` (bare 2997 / 20 / 2, digest 2998 / 19 / 2,
 CI-equivalent 3094 / 2 / 2, 3.10 3092 / 4 / 2, CI 3092 / 4 / 2 **read** from run `39666424863`,
 which ran on `e0f39a5`), and before it the cited-SHA reachability fix at `cf872e5` (bare 2967 / 20 / 2,
