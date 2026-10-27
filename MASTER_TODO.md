@@ -131,12 +131,14 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-27, against branch `main` at `ceb70cb` (the EM-806 S8 packaging
-landing: opening docs `1e683c1`, build `bf2e267`, record pass `ceb70cb`, ff-merged with 13/13
-green check-runs on that exact SHA and again on `main`'s push). The previous reconciliation was
-the read pass that closed the EM-703 + EM-705 landing's figures — landed as `17684d9` from code
-`859f12d` + `b570065` on `em-703-705-security`, deleted after the ff-merge; before that the
-EM-607 ingest-v2 landing at `5f0670c`, and before that 2026-10-19 against `2079bd3`. (security
+**Last reconciled:** 2026-10-27, against branch `main` at `2df0cee` (the EM-806 S8 packaging
+landing `ceb70cb` — opening docs `1e683c1`, build `bf2e267` — plus the read pass `bdd2ecb`
+that flipped its CI figure from projected to read and the docs-only re-stamp `2df0cee` all
+three green on their own exact SHAs, and `main`'s pushes green on the same). The previous
+reconciliation was the read pass that closed the EM-703 + EM-705 landing's figures — landed
+as `17684d9` from code `859f12d` + `b570065` on `em-703-705-security`, deleted after the
+ff-merge; before that the EM-607 ingest-v2 landing at `5f0670c`, and before that 2026-10-19
+against `2079bd3`. (security
 hardening applied in the working tree; see the note above) — **EM-605 slice 1 (the
 graph model / renderers / viewer-assets split) landed (`2fd7812`, all 11 check-runs green on
 the exact SHA), and EM-603's 5k AC is de-flaked (landed `adb1439`, reconciled as `e6647e7`);
