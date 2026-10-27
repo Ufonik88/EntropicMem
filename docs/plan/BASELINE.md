@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3146 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3144 passed, 4 skipped, 2 xfailed** |
 
-Read as at `bdd2ecb` (EM-806 packaging: the wheel ships the engine's flat modules, the
+Read as at `da86e59` (EM-806 packaging: the wheel ships the engine's flat modules, the
 host's `hermes_agent.memory_providers` entry point loads a provider from a pip install,
 the shell ships as a package with `config_schema.py`/`cli.py` beside it, and
 `plugin.yaml` carries the measured `requires_hermes` floor and an explicit
