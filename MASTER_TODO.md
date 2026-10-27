@@ -49,8 +49,22 @@ points at.
 > green check-runs on that exact SHA and again on `main`'s push (the build tip's own run
 > `39951235609` was red on the figures-guard pair alone, the expected pre-stamp shape; the
 > record pass `f7fb7a1` landed the figures before the landing ran). Detail in
-> `docs/plan/NEXT_CHUNK.md` Part A.** EM-806 packaging
-> and S9's drills/release stay behind their own gates.
+> `docs/plan/NEXT_CHUNK.md` Part A.**
+>
+> **2026-10-27: the owner said "continue with the next available chunk". With S6 complete and
+> S7's two buildable cards landed, the only card left that is code rather than a release act
+> is **S8's EM-806 — packaging**, and it is the chunk now in flight on branch
+> `em-806-packaging`.** The card closes two measured defects: the wheel ships `em.*` and
+> `em_internal.*` but **none of the flat engine modules** they import (`memory_engine`,
+> `pii`, `textutil`, …), so `import em.graph` from an installed wheel fails inside
+> `em_internal.index` (recorded, not fixed, by chunk 43); and nothing declares the host's
+> `hermes_agent.memory_providers` entry point or ships the plugin shell as an importable
+> package, so `pip install entropicmem` installs an engine no host can load. It also gives
+> `plugin.yaml` the two manifest fields a pip install needs (`requires_hermes`,
+> `pip_dependencies`) and documents the optional extras. The plan is Part B of
+> `docs/plan/NEXT_CHUNK.md`; the build is not pushed yet, so **no CI run exists for it**.
+> **S9's drills (EM-901) and the 3.0 release (EM-904) stay behind the owner's release gate,
+> and the v3 cutover remains the owner's call.**
 
 ---
 
@@ -114,7 +128,7 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-23, against branch `main` at `17684d9` (the EM-703 + EM-705 write-path security landing; code `859f12d` + `b570065` on `em-703-705-security`, deleted once this record pass lands; the previous reconciliation was the EM-607 ingest-v2 landing at `5f0670c`, and before that 2026-10-19 against `2079bd3`) (security
+**Last reconciled:** 2026-10-27, against branch `main` at `bbabf23` (the read pass that closed the EM-703 + EM-705 landing's figures — landed as `17684d9` from code `859f12d` + `b570065` on `em-703-705-security`, deleted after the ff-merge; the previous reconciliation was the EM-607 ingest-v2 landing at `5f0670c`, and before that 2026-10-19 against `2079bd3`). **This pass opens EM-806 (S8 packaging) on branch `em-806-packaging`: the branch is not pushed, so no CI run exists for it yet.** (security
 hardening applied in the working tree; see the note above) — **EM-605 slice 1 (the
 graph model / renderers / viewer-assets split) landed (`2fd7812`, all 11 check-runs green on
 the exact SHA), and EM-603's 5k AC is de-flaked (landed `adb1439`, reconciled as `e6647e7`);
@@ -600,6 +614,7 @@ EM-211 (the legacy facade) is chunks 4–7.2 plus the wiring; EM-212 is chunk 8.
 | 44 | **EM-605 slice 2.1 — entity nodes and typed relation edges from both stores** | **Committed locally, not pushed** (`69dc223`, 2026-10-20; no CI run exists, so the CI figure is projected). One read-only loader (`em/graph/source.py`) over `memory.db` with an **explicitly required** `scope_profile` (no default, so "all profiles" cannot arrive by omission; a missing or foreign DB is `available=False` with a path-free reason, and the file is never created); entity ids prefixed `entity:` so the two id spaces cannot join (a fixture where an entity id *is* a note id stays two nodes — `memory_entities` links memories, not notes); typed node colours by kind and stable SHA-256 predicate colours (not salted `hash()`); every non-edge relation (literal object, closed interval, out-of-profile endpoint, cap-trimmed endpoint) counted in `meta.entities`; the model re-checks both endpoints even for a hand-built graph; `body_coverage` counts notes only, so `--include-bodies` keeps its gate. `graph export --entities` is opt-in, html/json only, dot/canvas exit 2; the owner-only filter and byte-level leak test are slice 2.2, and until then the flag exports the whole named profile. 19 new tests (both stores real), **12 mutation checks red**, one absorbed by design (the model's second endpoint guard, the loader having already closed the set). Counts bare **2911 / 19 / 2**, digest **2912 / 18 / 2**, CI-equivalent 3.12 **2993 / 2 / 2**, 3.10 **2991 / 4 / 2**, CI **2991 / 4 / 2** projected; the figures record is refreshed at `69dc223` with `ci_run: ""`, and the guard now rejects a record older than the newest suite-surface commit. |
 | 45 | **EM-605 slice 2.2 — the owner-only scope filter with a byte-level leak test** | **Committed locally, not pushed** (`1e5b739`, 2026-10-20; no CI run exists, so the CI figure is projected). Entities and relations have no user column, so ownership is attributed through the store: an entity survives `scope="owner"` when at least one `memory_entities` link points at a profile-wide memory in its profile, or when it has no memory link at all (an entity row is profile-wide; an unattributed manual entity is owner data); a relation survives when its `memory_id` is empty and both endpoints are visible, or when it resolves to a profile-wide memory in the same profile. A user-scoped, missing or cross-profile source fails closed; a guest-sourced edge between two owner entities is hidden; a hidden endpoint hides the relation. Filtering runs before degree and the entity cap, so a hidden row neither consumes a slot nor lends degree. `meta.entities` counts `hidden_entities` / `hidden_relations` by number only — no id, name, alias, predicate or endpoint — while shape/cap losses stay in `dropped_relations`; aliases ride only the survivors. `graph export --entities` gains `--scope {owner,all}` (default `owner`); `--scope all` is the explicit opt-in and the loader refuses any other value. The viewer's stats line reports the scope and filters nothing. The leak test builds a same-profile owner/guest fixture and scans the whole JSON and HTML output (embedded JSON and the sibling `graph.json`), plus a viewer-asset baseline check, for every guest id, label, alias, predicate, endpoint, memory id and the guest user id, with the owner side present as a positive control. 12 new tests (31 in the slice suite); **13 mutation checks red, none survived** — the node filter removed alone and with the relation filter, the no-link clause removed, the relation-memory filter removed, cross-profile fail-open, the endpoint loss miscounted and uncounted, hidden rows serialized, an unknown scope accepted, the CLI ignoring `--scope all`, the CLI defaulting to all, the scope key dropped from meta, and any-link attribution — each restored from a byte copy. Counts bare **2923 / 19 / 2**, digest **2924 / 18 / 2**, CI-equivalent 3.12 **3005 / 2 / 2**, 3.10 **3003 / 4 / 2**, CI **3003 / 4 / 2** projected; the figures record is at `1e5b739` with `ci_run: ""`. The bare privacy guard reads 6 passed / 1 skipped (the private list is absent at its default path); the digest run reads 7 passed. |
 | 46 | **EM-605 slice 2.3 — the relation time window over `valid_from` / `valid_to`** | **Committed locally, not pushed** (`e08694a`, 2026-10-20; no CI run exists, so the CI figure is projected). Closed relations are no longer dropped at load: the read-only loader reads every relation in the chosen profile, open or closed. `em/graph/model.py` builds an inclusive rank axis from the surviving relation edges — `meta.entities.time` carries `available`, `min`, `max`, `stops` and `unparsed_relations`; every relation edge carries `time_span: [startRank, endRank]`. Null `valid_from` is −∞ (`-1`), null `valid_to` is +∞ (`len(stops)`), both null means no span (timeless and always visible), equal boundaries share one rank, and a bound that does not parse leaves the edge visible in every window while incrementing `unparsed_relations`. The viewer adds a two-handle `Time window`, defaults to the full axis and restores it on Reset; it filters relation edges only, so entities stay and note edges are never time-filtered. Window-hidden edges are counted by the viewer as `timeHidden` and displayed “N outside time window” — never added to the server-side `hidden_relations` scope count; the scope filter remains in Python, so client-side time hiding cannot reintroduce a non-owner row. 9 new tests (**40 in the slice suite**), including the rewritten 2.1 closed-interval test; **17 mutation checks red, none survived**, each restored from a byte copy. Counts bare **2932 / 19 / 2**, digest **2933 / 18 / 2**, CI-equivalent 3.12 **3014 / 2 / 2**, 3.10 **3012 / 4 / 2**, CI **3012 / 4 / 2** projected; the figures record is at `e08694a` with `ci_run: ""`. The bare privacy guard reads 6 passed / 1 skipped; the digest run reads 7 passed. |
+| 47 | **EM-806 — S8 packaging: the wheel ships the engine, and a pip install loads the provider** | **In progress — built, not merged** (`em-806-packaging`, 2026-10-27; the branch is not pushed, so no CI run exists). The card: the host's `hermes_agent.memory_providers` entry point (`entropicmem = entropicmem_plugin:register`), the plugin shell shipped as a **package** so the host still resolves `config_schema.py`/`cli.py` from its directory (`find_provider_dir` returns a directory only for a package), `py-modules` carrying the flat engine modules `em`/`em_internal` import — the chunk-43 finding that `import em.graph` from an installed wheel fails inside `em_internal.index` — `plugin.yaml`'s `requires_hermes: ">=0.21.3"` (the first host release with `spawn_context_thread` + `RecallStatus`) and `pip_dependencies: []`, the optional extras documented, and a pip-install smoke step in the existing `plugin-validate` CI job that installs the wheel and loads the provider through the host's own entry-point loader. **No runtime behaviour changes** — no tool, hook, schema, config key or store change — so the catalog-review surface is untouched. |
 
 
 **EM-404 slice 1 is on `main` without a chunk number — recorded here so it is
@@ -788,6 +803,23 @@ that names its card, not a silent wrong answer. **What remains is the cutover** 
 the owner's deliberate act, now technically available.
 
 ### In flight
+
+**EM-806 — S8 packaging — is OPEN (2026-10-27, chunk 47) on branch `em-806-packaging`;
+built, not pushed, so no CI run exists for it yet.** The card, from the master plan's
+§S8: the provider is discoverable by a pip install (`hermes_agent.memory_providers` →
+`entropicmem = entropicmem_plugin:register`), the shell ships as a **package** (the host
+resolves `config_schema.py` and `cli.py` from its directory, so a bare module would lose
+the dashboard panel and `hermes entropicmem`), `plugin.yaml` carries `requires_hermes`
+(the first host release with `spawn_context_thread` + `RecallStatus`, `0.21.3`) and an
+explicit empty `pip_dependencies`, the wheel ships the **flat engine modules** the
+`em`/`em_internal` packages import (the chunk-43 gap: `import em.graph` from an installed
+wheel fails inside `em_internal.index`), and the optional extras are documented. The AC is
+`hermes plugins validate --install-deps plugins/entropicmem` green **and** a pip-install
+smoke test in a venv loading the provider — the second is a new CI step in the existing
+`plugin-validate` job, because this box's suite has no host install to load against.
+**The card adds no runtime behaviour**: no provider tool, hook, schema, config key or
+store change, so the catalog review's surface is untouched. Exit state when this paragraph
+is read on a later `main`: see §11 and `docs/plan/NEXT_CHUNK.md` Part A.
 
 **The S7 write-path security pair — EM-703 + EM-705 — is COMPLETE: LANDED on `main` at
 `17684d9` (2026-10-23):** code `859f12d` (EM-703: `injection_screen.screen_text_windows`
