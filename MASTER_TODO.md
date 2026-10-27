@@ -1757,6 +1757,16 @@ Each is a deliberate, recorded decision. The full table with reasons is in
 [plan §6.1](docs/plan/REMAINING_PLAN.md) and
 [V3_FOUNDATIONS.md](docs/V3_FOUNDATIONS.md).
 
+- **2026-10-27 (EM-806 session): `2ff11c2` was pushed to `main` directly, before CI
+  ran on it — a process slip, not a policy change.** It is a docs-only commit (the
+  reconciled tip in this page and plan §11's Development line), and the push trigger
+  then ran the full matrix on that exact SHA: **run `40528252379` is 13/13 green on
+  `2ff11c2`**, so the gate holds in outcome. It is recorded rather than "fixed", because
+  the only ways to make it look compliant are to rewrite published history (rule 9) or
+  to pretend the branch existed. **The rule stands and every later commit in this
+  session went through a branch with green check-runs on its exact SHA before the
+  ff-merge.**
+
 - **`legacy_id` is stamped on profile-wide writes only.** It is `UNIQUE` and
   content-derived, and v3 scopes rows per user where v2 had one owner per
   database. This is what keeps the provider's mirror lookup working.

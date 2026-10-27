@@ -114,6 +114,10 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # step included), and the 3.12 job log the figures of record are read from
     # (BASELINE.md, CHANGELOG.md, NEXT_CHUNK.md, MASTER_TODO.md).
     "40521965355": "GitHub Actions run id, not a commit: the 2026-10-27 EM-806 landing run on ceb70cb whose 3.12 log the figures were read from",
+    # The 2ff11c2 process slip (MASTER_TODO's deviations section): a docs-only
+    # commit pushed to main before its CI ran. Cited so the post-push matrix's
+    # green result stays checkable, and recorded as a slip rather than a policy.
+    "40528252379": "GitHub Actions run id, not a commit: the 2026-10-27 post-push run on 2ff11c2 (docs-only slip, green 13/13)",
     "39251351180": "GitHub Actions run id, not a commit: the 2026-10-19 green run on 5258b46, chunk 43, the EM-605 slice-1 follow-up (BASELINE.md)",
     # Cited on purpose BECAUSE it does not resolve: BASELINE.md's "Citing CI
     # evidence" section uses it as the worked example of a run whose head_sha
