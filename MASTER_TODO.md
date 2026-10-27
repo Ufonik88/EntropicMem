@@ -131,10 +131,12 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-27, against branch `main` at `2df0cee` (the EM-806 S8 packaging
+**Last reconciled:** 2026-10-27, against branch `main` at `1d2f631` (the EM-806 S8 packaging
 landing `ceb70cb` — opening docs `1e683c1`, build `bf2e267` — plus the read pass `bdd2ecb`
 that flipped its CI figure from projected to read and the docs-only re-stamp `2df0cee` all
-three green on their own exact SHAs, and `main`'s pushes green on the same). The previous
+three green on their own exact SHAs, and `main`'s pushes green on the same), then `2ff11c2`
+(the read-pass tip) and the deviation record's pair `da86e59` + `1d2f631` — all docs-only,
+each green on `main`'s push on its exact SHA. The previous
 reconciliation was the read pass that closed the EM-703 + EM-705 landing's figures — landed
 as `17684d9` from code `859f12d` + `b570065` on `em-703-705-security`, deleted after the
 ff-merge; before that the EM-607 ingest-v2 landing at `5f0670c`, and before that 2026-10-19
