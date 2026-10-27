@@ -110,6 +110,10 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # and the 3.12 job log the figures of record are read from (BASELINE.md,
     # CHANGELOG.md, NEXT_CHUNK.md, MASTER_TODO.md).
     "39957746506": "GitHub Actions run id, not a commit: the 2026-10-23 EM-703/EM-705 landing run on 17684d9 whose 3.12 log the figures were read from",
+    # The S8 packaging landing: green on its 13 check-runs (the pip-install smoke
+    # step included), and the 3.12 job log the figures of record are read from
+    # (BASELINE.md, CHANGELOG.md, NEXT_CHUNK.md, MASTER_TODO.md).
+    "40521965355": "GitHub Actions run id, not a commit: the 2026-10-27 EM-806 landing run on ceb70cb whose 3.12 log the figures were read from",
     "39251351180": "GitHub Actions run id, not a commit: the 2026-10-19 green run on 5258b46, chunk 43, the EM-605 slice-1 follow-up (BASELINE.md)",
     # Cited on purpose BECAUSE it does not resolve: BASELINE.md's "Citing CI
     # evidence" section uses it as the worked example of a run whose head_sha

@@ -26,7 +26,7 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3144 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent reading by the host-pin relation — the branch was not pushed when these figures were measured, so no run exists to read yet; the landing run replaces this row, and the read pass states the run id with it)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3144 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40521965355`, which ran on `ceb70cb` — 13/13 jobs green on the branch tip and again on `main`'s post-landing push; the new `plugin-validate` pip-install smoke step loaded the provider from the installed package on both)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3049 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3050 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3146 passed, 2 skipped, 2 xfailed** |
@@ -37,15 +37,22 @@ host's `hermes_agent.memory_providers` entry point loads a provider from a pip i
 the shell ships as a package with `config_schema.py`/`cli.py` beside it, and
 `plugin.yaml` carries the measured `requires_hermes` floor and an explicit
 `pip_dependencies: []`; 9 new tests and 13 red mutation checks, plus this record pass) —
-measured for the tree at that commit. **CI has not run for this tree, so the CI row
-above is projected** — derived from the CI-equivalent reading by the host-pin relation
-(`−2 passed, +2 skipped`) and replaced by the landing run's `test (3.12)` job log, whose
-read pass flips this row and this paragraph in one commit. The measurement was taken on
-the tree that became `bf2e267` **before** the build commit, because the figures guard
-cannot be green at the build commit by construction: the record predates it and the
-CHANGELOG already states the new triples (the documented pre-stamp shape, the same one
-EM-703 + EM-705's build tip showed). No test, `pyproject.toml` or plugin file changed
-between that measured run and the commit — the only change was the CHANGELOG entry.
+measured for the tree at that commit. **CI has run for this tree and this row is read,
+not projected:** run `40521965355` on `ceb70cb` read **3144 passed, 4 skipped,
+2 xfailed** from its `test (3.12)` job log — 13/13 jobs green on that exact SHA, on the
+branch push and again on `main`'s post-landing push, and exactly what the host-pin
+relation had projected from the CI-equivalent. The new `plugin-validate`
+**pip-install smoke step** ran in both: it installed the wheel, resolved the
+`hermes_agent.memory_providers` entry point and loaded the provider through the host's
+own loader (`pip-install smoke: entropicmem loaded from …/site-packages/entropicmem_plugin`).
+The measurement was taken on the tree that became `bf2e267` **before** the build commit,
+because the figures guard cannot be green at the build commit by construction: the
+record predates it and the CHANGELOG already states the new triples (the documented
+pre-stamp shape, the same one EM-703 + EM-705's build tip showed). No test,
+`pyproject.toml` or plugin file changed between that measured run and the commit — the
+only change was the CHANGELOG entry. **The read pass's own commit touches `tests/`
+(the run-id allowlist entry), so its companion docs-only commit re-stamps the record at
+this pass's commit** — the figure stays the landing tree's figure.
 
 **The previous record** was EM-703 + EM-705 at `a15892e` (built as `859f12d` + `b570065` on `em-703-705-security`:
 every store write screens for prompt injection in overlapping windows, the trust policy decides what a
@@ -170,7 +177,7 @@ bare          3049 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3146 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3144 /  4 / 2   (projected; the landing run's 3.12 job log replaces it)
+= CI          3144 /  4 / 2   (read from run 40521965355, 3.12 job log)
 ```
 
 ## Citing CI evidence — one trap
