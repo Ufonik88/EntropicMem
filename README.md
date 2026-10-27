@@ -87,6 +87,30 @@ Full detail: [docs/SELF_INSTALL.md](docs/SELF_INSTALL.md).
 
 The agent fetches the repo, installs the skill and plugin, bootstraps the vault, and smoke-tests in one pass. Follow [skills/entropicmem/SETUP.md](skills/entropicmem/SETUP.md) for the bootstrap checklist.
 
+### Option C: `pip install` (engine + provider in one distribution)
+
+```bash
+pip install entropicmem
+```
+
+The package declares the host's `hermes_agent.memory_providers` entry point
+(`entropicmem = entropicmem_plugin:register`) and ships the engine's flat modules, the
+`em.*` packages and the plugin directory as the `entropicmem_plugin` package, so
+`hermes memory setup` lists `entropicmem` the same way a catalog install does. It
+requires a host with `spawn_context_thread` and `RecallStatus` (`requires_hermes:
+">=0.21.3"`). The base install is stdlib-only; the optional extras are opt-in:
+
+| Extra | Adds |
+|---|---|
+| `entropicmem[semantic]` | `fastembed` — the ONNX embedding backend (no torch) |
+| `entropicmem[semantic-st]` | `sentence-transformers`, `numpy`, `scikit-learn` — the v2 semantic re-ranker stack |
+| `entropicmem[graph]` | `graphviz` for the DOT renderer |
+| `entropicmem[security]` | `cryptography` for the encrypted store |
+| `entropicmem[serve]` | `fastapi` + `uvicorn` for `graph serve` |
+| `entropicmem[dev]` | `pytest` + `ruff` for developing this repo |
+
+Full detail: [docs/SELF_INSTALL.md](docs/SELF_INSTALL.md).
+
 ## Quickstart
 
 All commands run through the engine CLI under the plugin directory, `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py`:

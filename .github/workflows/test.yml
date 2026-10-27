@@ -192,6 +192,40 @@ jobs:
       # Exact command the Hermes plugin catalog runs at the pinned plugin SHA.
       - run: hermes plugins validate --install-deps plugins/entropicmem
 
+      # EM-806: the card's second AC — a **pip install** loads the provider. The
+      # repo suite guards the declarations (entry point, package layout, the
+      # derived py-modules closure, the manifest fields); this installs the wheel
+      # into the environment that already has the host, then resolves the entry
+      # point and loads the provider through the host's own loader, from a
+      # directory with no checkout on sys.path.
+      - name: pip-install smoke test
+        run: |
+          uv pip install --system --no-deps .
+          cd /tmp
+          python - <<'PY'
+          from plugins.memory import (
+              _load_provider_from_entry_point,
+              find_provider_dir,
+              find_provider_entry_point,
+          )
+
+          entry = find_provider_entry_point("entropicmem")
+          assert entry is not None, (
+              "no hermes_agent.memory_providers entry point named 'entropicmem' is installed"
+          )
+          provider = _load_provider_from_entry_point(entry, register_skills=False)
+          assert provider is not None, f"entry point {entry.value!r} loaded no provider"
+          assert provider.name == "entropicmem", provider.name
+
+          directory = find_provider_dir("entropicmem")
+          assert directory is not None, (
+              "the host cannot read config_schema.py/cli.py from the installed package"
+          )
+          for sibling in ("config_schema.py", "cli.py"):
+              assert (directory / sibling).is_file(), f"missing {sibling} beside the shell"
+          print(f"pip-install smoke: {provider.name} loaded from {directory}")
+          PY
+
   # Commit-identity guard. Fails when any commit in range carries an author or
   # committer email that is not a noreply address.
   #

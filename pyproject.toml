@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "entropicmem"
 dynamic = ["version"]
-description = "Standalone agent memory system for Hermes Agent — SQLite FTS5 memory engine, Markdown vault, visual graph, and a 34-command knowledge loop."
+description = "Standalone agent memory system for Hermes Agent — SQLite FTS5 memory engine, Markdown vault, visual graph, and a 37-command knowledge loop."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -53,14 +53,34 @@ Repository = "https://github.com/Ufonik88/EntropicMem"
 Issues = "https://github.com/Ufonik88/EntropicMem/issues"
 Changelog = "https://github.com/Ufonik88/EntropicMem/blob/main/CHANGELOG.md"
 
+# EM-806: the host's own discovery group for memory providers (verified against
+# plugins/memory's ENTRY_POINTS_GROUP, tried after bundled/user/project dirs).
+# The target is the packaged shell, and it is a **package** on purpose: the host
+# resolves a directory from a package entry point only, and reads
+# `config_schema.py` (dashboard panel) and `cli.py` (`hermes entropicmem`) from
+# that directory instead of importing them. A one-file module would ship a
+# provider with neither.
+[project.entry-points."hermes_agent.memory_providers"]
+entropicmem = "entropicmem_plugin:register"
+
 # EM-201: the version's single source of truth is em/__init__.py. The engine
 # lives under plugins/entropicmem/scripts/ so the plugin directory stays
 # self-contained for catalog installs; package-dir maps that root for both
-# the dynamic-version lookup and wheel packaging. Full packaging (entry
-# points, extras layout) is EM-806.
+# the dynamic-version lookup and wheel packaging.
 [tool.setuptools]
-package-dir = {"" = "plugins/entropicmem/scripts"}
-packages = ["em", "em.cli", "em.embeddings", "em.facade", "em.formation", "em.graph", "em.graph.assets", "em.ingest", "em.jobs", "em.policy", "em.provider", "em.retrieval", "em.store", "em.store.migrations", "em.util", "em.vault", "em_internal"]
+package-dir = {"" = "plugins/entropicmem/scripts", "entropicmem_plugin" = "plugins/entropicmem"}
+packages = ["em", "em.cli", "em.embeddings", "em.facade", "em.formation", "em.graph", "em.graph.assets", "em.ingest", "em.jobs", "em.policy", "em.provider", "em.retrieval", "em.store", "em.store.migrations", "em.util", "em.vault", "em_internal", "entropicmem_plugin"]
+# EM-806: the engine's **flat** modules. `packages=` ships `em`/`em_internal`,
+# and six of those modules import top-level modules that live beside them —
+# `em_internal.index` imports `memory_engine`, so a wheel without these raised
+# `ModuleNotFoundError` on `import em.graph` and the whole engine was
+# source-tree-only (chunk 43 recorded the gap; this closes it). The list is the
+# import closure, derived by `tests/unit/test_em806_packaging.py` rather than
+# hand-maintained: a new flat-module dependency fails that test on its first
+# commit. `graph_static`, `parity_audit` and the `entropicmem` CLI are CLI/ops
+# scripts no engine module imports, and are deliberately not shipped as modules
+# (the CLI is reachable as `hermes entropicmem` through the shipped `cli.py`).
+py-modules = ["graph_query", "injection_screen", "memory_engine", "pii", "session_digest", "stopwords", "temporal", "textutil", "triple_extract"]
 
 # EM-605: the graph viewer ships as data, not Python — the HTML/CSS/JS are
 # read through importlib.resources and inlined at export. The globs are keyed
@@ -70,6 +90,15 @@ packages = ["em", "em.cli", "em.embeddings", "em.facade", "em.formation", "em.gr
 # future setuptools.
 [tool.setuptools.package-data]
 "em.graph.assets" = ["*.html", "*.css", "*.js", "*.LICENSE"]
+
+# EM-806: `entropicmem_plugin` is built from `plugins/entropicmem`, which also
+# holds the whole `scripts/` engine — shipped separately as `em.*`,
+# `em_internal.*` and `py-modules`. Without this exclusion setuptools treats
+# every file under `scripts/` as *data* of the package and the wheel carries a
+# second copy of the engine (plus whatever `*.egg-info` a local build left). The
+# shell's own five modules at the package root are unaffected.
+[tool.setuptools.exclude-package-data]
+"entropicmem_plugin" = ["scripts", "scripts/*", "scripts/*/*", "scripts/*/*/*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "em.__version__"}

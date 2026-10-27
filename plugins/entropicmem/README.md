@@ -16,6 +16,31 @@ Development checkout:
 ln -sf "/path/to/EntropicMem/plugins/entropicmem" ~/.hermes/plugins/entropicmem
 ```
 
+Pip install (engine + provider in one distribution):
+
+```bash
+pip install entropicmem
+```
+
+The distribution declares the host's own `hermes_agent.memory_providers` entry point
+(`entropicmem = entropicmem_plugin:register`) and ships the engine's flat modules, the
+`em.*` packages and this whole plugin directory as the `entropicmem_plugin` package, so
+`hermes memory setup` finds `entropicmem` exactly as a catalog install does — the
+dashboard panel and `hermes entropicmem …` come from the shipped `config_schema.py` and
+`cli.py`. It needs a host release that has `spawn_context_thread` and `RecallStatus`
+(declared as `requires_hermes: ">=0.21.3"` in `plugin.yaml`).
+
+Optional extras — the base install is stdlib-only, and every extra is opt-in:
+
+| Extra | What it adds |
+|---|---|
+| `pip install "entropicmem[semantic]"` | `fastembed` — the ONNX embedding backend (no torch) behind `embeddings_enabled: true` |
+| `pip install "entropicmem[semantic-st]"` | the v2 semantic re-ranker's stack: `sentence-transformers`, `numpy`, `scikit-learn` |
+| `pip install "entropicmem[graph]"` | `graphviz`, for the DOT renderer (`graph export --format dot`) |
+| `pip install "entropicmem[security]"` | `cryptography`, for the encrypted-store commands |
+| `pip install "entropicmem[serve]"` | `fastapi` + `uvicorn`, for `graph serve` |
+| `pip install "entropicmem[dev]"` | `pytest` + `ruff`, for working on this repo |
+
 ## Activate
 
 ```yaml

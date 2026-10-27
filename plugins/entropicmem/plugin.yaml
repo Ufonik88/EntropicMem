@@ -2,11 +2,28 @@ name: entropicmem
 version: 3.0.0.dev0
 description: "EntropicMem MemoryProvider for Hermes Agent — local durable facts, hybrid vault retrieval, and prefetch context injection."
 author: Ufonik
-# What register() wires: one MemoryProvider exposing 7 tools and 5 lifecycle
+# EM-806: the two manifest fields a host judges a **pip install** on. The floor
+# is measured, not guessed: `spawn_context_thread` first appears in Hermes tag
+# `v2026.9.14` (version 0.21.3) and `RecallStatus` predates it, so 0.21.3 is the
+# first release this provider runs on; `version_satisfies` compares the first
+# three numeric segments. The engine is stdlib-only (`project.dependencies` is
+# empty), and the optional extras are opt-in installs, not requirements — a
+# catalog install is a directory copy with no `pyproject.toml`, which is why the
+# empty list is declared here rather than left implicit.
+requires_hermes: ">=0.21.3"
+pip_dependencies: []
+# What register() wires: one MemoryProvider exposing 9 tools and 6 lifecycle
 # hooks (declaration-time count must match the registrations). These two lists
 # are the single declaration: the Hermes catalog review checks them against
 # register(), so keep them exact. (A duplicate `hooks:` list was removed at the
 # maintainer's request.)
+#
+# EM-806 settled the plan's open question: the legacy aliases
+# (`entropicmem_recall`, `entropicmem_query`, `patch_core`, `get`, `consolidate`)
+# are **not** listed. The validator fails on "undeclared tools registered" and
+# only warns on a declared name it did not see, and the aliases advertise no
+# schema (`get_tool_schemas()` returns the nine below), so listing them would
+# declare tools that do not exist.
 provides_tools:
   - entropicmem_remember
   - entropicmem_search
