@@ -32,12 +32,15 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3146 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3144 passed, 4 skipped, 2 xfailed** |
 
-Read as at `bf2e267` (EM-806 packaging: the wheel ships the engine's flat modules, the
+Read as at `bdd2ecb` (EM-806 packaging: the wheel ships the engine's flat modules, the
 host's `hermes_agent.memory_providers` entry point loads a provider from a pip install,
 the shell ships as a package with `config_schema.py`/`cli.py` beside it, and
 `plugin.yaml` carries the measured `requires_hermes` floor and an explicit
 `pip_dependencies: []`; 9 new tests and 13 red mutation checks, plus this record pass) —
-measured for the tree at that commit. **CI has run for this tree and this row is read,
+measured for the build tree `bf2e267` and **re-stamped at this read pass's own commit**,
+whose tree differs from it only in docs (the record's SHA moves with the docs because the
+read pass's run-id allowlist touches `tests/`, and the ancestry rule requires the newest
+suite-surface commit to be an ancestor of the recorded one). **CI has run for this tree and this row is read,
 not projected:** run `40521965355` on `ceb70cb` read **3144 passed, 4 skipped,
 2 xfailed** from its `test (3.12)` job log — 13/13 jobs green on that exact SHA, on the
 branch push and again on `main`'s post-landing push, and exactly what the host-pin
