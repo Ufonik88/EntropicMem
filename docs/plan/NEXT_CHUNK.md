@@ -62,6 +62,57 @@
 
 ## Part A: what has landed
 
+### EM-806 — packaging: the wheel ships the engine and a pip install loads the provider. **BUILT at `bf2e267` (2026-10-27, chunk 47, branch `em-806-packaging`), NOT PUSHED — no CI run exists and the figures are projected**
+
+- **The two measured defects.** A wheel built from this tree at `bbabf23` carried `em.*` and
+  `em_internal.*` and **no top-level module** — so `em_internal/index.py`'s
+  `from memory_engine import …` raised `ModuleNotFoundError` and `import em.graph` was
+  source-tree-only (chunk 43 recorded that and named this card); and the wheel declared no
+  entry point and shipped the plugin shell nowhere importable, so `pip install
+  entropicmem` installed an engine no host could load.
+- **What ships now.** `py-modules` carries the **derived** closure — `graph_query`,
+  `injection_screen`, `memory_engine`, `pii`, `session_digest`, `stopwords`, `temporal`,
+  `textutil`, `triple_extract` (the guard derives it from every import under `em/` and
+  `em_internal/`, lazy in-function imports included, then closes over the flat modules'
+  own imports; `graph_static`, `parity_audit` and the CLI stay out, and the test enforces
+  equality **both ways**). `[project.entry-points."hermes_agent.memory_providers"]` carries
+  `entropicmem = "entropicmem_plugin:register"`. `package-dir` maps `entropicmem_plugin`
+  to `plugins/entropicmem` and `packages=` ships it — **a package, not a module**, because
+  the host's `_entry_point_package_dir` only returns a directory for a package and
+  `find_provider_dir` reads `config_schema.py`/`cli.py` from that directory (a bare module
+  would lose the dashboard panel and `hermes entropicmem`). `exclude-package-data` keeps
+  `scripts/` out of that package: without it the first build shipped the engine **twice**,
+  measured, not guessed.
+- **The manifest.** `requires_hermes: ">=0.21.3"` — measured from the host's own history:
+  `RecallStatus` is present at `v2026.9.7`, `spawn_context_thread` first appears in
+  `v2026.9.14` whose `pyproject.toml` reads `0.21.3`, and `v2026.9.11` has neither. Plus
+  `pip_dependencies: []`. **`provides_tools`/`provides_hooks` do not move**, and the plan's
+  alias question is answered **no**: the validator fails on undeclared registrations and
+  only warns on absent declared names, and the aliases advertise no schema.
+- **Evidence.** 9 tests (`tests/unit/test_em806_packaging.py`), including a non-vacuity
+  guard on the derivation itself; **13 mutation checks all red, none survived**, each
+  restored from a byte copy — one dropped `py-modules` entry, a CLI-only module added, the
+  list emptied, the entry-point group renamed, the target changed, `packages=` and
+  `package-dir` each broken in turn, the data exclusion emptied, `requires_hermes` removed
+  and its floor raised, `pip_dependencies` removed, one extra's mention removed, and the
+  derivation reduced to top-level imports. **The AC's runtime half was measured outside
+  the suite** (no host in it): the built wheel installs into a throwaway venv where
+  `import em.graph` works, `import entropicmem_plugin` fails only on `agent`, and with a
+  stubbed host contract `register(ctx)` yields `EntropicMemMemoryProvider` with
+  `config_schema.py`/`cli.py` beside it; the real proof runs in CI's new
+  `plugin-validate` **pip-install smoke step**, which installs the wheel and loads the
+  provider through the host's own `_load_provider_from_entry_point` from a directory with
+  no checkout on `sys.path`. `hermes plugins validate plugins/entropicmem` passes locally
+  with only the two known warnings.
+- **Figures.** Bare **3049 / 20 / 2**, digest **3050 / 19 / 2**, CI-equivalent 3.12
+  **3146 / 2 / 2**, 3.10 **3144 / 4 / 2**; CI **3144 / 4 / 2**, **projected** — the branch
+  is not pushed. The record was measured on the tree that became `bf2e267` **before** the
+  build commit, because the guard cannot be green at the build commit by construction (the
+  record predates it and the CHANGELOG states the new triples); nothing but the CHANGELOG
+  moved between that run and the commit. The read pass follows the first green branch run.
+- **No runtime behaviour change:** no provider tool, hook, schema, config key or store
+  change. The one metadata correction is `pyproject`'s description (`34-command` → `37`).
+
 ### EM-703 + EM-705 — the write-path security pair: every write screened, and a purge that erases everything. **LANDED on `main` at `17684d9` (2026-10-23; opening docs `4f3cc76`, code `859f12d` + `b570065`, the record pass `f7fb7a1`); 13/13 check-runs green on that exact SHA and again on `main`'s post-landing push**
 
 - **EM-703 — every write screens for prompt injection, and the card's trust policy decides what a flagged shape means.** `injection_screen.screen_text_windows` walks the normalised text in `window`-wide slices advancing by `window − overlap`, so long content is studied whole and a cue straddling a boundary is seen by the next window; findings dedup by `(shape, absolute offset)` — the overlap legitimately re-detects and must report once — and each survivor is rebuilt from the whole normalised text at its absolute offset; `MAX_URLS` stays a per-window budget and `truncated` keeps only the long-input signal. `MemoryStore._screen` emits `injection:<shape>` flags (shapes only, never matched evidence) and never raises — fail-open is the load-bearing property. `em_internal.policy.evaluate_injection(shapes, *, source, policy)` turns shapes into the decision: an **extracted** source quarantines by the write policy's own reason (`auto_extracted_requires_promotion` survives and the flags ride along — the combination `commit_policy` reads), a **direct** source reroutes pending from birth (`injection_quarantined`; §3.4 has no active-to-pending transition, so this is not a demotion of a live row), a `drop` is an audited refusal on both routes, and an unusable member — or a policy that is not a two-sequence at all — fails open to `flag`, while `None` keeps the card defaults. The plumb is one pair end to end: typed `trust.injection_policy_extracted|_direct` (a typed-load failure resets to card defaults), `select.open_engine` forwarding (a v2 store ignores it), the facade's `remember`/`_store_candidate`/`update`/`supersede`, **and every provider extraction enqueue carries a `trust` block** (`extract_session`, window extraction, delegation) that the formation job reader `injection_policy_from_payload` honours member-by-member — an absent or malformed block falls back to the store's card defaults (never silently strengthened), a garbage member fails open to `flag`. `update` refuses a flagged edit under quarantine/drop before the version snapshot and refreshes flags under `flag` (merged with non-injection ones); `supersede` refuses a flagged replacement and flags a flagged one through. The full write-up is the CHANGELOG's Security entry.
