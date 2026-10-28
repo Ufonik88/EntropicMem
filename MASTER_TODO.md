@@ -119,12 +119,18 @@ points at.
 > Nothing is in flight; the remainder is S9, held.
 >
 > **2026-10-28, later still: the owner said "handle and automate and make the decisions;
-> go to work." That un-holds the buildable piece of S9: EM-901's upgrade drills are opened
-> as chunk 50** (the drills validate the upgrade path and change no release surface — the
-> release ACT, EM-904, stays owner-gated end to end). The drill plan is Part B. **A review
-> handoff went to Hermes in parallel** (fixture-faithfulness audit + an independent
-> 2.8→3.0 break review; message `01M61D5VWN4GWEXFW956E424C4`); its findings fold into the
-> drills and the UPGRADING report, and it hands back here when done.
+> go to work." That un-held the buildable piece of S9 — EM-901's upgrade drills opened as
+> chunk 50 — and chunk 50 is now COMPLETE and LANDED on `main` at `b93037e`** (build
+> `a1c7c8a` + figure fix `dd63001` + windows fix `7a2999e`, record `1765a2d`, read
+> `adb88bc`; 13/13 check-runs green on `1765a2d` and 26/26 on the merge tip; branch
+> deleted). **The drills found and fixed two real upgrade breaks** — a 2.8 vault's
+> `tags:` null killed the 3.0 index rebuild (`len(None)`), and the capsule export's
+> `with sqlite3.connect(...)` handles never closed, deadlocking the export's temp cleanup
+> on Windows (the `windows-import` leg caught it) — and **`docs/UPGRADING.md` is written**:
+> the card's AC is met. The release act (EM-904) stays the owner's; its recorded checklist
+> gaps: a `doctor` command and a friendly `entropicmem memory upgrade` cutover command.
+> **A parallel audit is out with Hermes** (fixture faithfulness + an independent
+> 2.8→3.0 break review; message `01M61D5VWN4GWEXFW956E424C4`) and hands back here.
 
 ---
 
@@ -188,133 +194,17 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-28, against branch `main` at `830ffee` (chunk 49, the
-dependency-floor rework — build `8593e7a`, record `487dcee`, read `e463d3c`, re-stamp
-`830ffee`; 13/13 green on `487dcee` and 26/26 on the merge tip; the rework branch and the
-superseded `chore/deps-entropicmem-2026-10-20` deleted; the two owner-ruled branch
-deletions done before it). The previous
-reconciliation was the same day against `d84f5f8` (chunk 48 — EM-601's
-deferred month paging: build `c1749c8`, record pass `f91c55a`,
-read pass `6441c32`, re-stamp `d84f5f8` — 13/13 green on `f91c55a` and 26/26 on the merge
-tip; branch deleted after the ff-merge), then 2026-10-27 against `1d2f631` (the EM-806 S8
-packaging landing `ceb70cb` — opening docs `1e683c1`, build `bf2e267` — plus the read pass
-`bdd2ecb` and the docs-only re-stamp `2df0cee`, then `2ff11c2` and `da86e59` + `1d2f631`
-— all docs-only, each green on `main`'s push on its exact SHA). The previous
-reconciliation was the read pass that closed the EM-703 + EM-705 landing's figures — landed
-as `17684d9` from code `859f12d` + `b570065` on `em-703-705-security`, deleted after the
-ff-merge; before that the EM-607 ingest-v2 landing at `5f0670c`, and before that 2026-10-19
-against `2079bd3`. (security
-hardening applied in the working tree; see the note above) — **EM-605 slice 1 (the
-graph model / renderers / viewer-assets split) landed (`2fd7812`, all 11 check-runs green on
-the exact SHA), and EM-603's 5k AC is de-flaked (landed `adb1439`, reconciled as `e6647e7`);
-chunk 41, EM-604,
-the opt-in ingestion of human vault edits, is complete (landed `31a7323`), after chunk 40
-(EM-603, the incremental index — `338ec2a`), chunk 39 (EM-602,
-both slices — `607d54f` + `c29addc`) and chunk 38 (the `remember` content ceiling,
-`c53b182`); the next chunk is EM-605 (graph export v3).** Before them
-the same day, **EM-608 is complete:
-the 50k warm-p95 gate now reads the best of five 20-probe windows (landed `3b71cf0`, the
-150 ms budget untouched), and EM-601 is complete: both halves landed (slice 1 the vault
-projection engine `bdc1e20`, slice 2 the job, debounce, mode switch and `vault lint`
-`e986059`) — the owner's word authorised one card, not a stage, and the rest of S6's
-cards are agent-owned by the owner's later instruction to make the outstanding calls.**
-The expected figure of record lives in one
-place: [`docs/plan/BASELINE.md`](docs/plan/BASELINE.md) — on top of **the EM-303 prune
-card: the promised destructive embedding-maintenance job, built and landed** (branch-first on `em-303-prune`, all 11 check-runs green on that exact SHA, and all 22 after the merge re-ran them on `main` — nothing new existed to break the re-run; **no destructive run happened and none is scheduled: real runs stay owner-gated**, see Open blockers) atop the F-004 remediation (**`c30aa54`** — full per-user isolation resolved and pinned; branch-first, all 11 check-runs green on that exact SHA; the finding's strict xfail flipped onto a v3-store drive, the two-provider surface pinned beside the group-chat harness, **no product code changed**) atop the S5 completion (EM-503 wiring, the `sync_turn` transcript capture and
-the exit harness, `d331c5e`) atop the EM-503 core on the
-**branch-first landing of EM-412's query-embedding wiring** (`em-412-query-embedding`:
-the query embedding is wired into the v3 read paths behind `embeddings.enabled` —
-one fail-soft **`QueryEmbedder`** seam (`em/embeddings/query.py`) built lazily by
-the provider only when the flag is on and the store is v3, wired at the tool search
-path, `PrefetchService`'s async precompute half and the facade's flag-on
-`recall_with_relevance` via `open_engine`; a raise, timeout or unavailable service
-returns no vector — nothing propagates — and the caller serves the lexical result;
-per-session counts with one summary line at `shutdown`; `initialize` queues the
-model-switch `embed_backfill`; the vector readers count and debug-log rows skipped
-for another model, `Retrieval.diagnostics` carries them, and the search payload adds
-`diagnostics` only when non-empty; cosine stays off; flag-off and v2 paths
-byte-identical; 15 new tests; **7 mutation checks all red**). The tree
-was verified on that tree on this box (**bare
-2706 / 16 / 2**; with the digest list **2707 / 15 / 2**; CI-equivalent 3.12
-**2784 / 2 / 2**, both locally measured; `ruff==0.16.2` clean) and `main`
-fast-forwarded to that exact SHA after **all 11 check-runs green on it** (the
-post-merge push re-ran the suite on `main`: 22 runs, all success);
-that tree's CI 3.12 count
-was **2782 / 4 / 2** (read from the job log at `99151d3` — the +12 prune guard
-tests; the prior read was 2770 / 4 / 2 at `d92503d`, and `c30aa54`'s own
-read 2769 / 4 / 2). **The current figures are the Gates table's: CI 3.12 **2928 / 4 / 2**
-(read at `31a7323`), bare **2852 / 16 / 2**, digest **2853 / 15 / 2**, CI-equivalent
-**2930 / 2 / 2**.** Before it: **the branch-first landing of EM-410's cron & worker** (`em-410-cron-worker`:
-`initialize` starts the background **`JobWorker`** on v3 stores — primary
-sessions when `jobs.run_in_primary` (default true), cron when `jobs.run_in_cron`
-(default true), bounded there by a `jobs.cron_budget_s` (default 120) timer
-firing the worker's stop event, and none in subagent/flush — with the handler
-set from the new shared builder **`em/jobs/registry.py`** (`KNOWN_JOB_TYPES` =
-backup/link/embed/embed_backfill/retract_turns; the `worker run` CLI now
-delegates to it, so the two workers cannot drift; the formation types stay
-absent for EM-502), and **`JobWorker.run(…, gate=)`** holds off claiming while
-the provider's shared `_prefetch_in_flight` event is raised — the whole
-`prefetch()` call, cleared in a `finally` so a raising service clears it too,
-re-checked every 50 ms; concurrency is 1 by construction (one daemon thread,
-one job per claim — the card's `jobs.max_concurrent=1`); a missing store file
-starts nothing and leaves the `_v3_store()` probe cache unpinned (the EM-405
-probe hazard); `shutdown` stops the worker before any store it holds closes;
-and cron's card promises are pinned: tool writes answer `writes_disabled` and
-prefetch still serves; 17 new tests; **13 mutation checks all red**). Before it: **the
-branch-first landing of EM-409's system prompt** (`em-409-system-prompt`: the
-block now renders **Appendix D's policy text** word for word, with the
-tool-name bullets conditional on the tools the provider actually registers —
-the search-the-past bullet names whichever of `entropicmem_search` /
-`entropicmem_timeline` is present and drops when neither is — and the owed
-alias rewrite is done: `entropicmem_recall` / `entropicmem_query` are gone
-from the prompt; the Core Memory pair now renders **within
-`core.token_budget`** (§4.3, default 800 — the cap lives in
-`_core_memory_block()`, so the system prompt, the legacy full-block prefetch
-mode, the changed-core delta and its baseline hash all share it, and the
-hardcoded `[:2800]` slice is gone); 8 new tests; **8 mutation checks all
-red**). Before that: **the
-branch-first landing of EM-408's `hermes entropicmem …` mount** (`em-408-cli`:
-the shared argparse tree in `em/cli/parser.py`, the host mount in
-`plugins/entropicmem/cli.py` parsing into `entropicmem_command` so the host's
-`args.command` survives, and the top-level `stats` shortcut — documented count
-35→36; 7 new tests; **7 mutation checks all red**). Before that: **the
-branch-first landing of EM-411's window capture on idle, cadence and
-compaction** (`em-411-capture`, then the same-day floor correction
-`em-411-floor-correction`: a per-session window ledger persisted to the v3
-`meta` on `window:<sid>`, and one `extract_window` job per sealed range under
-the shared key `extract:window:{sid}:{start}-{end}` — the cadence flush, an
-idle gap and the post-commit compaction seal all share it, so a recomputed
-range or a retried compression collapses onto one queued row; the idle floor
-per the card's letter — **at least 2 turns or 200 characters**, under both
-nothing and still sealed; gated off — `formation.mode` ships `off` and
-`em.jobs.BUILT_FORMATION_HANDLERS` is empty until EM-502 registers the
-handler; 15 new tests; **13 mutation checks all red**). The branches are
-deleted, and the remote
-carries `main` and `release/2.8.x`. Before it: **the branch-first landing of the
-EM-407 hardening pull: the owner's verification queue in four landed items**
-(`em-407-hardening`: the 50k numpy AC guard now
-reads the **best of five** 20-probe windows — the 2026-10-15 3.13-leg flap
-(single-window p95 31.61 ms from one stalled window) is fixed by statistic, not
-filed as a flake, and a real regression still fails every window; **`save_config`
-validates every key before anything touches disk** — unknown keys refused, legacy
-spellings folded as the loader folds them — writes through a per-call `mkstemp`
-temp, keeps the destination's mode, cleans up on failure, and documents the
-Windows locked-destination contract; **the spec/calibration default split is
-pinned as deliberate** — the eval adapter's `None` default is the pipeline's spec
-defaults, the provider ships EM-306's calibration (`w_rrf` 0.60→0.50,
-`w_importance` 0.15→0.25; gate values identical) — the 77-test count gap is
-per-module named, and the query-embedding card was approved the same day as
-`EM-412`; 8 new tests), verified on this box at that SHA (bare
-**2549 / 16 / 3**; digest list **2550 / 15 / 3**; CI's 3.12 count there
-**2626 / 3 / 3**). Named deliberately instead of the docs tip
-that follows it. Before it: **EM-407's typed config** (`2b21ad1`, the
-branch-first landing that completed the card — Appendix A's typed model in
-`em/config.py`, §3.8's loader, the typed schema/save pair, and EM-306's
-calibrated scalars reaching the search tool, the `PrefetchService` and the v3
-facade), the **EM-405 lifecycle slice** (`e483d43`, which completes that card),
-the **EM-404 validation slice** (`5000942`, which completes that card), the
-**slice-2 landing** (`e5e54ef`) and the **owner-chosen landing of slice 1**
-(`381197f`, `3dcb35f` + `84a555f`; the records are in §5).
+**Last reconciled:** 2026-10-28, against branch `main` at `b93037e` (chunk 50, EM-901's
+upgrade drills — build `a1c7c8a`, figure fix `dd63001`, windows fix `7a2999e`, record
+`1765a2d`, read `adb88bc`, re-stamp `b93037e`; 13/13 green on `1765a2d` and 26/26 on the
+merge tip; branch deleted after the ff-merge). Before it the same day: chunk 49 at
+`830ffee` (the dependency-floor rework; the rework branch and the superseded
+`chore/deps-entropicmem-2026-10-20` deleted; the two owner-ruled branch deletions done
+before it) and chunk 48 at `d84f5f8` (EM-601's month paging). Then 2026-10-27 against
+`1d2f631` (the EM-806 S8 packaging landing `ceb70cb` — opening docs `1e683c1`, build
+`bf2e267` — plus the read pass `bdd2ecb` and the docs-only re-stamp `2df0cee`, then
+`2ff11c2` and `da86e59` + `1d2f631` — all docs-only, each green on `main`'s push on its
+exact SHA).
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift

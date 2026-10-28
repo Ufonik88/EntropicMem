@@ -83,6 +83,58 @@ owner's ruling); 2026-10-27 (forty-third pass — **EM-806 (S8 packaging) is LAN
 
 ## Part A: what has landed
 
+### Chunk 50 — EM-901's upgrade drills: the old stores and vaults driven to 3.0, two real upgrade breaks found and fixed, and the report. **LANDED on `main` at `b93037e` (2026-10-28; build `a1c7c8a` + the figure fix `dd63001` + the windows fix `7a2999e`, record `1765a2d`, read `adb88bc`, re-stamp `b93037e`); 13/13 check-runs green on `1765a2d` and 26/26 on the merge tip**
+
+- **The drills (`tests/unit/test_em901_upgrade_drills.py`, 10 tests)** run in the normal
+  suite so the upgrade path cannot rot silently, and every one drives a **copy** of a
+  committed fixture — the committed bytes are hash-pinned (`PINNED_FIXTURE_HASHES`) first.
+  Generations: the committed v2.3.0 / v2.5.0 / v2.7.0 fixtures (built by the **real
+  historical engines**), the rich edge-case store, and a **derived 2.8.1 generation** (a
+  2.7 store opened once by the current v2 engine — exactly what a real 2.8.1 store is).
+- **What they prove:** five migrations apply with `integrity_check` clean; every v2 fact
+  resolves by `legacy_id` with byte-identical content **through `MemoryStore.get`'s own
+  legacy-id form**; deleted rows land `deleted`, pending rows land `pending`, episode and
+  snapshot counts survive; an **old-style vault** (the 2.8 writer's quoted-unescaped
+  titles, a `---` horizontal rule in a body) with a legacy index rebuilds to the current
+  index generation and serves search and a graph export; a **capsule from the 2.8.1
+  generation imports into a fresh 3.0 profile** and migrates cleanly there; the **reverse
+  direction is pinned as the documented limitation** (0002 renames the v2 tables, so a 2.8
+  engine sees an empty `facts` table) — sync to an old profile requires both upgraded.
+- **Two real upgrade breaks found and fixed:**
+  1. **The old-vault crash.** A 2.8 vault writes `tags: ` (YAML-null) for every no-tags
+     note; the EM-602 reader handed the null to `Note.importance` — `len(None)`, the 3.0
+     index rebuild dead on exactly the vaults real users have. `read_note` now coerces at
+     the boundary (`_frontmatter_list`: null → `[]`, comma strings → lists — what the old
+     reader did), a null `title` falls back to the file's stem, and the scalar fields
+     cannot leak `None` into typed fields.
+  2. **The Windows capsule deadlock.** `export_capsule`'s `_sqlite_snapshot` opened both
+     connections with `with sqlite3.connect(...)` — a context manager that commits a
+     transaction and **never closes the handle** — so the export's staging
+     `TemporaryDirectory` cleanup died with WinError 32 on Windows (the `windows-import`
+     leg caught it; POSIX GC timing hid it). Explicit `finally` closes, and a structural
+     pin forbids `with sqlite3.connect` anywhere in the capsule code.
+- **The report:** `docs/UPGRADING.md` — the one-paragraph answer (updating touches no
+  data; a v2 store stays on the v2 engine; the new features ship off), the
+  `needs_v3_store` refusals on a non-migrated store, the tool-rename bridge, the sync
+  answer, and two recorded release-checklist gaps (no `doctor` command; no friendly
+  cutover command — the report gives the real `ENTROPICMEM_ALLOW_LIVE_MIGRATION=1` library
+  invocation and notes the CLI's `migrate` is the v2-only provenance migration, not this).
+- **Evidence:** 10 new tests; **5 mutation checks, all red, none survived** (byte-copy
+  restores, `__pycache__` purged, hash-verified): the tags coercion dropped, the title
+  coercion dropped (a survivor until the null-title test data was added — recorded),
+  0002's legacy-id copy dropped, a fixture byte corrupted (the hash pin catches it), and
+  the capsule `with`-form restored. `ruff==0.16.2` clean.
+- **Figures:** bare **3075 / 20 / 2**, digest **3076 / 19 / 2**, CI-equivalent 3.12
+  **3172 / 2 / 2**, 3.10 **3170 / 4 / 2**; CI **3170 / 4 / 2**, **read** from run
+  `40721172839`'s 3.12 job log on `1765a2d` — exactly the host-pin projection. The build
+  tips' own runs were red on the figures-guard ancestry test alone (the documented
+  pre-stamp shape). **One hand-computed slip, caught by the record's own guard:** the
+  first BASELINE draft wrote bare as 3073 — hand-computed — while the measurement read
+  3074 (the new `UPGRADING.md` adds a docs-links case); the guard failed and the measured
+  number went in.
+- **In parallel:** the independent audit is out with Hermes (fixture faithfulness + a
+  break review); its findings fold into the drills and the report when they return.
+
 ### Chunk 49 — the dependency-floor rework: the manifest states what is verified. **LANDED on `main` at `830ffee` (2026-10-28; build `8593e7a`, record `487dcee`, read `e463d3c`, re-stamp `830ffee`); 13/13 check-runs green on `487dcee` and 26/26 on the merge tip**
 
 - **What it is:** the owner's ruling ("delete both, rework the deps, hold S9") on §6.6's
@@ -1640,76 +1692,27 @@ Closes the recorded 2026-10-15 coverage gap (plan §6.4): no test drove a real s
 
 **Counts:** bare **2693 / 16 / 2**, digest **2694 / 15 / 2**, CI-equivalent 3.12 **2771 / 2 / 2**; CI's 3.12 count **2769 / 4 / 2** (read from the job log at `c30aa54`); `ruff==0.16.2` clean; the docs guards green. The full card line is in `CHANGELOG.md` under `[Unreleased]`/Fixed; §9 item 9 carries the resolution record.
 
-## Part B: next — **chunk 50: EM-901's upgrade drills (un-held by the owner's "go to work")**
+## Part B: next — **the drills are done; what remains is the owner's release act**
 
-**Basis:** the owner's instruction to handle and automate the decisions and get the dev
-done; the drills validate the upgrade path and touch no release surface (no tag, no
-version bump, no catalog pin — EM-904 stays the owner's act). Hermes works the parallel
-audit (fixture faithfulness + an independent break review; message
-`01M61D5VWN4GWEXFW956E424C4`) and hands back here.
+**Nothing is in flight.** Chunk 50 (Part A) completed EM-901: the drills run in the suite,
+`docs/UPGRADING.md` is the report, and the two upgrade breaks the drills found (the
+old-vault `tags:` null crash; the Windows capsule deadlock) are fixed and pinned. The
+drill plan shipped as written — its text is legible in the Part A record. The remainder
+of S9 is **EM-904 — the 3.0 release act itself** (the version everywhere, the `SKILL.md`
+bump, the migration notes — now largely written, `UPGRADING.md` — the tool rename's final
+flip, the catalog re-pin PR and the announce), which is public, irreversible, and **the
+owner's end to end**. Its recorded checklist gaps: a `doctor` command and a friendly
+cutover command (`entropicmem memory upgrade`) — both candidates for a final pre-release
+chunk on the owner's word. The frozen list stands: releases/tags/catalog PRs, the v3
+cutover, the tool rename and the `provides_*` lists. The veto applies at any time.
 
-### What exists, what the chunk adds
-
-* **Exists:** the committed fixtures (`tests/fixtures/db/v2_3_0.db`, `v2_5_0.db`,
-  `v2_7_0.db` — generated by the **real historical engines**, `generate_fixtures.py`), the
-  rich edge-case builder (`build_rich_v2.py`), the migration machinery (0001 baselines the
-  v2.7 shape; 0002 does the lossless data move, `facts.id` → `memories.legacy_id` UNIQUE;
-  0003–0005 audit/vocab/embeddings), the capsule export/import (the sync mechanism; import
-  **replaces** `memory.db`/`index.db` wholesale, needs `--trust-unverified`), and the
-  engine-parity suite (`tests/parity/test_engine_parity.py`).
-* **Exists but named differently than the card assumed: there is no `doctor` command** —
-  the card's "verify doctor clean" resolves to the concrete health checks the drills run
-  (integrity, counts, ids, CLI); the gap is recorded for EM-904's checklist.
-* **The "2.8.1" generation is derived, not guessed:** a real 2.8.1 store is a 2.7 store
-  that the 2.8 engine opened once — `_init_schema`'s guarded ALTERs are idempotent. The
-  drill builds that generation by opening `v2_7_0.db` with the current v2 engine and
-  seeding rows through its real methods.
-
-### The drills (tests/unit/test_em901_upgrade_drills.py, one parametrised drill per generation)
-
-1. **Migrate:** copy the fixture to a temp path (the committed bytes are never opened
-   in place), run `migrate()` — five migrations applied, `user_version == 5`,
-   `PRAGMA integrity_check` clean.
-2. **Nothing lost:** every pre-migration `facts` row resolves by `legacy_id` with content
-   intact; `pending_facts` rows land `pending`; `deleted=1` rows land however 0002 moves
-   them (asserted, not assumed); episode and version-snapshot counts preserved.
-3. **The store serves:** the v3 read path (store search/list and the CLI `stats`) answers
-   on the migrated store.
-4. **Parity:** the v2 engine's answers to seed queries are captured **before** migration
-   and every returned row's content is found again through the v3 path after — the
-   migrated data is the served data.
-5. **The vault:** an old-style vault (v2.8's writer: `title: "…"` quoted-unescaped, a
-   `---` horizontal rule in a body — the old delimiter bug) plus a v1-shaped `index.db`
-   with old note ids; `index rebuild` on 3.0 migrates it (`user_version` 3, full-path
-   ids), search resolves a note by its content, and `graph export` reads it.
-6. **Sync:** a capsule exported from the v2.8 generation imports into a fresh 3.0-line
-   profile (rows land; the store is servable); the reverse direction — a migrated (v3)
-   store's capsule into an old-shaped profile — is **pinned as the documented
-   limitation** (the 2.8 engine sees an empty `facts` table: the migration renamed the
-   v2 tables) and the report says sync to an old profile requires both upgraded.
-7. **The report:** `docs/UPGRADING.md` — what a 2.8.1 user does, what refuses on a v2
-   store, the sync answer, the doctor gap, Hermes's independent findings folded in.
-
-### Sequence
-
-Tests first (red), the drill module green, figures re-measured (+N), CHANGELOG, the
-branch-first landing after green CI on the exact record SHA, then this page's record.
-
-- **EM-901 — upgrade drills.** Scripted drills over v2.3 / v2.5 / v2.7 / 2.8 fixture DBs and
-  vaults → 3.0: `doctor` clean, eval parity, legacy ids resolvable, and sync between a 2.8
-  and a 3.0 profile (publish/pull) either verified or documented as requiring both upgraded;
-  the report is `docs/UPGRADING.md`. It is buildable, but its whole purpose is to validate an
-  upgrade path to a release the owner has not scheduled — and the owner's 2026-10-28 ruling
-  holds it.
-- **EM-904 — the 3.0 release.** The version everywhere, the migration notes, the `SKILL.md`
-  bump, the tool rename with aliases, the catalog re-pin (a PR) and the announce. Owner-gated
-  end to end; the procedure is `docs/MARKETPLACE.md`.
-
-**Why the agent stops here:** §6.6's third use recorded the recommendation, the fourth use
-re-confirmed it after chunk 48, and the owner's "hold S9" ruling — which chunk 49
-completed — keeps it: the remainder is release work, so **the next chunk needs a fresh
-owner instruction** and the veto applies at any time. The frozen list stands:
-releases/tags/catalog PRs, the v3 cutover, the tool rename and the `provides_*` lists.
+**EM-901's card text, for the record:** scripted drills over v2.3 / v2.5 / v2.7 / 2.8
+fixture DBs and vaults -> 3.0; `doctor` clean (resolved to the concrete health checks —
+no `doctor` command exists, recorded for EM-904); eval parity (the engine-parity suite
+plus the drills' migrated-data parity); legacy ids resolvable (pinned through
+`MemoryStore.get`); sync between a 2.8 and a 3.0 profile verified 2.8 -> 3.0 and
+documented as requiring both upgraded in the reverse direction; the report is
+`docs/UPGRADING.md` — **the card's AC is met.**
 
 ## Record — the EM-806 plan as it was written (opened 2026-10-27; landed at `ceb70cb`)
 
