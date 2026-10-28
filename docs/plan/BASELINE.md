@@ -26,38 +26,23 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3144 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40521965355`, which ran on `ceb70cb` — 13/13 jobs green on the branch tip and again on `main`'s post-landing push; the new `plugin-validate` pip-install smoke step loaded the provider from the installed package on both)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3049 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3050 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3146 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3144 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3155 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-48 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3060 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3061 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3157 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3155 passed, 4 skipped, 2 xfailed** |
 
-Read as at `ae08dd0` (EM-806 packaging: the wheel ships the engine's flat modules, the
-host's `hermes_agent.memory_providers` entry point loads a provider from a pip install,
-the shell ships as a package with `config_schema.py`/`cli.py` beside it, and
-`plugin.yaml` carries the measured `requires_hermes` floor and an explicit
-`pip_dependencies: []`; 9 new tests and 13 red mutation checks, plus this record pass) —
-measured for the build tree `bf2e267` and **re-stamped at the read pass's commit and again
-at the `was:`-renderer cleanup (`ae08dd0`)**, whose tree differs from the build only in docs
-and in the deletion of an uncalled helper (whose own suite run read the same triple — the
-count is unchanged). The record's SHA moves with the docs because the read pass's run-id
-allowlist touches `tests/`, and the ancestry rule requires the newest suite-surface commit
-to be an ancestor of the recorded one. **CI has run for this tree and this row is read,
-not projected:** run `40521965355` on `ceb70cb` read **3144 passed, 4 skipped,
-2 xfailed** from its `test (3.12)` job log — 13/13 jobs green on that exact SHA, on the
-branch push and again on `main`'s post-landing push, and exactly what the host-pin
-relation had projected from the CI-equivalent. The new `plugin-validate`
-**pip-install smoke step** ran in both: it installed the wheel, resolved the
-`hermes_agent.memory_providers` entry point and loaded the provider through the host's
-own loader (`pip-install smoke: entropicmem loaded from …/site-packages/entropicmem_plugin`).
-The measurement was taken on the tree that became `bf2e267` **before** the build commit,
-because the figures guard cannot be green at the build commit by construction: the
-record predates it and the CHANGELOG already states the new triples (the documented
-pre-stamp shape, the same one EM-703 + EM-705's build tip showed). No test,
-`pyproject.toml` or plugin file changed between that measured run and the commit — the
-only change was the CHANGELOG entry. **The read pass's own commit touches `tests/`
-(the run-id allowlist entry), so its companion docs-only commit re-stamps the record at
-this pass's commit** — the figure stays the landing tree's figure.
+Read as at `b23a6eb` (chunk 48 — EM-601's deferred month paging for `Memories/Unfiled.md`:
+`UNFILED_PAGE_LIMIT = 200`, the newest month stays on `Unfiled.md`, older months render into
+`Memories/Unfiled-YYYY-MM.md` with their own live auto-sections, emptied pages are kept, a
+single month never splits; 11 new tests and 8 red mutation checks) — **measured on the tree
+that became the chunk's build commit, before it was committed**, because the figures guard
+cannot be green at the build commit by construction: the record predates the commit whose
+tests it counts (the documented pre-stamp shape EM-703 + EM-705 and EM-806 both showed, where
+the build tip's own CI run goes red on the figures-guard pair alone and the record pass
+stamps the read figure). The CI row is **projected**, not read: no run exists for this tree
+yet. The previous record (EM-806's read pass, run `40521965355` on `ceb70cb`, CI
+**3144 passed, 4 skipped, 2 xfailed**) remains in the record's historical set.
 
 **The previous record** was EM-703 + EM-705 at `a15892e` (built as `859f12d` + `b570065` on `em-703-705-security`:
 every store write screens for prompt injection in overlapping windows, the trust policy decides what a
@@ -177,12 +162,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3049 / 20 / 2
+bare          3060 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3146 /  2 / 2
+= CI-equiv    3157 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3144 /  4 / 2   (read from run 40521965355, 3.12 job log)
+= CI          3155 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap

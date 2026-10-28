@@ -715,3 +715,260 @@ def test_a_crlf_vault_stays_crlf_after_a_projection(db, root):
     assert "Acme Corp ships widgets." in text
     assert "\r\n" in text
     assert "\n" not in text.replace("\r\n", "")
+
+
+# --- month paging (chunk 48 — the card's deferred "paged by month if > 200") ---
+
+UNFILED_PAGE = Path("Memories") / "Unfiled.md"
+
+
+def _remember_in_month(conn, content, month):
+    """Remember, then place the row in ``month`` (``YYYY-MM``) deterministically.
+
+    The projection buckets a row by its ``updated_at``'s first seven
+    characters, so the test pins the stamp directly rather than trying to make
+    the clock say September.
+    """
+    mid = _remember(conn, content)
+    conn.execute("UPDATE memories SET updated_at=? WHERE id=?", (f"{month}-15T12:00:00Z", mid))
+    return mid
+
+
+def _unfiled_rows(text, section="unfiled"):
+    """The bullet lines of one auto-section."""
+    return [
+        line
+        for line in _section(text, section).splitlines()
+        if line.startswith("- ")
+    ]
+
+
+def test_unfiled_paging_activates_past_200_and_pages_completed_months(db, root):
+    """Past 200 rows the newest month stays on Unfiled.md; older months page out."""
+    saved, _path = db
+    with saved.writer() as conn:
+        for i in range(150):
+            _remember_in_month(conn, f"September fact {i} for the fern.", "2026-09")
+        for i in range(60):
+            _remember_in_month(conn, f"October fact {i} for Acme.", "2026-10")
+        _project(conn, root, modes=("unfiled",))
+        unfiled = (root / "Memories" / "Unfiled.md").read_text(encoding="utf-8")
+        archive = (root / "Memories" / "Unfiled-2026-09.md").read_text(encoding="utf-8")
+
+    here = _unfiled_rows(unfiled)
+    old = _unfiled_rows(archive, section="unfiled-2026-09")
+    assert len(here) == 60, here
+    assert all("October fact" in line for line in here)
+    assert not any("September" in line for line in here)
+    assert len(old) == 150, len(old)
+    assert all("September fact" in line for line in old)
+    # Every row renders exactly once across the pages — a row lost or shown
+    # twice is a projection that cannot be trusted as the human view.
+    assert len(here) + len(old) == 210
+
+
+def test_unfiled_paging_stays_off_at_the_limit(db, root):
+    """Exactly 200 rows: one page, no archive files (the boundary)."""
+    saved, _path = db
+    with saved.writer() as conn:
+        for i in range(200):
+            _remember_in_month(conn, f"September fact {i}.", "2026-09")
+        _project(conn, root, modes=("unfiled",))
+        text = (root / "Memories" / "Unfiled.md").read_text(encoding="utf-8")
+        strays = list((root / "Memories").glob("Unfiled-*.md"))
+
+    assert len(_unfiled_rows(text)) == 200
+    assert strays == [], strays
+
+
+def test_paging_stays_off_at_the_limit_across_two_months(db, root):
+    """200 rows in two months still make one page.
+
+    The single-month boundary above is invariant to the limit — no month
+    boundary exists to split on — so this is where a lowered limit (paging on
+    whenever any rows exist) actually shows.
+    """
+    saved, _path = db
+    with saved.writer() as conn:
+        for i in range(120):
+            _remember_in_month(conn, f"September fact {i}.", "2026-09")
+        for i in range(80):
+            _remember_in_month(conn, f"October fact {i}.", "2026-10")
+        _project(conn, root, modes=("unfiled",))
+        text = (root / "Memories" / "Unfiled.md").read_text(encoding="utf-8")
+        strays = list((root / "Memories").glob("Unfiled-*.md"))
+
+    assert len(_unfiled_rows(text)) == 200
+    assert strays == [], strays
+
+
+def test_a_single_month_never_splits_even_past_the_limit(db, root):
+    """205 rows in one month stay whole: the spec's letter is 'paged by month'."""
+    saved, _path = db
+    with saved.writer() as conn:
+        for i in range(205):
+            _remember_in_month(conn, f"September fact {i}.", "2026-09")
+        _project(conn, root, modes=("unfiled",))
+        text = (root / "Memories" / "Unfiled.md").read_text(encoding="utf-8")
+        strays = list((root / "Memories").glob("Unfiled-*.md"))
+
+    assert len(_unfiled_rows(text)) == 205
+    assert strays == [], strays
+
+
+def test_a_forgotten_memory_leaves_its_month_archive_page(db, root):
+    """The erasure rule reaches the archive pages: forget clears its line there."""
+    saved, _path = db
+    with saved.writer() as conn:
+        ids = [
+            _remember_in_month(conn, f"September fact {i}.", "2026-09") for i in range(200)
+        ]
+        _remember_in_month(conn, "The fern prefers morning light.", "2026-10")
+        _remember_in_month(conn, "A second October row for Acme.", "2026-10")
+        _project(conn, root, modes=("unfiled",))
+        archive = root / "Memories" / "Unfiled-2026-09.md"
+        assert "September fact 7." in archive.read_text(encoding="utf-8")
+
+        _forget(conn, ids[7])
+        _project(conn, root, modes=("unfiled",))
+        text = archive.read_text(encoding="utf-8")
+        unfiled = (root / "Memories" / "Unfiled.md").read_text(encoding="utf-8")
+
+    assert "September fact 7." not in text
+    assert len(_unfiled_rows(text, section="unfiled-2026-09")) == 199
+    # And the working page is untouched by the archive's update.
+    assert len(_unfiled_rows(unfiled)) == 2
+
+
+def test_paging_deactivates_when_the_set_falls_back_to_the_limit(db, root):
+    """Back at or under 200 every row returns to Unfiled.md; the archive empties."""
+    saved, _path = db
+    with saved.writer() as conn:
+        for i in range(150):
+            _remember_in_month(conn, f"September fact {i}.", "2026-09")
+        oct_ids = [
+            _remember_in_month(conn, f"October fact {i}.", "2026-10") for i in range(60)
+        ]
+        _project(conn, root, modes=("unfiled",))
+        archive = root / "Memories" / "Unfiled-2026-09.md"
+        assert archive.exists()
+
+        for mid in oct_ids:
+            _forget(conn, mid)
+        _project(conn, root, modes=("unfiled",))
+        text = (root / "Memories" / "Unfiled.md").read_text(encoding="utf-8")
+        archive_text = archive.read_text(encoding="utf-8")
+
+    assert len(_unfiled_rows(text)) == 150
+    assert "September fact" in text
+    # The emptied archive page is kept, not deleted — the projection never
+    # deletes a file; it rewrites its own sections down to what remains.
+    assert archive.exists()
+    assert _unfiled_rows(archive_text, section="unfiled-2026-09") == []
+
+
+def test_a_hand_edit_on_a_month_page_survives(db, root):
+    """The card's core rule, on the new page kind: the human region is the user's."""
+    saved, _path = db
+    with saved.writer() as conn:
+        for i in range(150):
+            _remember_in_month(conn, f"September fact {i}.", "2026-09")
+        for i in range(60):
+            _remember_in_month(conn, f"October fact {i}.", "2026-10")
+        _project(conn, root, modes=("unfiled",))
+        archive = root / "Memories" / "Unfiled-2026-09.md"
+        original = archive.read_text(encoding="utf-8")
+        assert "My own note about September." not in original
+        at = original.index(AUTO_BEGIN.format(section="unfiled-2026-09"))
+        archive.write_text(
+            original[:at] + "My own note about September.\n\n" + original[at:],
+            encoding="utf-8",
+        )
+        for _ in range(10):
+            _project(conn, root, modes=("unfiled",))
+        after = archive.read_text(encoding="utf-8")
+
+    assert after.count("My own note about September.") == 1
+    assert len(_unfiled_rows(after, section="unfiled-2026-09")) == 150
+
+
+def test_paging_is_idempotent(db, root):
+    """A second run over a paged vault writes nothing."""
+    saved, _path = db
+    with saved.writer() as conn:
+        for i in range(150):
+            _remember_in_month(conn, f"September fact {i}.", "2026-09")
+        for i in range(60):
+            _remember_in_month(conn, f"October fact {i}.", "2026-10")
+        _project(conn, root, modes=("unfiled",))
+        pages = [root / "Memories" / "Unfiled.md", root / "Memories" / "Unfiled-2026-09.md"]
+        stamps = [page.stat().st_mtime_ns for page in pages]
+        second = _project(conn, root, modes=("unfiled",))
+
+    assert second.written == [], second.written
+    assert [page.stat().st_mtime_ns for page in pages] == stamps
+
+
+def test_lint_covers_month_pages(db, root):
+    """A gutted archive page is reported, not silently skipped."""
+    saved, _path = db
+    with saved.writer() as conn:
+        for i in range(150):
+            _remember_in_month(conn, f"September fact {i}.", "2026-09")
+        for i in range(60):
+            _remember_in_month(conn, f"October fact {i}.", "2026-10")
+        _project(conn, root, modes=("unfiled",))
+        archive = root / "Memories" / "Unfiled-2026-09.md"
+        text = archive.read_text(encoding="utf-8")
+        gutted = "\n".join(
+            line for line in text.splitlines() if "entropicmem:auto:" not in line
+        )
+        archive.write_text(gutted, encoding="utf-8")
+        problems = lint(root)
+
+    assert [(problem.path, problem.problem) for problem in problems] == [
+        (Path("Memories") / "Unfiled-2026-09.md", "missing_markers")
+    ]
+
+
+def test_the_month_page_frontmatter_carries_the_month(db, root):
+    """Written once at creation, like every other page kind's frontmatter."""
+    saved, _path = db
+    with saved.writer() as conn:
+        for i in range(150):
+            _remember_in_month(conn, f"September fact {i}.", "2026-09")
+        for i in range(60):
+            _remember_in_month(conn, f"October fact {i}.", "2026-10")
+        _project(conn, root, modes=("unfiled",))
+        archive = root / "Memories" / "Unfiled-2026-09.md"
+        text = archive.read_text(encoding="utf-8")
+        # A second run must not rewrite it (merge preserves the frontmatter).
+        _project(conn, root, modes=("unfiled",))
+        again = archive.read_text(encoding="utf-8")
+
+    assert text.startswith("---\nentropic_vault: unfiled\nmonth: 2026-09\n---\n")
+    assert again == text
+
+
+def test_a_stale_archive_page_for_the_newest_month_does_not_double_render(db, root):
+    """A month that becomes the newest again moves back to Unfiled.md once.
+
+    The archive page left over from when the month was not the newest must
+    empty out, or its rows would render on two pages at once.
+    """
+    saved, _path = db
+    with saved.writer() as conn:
+        for i in range(210):
+            _remember_in_month(conn, f"September fact {i}.", "2026-09")
+        only_october = _remember_in_month(conn, "The fern prefers morning light.", "2026-10")
+        _project(conn, root, modes=("unfiled",))
+        archive = root / "Memories" / "Unfiled-2026-09.md"
+        assert len(_unfiled_rows(archive.read_text(encoding="utf-8"), section="unfiled-2026-09")) == 210
+
+        _forget(conn, only_october)
+        _project(conn, root, modes=("unfiled",))
+        unfiled = (root / "Memories" / "Unfiled.md").read_text(encoding="utf-8")
+        archive_text = archive.read_text(encoding="utf-8")
+
+    assert len(_unfiled_rows(unfiled)) == 210
+    assert _unfiled_rows(archive_text, section="unfiled-2026-09") == []

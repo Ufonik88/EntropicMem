@@ -29,17 +29,37 @@ contract, in full:
   applies to the unfiled page and to a day's journal page.
 
 Slice 1 renders three page kinds — ``Entities/*.md``, ``Journal/*.md`` and
-``Memories/Unfiled.md`` — and stops there. Recorded, not built:
+``Memories/Unfiled.md``. Slice 2 (the ``project_vault`` job, its 60 s debounce,
+the provider's enqueue on the write paths and the ``vault.projection`` mode
+switch) landed as ``e986059``; ``legacy`` stays v2's note-per-fact writer.
 
-* the ``project_vault`` job, its 60 s debounce and the provider's enqueue on
-  write paths (slice 2), so nothing schedules a projection yet;
-* the ``vault.projection`` mode switch (``none|entities|entities+journal|
-  legacy``) — this module takes ``modes`` directly, and slice 2 maps config
-  onto it; ``legacy`` stays v2's note-per-fact writer;
-* month paging for ``Memories/Unfiled.md`` past 200 rows: paging needs a
-  policy for the month file that stops being current, and that is a design
-  decision of its own rather than a line of code;
-* the journal is unbounded (one page per episode day, forever).
+**Month paging (chunk 48).** ``Memories/Unfiled.md`` is paged by month past
+``UNFILED_PAGE_LIMIT`` (200) active unfiled rows — EM-601's own Spec text,
+deferred in slice 1 because "paging needs a policy for the month file that
+stops being current". The policy, made here and recorded:
+
+* at or below the limit, one ``Unfiled.md`` holds every row — unchanged;
+* above it, the **newest month present in the set** stays on ``Unfiled.md``
+  (never the wall-clock month: that page would render empty while 200 rows
+  sit unfiled) and every older month renders into
+  ``Memories/Unfiled-YYYY-MM.md`` with its own ``unfiled-YYYY-MM``
+  auto-section. ``Unfiled.md``'s section id stays ``unfiled`` unconditionally
+  — an id that moved with the month would report ``missing_markers`` on the
+  first run of every new month and freeze the working page;
+* **no month file is special**: ``Unfiled.md`` always means "the newest
+  month", an archive page's auto-section stays live for its month (a later
+  forget or entity link removes the row from its own month's page), and a
+  month whose rows are all gone is emptied and **kept** — the projection
+  never deletes a file, the erasure semantics entities and journal pages
+  already obey. The user can delete an emptied page by hand;
+* a single month never splits, even past the limit (the spec's letter is
+  "paged by month"), and month pages already on disk are visited even when
+  this run has no rows for them, so a forgotten row still leaves its page
+  and a de-activated paging still empties its archives.
+
+Still recorded, not built: the journal is unbounded (one page per episode
+day, forever) — no card promises a cap, and a retention policy is product
+design rather than a line of code.
 
 One root per scope: the projection runs for a single scope, and the "page
 exists but nothing is projectable now" branch — the branch that erases a
@@ -78,6 +98,11 @@ PROBLEMS: tuple[str, ...] = ("missing_markers", "unbalanced_markers", "duplicate
 
 #: A superseded fact's History is the *last* ten, newest first.
 HISTORY_LIMIT = 10
+
+#: ``Memories/Unfiled.md`` pages by month past this many active unfiled rows:
+#: the newest month stays on ``Unfiled.md`` and every older month renders into
+#: ``Memories/Unfiled-YYYY-MM.md``. EM-601's own number; no config key names it.
+UNFILED_PAGE_LIMIT = 200
 
 #: ``sensitivity`` values (§3.5) withheld from the vault outright.
 _FORBIDDEN_TIER_PLACEHOLDERS = ",".join("?" for _ in OWNER_ONLY_TIERS)
@@ -567,7 +592,7 @@ def _project_unfiled(
 ) -> None:
     clauses, values = _clauses(scope)
     rows = conn.execute(
-        "SELECT m.id, m.content FROM memories m"
+        "SELECT m.id, m.content, m.updated_at FROM memories m"
         " WHERE m.status='active'"
         " AND NOT EXISTS (SELECT 1 FROM memory_entities me WHERE me.memory_id=m.id)"
         f" AND {' AND '.join(clauses)}"
@@ -575,14 +600,58 @@ def _project_unfiled(
         values,
     ).fetchall()
 
+    by_month: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        by_month.setdefault(str(row["updated_at"])[:7], []).append(row)
+
+    paging = len(rows) > UNFILED_PAGE_LIMIT
+    if paging:
+        newest = max(by_month)
+        here = by_month[newest]
+    else:
+        newest = None
+        here = rows
+
+    # Month pages already on disk are visited even when this run has no rows
+    # for their month — a forgotten row must still leave its page, and a
+    # de-activated paging must empty its archives back out. A file without the
+    # projection's frontmatter key is not ours and is left alone.
+    on_disk: set[str] = set()
+    folder = vault.root / "Memories"
+    if folder.is_dir():
+        for path in sorted(folder.glob("Unfiled-*.md")):
+            with contextlib.suppress(OSError, UnicodeDecodeError):
+                if _is_projected(_read_raw(path)):
+                    on_disk.add(path.stem.removeprefix("Unfiled-"))
+
+    archive_months = (set(by_month) - {newest} if paging else set()) | on_disk
+
     relative = Path("Memories") / "Unfiled.md"
     existing = _read(vault, relative)
-    if existing is None and not rows:
+    if existing is None and not rows and not archive_months:
         return
     frontmatter = "---\nentropic_vault: unfiled\n---\n" if existing is None else ""
-    body = "\n".join(_bullet(row["content"], row["id"]) for row in rows)
+    body = "\n".join(_bullet(row["content"], row["id"]) for row in here)
     text, action = merge(existing, frontmatter=frontmatter, sections=[("unfiled", body)])
     _commit(vault, relative, text, action, report)
+
+    for month in sorted(archive_months, reverse=True):
+        # The newest month's rows live on Unfiled.md — a stale archive page
+        # left over from when this month was not the newest empties rather
+        # than rendering its rows a second time.
+        month_rows = by_month.get(month, []) if paging and month != newest else []
+        relative = Path("Memories") / f"Unfiled-{month}.md"
+        existing = _read(vault, relative)
+        if existing is None and not month_rows:
+            continue
+        frontmatter = (
+            f"---\nentropic_vault: unfiled\nmonth: {month}\n---\n" if existing is None else ""
+        )
+        body = "\n".join(_bullet(row["content"], row["id"]) for row in month_rows)
+        text, action = merge(
+            existing, frontmatter=frontmatter, sections=[(f"unfiled-{month}", body)]
+        )
+        _commit(vault, relative, text, action, report)
 
 
 # --- entry point ----------------------------------------------------------
