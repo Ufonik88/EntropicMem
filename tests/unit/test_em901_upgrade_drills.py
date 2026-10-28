@@ -353,6 +353,27 @@ def test_drill_the_old_vault_and_index(tmp_path):
         index.close()
 
 
+def test_the_capsule_snapshot_closes_its_handles():
+    """Structural pin: the snapshot helper closes explicitly.
+
+    ``with sqlite3.connect(...)`` manages a *transaction*, never the handle —
+    and an open handle on the staging file made the export's
+    ``TemporaryDirectory`` cleanup fail with WinError 32 on Windows (the
+    windows-import leg caught it; POSIX never notices). The snapshot closes
+    both connections in a ``finally``, and no capsule helper opens one with
+    ``with``.
+    """
+    from em.store.migrations import discover  # noqa: F401  (import-order sanity)
+
+    source = (SCRIPTS / "entropicmem.py").read_text(encoding="utf-8")
+    assert "with sqlite3.connect(" not in source, (
+        "a capsule helper opened a SQLite connection with `with`, which never "
+        "closes it — on Windows that deadlocks the export's temp cleanup"
+    )
+    snapshot = source.split("def _sqlite_snapshot", 1)[1].split("\ndef ", 1)[0]
+    assert "finally:" in snapshot and ".close()" in snapshot
+
+
 def test_drill_sync_capsule_from_28_into_30(tmp_path, monkeypatch):
     """A 2.8 capsule imports into a 3.0-line profile and migrates cleanly."""
     work = _copy_fixture("v2_7_0.db", tmp_path)

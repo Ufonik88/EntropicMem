@@ -1745,9 +1745,21 @@ def _sha256_file(path: Path) -> str:
 
 
 def _sqlite_snapshot(src: Path, dest: Path) -> None:
-    """Live-copy a SQLite DB via the backup API (safe under concurrent writes)."""
-    with sqlite3.connect(str(src)) as src_conn, sqlite3.connect(str(dest)) as dest_conn:
+    """Live-copy a SQLite DB via the backup API (safe under concurrent writes).
+
+    Explicit closes, not ``with``: a ``sqlite3`` connection's context manager
+    manages a *transaction*, it never closes the handle — and on Windows an
+    open handle on the staging file makes the export's TemporaryDirectory
+    cleanup fail with WinError 32 (the EM-901 drill's capsule round-trip
+    caught it; POSIX never notices).
+    """
+    src_conn = sqlite3.connect(str(src))
+    dest_conn = sqlite3.connect(str(dest))
+    try:
         src_conn.backup(dest_conn)
+    finally:
+        dest_conn.close()
+        src_conn.close()
 
 
 def _db_schema_versions(db_file: Path) -> dict:
