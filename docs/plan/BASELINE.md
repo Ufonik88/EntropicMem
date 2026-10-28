@@ -26,21 +26,24 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3178 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-51 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3178 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40752588511` on `4d75616` — 13/13 jobs green on that exact SHA)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3083 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3084 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3180 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3178 passed, 4 skipped, 2 xfailed** |
 
-Read as at `f638888` (chunk 51 — the cutover-correctness round, from Hermes's audit:
+Read as at `4d75616` (chunk 51 — the cutover-correctness round, from Hermes's audit:
 the migration guard runs only when a migration would run — an already-migrated store
 opens without the env var, and an empty store is created without it — the capsule import
 refuses a store newer than the build and backs the target up before replacing it, the
 profile-patch gate reads the typed `core.writable_by_agent` (the key was inert), and the
 stale rename record is corrected (`entropicmem_patch_core_memory` never existed); 8 new
 tests, 6 red mutation checks) — **measured on the tree that became the chunk's build
-commit, before it was committed** (the documented pre-stamp shape). The CI row is
-**projected**, not read: no run exists for this tree yet. The previous record (chunk 50's
+commit, before it was committed** (the documented pre-stamp shape). **The CI row is read, not projected:** run `40752588511` on `4d75616` reads
+**3178 passed, 4 skipped, 2 xfailed** from its `test (3.12)` job log — 13/13 jobs green
+on that exact SHA, exactly what the host-pin relation had projected (the record is
+re-stamped at the read pass's own commit because the allowlist entry touches `tests/`).
+The previous record (chunk 50's
 read pass, run `40721172839`, CI **3170 passed, 4 skipped, 2 xfailed**) remains in the
 record's historical set.
 
@@ -181,7 +184,7 @@ bare          3083 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3180 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3178 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
+= CI          3178 /  4 / 2   (read from run 40752588511, 3.12 job log)
 ```
 
 ## Citing CI evidence — one trap
