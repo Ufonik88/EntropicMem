@@ -109,6 +109,14 @@ points at.
 > security fix, as the manifest's own comment claims) and `ruff>=0.16.2` (the lint-parity
 > version the rules are written against), everything else deferred with reasons. No
 > `uv.lock` ever.
+> **Chunk 49 is COMPLETE and LANDED on `main` at `830ffee`** (2026-10-28; build `8593e7a`,
+> record `487dcee`, read `e463d3c`, re-stamp `830ffee`; 13/13 check-runs green on `487dcee`
+> and 26/26 on the merge tip — the branch run and `main`'s push on the same SHA; the build
+> tip's own run was red on the figures-guard ancestry test alone, the documented pre-stamp
+> shape). With it the superseded `chore/deps-entropicmem-2026-10-20` branch is deleted too:
+> the remote now carries `main`, `release/2.8.x` and four zero-delta refs
+> (`test/split-reachability-fix`, three `wt/t_*` — every commit reachable from `main`).
+> Nothing is in flight; the remainder is S9, held.
 
 ---
 
@@ -172,16 +180,18 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-28, against branch `main` at `d84f5f8` (chunk 48 — EM-601's
-deferred month paging for `Memories/Unfiled.md`: build `c1749c8`, record pass `f91c55a`,
-read pass `6441c32`, re-stamp `d84f5f8` — 13/13 check-runs green on `f91c55a` and 26/26 on
-the merge tip; branch `em-601-unfiled-paging` deleted after the ff-merge). The previous
-reconciliation was 2026-10-27, against `1d2f631` (the EM-806 S8 packaging
-landing `ceb70cb` — opening docs `1e683c1`, build `bf2e267` — plus the read pass `bdd2ecb`
-that flipped its CI figure from projected to read and the docs-only re-stamp `2df0cee` all
-three green on their own exact SHAs, and `main`'s pushes green on the same), then `2ff11c2`
-(the read-pass tip) and the deviation record's pair `da86e59` + `1d2f631` — all docs-only,
-each green on `main`'s push on its exact SHA. The previous
+**Last reconciled:** 2026-10-28, against branch `main` at `830ffee` (chunk 49, the
+dependency-floor rework — build `8593e7a`, record `487dcee`, read `e463d3c`, re-stamp
+`830ffee`; 13/13 green on `487dcee` and 26/26 on the merge tip; the rework branch and the
+superseded `chore/deps-entropicmem-2026-10-20` deleted; the two owner-ruled branch
+deletions done before it). The previous
+reconciliation was the same day against `d84f5f8` (chunk 48 — EM-601's
+deferred month paging: build `c1749c8`, record pass `f91c55a`,
+read pass `6441c32`, re-stamp `d84f5f8` — 13/13 green on `f91c55a` and 26/26 on the merge
+tip; branch deleted after the ff-merge), then 2026-10-27 against `1d2f631` (the EM-806 S8
+packaging landing `ceb70cb` — opening docs `1e683c1`, build `bf2e267` — plus the read pass
+`bdd2ecb` and the docs-only re-stamp `2df0cee`, then `2ff11c2` and `da86e59` + `1d2f631`
+— all docs-only, each green on `main`'s push on its exact SHA). The previous
 reconciliation was the read pass that closed the EM-703 + EM-705 landing's figures — landed
 as `17684d9` from code `859f12d` + `b570065` on `em-703-705-security`, deleted after the
 ff-merge; before that the EM-607 ingest-v2 landing at `5f0670c`, and before that 2026-10-19
