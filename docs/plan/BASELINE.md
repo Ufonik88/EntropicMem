@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3180 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3178 passed, 4 skipped, 2 xfailed** |
 
-Read as at `4d75616` (chunk 51 — the cutover-correctness round, from Hermes's audit:
+Read as at `a26dd8a` (chunk 51 — the cutover-correctness round, from Hermes's audit:
 the migration guard runs only when a migration would run — an already-migrated store
 opens without the env var, and an empty store is created without it — the capsule import
 refuses a store newer than the build and backs the target up before replacing it, the
