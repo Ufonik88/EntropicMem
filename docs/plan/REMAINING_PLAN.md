@@ -544,7 +544,29 @@ day:** build `c1749c8`, the record/read/re-stamp docs pass `f91c55a` → `6441c3
 and `main`'s post-landing push on the same SHA), `identity-guard` included; the build tip's
 own run was red on the figures-guard ancestry test alone, the documented pre-stamp shape.
 With it the last ungated code item in S5–S9 is closed and the third use's stop
-recommendation stands again: the remainder is S9, owner-gated.
+recommendation stands again: the remainder is S9, owner-gated. **The owner then had the
+chunk handed to Hermes (`darren-2/hermes-agent-agent`) for an independent review
+round-trip; its handoff-back is on record (reply to message `01M60YV8J006WDMATX3YNYYTRM`):
+APPROVE, no code defects** — newest-month `max()` over the zero-padded keys is
+chronological and never wall-clock, exactly-once rendering holds in every branch,
+kept-not-deleted and the widened early return are the erase-not-delete fixpoint; two nits
+self-recorded (a malformed `updated_at` trusts into a month page name — the journal's own
+tolerance — and archives-without-rows recreate an empty `Unfiled.md`).
+**Its box (Python 3.14 only) read 3058 passes with both 50k warm-p95 gates failing on
+machine speed alone** — best window p95 ~221 ms against the 150 ms budget on a box whose
+5k cold index build took 76.3 s (~10× this one), CI green on the exact SHA, run-to-run
+windows within noise — no regression signal. It also caught an environment trap worth
+keeping: that host's default scratch dir under `~/.hermes/cache` is refused by the
+migration-safety guard for pytest tmpdirs; `TMPDIR=/tmp` clears it. **Its branch
+recommendations (owner to rule; nothing touched):** `chore/deps-entropicmem-2026-10-20` —
+REWORK (the patch/minor floor raises are worth landing without the tracked `uv.lock` and
+with the ruff floor at or below CI's `0.16.2` pin, or with the pin raised deliberately and
+measured); `docs/dependency-update-2026-10-20` — DELETE (nothing main lacks; the figures
+guards would reject its stale 2026-10-20 docs stack); `wt/t_1951f54d` — DELETE (its EM-603
+fix is superseded by PR #11's stronger chain-walk on `main`; the neon skeleton loading
+state edits the deleted `graph_export.py` and would need a fresh build against `em/graph`
+if the feature is wanted). All four of its load-bearing citations were re-verified against
+this tree before being recorded here.
 
 **Second use — 2026-10-27, the owner's "continue with the next available chunk".** The
 written recommendation, per this gate: **S8's EM-806 packaging was the chunk.** The earlier

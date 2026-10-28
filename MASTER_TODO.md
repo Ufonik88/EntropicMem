@@ -90,7 +90,11 @@ points at.
 > and 26/26 on the merge tip — the branch run and `main`'s post-landing push on the same
 > SHA — `identity-guard` included; the build tip's own run was red on the figures-guard
 > ancestry test alone, the documented pre-stamp shape). With it the last ungated code item
-> in S5–S9 is closed and the remainder is S9 (the owner's release gate) again.
+> in S5–S9 is closed and the remainder is S9 (the owner's release gate) again. **The owner
+> then ran the review round-trip through Hermes: APPROVE, no code defects; its box's two
+> 50k warm-p95 gate failures were machine speed only (CI green on the exact SHA); and its
+> branch recommendations — deps REWORK without the lockfile, the other two DELETE — are
+> recorded in §6.6's fourth use for the owner's ruling.**
 
 ---
 
