@@ -68,6 +68,8 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # GitHub Actions ids, not commits: the EM-407 hardening record cites the failing
     # 2026-10-15 3.13-leg job and its run so the flap stays checkable (NEXT_CHUNK Part A).
     "116561640133": "GitHub Actions job id, not a commit: the 2026-10-15 guard flap",
+    # The chunk-48 landing's CI run (the figure of record's own run).
+    "40654937822": "GitHub Actions run id, not a commit: the chunk-48 figures run",
     "38775407380": "GitHub Actions run id, not a commit: the 2026-10-15 guard flap",
     # Same shape, same reason: EM-608's draft cites the 2026-10-18 warm-p95 flap's
     # job and run so the instance stays checkable (MASTER_TODO's flake record).

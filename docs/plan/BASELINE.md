@@ -26,7 +26,7 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3155 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-48 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3155 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40654937822` on `f91c55a` — 13/13 jobs green on that exact SHA)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3060 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3061 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3157 passed, 2 skipped, 2 xfailed** |
@@ -40,8 +40,11 @@ that became the chunk's build commit, before it was committed**, because the fig
 cannot be green at the build commit by construction: the record predates the commit whose
 tests it counts (the documented pre-stamp shape EM-703 + EM-705 and EM-806 both showed, where
 the build tip's own CI run goes red on the figures-guard pair alone and the record pass
-stamps the read figure). The CI row is **projected**, not read: no run exists for this tree
-yet. The previous record (EM-806's read pass, run `40521965355` on `ceb70cb`, CI
+stamps the read figure). **The CI row is read, not projected:** run `40654937822` on
+`f91c55a` reads **3155 passed, 4 skipped, 2 xfailed** from its `test (3.12)` job log —
+13/13 jobs green on that exact SHA, exactly what the host-pin relation had projected from
+the CI-equivalent. The previous record
+(EM-806's read pass, run `40521965355` on `ceb70cb`, CI
 **3144 passed, 4 skipped, 2 xfailed**) remains in the record's historical set.
 
 **The previous record** was EM-703 + EM-705 at `a15892e` (built as `859f12d` + `b570065` on `em-703-705-security`:
@@ -167,7 +170,7 @@ bare          3060 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3157 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3155 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
+= CI          3155 /  4 / 2   (read from run 40654937822, 3.12 job log)
 ```
 
 ## Citing CI evidence — one trap
