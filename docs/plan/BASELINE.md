@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3157 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3155 passed, 4 skipped, 2 xfailed** |
 
-Read as at `c1749c8` (chunk 48 — EM-601's deferred month paging for `Memories/Unfiled.md`:
+Read as at `6441c32` (chunk 48 — EM-601's deferred month paging for `Memories/Unfiled.md`:
 `UNFILED_PAGE_LIMIT = 200`, the newest month stays on `Unfiled.md`, older months render into
 `Memories/Unfiled-YYYY-MM.md` with their own live auto-sections, emptied pages are kept, a
 single month never splits; 11 new tests and 8 red mutation checks) — **measured on the tree
@@ -43,7 +43,9 @@ the build tip's own CI run goes red on the figures-guard pair alone and the reco
 stamps the read figure). **The CI row is read, not projected:** run `40654937822` on
 `f91c55a` reads **3155 passed, 4 skipped, 2 xfailed** from its `test (3.12)` job log —
 13/13 jobs green on that exact SHA, exactly what the host-pin relation had projected from
-the CI-equivalent. The previous record
+the CI-equivalent (the record is re-stamped at the read pass's own commit because the
+allowlist entry touched `tests/`; the read-as-at sha moves with it — the figure stays the
+same tree's). The previous record
 (EM-806's read pass, run `40521965355` on `ceb70cb`, CI
 **3144 passed, 4 skipped, 2 xfailed**) remains in the record's historical set.
 
