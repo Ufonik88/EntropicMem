@@ -545,8 +545,9 @@ and `main`'s post-landing push on the same SHA), `identity-guard` included; the 
 own run was red on the figures-guard ancestry test alone, the documented pre-stamp shape.
 With it the last ungated code item in S5–S9 is closed and the third use's stop
 recommendation stands again: the remainder is S9, owner-gated. **The owner then had the
-chunk handed to Hermes (`darren-2/hermes-agent-agent`) for an independent review
-round-trip; its handoff-back is on record (reply to message `01M60YV8J006WDMATX3YNYYTRM`):
+chunk handed to Hermes — the owner's review agent on the Reason Network — for an
+independent review round-trip; its handoff-back is on record (reply to this session's
+handoff message):
 APPROVE, no code defects** — newest-month `max()` over the zero-padded keys is
 chronological and never wall-clock, exactly-once rendering holds in every branch,
 kept-not-deleted and the widened early return are the erase-not-delete fixpoint; two nits
