@@ -117,6 +117,14 @@ points at.
 > the remote now carries `main`, `release/2.8.x` and four zero-delta refs
 > (`test/split-reachability-fix`, three `wt/t_*` — every commit reachable from `main`).
 > Nothing is in flight; the remainder is S9, held.
+>
+> **2026-10-28, later still: the owner said "handle and automate and make the decisions;
+> go to work." That un-holds the buildable piece of S9: EM-901's upgrade drills are opened
+> as chunk 50** (the drills validate the upgrade path and change no release surface — the
+> release ACT, EM-904, stays owner-gated end to end). The drill plan is Part B. **A review
+> handoff went to Hermes in parallel** (fixture-faithfulness audit + an independent
+> 2.8→3.0 break review; message `01M61D5VWN4GWEXFW956E424C4`); its findings fold into the
+> drills and the UPGRADING report, and it hands back here when done.
 
 ---
 
