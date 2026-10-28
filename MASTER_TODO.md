@@ -1133,6 +1133,28 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
+**Nothing agent-owned is left to build: every card in S5–S8 has landed, and the file is
+waiting on the owner's release call.** The last code card — S8's EM-806 packaging — landed
+2026-10-27 (`ceb70cb`, recorded through `0482a49`; the branch and read-pass commits are in
+§11). What §6.5 still holds is **S9**, and both of its cards are release acts:
+
+- **EM-901 — the upgrade drills.** v2.3 / v2.5 / v2.7 / 2.8 fixture DBs and vaults → 3.0:
+  `doctor` clean, eval parity, legacy ids resolvable, and sync between a 2.8 and a 3.0
+  profile (publish/pull) either verified or documented as requiring both upgraded; the
+  report is `docs/UPGRADING.md`.
+- **EM-904 — the 3.0 release.** Version everywhere, migration notes, the `SKILL.md` bump,
+  the tool rename with aliases, the catalog re-pin (a PR) and the announce.
+
+The drills validate an upgrade path to a release the owner has not scheduled, and the
+release itself is owner-gated end to end (§3.3; `docs/MARKETPLACE.md` has the procedure).
+The v3 cutover is likewise the owner's call, the live store stays v2, and no destructive
+embedding run is scheduled. **A fresh owner instruction is the usual go.** §11 is the
+cold-start page, `NEXT_CHUNK.md` Part B records the same recommendation, and §6.6's third
+use is the written one.
+
+<details>
+<summary>Historical: how this section read while S6 was still being built (not current)</summary>
+
 **Chunk 38, the content-ceiling fix, is landed (`c53b182`), chunk 39, EM-602 in
 both slices (`607d54f`, `c29addc`), and chunk 40, EM-603 the incremental index
 (`338ec2a`) — and **chunk 41, EM-604 (opt-in ingestion of human vault edits), is complete
@@ -1159,6 +1181,8 @@ the same day (`5258b46`); slice 2.1 landed locally at `69dc223`, 2.2 at `1e5b739
 **EM-607 (ingest v2) landed at `5f0670c`** — with it the agent-owned S6 list is
 finished, so the next piece is the owner's to name: S7 security, EM-806 packaging and S9's drills/release are all gated,
 and the release needs the owner's want, not an agent's.
+
+</details>
 
 ### The v3 cutover — **deferred 2026-10-07; both re-decision conditions are now met**
 
@@ -1237,6 +1261,17 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
   turns *without* committing the store, at the cost of a lagging copy.
 
 ### START HERE TOMORROW
+
+**Nothing is in flight; there is no build to start.** Every card in S5–S8 has landed — the
+last was S8's EM-806 packaging on 2026-10-27 (`ceb70cb`, recorded through `0482a49`) — and
+what remains is **S9**: the upgrade drills (EM-901) and the 3.0 release (EM-904), which are
+release acts the owner owns end to end. The v3 cutover is the owner's call; the live store
+stays v2; no destructive embedding run is scheduled. Read §11 for the state, `## What is
+next` above for why nothing is queued, and `docs/plan/NEXT_CHUNK.md` Part B for the §6.6
+recommendation. **A fresh owner instruction is the only thing that opens a new chunk.**
+
+<details>
+<summary>Historical: the S6 build order as it stood on 2026-10-19 (not current)</summary>
 
 **Chunk 40 — EM-603, the incremental index — is merged (`338ec2a`, all 11
 CI jobs green on the exact SHA, `windows-import` included — the branch-first landing of
@@ -1370,6 +1405,8 @@ line there.**
    evidence and the recommendation; do not switch the live store. One decision rides
    it: the **adapter-defaults unification** — holdout mrr **0.86508 spec** vs
    **0.88095 calibrated** — explicitly not unified in S4.
+
+</details>
 
 ### What is next — the owner's priority order
 
@@ -1554,11 +1591,14 @@ standing constraint that **the gate must not depend on the 92.9%-on-42 intent ta
   needs a session id `RetrievalContext` does not carry; EM-211's seven CLI
   refusals each name the card that lifts them. Draft cards in
   [plan §6.4](docs/plan/REMAINING_PLAN.md).
-* **`diversity.render_superseded_note` has no product caller (found 2026-10-16
-  while mutation-testing the supersession e2e card).** The provider renders its
-  own `was:` note (`em/provider/render.py`), so the diversity function is
-  exercised only by its own unit tests — one of the two note renderers is dead
-  weight. Fold or delete it in a small follow-up; recorded, not fixed.
+* **`diversity.render_superseded_note` had no product caller (found 2026-10-16 while
+  mutation-testing the supersession e2e card) — DELETED 2026-10-27 (`ae08dd0`).** The
+  provider renders its own `was:` note (`em/provider/render.py`) and that is the wording
+  users see, so the diversity copy was dead weight — and the dead one was the
+  **unescaped** one, interpolating a stored summary into a block while the shipped
+  renderer wraps it in `escape_untrusted`. Deleting it leaves one renderer and one
+  wording; the served-render test pins that diversity no longer mentions it and that the
+  served note still escapes (3 mutation checks red). No behaviour change.
 
 ### The v3 cutover — **both conditions met; the owner decides**
 
