@@ -68,7 +68,7 @@ the owner approves.
 2. **Never rename or remove a provider tool, and never change
    `provides_tools`/`provides_hooks`, outside a release that also re-pins the
    catalog entry.** The tool rename `entropicmem_patch_core` →
-   `entropicmem_patch_core_memory` ships only with the 3.0 release (EM-904).
+   The rename question resolved early: EM-404 made `entropicmem_patch_core` a legacy alias to `entropicmem_profile` (no `entropicmem_patch_core_memory` ever existed — corrected 2026-10-28); the alias's retirement still ships only with a release that re-pins the catalog.
 3. **A chunk of work leaves the Marketplace entry untouched** unless that chunk
    *is* a release.
 4. All SHA-pinned fields move together on a re-pin — `sha`, `docs_url`, `image`,

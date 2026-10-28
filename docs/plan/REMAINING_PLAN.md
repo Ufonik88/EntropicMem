@@ -352,7 +352,7 @@ Cards are grouped by the master plan's sprints. **"(plan text needed)"** marks c
   - **Retention: settled, the current rule stays.** 7 routine + 5 safety, not EM-113's keep-10 + one per day for 7 days. Recorded in §9 and in the EM-210 row of the deviation table.
 - **EM-211 (foundation):** met as a foundation; the facade itself is nearly done (above). **Chunk 4 (reads) landed 2026-10-03 at `0349b7b4b`** — see §5. **Chunks 5 (writes, `36355f3`) and 6 (mirror, `6bd4b47`) are merged in `e25db32`.** **Chunk 7.1 (the link job, `96c4ccb`) is merged in `64a2685`; 7.2 (the §3.5 owner-only rule) is next.** The provider still runs v2.
 
-**Tool rename (3.0 only):** `entropicmem_patch_core` → `entropicmem_patch_core_memory` (catalog maintainer's ask). Update the provider, `plugin.yaml`, `SKILL.md`, docs and tests together. It ships only with a release that re-pins the catalog (rule 10).
+**Tool rename — CORRECTED 2026-10-28 (Hermes's audit): the planned `entropicmem_patch_core_memory` never existed.** EM-404's nine-tool surface already made `entropicmem_patch_core` a legacy **alias** to `entropicmem_profile` (`action="patch"`), routing with `deprecated_tool` for one minor version — the rename shipped there, not as a separate 3.0 act. What rule 10 still governs: no `provides_tools`/`provides_hooks` change outside a release that re-pins the catalog.
 
 **Stays true:** `SKILL.md` keeps describing the installed version until EM-806/EM-904 bump it.
 
@@ -776,7 +776,7 @@ The owner re-set the order on 2026-10-08 (§9 item 6): **P0c the data → P2/EM-
 ### Frozen until the owner says otherwise
 
 - Releases, tags and catalog PRs (§3.3). The catalog pins `7e02412`; only a release moves it.
-- The tool rename (`entropicmem_patch_core` → `entropicmem_patch_core_memory`), which ships only with a release that re-pins the catalog (rule 10).
+- The tool-rename residue (`entropicmem_patch_core`'s legacy alias), which retires only with a release that re-pins the catalog (rule 10). The planned `entropicmem_patch_core_memory` never existed — corrected 2026-10-28.
 - The v3 cutover: `ENTROPICMEM_ALLOW_LIVE_MIGRATION=1` against the live store, with the owner present.
 - S3 and later, until the S4 decision gate in §6.6 says continue.
 - `auto_extract_enabled`'s default, and the `provides_tools` / `provides_hooks` lists.

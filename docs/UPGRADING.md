@@ -47,10 +47,17 @@ recorded edge cases (duplicate content, orphans, unparseable timestamps,
   migration.
 - **Tool names:** the legacy tool names (`entropicmem_recall`, `_query`,
   `_get`, `_patch_core`, `_consolidate`) route to the new surface for one
-  minor version and report `deprecated_tool`; the permanent rename is
-  `entropicmem_patch_core` → `entropicmem_patch_core_memory`.
+  minor version and report `deprecated_tool`. The mapping is:
+  `_recall`/`_query`/`_get` → `entropicmem_search`, `_patch_core` →
+  **`entropicmem_profile`** (`action="patch"`), `_consolidate` →
+  `entropicmem_review` (`action="consolidate_preview"` — the tool only ever
+  previews; running a real consolidation stays CLI-only, by design). The
+  previously planned name `entropicmem_patch_core_memory` never existed.
 - **The system prompt is rebuilt** (policy text, conditional tool bullets, an
   800-token core budget) — model behavior can shift subtly.
+- **The remember surface tightened:** the v2 remember forced
+  `domain=Knowledge` and no sensitivity; the v3 schema takes explicit values
+  (a migrated row keeps what it had — new writes say what they mean).
 - **Writes are injection-screened** (fail-open; flagged content keeps a
   warning marker), and forget confirmations are now random single-use tokens.
 - **The host floor is real:** 3.0 requires `hermes-agent >= 0.21.3` and
@@ -66,7 +73,9 @@ recorded edge cases (duplicate content, orphans, unparseable timestamps,
   (`entropicmem export`), import it on the 3.0 profile
   (`entropicmem import --trust-unverified` — capsules prove integrity, not
   origin), then migrate the imported store normally. The drill drives exactly
-  this and verifies every row lands.
+  this and verifies every row lands. The import refuses a store newer than
+  the build and takes a verified backup of the target before replacing it —
+  the drills pin both.
 - **3.0 → 2.8 requires both upgraded.** The migration renames the v2 tables
   (`v2_facts`, …) inside the migrated store, so a 2.8 engine opening a
   migrated store sees an **empty** `facts` table — the drill pins this so the
@@ -89,7 +98,12 @@ recorded edge cases (duplicate content, orphans, unparseable timestamps,
 
    (run inside the plugin's `scripts/` directory, against a **copy first** —
    the drills are exactly that, run every CI push)
-3. Note the CLI's existing `migrate` command is **not** this: it is the v2-only
+3. Re-opening a migrated store needs no env var: the migration runner's
+   path guard runs only when a migration would actually run (a drill pins
+   it), so the opt-in is the one-time act it was meant to be. Creating a
+   fresh store needs no env var either (an empty store has nothing the guard
+   protects).
+4. Note the CLI's existing `migrate` command is **not** this: it is the v2-only
    P1 provenance migration and refuses on a v3 store. A friendly
    `entropicmem memory upgrade` command wrapping the real migrator is a
    recorded gap for the release checklist.

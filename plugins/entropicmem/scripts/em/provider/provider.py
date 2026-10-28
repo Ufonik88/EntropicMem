@@ -465,6 +465,10 @@ class EntropicMemProvider(ToolHandlers):
         )
         self._typed_config = loaded.config
         self._config_errors = loaded.errors
+        # Chunk 51: the profile-patch gate reads the flat dict — sync the
+        # typed key into it (the loader folded the legacy spelling), so the
+        # gate reads one source of truth and the typed key is no longer inert.
+        self._config["core_memory_writable"] = self._typed_config.core.writable_by_agent
         from ..retrieval.fusion import RankWeights
         from ..retrieval.gate import GateConfig
 
@@ -552,6 +556,9 @@ class EntropicMemProvider(ToolHandlers):
             self._gate_config = None
             self._rank_weights = None
             self._injection_policy = None
+            # Chunk 51: a failed typed load resets the gate to the card
+            # default too (the same reset the EM-703 policy keys obey).
+            self._config["core_memory_writable"] = self._typed_config.core.writable_by_agent
         self._scripts_dir = self._host.resolve_scripts_dir(self._hermes_home)
         # §3.5 (EM-402): resolve the session's ScopeContext from the host's
         # init kwargs + config. This is the one identity every read and write

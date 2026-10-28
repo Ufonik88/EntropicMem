@@ -362,6 +362,7 @@ LEGACY_KEY_MAP: Mapping[str, str] = {
     "owner_user_ids": "scope.owner_user_ids",
     "guest_hidden_domains": "scope.guest_hidden_domains",
     "core_inject_mode": "core.inject_mode",
+    "core_memory_writable": "core.writable_by_agent",
     "embeddings_enabled": "embeddings.enabled",
     "prefetch_max_latency_ms": "prefetch.max_latency_ms",
     "prefetch_token_budget": "prefetch.token_budget",

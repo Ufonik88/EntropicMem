@@ -731,6 +731,13 @@ def test_migrate_refuses_live_store_before_touching_anything(monkeypatch):
 
     conn = emdb.open_db(":memory:")
     try:
+        # The refusal is meaningful for a store WITH data (chunk 51: an empty
+        # store skips the guard — creation destroys nothing).
+        conn.execute(
+            "CREATE TABLE facts (id TEXT PRIMARY KEY, content TEXT, deleted INTEGER DEFAULT 0)"
+        )
+        conn.execute("INSERT INTO facts VALUES ('syn_old', 'the live row', 0)")
+        conn.commit()
         monkeypatch.setattr(sqlite3, "connect", spy_connect)
         monkeypatch.setattr(
             emmig,

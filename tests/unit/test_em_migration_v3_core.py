@@ -78,10 +78,13 @@ _BUILDER = _load_builder()
 class _FakeConn:
     """Duck-typed connection that reports a refused path and records DDL.
 
-    The runner legitimately calls ``PRAGMA database_list`` to learn the path
-    *before* the guard runs, so that one query is answered. Anything else —
+    Chunk 51 reordered the runner: the guard runs only when a migration WILL
+    run, so the pre-guard flow legitimately reads (never writes) the store's
+    version, its applied-checksum table and its table list — those four
+    read-only queries are answered, and the store reports DATA (a ``facts``
+    table), which is the case where a refusal is meaningful. Anything else —
     DDL, a backup, a write — is recorded and makes the test fail, proving the
-    guard fired before any observable work (the EM-203 contract).
+    guard still fired before any observable work (the EM-203 contract).
     """
 
     def __init__(self, path):
@@ -92,8 +95,33 @@ class _FakeConn:
         statement = " ".join(str(sql).split())
         if statement.upper().startswith("PRAGMA DATABASE_LIST"):
             return _OneRow((("main", self._path, self._path),))
+        if statement.upper().startswith("PRAGMA USER_VERSION"):
+            return _OneRow(((0,),))
+        if "SQLITE_MASTER" in statement.upper():
+            if "SCHEMA_MIGRATIONS" in statement.upper():
+                return _NoneRow()
+            return _Rows([("facts",), ("pending_facts",)])
         self.executed.append(statement)
         raise AssertionError(f"statement ran during a refused migration: {statement}")
+
+
+class _NoneRow:
+    def fetchone(self):
+        return None
+
+    def fetchall(self):
+        return []
+
+
+class _Rows:
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self):
+        return list(self._rows)
 
 
 class _OneRow:

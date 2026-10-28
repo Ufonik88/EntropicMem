@@ -26,11 +26,23 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3170 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40721172839` on `1765a2d` — 13/13 jobs green on that exact SHA)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3075 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3076 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3172 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3170 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3178 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-51 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3083 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3084 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3180 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3178 passed, 4 skipped, 2 xfailed** |
+
+Read as at `25f74f3` (chunk 51 — the cutover-correctness round, from Hermes's audit:
+the migration guard runs only when a migration would run — an already-migrated store
+opens without the env var, and an empty store is created without it — the capsule import
+refuses a store newer than the build and backs the target up before replacing it, the
+profile-patch gate reads the typed `core.writable_by_agent` (the key was inert), and the
+stale rename record is corrected (`entropicmem_patch_core_memory` never existed); 8 new
+tests, 6 red mutation checks) — **measured on the tree that became the chunk's build
+commit, before it was committed** (the documented pre-stamp shape). The CI row is
+**projected**, not read: no run exists for this tree yet. The previous record (chunk 50's
+read pass, run `40721172839`, CI **3170 passed, 4 skipped, 2 xfailed**) remains in the
+record's historical set.
 
 Read as at `adb88bc` (chunk 50 — EM-901's upgrade drills: the committed v2.3/2.5/2.7
 fixtures and the derived 2.8.1 generation driven to 3.0 — five migrations, legacy-id
@@ -164,12 +176,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3075 / 20 / 2
+bare          3083 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3172 /  2 / 2
+= CI-equiv    3180 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3170 /  4 / 2   (read from run 40721172839, 3.12 job log)
+= CI          3178 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap

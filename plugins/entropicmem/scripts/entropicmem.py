@@ -1927,6 +1927,45 @@ def import_capsule(capsule_path: Path, *, trust_unverified: bool = False) -> dic
                 if want and _sha256_bytes((staging / member.name).read_bytes()) != want:
                     raise ValueError(f"checksum mismatch for {member.name!r}")
 
+            # Chunk 51: checksums prove integrity, not compatibility. A store
+            # newer than this build is refused (the target would be replaced
+            # with something this code cannot serve), a versioned store must
+            # actually be ours, and an existing target is backed up before it
+            # is replaced — the old store used to vanish unrecoverably.
+            staged_db = staging / "memory.db"
+            if staged_db.is_file():
+                from em.store.migrations import LATEST as _LATEST
+
+                version_conn = sqlite3.connect(str(staged_db))
+                try:
+                    store_version = int(
+                        version_conn.execute("PRAGMA user_version").fetchone()[0]
+                    )
+                    if store_version > _LATEST:
+                        raise ValueError(
+                            f"capsule's memory.db has schema user_version={store_version}, "
+                            f"newer than this build (latest={_LATEST}); refusing the import"
+                        )
+                    if store_version >= 1:
+                        tables = {
+                            row[0]
+                            for row in version_conn.execute(
+                                "SELECT name FROM sqlite_master WHERE type='table'"
+                            )
+                        }
+                        if "memories" not in tables:
+                            raise ValueError(
+                                "capsule's memory.db reports a schema version but has "
+                                "no v3 `memories` table; it is not an EntropicMem store"
+                            )
+                finally:
+                    version_conn.close()
+
+            if db_path.is_file():
+                from em.store.backup import BackupManager
+
+                BackupManager(db_path).snapshot(reason="pre-import")
+
             for member in members:
                 name = member.name
                 if name == "manifest.json":

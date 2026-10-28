@@ -156,6 +156,16 @@ def discover(directory: Optional[Path] = None) -> list[Migration]:
 #: Highest schema version this build knows how to produce.
 LATEST = max((m.version for m in discover()), default=0)
 
+#: The tables that hold user data. An empty store — none of these exist — has
+#: nothing the path guard protects, so creation is allowed anywhere; the
+#: guard's purpose is protecting existing data, not existing paths.
+_DATA_TABLES = ("facts", "memories", "pending_facts", "episodes", "fact_versions")
+
+
+def _store_is_empty(conn: sqlite3.Connection) -> bool:
+    rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    return not ({row[0] for row in rows} & set(_DATA_TABLES))
+
 # db.py's fast path reads its own module global at call time; EM-203 owns the
 # registry, so the registry is the source of truth and pushes LATEST into db.
 _db.LATEST_USER_VERSION = LATEST
@@ -312,10 +322,6 @@ def migrate(
     """
     migrations = list(registry) if registry is not None else discover()
 
-    # 1. Path guard BEFORE anything observable happens (owner rule for S2).
-    db_path = _db_path_of(conn)
-    assert_safe_db_path(db_path)
-
     if target is not None:
         ceiling = target
     elif registry is not None:
@@ -338,7 +344,20 @@ def migrate(
     ]
     pending.sort(key=lambda m: m.version)
     if not pending:
+        # Nothing to do: return before the path guard. The guard existed to
+        # stop unreleased migration code from touching a live store's data —
+        # a no-op run touches nothing, and refusing here would mean an
+        # already-migrated live store can never be opened again without the
+        # cutover env var permanently set (chunk 51, Hermes's audit).
         return []
+
+    # The path guard now runs only when a migration WILL run, and an empty
+    # store (no data tables) skips it: creating a fresh store destroys
+    # nothing, which is the guard's whole purpose. A store with data at a
+    # non-temp path still refuses.
+    db_path = _db_path_of(conn)
+    if not _store_is_empty(conn):
+        assert_safe_db_path(db_path)
 
     # 2. Backup the pre-migration state (skipped for in-memory databases).
     _backup(
