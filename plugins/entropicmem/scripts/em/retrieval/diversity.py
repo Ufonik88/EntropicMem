@@ -53,7 +53,6 @@ __all__ = [
     "jaccard",
     "load_predecessors",
     "mmr",
-    "render_superseded_note",
     "tokens",
 ]
 
@@ -179,12 +178,6 @@ class CollapseResult:
     predecessors: Dict[Key, Tuple[Predecessor, ...]]
     #: Keys dropped as duplicates of a narrower-scoped twin.
     duplicates: Tuple[Key, ...]
-
-
-def render_superseded_note(predecessor: Predecessor) -> str:
-    """§3.6's rendering: ``(updated <date>; was: <old summary>)``."""
-    when = predecessor.changed_at.date().isoformat() if predecessor.changed_at else "unknown"
-    return f"(updated {when}; was: {predecessor.summary})"
 
 
 def collapse(

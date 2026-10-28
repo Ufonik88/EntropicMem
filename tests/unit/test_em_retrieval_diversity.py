@@ -36,7 +36,6 @@ from em.retrieval.diversity import (  # noqa: E402
     jaccard,
     load_predecessors,
     mmr,
-    render_superseded_note,
     tokens,
 )
 from em.retrieval.fusion import Ranking, Signal  # noqa: E402
@@ -283,9 +282,9 @@ def test_a_recent_predecessor_earns_the_flag_and_comes_back_for_the_renderer():
     )
     assert SUPERSEDED_NOTE_FLAG in result.kept[0].why
     assert result.predecessors[key("successor")] == (old,)
-    assert render_superseded_note(old) == (
-        f"(updated {(NOW - timedelta(days=5)).date().isoformat()}; was: the old summary)"
-    )
+    # The note's wording is the served renderer's (`em/provider/render.py`), which
+    # escapes untrusted summaries; this module carries the flag and the
+    # predecessor only. `test_em_retrieval_render.py` pins that single renderer.
 
 
 def test_an_old_predecessor_does_not_earn_the_flag():
@@ -312,9 +311,7 @@ def test_an_unknown_change_time_still_earns_the_note():
         now=NOW,
     )
     assert SUPERSEDED_NOTE_FLAG in result.kept[0].why
-    assert render_superseded_note(Predecessor("old_id", "old", None)) == (
-        "(updated unknown; was: old)"
-    )
+    assert result.predecessors[key("successor")] == (Predecessor("old_id", "old", None),)
 
 
 def test_collapse_leaves_the_rest_of_the_explanation_alone():

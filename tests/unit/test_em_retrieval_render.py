@@ -97,6 +97,16 @@ def test_a_gated_retrieval_keeps_the_predecessor_and_the_render_quotes_it(store)
     assert "### Constraints" in block
     assert block.index("### Constraints") < block.index("### Relevant memories")
     assert "was: the Acme staging port is 8080" in block
+    # One `was:` renderer, and it escapes. `em/retrieval/diversity.py` used to carry
+    # a second, unescaped `(updated <date>; was: <summary>)` that no product code
+    # called: two wordings to drift, and the unescaped one a trap for untrusted
+    # summaries. The served renderer is the one that ships, so it is the one pinned.
+    assert "render_superseded_note" not in (
+        SCRIPTS / "em" / "retrieval" / "diversity.py"
+    ).read_text(encoding="utf-8")
+    assert "escape_untrusted(item.was)" in (
+        SCRIPTS / "em" / "provider" / "render.py"
+    ).read_text(encoding="utf-8")
     assert f"[m·{short_id(new)}]" in block
     assert f"[{new}]" not in block
     assert "9090" in block
