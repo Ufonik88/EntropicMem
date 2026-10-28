@@ -68,6 +68,23 @@ points at.
 > `docs/plan/NEXT_CHUNK.md`; the figures of record are in `docs/plan/BASELINE.md`.
 > **S9's drills (EM-901) and the 3.0 release (EM-904) stay behind the owner's release gate,
 > and the v3 cutover remains the owner's call.**
+>
+> **2026-10-28: the owner asked for anything outstanding that is still autonomous, and to
+> do it now.** The sweep found three things. (1) **Three unmerged remote branches** —
+> `chore/deps-entropicmem-2026-10-20` (dependency floor raises that also track a `uv.lock`,
+> which chunk 30's `.gitignore` policy deliberately keeps out, and an ruff floor that
+> conflicts with CI's `0.16.2` parity pin), `docs/dependency-update-2026-10-20` (the same
+> chore commits plus docs records the `b99437a` merge already carried), and
+> `wt/t_1951f54d` (a stale-base branch whose EM-603 reindex fix is superseded by PR #11 and
+> whose graph loading-state feature edits the deleted `graph_export.py`). All are the
+> owner's own sessions' work — **reported, not touched**. (2) `prefetch.query_rewrite`'s
+> known-gaps line is reconciled: V3_FOUNDATIONS already marks the key deferred with the
+> ruling and its owner (a prefetch-side card, never a drive-by) — the gap was the pointer.
+> (3) **EM-601's one deferred spec promise — month paging for `Memories/Unfiled.md` past
+> 200 rows — is opened as the chunk**: it is the last outstanding item in S5–S9 that is
+> code and not behind a gate, it is the card's own Spec text, and the deferred design
+> question ("which file is current when a month stops being current") has an answer the
+> agent can make and record. S9 stays behind the owner's release gate.
 
 ---
 

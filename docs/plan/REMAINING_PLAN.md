@@ -434,7 +434,7 @@ Cards are grouped by the master plan's sprints. **"(plan text needed)"** marks c
 **Recorded gaps, carded here so they are not lost (none started):**
 
 - **Supersession end-to-end through the provider — CLOSED (2026-10-16, `9370ce6`).** `tests/unit/test_em_supersession_e2e.py` drives a real supersession through the `entropicmem_update` tool and asserts the wired block's §3.6 `was:` note (three mutation checks red). Landed before EM-502/EM-503, which produce supersessions.
-- **§3.6 `query_rewrite` has no call site.** The typed key exists (`prefetch.query_rewrite`, default `none`) with nothing behind it. Either wire a rewrite or mark the key deferred in `V3_FOUNDATIONS.md`.
+- **§3.6 `query_rewrite` has no call site.** The typed key exists (`prefetch.query_rewrite`, default `none`) with nothing behind it. Either wire a rewrite or mark the key deferred in `V3_FOUNDATIONS.md`. **Resolved 2026-10-28: it is marked deferred** — V3_FOUNDATIONS' note already carries the ruling (optional, background-only, "never blocking `prefetch`"; the wiring belongs with a prefetch-side card, never a drive-by), so the gap was this pointer, not the decision.
 - **`recent`'s "current session" half.** §3.6 reads "in current session / last 48 h"; only the 48 h window is implemented. Needs a session id on `RetrievalContext` that it does not carry.
 - **EM-211's seven CLI refusals.** Each already names the card that lifts it (triples & publish/pull → S5, `embed --rebuild` → EM-303, `memory project`/graph → S6, `migrate` → v2-only). Closing them is S3/S5/S6 work, not a bug.
 
@@ -525,6 +525,22 @@ agent therefore recommends no further build and does not open one**; the next ch
 a fresh owner instruction, and the veto applies at any time. The v3 cutover remains the
 owner's call and the live store stays v2.
 
+**Fourth use — 2026-10-28, on the owner's fresh instruction, and it opened chunk 48.** The
+owner asked for anything outstanding that is still autonomous and said do it now — the
+instruction the third use said the next chunk needs. The sweep found exactly one
+outstanding item in S5–S9 that is code and not behind a gate: **EM-601's deferred month
+paging for `Memories/Unfiled.md` past 200 rows** — the card's own Spec text, deferred in
+slice 1 with the paging-policy question recorded rather than guessed. The gate's call: open
+it as chunk 48 (the policy is Part B of `NEXT_CHUNK.md`), leave S9's drills/release behind
+the owner's release gate, and record the sweep's other two findings — the
+`prefetch.query_rewrite` known-gaps line is reconciled (V3_FOUNDATIONS already marks the
+key deferred, its wiring belonging to a prefetch-side card, never a drive-by), and three
+unmerged remote branches of the owner's own sessions' work
+(`chore/deps-entropicmem-2026-10-20`, `docs/dependency-update-2026-10-20`,
+`wt/t_1951f54d`) are reported and untouched, none of them landable as-is (a tracked
+`uv.lock` against chunk 30's policy, an ruff floor against CI's parity pin, a stale base
+superseded by PR #11) and all of them the owner's to rule on.
+
 **Second use — 2026-10-27, the owner's "continue with the next available chunk".** The
 written recommendation, per this gate: **S8's EM-806 packaging was the chunk.** The earlier
 record classified EM-806 as release-adjacent, and that needed correcting
@@ -592,8 +608,8 @@ owner's calls on the dependency round and the cutover.
 | **Released version** | `v2.8.1`, tag at `7e02412` on the protected `release/2.8.x`. This is what the Hermes catalog pins and what users install. |
 | **Development line** | **`main` at `1d2f631`** (level with `origin/main`) — the EM-806 packaging landing `ceb70cb` (opening docs `1e683c1`, build `bf2e267`), the read pass `bdd2ecb` that flipped its CI figure from projected to read with its re-stamp `2df0cee`, then the tip record `2ff11c2` and the deviation record's pair `da86e59` + `1d2f631`. Every one is green on its own exact SHA, and `main`'s push re-ran the matrix green on each tip. The figures of record are in [`BASELINE.md`](BASELINE.md); no page here restates them. |
 | **Last landed chunk** | **EM-806 — S8 packaging** (landed 2026-10-27 as `ceb70cb`; build `bf2e267`): the wheel now ships the engine's flat modules, the host's `hermes_agent.memory_providers` entry point loads a provider from a pip install, the plugin shell ships as a package with `config_schema.py`/`cli.py` beside it, and `plugin.yaml` carries the measured `requires_hermes` floor and an explicit `pip_dependencies: []`; 9 new tests, 13 red mutation checks, and a pip-install smoke step in `plugin-validate`. Before it, **EM-703 + EM-705 — the write-path security pair** landed 2026-10-23 as `17684d9` (code `859f12d` + `b570065`): every store write screened for prompt injection in overlapping windows with the trust policy deciding what a flagged shape means, and a purge that takes the memory's vectors with it and schedules the vault's regeneration; 43 new tests, 30 red mutation checks (`f7fb7a1` + `a15892e` + `bbabf23` closed its figures). Before it, **EM-607 — ingest v2** landed 2026-10-21 as `5f0670c` (built `af0cf98`; parsed HTML, one chunked note under `Sources/`, `pending` claims with `source=ingest`, mentions linked through `EntityLinker`, optional Appendix C.6 key points, 30 new tests, 20 red mutation checks); **EM-605 (slices 2.1–2.5) and EM-606** landed 2026-10-21 at `73bed69`; and **chunk 41 — EM-604** at `31a7323`, **EM-605 slice 1** at `2fd7812`, the slice-1 follow-up at `5258b46`. The whole ledger is §5. |
-| **In flight** | **Nothing is in flight.** EM-806 landed on `main` at `ceb70cb` (13/13 green on the tip and again on `main`'s push); its figures were read from that run's 3.12 job log. One small follow-up landed after it (`ae08dd0`): the second, uncalled and unescaped `was:` renderer in `em/retrieval/diversity.py` was deleted, leaving the served renderer the only one (3 mutation checks red, no behaviour change, suite count unchanged). No other work is open. |
-| **Next piece of development** | **Nothing is queued, and nothing is blocked.** Every card in S5–S8 has landed. What remains is **S9** — the upgrade drills (EM-901) and the 3.0 release (EM-904: version, tags, catalog re-pin, announce) — which are release acts the owner owns end to end; the v3 cutover stays the owner's call, the live store stays v2, and no destructive embedding run is scheduled. A fresh owner instruction is the usual go. |
+| **In flight** | **Chunk 48 — EM-601's deferred month paging for `Memories/Unfiled.md` past 200 rows**, opened 2026-10-28 on the owner's instruction to do what is still autonomous (§6.6's fourth use; the policy is Part B of `NEXT_CHUNK.md`). Before it, EM-806 landed on `main` at `ceb70cb` (13/13 green on the tip and again on `main`'s push); its figures were read from that run's 3.12 job log. One small follow-up landed after it (`ae08dd0`): the second, uncalled and unescaped `was:` renderer in `em/retrieval/diversity.py` was deleted, leaving the served renderer the only one (3 mutation checks red, no behaviour change, suite count unchanged). |
+| **Next piece of development** | **Chunk 48 (in flight, above).** After it, nothing is queued and nothing else is blocked: S9 — the upgrade drills (EM-901) and the 3.0 release (EM-904: version, tags, catalog re-pin, announce) — is release work the owner owns end to end; the v3 cutover stays the owner's call, the live store stays v2, and no destructive embedding run is scheduled. The journal's unbounded growth stays a recorded deferral (no card promise; a retention policy is product design). |
 | **Stage** | **S6, S7's buildable cards and S8 are complete.** EM-601 (vault projection, both halves), EM-608 (the 50k warm-p95 gate's statistic), chunk 38 (the `remember` content ceiling, `c53b182`), chunk 39 (EM-602, `607d54f` + `c29addc`), chunk 40 (EM-603, `338ec2a`), chunk 41 (EM-604, `31a7323`), EM-605 (slice 1 `2fd7812`, slices 2.1–2.5 with EM-606 at `73bed69`) and **EM-607 (`af0cf98`)** are done; **S7's write-path cards (EM-703, EM-705) landed on `main` at `17684d9` (2026-10-23, the agent's §6.6 call); and S8's EM-806 packaging landed at `ceb70cb` (2026-10-27)**. **S9's drills/release stay behind the owner's release gate**; the v3 cutover stays the owner's call, the live store stays v2, and no destructive embedding run is scheduled. |
 
 **Security hardening (2026-10-19, landed).** A

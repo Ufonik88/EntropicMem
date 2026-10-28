@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3157 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3155 passed, 4 skipped, 2 xfailed** |
 
-Read as at `b23a6eb` (chunk 48 — EM-601's deferred month paging for `Memories/Unfiled.md`:
+Read as at `c1749c8` (chunk 48 — EM-601's deferred month paging for `Memories/Unfiled.md`:
 `UNFILED_PAGE_LIMIT = 200`, the newest month stays on `Unfiled.md`, older months render into
 `Memories/Unfiled-YYYY-MM.md` with their own live auto-sections, emptied pages are kept, a
 single month never splits; 11 new tests and 8 red mutation checks) — **measured on the tree
