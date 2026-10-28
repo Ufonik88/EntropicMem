@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3161 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3159 passed, 4 skipped, 2 xfailed** |
 
-Read as at `2939cd4` (chunk 49 — the dependency-floor rework, the owner's ruling on the
+Read as at `8593e7a` (chunk 49 — the dependency-floor rework, the owner's ruling on the
 2026-10-20 deps round: `cryptography>=50.0.2` and `ruff>=0.16.2` — the manifest aligned
 with what CI actually pins and tests; the chore branch's floor-above-the-tested-pin raises
 refused with reasons in the manifest comment; no `uv.lock`; 4 new tests and 5 red mutation
