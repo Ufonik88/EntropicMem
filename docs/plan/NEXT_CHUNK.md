@@ -1607,23 +1607,56 @@ Closes the recorded 2026-10-15 coverage gap (plan §6.4): no test drove a real s
 
 **Counts:** bare **2693 / 16 / 2**, digest **2694 / 15 / 2**, CI-equivalent 3.12 **2771 / 2 / 2**; CI's 3.12 count **2769 / 4 / 2** (read from the job log at `c30aa54`); `ruff==0.16.2` clean; the docs guards green. The full card line is in `CHANGELOG.md` under `[Unreleased]`/Fixed; §9 item 9 carries the resolution record.
 
-## Part B: next — **nothing is queued; the remainder is S9, and S9 is the owner's release gate**
+## Part B: next — **chunk 49: the dependency-floor rework (the owner's "delete both, rework the deps, hold S9")**
 
-**Nothing is in flight.** Chunk 48 (Part A) closed the last ungated code item in S5–S9, and
-the §6.6 stop recommendation stands again: the remainder is **S9** —
+**Basis:** the owner's ruling on §6.6's fourth-use recommendations. The two ruled branches
+are deleted from the remote; the deps rework is the surviving piece, and the safety review
+changed it from what the chore branch proposed.
+
+### What lands, and why the rest does not
+
+- **`security = ["cryptography>=50.0.2"]`** (was `>=50.0.0`). The manifest's own comment says
+  the floors carry the current security fixes, and CI has pinned `cryptography==50.0.2`
+  since the hardening pass — the floor was the one place still claiming the older version
+  works.
+- **`dev = ["pytest>=9.0.3", "ruff>=0.16.2"]`**. pytest's floor is unchanged (it already
+  names CI's exact pin). ruff's floor moves `0.4.0 → 0.16.2`: the lint rules are written
+  against the parity pin, and a ruff older than it cannot read the newest config shape.
+- **Refused, with reasons:** fastapi `>=0.154.0` (CI pins and tests `0.143.0` — a floor
+  above the tested pin lets a fresh install resolve versions the suite has never run);
+  pytest `>=9.1.1` (same, against the `==9.0.3` pin); fastembed `>=0.9.0` (a `0.3 → 0.9`
+  jump across a 0.x ladder is breaking by PEP 440's reading, and no CI job installs
+  fastembed); graphviz `>=0.21` and uvicorn `>=0.54.0` (no CI story either way; a floor
+  raise adds risk and no verification).
+- **Higher floors can also collide with the Hermes host's own pins** — the pip install path
+  must not demand more than the host resolves. Minimal floors are the safe direction.
+- **No `uv.lock`, ever** — `.gitignore`'s policy stands; the accepted risk is recorded.
+
+### Verification and sequence
+
+No test changes, so the counts should not move; `pyproject.toml` is in the figures guard's
+suite-surface set, so the record re-stamps after the build commit (the documented
+pre-stamp shape). Manifest parse, the doc guards, the privacy scan in place, and CI's
+`plugin-validate` wheel build (which resolves the extras) are the checks. Then the
+superseded `chore/deps-entropicmem-2026-10-20` branch is deleted and this page's record
+lands.
+
+### What remains after chunk 49 — S9, held by the owner's ruling
 
 - **EM-901 — upgrade drills.** Scripted drills over v2.3 / v2.5 / v2.7 / 2.8 fixture DBs and
   vaults → 3.0: `doctor` clean, eval parity, legacy ids resolvable, and sync between a 2.8
   and a 3.0 profile (publish/pull) either verified or documented as requiring both upgraded;
   the report is `docs/UPGRADING.md`. It is buildable, but its whole purpose is to validate an
-  upgrade path to a release the owner has not scheduled.
+  upgrade path to a release the owner has not scheduled — and the owner's 2026-10-28 ruling
+  holds it.
 - **EM-904 — the 3.0 release.** The version everywhere, the migration notes, the `SKILL.md`
   bump, the tool rename with aliases, the catalog re-pin (a PR) and the announce. Owner-gated
   end to end; the procedure is `docs/MARKETPLACE.md`.
 
-**Why the agent stops here:** §6.6's third use recorded the recommendation and its fourth
-use re-confirmed it after chunk 48 — the remainder is release work, so **the next chunk
-needs a fresh owner instruction** and the veto applies at any time. The frozen list stands:
+**Why the agent stops after chunk 49:** §6.6's third use recorded the recommendation, the
+fourth use re-confirmed it after chunk 48, and the owner's ruling the same day ("hold S9")
+keeps it — the remainder is release work, so **the next chunk needs a fresh owner
+instruction** and the veto applies at any time. The frozen list stands:
 releases/tags/catalog PRs, the v3 cutover, the tool rename and the `provides_*` lists.
 
 ## Record — the EM-806 plan as it was written (opened 2026-10-27; landed at `ceb70cb`)

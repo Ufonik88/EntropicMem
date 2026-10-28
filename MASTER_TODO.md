@@ -95,6 +95,20 @@ points at.
 > 50k warm-p95 gate failures were machine speed only (CI green on the exact SHA); and its
 > branch recommendations — deps REWORK without the lockfile, the other two DELETE — are
 > recorded in §6.6's fourth use for the owner's ruling.**
+>
+> **2026-10-28, later: the owner ruled — "delete both, rework the deps, hold S9" — and all
+> three are done or in flight.** The two ruled branches (`docs/dependency-update-2026-10-20`,
+> `wt/t_1951f54d`) are deleted from the remote; their supersession is §6.6's record and the
+> remaining remote refs (`test/split-reachability-fix`, three `wt/t_*`) are **zero-delta**
+> (every commit reachable from `main`) and stay for their own lifecycle. S9 stays held.
+> **The deps rework is chunk 49 and it is a safety correction, not a rubber-stamp:** CI pins
+> exact versions (`pytest==9.0.3`, `fastapi==0.143.0`, `cryptography==50.0.2`,
+> `ruff==0.16.2`), so the chore branch's floors for fastapi 0.154 / pytest 9.1.1 /
+> fastembed 0.9 would demand versions the suite has never exercised — refused. The rework
+> aligns the manifest with what is verified: `cryptography>=50.0.2` (the floor carries the
+> security fix, as the manifest's own comment claims) and `ruff>=0.16.2` (the lint-parity
+> version the rules are written against), everything else deferred with reasons. No
+> `uv.lock` ever.
 
 ---
 
