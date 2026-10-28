@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3172 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3170 passed, 4 skipped, 2 xfailed** |
 
-Read as at `1765a2d` (chunk 50 — EM-901's upgrade drills: the committed v2.3/2.5/2.7
+Read as at `adb88bc` (chunk 50 — EM-901's upgrade drills: the committed v2.3/2.5/2.7
 fixtures and the derived 2.8.1 generation driven to 3.0 — five migrations, legacy-id
 resolution through the v3 read path, the old-style vault and legacy index rebuilt and
 served, the capsule sync 2.8→3.0 and the pinned 3.0→2.8 limitation; the drill found and
