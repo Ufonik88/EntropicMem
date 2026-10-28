@@ -26,7 +26,7 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3159 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-49 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3159 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40693532624` on `487dcee` — 13/13 jobs green on that exact SHA)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3064 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3065 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3161 passed, 2 skipped, 2 xfailed** |
@@ -39,7 +39,11 @@ refused with reasons in the manifest comment; no `uv.lock`; 4 new tests and 5 re
 checks) — **measured on the tree that became the chunk's build commit, before it was
 committed**, because the figures guard cannot be green at the build commit by construction
 (the record predates the commit whose tests it counts — the documented pre-stamp shape).
-The CI row is **projected**, not read: no run exists for this tree yet. The previous
+**The CI row is read, not projected:** run `40693532624` on `487dcee` reads **3159 passed,
+4 skipped, 2 xfailed** from its `test (3.12)` job log — 13/13 jobs green on that exact SHA,
+exactly what the host-pin relation had projected from the CI-equivalent (the record is
+re-stamped at the read pass's own commit because the allowlist entry touches `tests/`). The
+previous
 record (chunk 48's read pass, run `40654937822`, CI **3155 passed, 4 skipped, 2 xfailed**)
 remains in the record's historical set.
 
@@ -166,7 +170,7 @@ bare          3064 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3161 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3159 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
+= CI          3159 /  4 / 2   (read from run 40693532624, 3.12 job log)
 ```
 
 ## Citing CI evidence — one trap
