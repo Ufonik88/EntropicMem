@@ -43,9 +43,24 @@ semantic-st = [
     "scikit-learn>=1.5,<2",
 ]
 graph = ["graphviz>=0.20"]
-security = ["cryptography>=50.0.0"]
+# Floor rework 2026-10-28 (chunk 49, the owner's ruling on the 2026-10-20 deps
+# round): a floor is the minimum that works, not the newest release — CI pins
+# exact versions (pytest==9.0.3, fastapi==0.143.0, cryptography==50.0.2,
+# ruff==0.16.2), and a floor above the tested pin would let a fresh install
+# resolve versions the suite has never exercised (and could collide with the
+# Hermes host's own pins). Aligned with what is verified:
+security = ["cryptography>=50.0.2"]
 serve = ["fastapi>=0.109.1,<1", "uvicorn>=0.30,<1"]
-dev = ["pytest>=9.0.3", "ruff>=0.4.0"]
+dev = ["pytest>=9.0.3", "ruff>=0.16.2"]
+# Deferred, with reasons (the 2026-10-20 round raised them; refused here):
+#   fastembed >=0.3  -> 0.9 crosses a 0.x ladder (breaking by PEP 440's
+#                      reading) and no CI job installs fastembed;
+#   fastapi  >=0.154 -> above CI's tested 0.143.0 pin;
+#   pytest   >=9.1.1 -> above CI's tested ==9.0.3 pin;
+#   graphviz >=0.21, uvicorn >=0.54 -> no CI story either way; a raise adds
+#                      risk and no verification.
+#   sentence-transformers 6.x, numpy 2.x, scikit-learn 1.9 are major jumps
+#                      (sklearn 1.9 resolves only on Python >= 3.14).
 
 [project.urls]
 Homepage = "https://github.com/Ufonik88/EntropicMem"

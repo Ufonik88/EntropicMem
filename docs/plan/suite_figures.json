@@ -1,31 +1,31 @@
 {
-  "sha": "6441c32",
+  "sha": "2939cd4",
   "ci_run": "40654937822",
-  "ci_projected": false,
+  "ci_projected": true,
   "comment": "Written only by scripts/record_suite_figures.py, from pytest summary lines. tests/test_suite_figures.py fails when BASELINE, the CHANGELOG, the MASTER_TODO ledger, plan \u00a711 or NEXT_CHUNK state a triple that is neither current nor historical.",
   "current": {
     "bare": [
-      3060,
+      3064,
       20,
       2
     ],
     "digest": [
-      3061,
+      3065,
       19,
       2
     ],
     "ci_equiv": [
-      3157,
+      3161,
       2,
       2
     ],
     "ci": [
-      3155,
+      3159,
       4,
       2
     ],
     "python310": [
-      3155,
+      3159,
       4,
       2
     ]
@@ -1092,6 +1092,16 @@
       2
     ],
     [
+      3060,
+      20,
+      2
+    ],
+    [
+      3061,
+      19,
+      2
+    ],
+    [
       3062,
       4,
       2
@@ -1128,6 +1138,16 @@
     ],
     [
       3146,
+      2,
+      2
+    ],
+    [
+      3155,
+      4,
+      2
+    ],
+    [
+      3157,
       2,
       2
     ]
