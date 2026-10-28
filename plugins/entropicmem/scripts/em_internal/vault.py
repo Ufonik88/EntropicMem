@@ -27,6 +27,23 @@ from em.vault.frontmatter import (
 PROTECTED_PREFIXES = ("_archive/",)
 
 
+def _frontmatter_list(value: Any) -> List[str]:
+    """A frontmatter list field as an actual list, whatever an old vault wrote.
+
+    The 2.8 writer emitted ``tags: `` (YAML-null) for no tags and
+    ``tags: a, b`` (a comma string) otherwise; the reader coerces both to a
+    list — the same thing the old reader did — so ``Note``'s declared list
+    fields never receive ``None`` or a bare string.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
+    return [str(value)]
+
+
 def note_id_for_path(path) -> str:
     """THE one note-id rule (EM-602 slice 2).
 
@@ -282,27 +299,37 @@ class Vault:
         *path* is vault-relative; it goes through resolve_path (the single
         containment choke point), so absolute or traversal paths raise
         ValueError instead of escaping the vault.
+
+        **Old-vault tolerance (EM-901's drill).** A real 2.8 vault carries
+        ``tags: `` / ``aliases: `` (YAML-null) and comma-string tag lists —
+        the old reader coerced both to a list, and ``Note`` declares lists;
+        a plain ``fm.get(..., [])`` only defaults on *absence*, so the null
+        reached ``Note.importance`` as ``None`` and the index rebuild died on
+        ``len(None)``. The boundary coerces: null → ``[]``, comma string →
+        list, a real list → itself. The same null-for-empty trap on ``title``
+        (and the other scalar fields) falls back to the field's default
+        instead of leaking ``None`` into a typed field.
         """
         full = self.resolve_path(path)
         text = full.read_text(encoding="utf-8")
         fm, body = load_frontmatter(text)
         body = body.strip()
-        title = fm.get("title", full.stem.replace("-", " ").title())
+        title = fm.get("title") or full.stem.replace("-", " ").title()
         return Note(
             path=full.relative_to(self.root),
-            title=title,
+            title=str(title),
             body=body,
             frontmatter=fm,
-            tags=fm.get("tags", []),
-            created=fm.get("created", ""),
-            updated=fm.get("updated", ""),
-            source=fm.get("source", ""),
-            source_url=fm.get("source_url", ""),
-            aliases=fm.get("aliases", []),
-            agent=fm.get("agent", False),
-            entropic_id=fm.get("entropic_id", ""),
-            domain=fm.get("domain", ""),
-            note_type=fm.get("type", "permanent"),
+            tags=_frontmatter_list(fm.get("tags")),
+            created=fm.get("created") or "",
+            updated=fm.get("updated") or "",
+            source=fm.get("source") or "",
+            source_url=fm.get("source_url") or "",
+            aliases=_frontmatter_list(fm.get("aliases")),
+            agent=bool(fm.get("agent", False)),
+            entropic_id=fm.get("entropic_id") or "",
+            domain=fm.get("domain") or "",
+            note_type=fm.get("type") or "permanent",
         )
 
     def write_note(

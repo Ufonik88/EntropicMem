@@ -26,27 +26,22 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3159 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40693532624` on `487dcee` — 13/13 jobs green on that exact SHA)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3064 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3065 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3161 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3159 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3169 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-50 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3073 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3074 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3171 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3169 passed, 4 skipped, 2 xfailed** |
 
-Read as at `e463d3c` (chunk 49 — the dependency-floor rework, the owner's ruling on the
-2026-10-20 deps round: `cryptography>=50.0.2` and `ruff>=0.16.2` — the manifest aligned
-with what CI actually pins and tests; the chore branch's floor-above-the-tested-pin raises
-refused with reasons in the manifest comment; no `uv.lock`; 4 new tests and 5 red mutation
-checks) — **measured on the tree that became the chunk's build commit, before it was
-committed**, because the figures guard cannot be green at the build commit by construction
-(the record predates the commit whose tests it counts — the documented pre-stamp shape).
-**The CI row is read, not projected:** run `40693532624` on `487dcee` reads **3159 passed,
-4 skipped, 2 xfailed** from its `test (3.12)` job log — 13/13 jobs green on that exact SHA,
-exactly what the host-pin relation had projected from the CI-equivalent (the record is
-re-stamped at the read pass's own commit because the allowlist entry touches `tests/` —
-the read-as-at sha moves with it; the figure stays the same tree's). The
-previous
-record (chunk 48's read pass, run `40654937822`, CI **3155 passed, 4 skipped, 2 xfailed**)
-remains in the record's historical set.
+Read as at `a3cf825` (chunk 50 — EM-901's upgrade drills: the committed v2.3/2.5/2.7
+fixtures and the derived 2.8.1 generation driven to 3.0 — five migrations, legacy-id
+resolution through the v3 read path, the old-style vault and legacy index rebuilt and
+served, the capsule sync 2.8→3.0 and the pinned 3.0→2.8 limitation; the drill found and
+fixed a real old-vault break — a 2.8 vault's `tags: ` null reached `Note.importance` as
+`None` and killed the index rebuild; 9 new tests, 4 red mutation checks) — **measured on
+the tree that became the chunk's build commit, before it was committed** (the documented
+pre-stamp shape). The CI row is **projected**, not read: no run exists for this tree yet.
+The previous record (chunk 49's read pass, run `40693532624`, CI **3159 passed, 4 skipped,
+2 xfailed**) remains in the record's historical set.
 
 **The previous record** was EM-703 + EM-705 at `a15892e` (built as `859f12d` + `b570065` on `em-703-705-security`:
 every store write screens for prompt injection in overlapping windows, the trust policy decides what a
@@ -166,12 +161,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3064 / 20 / 2
+bare          3073 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3161 /  2 / 2
+= CI-equiv    3171 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3159 /  4 / 2   (read from run 40693532624, 3.12 job log)
+= CI          3169 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap
