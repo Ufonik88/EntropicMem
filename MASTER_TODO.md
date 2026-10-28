@@ -152,6 +152,15 @@ points at.
 > (a missing path is still served by the v2 engine — the flip to fresh-v3 has a large test
 > blast radius and belongs on the release card with it).
 
+> **Chunk 51 — the cutover-correctness round — is COMPLETE and LANDED on `main` at
+> `17bbb40`** (build `18ffa4d`, record `4d75616`, read `a26dd8a`, re-stamp `17bbb40`;
+> 13/13 green on `4d75616` and 26/26 on the merge tip; branch deleted): a migrated store
+> opens without the env var (the guard fires only when a migration would run; an empty
+> store is created without it), the capsule import refuses a newer-than-build store and
+> backs the target up, the typed `core.writable_by_agent` gate is live, and the stale
+> rename record is corrected. The fresh-install challenge is deferred with a
+> recommendation to the release card.
+
 ---
 
 ## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix), chunk 39 (EM-602, both slices) and chunk 40 (EM-603, the incremental index) are complete, and **chunk 41 (EM-604, opt-in ingestion of human vault edits) is COMPLETE (landed 2026-10-19 as `31a7323`); EM-603's 5k AC is de-flaked (landed 2026-10-19 as `adb1439`); EM-605 slice 1 (graph model / renderers / assets split) is COMPLETE (landed 2026-10-19 as `2fd7812`); **chunk 43, the slice-1 follow-up (packaging verified where it ships, figures measured not typed, the warm AC's absolute ceiling), is COMPLETE (landed 2026-10-19 as `5258b46`); **EM-605 slice 2.1 (entity nodes and typed relation edges) is committed locally at `69dc223` (2026-10-20), not pushed; slice 2.2 (the owner-only scope filter and its byte-level leak test) is committed locally at `1e5b739` (2026-10-20), not pushed — 13 mutation checks red and the leak test scans the whole JSON/HTML output — slice 2.3, the relation time window, is committed locally at `e08694a` (2026-10-20), not pushed — 17 mutation checks red — **slice 2.4, dashed superseded edges, is committed locally at `6936574` (2026-10-21), not pushed — 11 mutation checks red — slice 2.5, the 5k-node export AC, at `0c40385` (2026-10-21), not pushed — 5 mutation checks red — and **EM-606, graph server hardening round 2, at `575eb06` (2026-10-21), not pushed — 15 mutation checks red and one equivalent recorded — so the next card is EM-607 (ingest v2); nothing is pushed, and no CI run exists for any of it** *(That state was the 2026-10-21 morning: EM-605/EM-606 landed later that day at `73bed69`, and EM-607 — the card this paragraph calls next — is now landed too, at `5f0670c`.)*
@@ -214,17 +223,13 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-28, against branch `main` at `b93037e` (chunk 50, EM-901's
-upgrade drills — build `a1c7c8a`, figure fix `dd63001`, windows fix `7a2999e`, record
-`1765a2d`, read `adb88bc`, re-stamp `b93037e`; 13/13 green on `1765a2d` and 26/26 on the
-merge tip; branch deleted after the ff-merge). Before it the same day: chunk 49 at
-`830ffee` (the dependency-floor rework; the rework branch and the superseded
-`chore/deps-entropicmem-2026-10-20` deleted; the two owner-ruled branch deletions done
-before it) and chunk 48 at `d84f5f8` (EM-601's month paging). Then 2026-10-27 against
-`1d2f631` (the EM-806 S8 packaging landing `ceb70cb` — opening docs `1e683c1`, build
-`bf2e267` — plus the read pass `bdd2ecb` and the docs-only re-stamp `2df0cee`, then
-`2ff11c2` and `da86e59` + `1d2f631` — all docs-only, each green on `main`'s push on its
-exact SHA).
+**Last reconciled:** 2026-10-28, against branch `main` at `17bbb40` (chunk 51, the
+cutover-correctness round from Hermes's audit — build `18ffa4d`, record `4d75616`, read
+`a26dd8a`, re-stamp `17bbb40`; 13/13 green on `4d75616` and 26/26 on the merge tip;
+branch deleted). Before it the same day: chunk 50 at `b93037e` (EM-901's upgrade drills),
+chunk 49 at `830ffee` (the dependency-floor rework), chunk 48 at `d84f5f8` (EM-601's
+month paging); then 2026-10-27 against `1d2f631` (the EM-806 packaging landing
+`ceb70cb` and its docs passes).
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
