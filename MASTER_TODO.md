@@ -85,6 +85,12 @@ points at.
 > code and not behind a gate, it is the card's own Spec text, and the deferred design
 > question ("which file is current when a month stops being current") has an answer the
 > agent can make and record. S9 stays behind the owner's release gate.
+> **Chunk 48 is now COMPLETE and LANDED on `main` at `d84f5f8`** (2026-10-28; build
+> `c1749c8`, record pass `f91c55a`, read pass `6441c32`; 13/13 check-runs green on `f91c55a`
+> and 26/26 on the merge tip — the branch run and `main`'s post-landing push on the same
+> SHA — `identity-guard` included; the build tip's own run was red on the figures-guard
+> ancestry test alone, the documented pre-stamp shape). With it the last ungated code item
+> in S5–S9 is closed and the remainder is S9 (the owner's release gate) again.
 
 ---
 
@@ -148,7 +154,11 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-27, against branch `main` at `1d2f631` (the EM-806 S8 packaging
+**Last reconciled:** 2026-10-28, against branch `main` at `d84f5f8` (chunk 48 — EM-601's
+deferred month paging for `Memories/Unfiled.md`: build `c1749c8`, record pass `f91c55a`,
+read pass `6441c32`, re-stamp `d84f5f8` — 13/13 check-runs green on `f91c55a` and 26/26 on
+the merge tip; branch `em-601-unfiled-paging` deleted after the ff-merge). The previous
+reconciliation was 2026-10-27, against `1d2f631` (the EM-806 S8 packaging
 landing `ceb70cb` — opening docs `1e683c1`, build `bf2e267` — plus the read pass `bdd2ecb`
 that flipped its CI figure from projected to read and the docs-only re-stamp `2df0cee` all
 three green on their own exact SHAs, and `main`'s pushes green on the same), then `2ff11c2`
