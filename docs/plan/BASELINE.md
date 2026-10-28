@@ -27,12 +27,12 @@ other three.
 | Environment | Command | Triple |
 |---|---|---|
 | **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3169 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-50 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3073 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3074 passed, 19 skipped, 2 xfailed** |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3074 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3075 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3171 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3169 passed, 4 skipped, 2 xfailed** |
 
-Read as at `a3cf825` (chunk 50 — EM-901's upgrade drills: the committed v2.3/2.5/2.7
+Read as at `a1c7c8a` (chunk 50 — EM-901's upgrade drills: the committed v2.3/2.5/2.7
 fixtures and the derived 2.8.1 generation driven to 3.0 — five migrations, legacy-id
 resolution through the v3 read path, the old-style vault and legacy index rebuilt and
 served, the capsule sync 2.8→3.0 and the pinned 3.0→2.8 limitation; the drill found and
@@ -161,7 +161,7 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3073 / 20 / 2
+bare          3074 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3171 /  2 / 2
