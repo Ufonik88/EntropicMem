@@ -26,21 +26,24 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3170 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-50 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3170 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40721172839` on `1765a2d` — 13/13 jobs green on that exact SHA)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3075 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3076 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3172 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3170 passed, 4 skipped, 2 xfailed** |
 
-Read as at `7a2999e` (chunk 50 — EM-901's upgrade drills: the committed v2.3/2.5/2.7
+Read as at `1765a2d` (chunk 50 — EM-901's upgrade drills: the committed v2.3/2.5/2.7
 fixtures and the derived 2.8.1 generation driven to 3.0 — five migrations, legacy-id
 resolution through the v3 read path, the old-style vault and legacy index rebuilt and
 served, the capsule sync 2.8→3.0 and the pinned 3.0→2.8 limitation; the drill found and
 fixed a real old-vault break — a 2.8 vault's `tags: ` null reached `Note.importance` as
 `None` and killed the index rebuild; and the capsule export's `with sqlite3.connect(...)` handles never closed — on Windows that deadlocks the export's temp cleanup, the `windows-import` leg caught it; 10 new tests, 5 red mutation checks) — **measured on
 the tree that became the chunk's build commit, before it was committed** (the documented
-pre-stamp shape). The CI row is **projected**, not read: no run exists for this tree yet.
-The previous record (chunk 49's read pass, run `40693532624`, CI **3159 passed, 4 skipped,
+pre-stamp shape). **The CI row is read, not projected:** run `40721172839` on `1765a2d`
+reads **3170 passed, 4 skipped, 2 xfailed** from its `test (3.12)` job log — 13/13 jobs
+green on that exact SHA, exactly what the host-pin relation had projected from the
+CI-equivalent (the record is re-stamped at the read pass's own commit because the
+allowlist entry touches `tests/` — the read-as-at sha moves with it). The previous record (chunk 49's read pass, run `40693532624`, CI **3159 passed, 4 skipped,
 2 xfailed**) remains in the record's historical set.
 
 **The previous record** was EM-703 + EM-705 at `a15892e` (built as `859f12d` + `b570065` on `em-703-705-security`:
@@ -166,7 +169,7 @@ bare          3075 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3172 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3170 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
+= CI          3170 /  4 / 2   (read from run 40721172839, 3.12 job log)
 ```
 
 ## Citing CI evidence — one trap
