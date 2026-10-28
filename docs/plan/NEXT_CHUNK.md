@@ -1692,7 +1692,42 @@ Closes the recorded 2026-10-15 coverage gap (plan §6.4): no test drove a real s
 
 **Counts:** bare **2693 / 16 / 2**, digest **2694 / 15 / 2**, CI-equivalent 3.12 **2771 / 2 / 2**; CI's 3.12 count **2769 / 4 / 2** (read from the job log at `c30aa54`); `ruff==0.16.2` clean; the docs guards green. The full card line is in `CHANGELOG.md` under `[Unreleased]`/Fixed; §9 item 9 carries the resolution record.
 
-## Part B: next — **the drills are done; what remains is the owner's release act**
+## Part B: next — **chunk 51: the cutover-correctness round (from Hermes's audit)**
+
+**Basis:** Hermes's independent audit (its second handoff-back) — each claim re-verified
+on this tree before being accepted.
+
+1. **`migrate()`'s guard runs only when a migration would run.** The guard ran before the
+   pending check, so an already-migrated store at the live path refused to open unless the
+   cutover env var was permanently set. New order: version check → checksums → pending →
+   early return → guard → backup → run; and an **empty store** (no `facts`, no
+   `memories`, no `pending_facts`, no `episodes`, no `fact_versions` tables) skips the
+   guard even with pending migrations — creating a fresh store destroys nothing, which is
+   the guard's whole purpose. The development-safety intent is unchanged: a store WITH
+   data at the live path still refuses without the env.
+2. **`import_capsule` refuses a store newer than the build** (a `user_version` above
+   `LATEST` in the extracted `memory.db`) **and takes a verified backup of the target
+   before replacing it** (the capsule's sha256s prove integrity, not compatibility; the
+   old target was gone unrecoverably).
+3. **The profile-patch gate reads the typed `core.writable_by_agent`** with the legacy
+   flat `core_memory_writable` as the fallback — the typed key was inert.
+4. **`UPGRADING.md` corrected and extended:** the rename target is
+   `entropicmem_profile(action="patch")` (the planned `entropicmem_patch_core_memory`
+   never existed — the stale rename records in the plan are corrected with it); the
+   consolidate alias forces preview (real archival is CLI-only by design); the v2
+   remember's forced `domain`/`sensitivity` defaults are gone on v3's schema; the fresh-
+   install question is recorded, not flipped.
+5. **Deferred with a recommendation:** Hermes's fresh-install challenge — a missing path
+   still resolves to the v2 engine, so a new 3.0 user starts with half the surface
+   refusing until the migration. Flipping missing→v3 is the intended 3.0 shape but drags
+   every first-open test's engine selection with it; it belongs on the release card.
+
+**Drills added per its challenge:** a migrated store opens without the env; an empty
+store is created without the env; a newer-than-build capsule is refused untouched; an
+import takes its backup.
+
+## Record — Part B as it stood between chunks 50 and 51: the stop state
+
 
 **Nothing is in flight.** Chunk 50 (Part A) completed EM-901: the drills run in the suite,
 `docs/UPGRADING.md` is the report, and the two upgrade breaks the drills found (the

@@ -131,6 +131,26 @@ points at.
 > gaps: a `doctor` command and a friendly `entropicmem memory upgrade` cutover command.
 > **A parallel audit is out with Hermes** (fixture faithfulness + an independent
 > 2.8→3.0 break review; message `01M61D5VWN4GWEXFW956E424C4`) and hands back here.
+>
+> **2026-10-28, later: Hermes's audit is back and it earned its keep — chunk 51 opens on
+> it.** Fixture faithfulness: **zero drift on all three generations** (regenerated from
+> the real historical engines on a fresh clone and compared). **Its break list, each claim
+> re-verified on this tree:** (1) **`migrate()` runs the live-path guard before discovering
+> nothing is pending** — so a migrated store at the live path refuses to open unless
+> `ENTROPICMEM_ALLOW_LIVE_MIGRATION=1` is permanently in the process env; the guard now
+> runs only when a migration would actually run, with an empty-store carve-out (nothing
+> to destroy). (2) **`import_capsule` replaces the target's `memory.db` with no
+> schema-version check and no backup** — a v3 capsule onto a 2.8 profile silently yields
+> an empty-looking store, and the target's old store is gone unrecoverably; the import now
+> refuses a store newer than the build and takes a verified backup before replacing.
+> (3) **The profile-patch gate reads only the legacy flat `core_memory_writable`** — the
+> typed `core.writable_by_agent` is inert; it now reads the typed key with the flat
+> fallback. (4) **`UPGRADING.md` named a rename target that does not exist** — the planned
+> `entropicmem_patch_core_memory` never happened; EM-404 made `entropicmem_patch_core` an
+> alias to `entropicmem_profile(action="patch")`, and the stale rename records are
+> corrected. Deferred with a recorded recommendation: Hermes's fresh-install question
+> (a missing path is still served by the v2 engine — the flip to fresh-v3 has a large test
+> blast radius and belongs on the release card with it).
 
 ---
 
