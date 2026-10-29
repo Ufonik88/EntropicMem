@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3191 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3189 passed, 4 skipped, 2 xfailed** |
 
-Read as at `4314700` (chunk 52 — the release-readiness commands: `doctor` (the read-only
+Read as at `c5da05f` (chunk 52 — the release-readiness commands: `doctor` (the read-only
 health report: the store's integrity/schema/engine, the config, the vault, the index, the
 embedding state; ASCII PASS/WARN/FAIL, exit 1 on any FAIL, never writes) and `memory
 upgrade` (the friendly v2→v3 cutover: `--status` read-only, the refusals — already v3, a
