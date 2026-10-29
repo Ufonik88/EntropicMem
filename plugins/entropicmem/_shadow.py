@@ -284,10 +284,25 @@ def _record_failure(exc: BaseException) -> None:
     kind = type(exc).__name__
     if kind not in _FAILURES["warned"]:
         _FAILURES["warned"].add(kind)
+        # Chunk 59: the WARNING names the module origins — WHICH copy of the
+        # shadow and WHICH copy of the guard module produced the failure. A
+        # stale import (a pip-installed `em` shadowing the plugin's tree) is
+        # indistinguishable from a code bug without this.
+        origins = []
+        try:
+            origins.append(f"shadow={Path(__file__).resolve()}")
+            import em.store.migrations as _emmig
+
+            origins.append(f"migrations={Path(_emmig.__file__).resolve()}")
+            import em as _em
+
+            origins.append(f"em={Path(_em.__file__).resolve()} v{_em.__version__}")
+        except Exception:  # noqa: BLE001 - telemetry must never raise
+            pass
         logger.warning(
             "EntropicMem v3 shadow is failing and collecting nothing: %s: %s "
-            "(further failures of this kind log at debug; failure count: %d)",
-            kind, exc, _FAILURES["count"],
+            "(further failures of this kind log at debug; failure count: %d; %s)",
+            kind, exc, _FAILURES["count"], "; ".join(origins),
         )
 
 
