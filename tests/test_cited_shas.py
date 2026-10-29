@@ -82,8 +82,10 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "40834857119": "GitHub Actions run id, not a commit: the chunk-53 figures run",
     # The chunk-54 landing's CI run (the figure of record's own run).
     "40850429987": "GitHub Actions run id, not a commit: the chunk-54 figures run",
-    # The 3.0.0 release run (the figure of record's own run).
+    # The 3.0.0 release run (the chunk-55 record's own run).
     "40856373784": "GitHub Actions run id, not a commit: the 3.0.0 release run",
+    # The chunk-56 landing's CI run (the figure of record's own run).
+    "40870987173": "GitHub Actions run id, not a commit: the chunk-56 figures run",
     "38775407380": "GitHub Actions run id, not a commit: the 2026-10-15 guard flap",
     # Same shape, same reason: EM-608's draft cites the 2026-10-18 warm-p95 flap's
     # job and run so the instance stays checkable (MASTER_TODO's flake record).

@@ -26,13 +26,13 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3203 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-56 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3203 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40870987173` on `3d53f1b` — 13/13 jobs green on that exact SHA)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3108 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3109 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3205 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3203 passed, 4 skipped, 2 xfailed** |
 
-Read as at `5584c81` (chunk 56 — the shadow's scratch dir is an allowed migration root,
+Read as at `3d53f1b` (chunk 56 — the shadow's scratch dir is an allowed migration root,
 from Hermes's P0c blocker: the guard's catch-all refused the shadow's own copy location,
 so the shadow could never migrate its copy on a normal host and the collection produced
 nothing; the decision is now a pure `_path_decision` with an **exact**
@@ -235,7 +235,7 @@ bare          3108 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3205 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3203 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
+= CI          3203 /  4 / 2   (read from run 40870987173, 3.12 job log)
 ```
 
 ## Citing CI evidence — one trap
