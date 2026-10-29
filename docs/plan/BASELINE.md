@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3219 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3217 passed, 4 skipped, 2 xfailed** |
 
-Read as at `58c2746` (chunk 61 — the shadow's version read anchored to its own tree:
+Read as at `cced7f7` (chunk 61 — the shadow's version read anchored to its own tree:
 `_em_version` reads the `plugin.yaml` beside the running `_shadow.py` before falling
 back to the imported `em` — a report run without the scripts on PYTHONPATH used to
 self-describe as "unknown" and exclude every line (Hermes's readout gotcha), and a
