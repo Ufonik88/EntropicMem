@@ -26,13 +26,13 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3212 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-58 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3212 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40901576306` on `9843578` — 13/13 jobs green on that exact SHA)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3117 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3118 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3214 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3212 passed, 4 skipped, 2 xfailed** |
 
-Read as at `d559eba` (chunk 58 — the shadow's miss semantics learn the gate's abstention
+Read as at `9843578` (chunk 58 — the shadow's miss semantics learn the gate's abstention
 (Hermes's early-signal report: every real turn so far read v2=1 injected / v3=0, the
 gate's calibrated abstention on short chat turns reading as a 100% miss): the line now
 records the gate's own decision (`v3_gate`, derived from the outcome's shape —
@@ -41,8 +41,9 @@ denominator (the abstain rate is its own reported number; the plan's promotion c
 reward abstention on noise), `no-candidates` stays a miss (the teeth), and a line
 without the gate key (an older log) keeps the strict reading — fail-closed; 6 new
 tests, 3 red mutation checks) — **measured on the tree that became the chunk's build
-commit, before it was committed** (the documented pre-stamp shape). The CI row is
-**projected**, not read: no run exists for this tree yet. The previous record (chunk
+commit, before it was committed** (the documented pre-stamp shape). **The CI row is read, not projected:** run `40901576306` on `9843578` reads
+**3212 passed, 4 skipped, 2 xfailed** from its `test (3.12)` job log — 13/13 jobs green
+on that exact SHA, exactly what the host-pin relation had projected. The previous record (chunk
 56's read pass, run `40870987173`, CI **3203 passed, 4 skipped, 2 xfailed**) remains in
 the record's historical set.
 
@@ -52,8 +53,9 @@ every failure at debug and a dead collection read as "healthy, no divergence"; t
 failure is now counted (`shadow_state()`: failures / failure kinds / the last failure)
 and the FIRST failure of each distinct kind logs a WARNING (the EM-703 pattern);
 3 new tests, 2 red mutation checks) — **measured on the tree that became the chunk's
-build commit, before it was committed** (the documented pre-stamp shape). The CI row is
-**projected**, not read: no run exists for this tree yet. The previous record (chunk
+build commit, before it was committed** (the documented pre-stamp shape). **The CI row is read, not projected:** run `40901576306` on `9843578` reads
+**3212 passed, 4 skipped, 2 xfailed** from its `test (3.12)` job log — 13/13 jobs green
+on that exact SHA, exactly what the host-pin relation had projected. The previous record (chunk
 56's read pass, run `40870987173`, CI **3203 passed, 4 skipped, 2 xfailed**) remains in
 the record's historical set.
 
@@ -260,7 +262,7 @@ bare          3117 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3214 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3212 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
+= CI          3212 /  4 / 2   (read from run 40901576306, 3.12 job log)
 ```
 
 ## Citing CI evidence — one trap
