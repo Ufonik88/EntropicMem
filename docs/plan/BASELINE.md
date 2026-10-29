@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3217 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3215 passed, 4 skipped, 2 xfailed** |
 
-Read as at `0f8dbb3` (chunk 60 — the shared-log mixed-version problem, from Hermes's
+Read as at `fb59ce2` (chunk 60 — the shared-log mixed-version problem, from Hermes's
 terminal inventory (11 profile plugin entries + a .bak, every tree stale, all feeding
 ONE shared divergence log): the divergence line now records its build
 (`em_version`), and the evaluation **excludes and reports** the lines from other
