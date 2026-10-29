@@ -233,7 +233,15 @@ points at.
 > origins** (the shadow's path, the guard module's path, em's path + version), so the
 > next occurrence self-identifies from the log. Hermes's 18:33 rebuild discriminates;
 > if the refusal recurs with origins showing the dev tree, it is a real bug in the
-> allow and it comes back here as such.
+> allow and it comes back here as such. **Chunk 60 — the shared-log mixed-version fix + the doctor's duplicate-tree check —
+> LANDED on `main` at `98e3e48`** (build `fb59ce2`, record `7d50e65`, read `9774026`,
+> re-stamp `98e3e48`; 13/13 green and 26/26 on the merge tip; branch deleted): the
+> divergence line records its build (`em_version`), the evaluation excludes and reports
+> other builds' lines (the fail-closed property moved to the sample level), and
+> `doctor` counts + versions every entropicmem tree under the hermes home's plugin
+> paths. Hermes's terminal approved the operational plan: re-point the 11 profile
+> entries to the dev symlink, move the .bak outside the plugins root, ONE restart, and
+> the 200+/72h window counts only the v3_gate lines. The collection continues.
 
 ---
 
@@ -297,13 +305,14 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-29, against branch `main` at `ff0cb52` (chunk 59, the
-failure WARNING's module-origin telemetry — 13/13 green, 26/26 on the merge tip; branch
-deleted). Before it: chunk 58 at `f3bb689` (the shadow's abstention semantics), chunk
-57 at `fe54518` (the shadow's silence made visible), chunk 56 at `6a796a1` (the shadow
-scratch root), the 3.0.0 release at `1e8e7c4` (tagged, published, `release/3.0.x`
-protected, the catalog re-pin PR `#146446` open), chunk 54 at `a29644c`, chunk 53 at
-`5946b32`, chunk 52 at `6759b33`, chunk 51 at `17bbb40`, chunk 50 at `b93037e`.
+**Last reconciled:** 2026-10-29, against branch `main` at `98e3e48` (chunk 60, the
+shared-log build marker + the doctor's duplicate-tree check — build `fb59ce2`, record
+`7d50e65`, read `9774026`, re-stamp `98e3e48`; 13/13 green, 26/26 on the merge tip;
+branch deleted). Before it: chunk 59 at `ff0cb52` (the failure WARNING's origins),
+chunk 58 at `f3bb689` (the abstention semantics), chunk 57 at `fe54518` (the silence
+made visible), chunk 56 at `6a796a1` (the scratch root), the 3.0.0 release at
+`1e8e7c4` (tagged, published, `release/3.0.x` protected, the catalog re-pin PR
+`#146446` open), and back through chunks 53-52-51-50-49-48.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
