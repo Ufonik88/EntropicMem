@@ -648,3 +648,79 @@ def test_shadow_off_stays_silent(tmp_path, monkeypatch, caplog):
     assert _shadow.run(str(tmp_path / "live.db"), profile="default", query="fern", v2_ids=[]) is None
     assert _shadow.shadow_state()["failures"] == 0
     assert not [r for r in caplog.records if r.levelno == 30]
+
+
+# --- chunk 57: the gate's abstention is not a retrieval miss ---------------
+
+
+def _line_with_gate(v2_ids, v3_ids, gate):
+    line = _line_with_extras([one for one in v3_ids if one not in v2_ids])
+    line["v2_ids"] = list(v2_ids)
+    line["v3_ids"] = list(v3_ids)
+    line["v3_gate"] = gate
+    line["divergence"] = sorted(set(v2_ids) ^ set(v3_ids))
+    line["v3_only"] = sorted(set(v3_ids) - set(v2_ids))
+    return line
+
+
+def test_an_abstained_turn_is_not_a_miss(tmp_path):
+    """The gate dropping a short turn is the calibrated outcome, not a miss."""
+    result = _shadow.evaluate(
+        [_line_with_gate(["598763def15d5515"], [], "abstain")], log="x"
+    )
+    condition = result["conditions"]["v2_miss_rate"]
+    assert condition["abstained_turns"] == 1
+    assert condition["injected_ids"] == 0
+    assert condition["verdict"] == "no signal", condition
+    assert any("abstain" in reason for reason in result["reasons"])
+
+
+def test_a_no_candidates_turn_is_still_a_miss(tmp_path):
+    """The generators finding nothing is a real retrieval miss — the teeth stay."""
+    result = _shadow.evaluate(
+        [_line_with_gate(["598763def15d5515"], [], "no-candidates")], log="x"
+    )
+    condition = result["conditions"]["v2_miss_rate"]
+    assert condition["verdict"] == "not met", condition
+    assert condition["missed_ids"] == 1
+
+
+def test_the_miss_rate_excludes_only_the_abstained_turns(tmp_path):
+    """A mixed sample: the abstained turn leaves the denominator; the rest compares."""
+    lines = [
+        _line_with_gate(["598763def15d5515"], ["598763def15d5515"], "pass"),
+        _line_with_gate(["077aa130b705c07b"], [], "abstain"),
+        _line_with_gate(["0e70260d491a927f"], [], "no-candidates"),
+    ]
+    result = _shadow.evaluate(lines, log="x")
+    condition = result["conditions"]["v2_miss_rate"]
+    assert condition["abstained_turns"] == 1
+    assert condition["injected_ids"] == 2, "the abstained turn must leave the denominator"
+    assert condition["missed_ids"] == 1
+    assert condition["verdict"] == "not met"  # 1 of 2 = 50% vs the 10.7% ceiling
+
+
+def test_an_old_log_without_the_gate_key_keeps_the_strict_reading(tmp_path):
+    """A line without v3_gate (an older log) never reads as abstain — fail-closed."""
+    line = _line_with_gate(["598763def15d5515"], [], "abstain")
+    del line["v3_gate"]
+    result = _shadow.evaluate([line], log="x")
+    condition = result["conditions"]["v2_miss_rate"]
+    assert condition["abstained_turns"] == 0
+    assert condition["verdict"] == "not met", condition
+
+
+def test_shadow_ids_binds_the_derivation():
+    """Structural: shadow_ids must derive the gate through _gate_decision —
+    hard-coding "pass" there would silence the abstain signal end to end."""
+    source = (Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "_shadow.py").read_text(encoding="utf-8")
+    body = source.split("def shadow_ids", 1)[1].split("\ndef ", 1)[0]
+    assert "_gate_decision(" in body, "shadow_ids no longer derives the gate decision"
+
+
+def test_the_gate_decision_is_derived_from_the_outcome_shape():
+    """The derivation itself: survivors = pass; candidates-but-none = abstain;
+    nothing at all = no-candidates."""
+    assert _shadow._gate_decision(3, 5) == "pass"
+    assert _shadow._gate_decision(0, 5) == "abstain"
+    assert _shadow._gate_decision(0, 0) == "no-candidates"

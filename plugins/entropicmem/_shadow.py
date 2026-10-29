@@ -236,8 +236,25 @@ def comparison_ids(conn: sqlite3.Connection, ids: Sequence[str]) -> List[str]:
     return out
 
 
-def shadow_ids(shadow_db: Path, *, profile: str, query: str) -> List[str]:
-    """Run S3 over the copy and return the injected ids, mapped for comparison."""
+def _gate_decision(rankings_len: int, rows_len: int) -> str:
+    """The gate's decision, derived from the outcome's shape (pure, testable):
+    candidates but no survivors is the calibrated **abstain**; no candidates
+    at all is "no-candidates"; survivors is "pass"."""
+    if rankings_len:
+        return "pass"
+    return "abstain" if rows_len else "no-candidates"
+
+
+def shadow_ids(shadow_db: Path, *, profile: str, query: str) -> tuple[List[str], str]:
+    """Run S3 over the copy and return the injected ids, mapped for comparison.
+
+    Also returns the gate's own decision, derived from the outcome's shape:
+    candidates but no survivors is the gate's calibrated **abstain** (EM-305's
+    third outcome — chunk 57: real chat turns are often short and low-signal,
+    and the abstention is the gate working, not a retrieval miss); no
+    candidates at all is "no-candidates" (the generators found nothing); ids
+    is "pass".
+    """
     from em.retrieval.pipeline import retrieve
     from em.store.db import Store
     from em.store.types import Scope
@@ -248,7 +265,8 @@ def shadow_ids(shadow_db: Path, *, profile: str, query: str) -> List[str]:
         outcome = retrieve(
             connection, scope=Scope(profile=profile or "default"), query=query, with_gate=True
         )
-        return comparison_ids(connection, outcome.ids)
+        gate = _gate_decision(len(outcome.rankings), len(outcome.rows))
+        return comparison_ids(connection, outcome.ids), gate
     finally:
         store.close()
 
@@ -307,7 +325,7 @@ def run(
         if refreshed:
             refresh(live_db, target)
             age = 0.0
-        v3_ids = shadow_ids(target, profile=profile, query=query)
+        v3_ids, v3_gate = shadow_ids(target, profile=profile, query=query)
     except Exception as exc:  # noqa: BLE001 - a shadow must never break a turn
         # Chunk 57: the failure is counted, and the FIRST failure of each kind
         # is a WARNING — a shadow that silently collects nothing reads as
@@ -324,6 +342,10 @@ def run(
         "query": (query or "")[:200],
         "v2_ids": list(v2_ids),
         "v3_ids": v3_ids,
+        # Chunk 57: the gate's own decision on this turn — "abstain" (it had
+        # candidates and dropped them all: the calibrated low-signal outcome),
+        # "no-candidates" (the generators found nothing), "pass".
+        "v3_gate": v3_gate,
         "divergence": sorted(set(v2_ids) ^ set(v3_ids)),
         "v3_only": sorted(set(v3_ids) - set(v2_ids)),
         # The staleness bound travels with every number, so a stale copy cannot be
@@ -487,11 +509,24 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
     #: Id-level miss rate: ids v3 dropped, over ids v2 injected. Id-level rather than
     #: turn-level because a turn where v3 kept 1 of 3 is a smaller failure than one where
     #: it kept 0 of 3, and the turn-level fraction is reported beside it.
-    missed = [(position, item) for position, item in injections
+    #:
+    #: Chunk 57: a turn where the gate **abstained** (candidates existed and the
+    #: calibrated gate dropped them all) is not a retrieval miss — it is the gate
+    #: working, and the plan's own promotion criteria reward abstention on noise. Such
+    #: turns leave the miss-rate denominator (their ids are reported separately), and
+    #: the abstain rate is its own reported number. A line without ``v3_gate`` (an older
+    #: log) keeps the strict reading: fail-closed.
+    def _abstained(item: Dict[str, Any]) -> bool:
+        return item.get("v3_gate") == "abstain"
+
+    abstained_turns = [(position, item) for position, item in injections if _abstained(item)]
+    serving = [(position, item) for position, item in injections if not _abstained(item)]
+    missed = [(position, item) for position, item in serving
               if set(item["v2_ids"]) - set(item["v3_ids"])]
-    injected_ids = sum(len(set(item["v2_ids"])) for _, item in usable)
-    missed_ids = sum(len(set(item["v2_ids"]) - set(item["v3_ids"])) for _, item in usable)
+    injected_ids = sum(len(set(item["v2_ids"])) for _, item in serving)
+    missed_ids = sum(len(set(item["v2_ids"]) - set(item["v3_ids"])) for _, item in serving)
     miss_rate = (missed_ids / injected_ids) if injected_ids else None
+    abstain_rate = (len(abstained_turns) / len(injections)) if injections else None
     miss_ceiling = thresholds["max_v2_miss_rate"]
     armed = _number(miss_ceiling)
     if miss_rate is None:
@@ -512,13 +547,22 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
         "turns_with_injection": len(injections),
         "turns_with_a_miss": len(missed),
         "missed_lines": [position for position, _ in missed][:10],
+        "abstained_turns": len(abstained_turns),
+        "abstain_rate": abstain_rate,
         "verdict": miss_verdict,
     }
     if miss_rate is None:
-        reasons.append(
-            "v2_miss_rate: no signal — v2 injected no ids at all in this sample, so the "
-            "rate has no denominator and nothing can be concluded from it"
-        )
+        if abstained_turns:
+            reasons.append(
+                "v2_miss_rate: every injected turn abstained (the gate's calibrated "
+                "low-signal outcome) — the abstain rate is the number to read: "
+                f"{len(abstained_turns)}/{len(injections)} turns"
+            )
+        else:
+            reasons.append(
+                "v2_miss_rate: no signal — v2 injected no ids at all in this sample, so the "
+                "rate has no denominator and nothing can be concluded from it"
+            )
     elif not armed:
         reasons.append(f"v2_miss_rate is reported but NOT GATED: {MISS_CEILING_RULE}")
 
