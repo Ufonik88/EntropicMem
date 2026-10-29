@@ -1692,7 +1692,41 @@ Closes the recorded 2026-10-15 coverage gap (plan §6.4): no test drove a real s
 
 **Counts:** bare **2693 / 16 / 2**, digest **2694 / 15 / 2**, CI-equivalent 3.12 **2771 / 2 / 2**; CI's 3.12 count **2769 / 4 / 2** (read from the job log at `c30aa54`); `ruff==0.16.2` clean; the docs guards green. The full card line is in `CHANGELOG.md` under `[Unreleased]`/Fixed; §9 item 9 carries the resolution record.
 
-## Part B: next — **chunk 51: the cutover-correctness round (from Hermes's audit)**
+## Part B: next — **chunk 52: the release-readiness commands (`doctor` + `memory upgrade`), then the 3.0 release prep**
+
+**Basis:** the owner's instruction — "go ahead and do all three in order": (1) this chunk,
+(2) the 3.0 release (the version bump, the tag, the catalog PR — the owner authorized the
+acts), (3) the owner runs the cutover on his host with the new commands. The P0c shadow
+is delegated to Hermes in parallel (its host, its usage; message
+`01M6332FM4AX5KP7GM21RJ8T2N`).
+
+### `doctor` (top-level, read-only)
+
+ASCII PASS/WARN/FAIL report + exit 0/1: the store's existence, `integrity_check`, which
+engine serves it (`store_kind` + `user_version`), fact/memory counts; the config's
+`load_config` errors; the vault's existence + note count; the index's schema version +
+staleness (`index status`'s read-only shape); the embedding state when enabled. Never
+writes anything.
+
+### `memory upgrade` (the friendly cutover)
+
+The v2→v3 store migration, wrapped: refuses when already v3 (`--status` reports the
+current shape read-only), when a migration lock exists, or when the provider is running;
+refuses without `--yes` (printing what it will do); runs `migrate()` with the env opt-in
+set by the command itself (the user's explicit invocation IS the deliberate act); prints
+the migrations applied, the counts moved, the backup path, and "restart Hermes".
+
+### Sequence
+
+Tests first (red), the commands green, the count guards updated (37 → 39: the CLI
+reference, the README, the pyproject description), figures re-measured, CHANGELOG, the
+branch-first landing after green CI on the record SHA. Then the release prep lands
+(3.0.0.dev0 → 3.0.0, the SKILL.md bump, the CHANGELOG's release section) and the owner
+tags.
+
+## Record — Part B as it stood after chunk 51: the owner's release act
+
+
 
 **Basis:** Hermes's independent audit (its second handoff-back) — each claim re-verified
 on this tree before being accepted.
