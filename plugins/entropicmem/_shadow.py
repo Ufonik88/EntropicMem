@@ -130,6 +130,16 @@ def shadow_path() -> Optional[Path]:
     return Path(raw).expanduser() if raw else None
 
 
+def _em_version() -> str:
+    """The running build's version, for the line's self-description."""
+    try:
+        import em
+
+        return str(em.__version__)
+    except Exception:  # noqa: BLE001 - telemetry must never raise
+        return "unknown"
+
+
 def _ro_connection(path: Path) -> sqlite3.Connection:
     """A read-only connection to the shadow copy (a missing file raises)."""
     return sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
@@ -361,6 +371,10 @@ def run(
         # candidates and dropped them all: the calibrated low-signal outcome),
         # "no-candidates" (the generators found nothing), "pass".
         "v3_gate": v3_gate,
+        # Chunk 60: the build that wrote the line. The shared log receives
+        # lines from every profile's installed tree (some stale); the
+        # evaluation scores only the lines of the build under evaluation.
+        "em_version": _em_version(),
         "divergence": sorted(set(v2_ids) ^ set(v3_ids)),
         "v3_only": sorted(set(v3_ids) - set(v2_ids)),
         # The staleness bound travels with every number, so a stale copy cannot be
@@ -453,6 +467,8 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
     thresholds = dict(PROMOTION)
     usable: List[tuple] = []
     unreadable: List[int] = []
+    other_build: List[int] = []
+    this_version = _em_version()
     for position, item in enumerate(lines, start=1):
         if not isinstance(item, dict) or not all(key in item for key in _REQUIRED_KEYS):
             unreadable.append(position)
@@ -462,6 +478,14 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
             continue
         if not isinstance(item["v2_ids"], list) or not isinstance(item["v3_ids"], list):
             unreadable.append(position)
+            continue
+        # Chunk 60: the shared log receives lines from every profile's
+        # installed tree — some stale, some other builds. A line that does not
+        # carry this build's version is not this build's evidence: excluded
+        # (reported), never scored. The sample's floor counts only the
+        # scoring lines, so an excluded-heavy sample cannot read as met.
+        if item.get("em_version", "") != this_version:
+            other_build.append(position)
             continue
         usable.append((position, item))
     malformed = len(unreadable)
@@ -659,6 +683,11 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
         reasons.append(f"only {turns} usable turn(s) of the {floor:.0f} the observable needs")
     if malformed:
         reasons.append(f"{malformed} line(s) were unreadable and are excluded from every number")
+    if other_build:
+        reasons.append(
+            f"{len(other_build)} line(s) came from other builds (a shared log receives every "
+            f"profile tree's shadow) and are excluded; this build's sample: {turns}"
+        )
 
     # Margin, on every condition: how much room was left before it would have failed
     # (negative once it has). A pass with no margin shown is a green light the owner
@@ -715,6 +744,7 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
             "lines": len(lines),
             "usable": turns,
             "malformed": malformed,
+            "other_build": len(other_build),
             "first_ts": (usable[0][1]["ts"] if usable else None),
             "last_ts": (usable[-1][1]["ts"] if usable else None),
         },

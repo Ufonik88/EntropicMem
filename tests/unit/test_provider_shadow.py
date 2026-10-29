@@ -540,6 +540,7 @@ def _store_with_active_row(tmp_path: Path, content: str = "The fern prefers morn
 
 def _line_with_extras(v3_only_ids):
     return {
+        "em_version": _shadow._em_version(),
         "ts": "2026-10-29T00:00:00.000Z",
         "query": "fern",
         "v2_ids": ["598763def15d5515"],
@@ -700,14 +701,29 @@ def test_the_miss_rate_excludes_only_the_abstained_turns(tmp_path):
     assert condition["verdict"] == "not met"  # 1 of 2 = 50% vs the 10.7% ceiling
 
 
-def test_an_old_log_without_the_gate_key_keeps_the_strict_reading(tmp_path):
-    """A line without v3_gate (an older log) never reads as abstain — fail-closed."""
+def test_a_line_from_another_build_is_excluded_never_scored(tmp_path):
+    """Chunk 60: the shared log receives every profile tree's shadow — a line
+    from another build (no em_version match) is not this build's evidence: it
+    is excluded and reported, and it cannot carry the sample past the floor
+    (the fail-closed property lives at the sample level now)."""
     line = _line_with_gate(["598763def15d5515"], [], "abstain")
     del line["v3_gate"]
+    line["em_version"] = "3.0.0.dev0-old-tree"
     result = _shadow.evaluate([line], log="x")
+    assert result["sample"]["usable"] == 0
+    assert result["sample"]["other_build"] == 1
     condition = result["conditions"]["v2_miss_rate"]
-    assert condition["abstained_turns"] == 0
-    assert condition["verdict"] == "not met", condition
+    assert condition["verdict"] == "no signal", condition
+    assert any("excluded" in reason for reason in result["reasons"])
+
+
+def test_a_line_without_any_version_field_is_excluded_too(tmp_path):
+    """A pre-chunk-58 line (no em_version at all) is likewise not scored."""
+    line = _line_with_gate(["598763def15d5515"], [], "abstain")
+    del line["em_version"]
+    result = _shadow.evaluate([line], log="x")
+    assert result["sample"]["usable"] == 0
+    assert result["sample"]["other_build"] == 1
 
 
 def test_shadow_ids_binds_the_derivation():

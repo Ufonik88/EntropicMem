@@ -73,6 +73,7 @@ def line(
 ) -> Dict[str, Any]:
     """One divergence line in the shape ``_shadow.run`` writes."""
     return {
+        "em_version": _shadow._em_version(),
         "ts": f"2026-10-08T09:{index // 60:02d}:{index % 60:02d}.000Z",
         "query": query,
         "v2_ids": list(v2),

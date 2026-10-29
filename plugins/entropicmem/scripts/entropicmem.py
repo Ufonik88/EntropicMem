@@ -2276,6 +2276,46 @@ def cmd_doctor(args) -> int:
         except Exception as exc:
             checks.append(("FAIL", "index", f"{index_path}: {type(exc).__name__}: {exc}"))
 
+    # Duplicate plugin trees: every installed copy of entropicmem under the
+    # hermes home's plugin paths, with its version. More than one tree — or
+    # versions that disagree with the running build — is how a process ends
+    # up importing an old guard while the mounted tree looks current
+    # (Hermes's host: 11 profile entries + a .bak, every one stale).
+    try:
+        import re as _re
+
+        from em_internal.vault import hermes_home_path
+
+        home = Path(hermes_home_path())
+        roots = [home / "plugins"]
+        if (home / "profiles").is_dir():
+            roots.extend((home / "profiles").glob("*/plugins"))
+        found: list[tuple[str, str]] = []
+        for root in roots:
+            if not root.is_dir():
+                continue
+            for candidate in sorted(root.glob("*/plugin.yaml")):
+                try:
+                    text = candidate.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                if _re.search(r'^name:\s*entropicmem\s*$', text, _re.M):
+                    version = _re.search(r'^version:\s*[\"\']?([^\s\"\'#]+)', text, _re.M)
+                    found.append((str(candidate.parent), version.group(1) if version else "?"))
+        if not found:
+            checks.append(("WARN", "plugin trees", "no installed entropicmem tree found under the hermes home"))
+        elif len(found) == 1:
+            checks.append(("PASS", "plugin trees", f"{found[0][0]} (v{found[0][1]})"))
+        else:
+            listing = "; ".join(f"{path} (v{version})" for path, version in found[:6])
+            checks.append((
+                "WARN", "plugin trees",
+                f"{len(found)} entropicmem trees installed — a process may import an old "
+                f"one: {listing}{' …' if len(found) > 6 else ''}",
+            ))
+    except Exception as exc:
+        checks.append(("WARN", "plugin trees", f"could not scan: {type(exc).__name__}: {exc}"))
+
     # The embeddings state.
     try:
         import em_internal.embeddings as _embeddings

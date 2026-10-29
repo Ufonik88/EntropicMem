@@ -254,3 +254,42 @@ def test_upgrade_restores_the_callers_env_afterwards(tmp_path, monkeypatch, caps
     monkeypatch.delenv("ENTROPICMEM_ALLOW_LIVE_MIGRATION", raising=False)
     _run_cli(capsys, monkeypatch, _upgrade_env(tmp_path, store), "memory", "upgrade", "--yes")
     assert os.environ.get("ENTROPICMEM_ALLOW_LIVE_MIGRATION") != "1"
+
+
+# --- chunk 60: the duplicate-plugin-tree check ------------------------------
+
+
+def _write_tree(root: Path, version: str) -> None:
+    tree = root / "plugins" / f"entropicmem-{version}"
+    tree.mkdir(parents=True, exist_ok=True)
+    (tree / "plugin.yaml").write_text(f"name: entropicmem\nversion: {version}\n", encoding="utf-8")
+
+
+def test_doctor_warns_on_duplicate_plugin_trees(tmp_path, monkeypatch, capsys):
+    import em_internal.vault as vault_module
+
+    home = tmp_path / "home"
+    _write_tree(home, "3.0.0")
+    _write_tree(home, "3.0.0.dev0")
+    monkeypatch.setattr(vault_module, "hermes_home_path", lambda: home)
+    code = _run_cli(
+        capsys, monkeypatch, _upgrade_env(tmp_path, tmp_path / "memory.db"), "doctor"
+    )
+    assert code == 0  # a duplicate tree is a WARN, not a FAIL
+    out = capsys.readouterr().out
+    assert "2 entropicmem trees" in out
+    assert "3.0.0" in out and "3.0.0.dev0" in out
+
+
+def test_doctor_passes_a_single_tree(tmp_path, monkeypatch, capsys):
+    import em_internal.vault as vault_module
+
+    home = tmp_path / "home"
+    _write_tree(home, "3.0.0")
+    monkeypatch.setattr(vault_module, "hermes_home_path", lambda: home)
+    _run_cli(
+        capsys, monkeypatch, _upgrade_env(tmp_path, tmp_path / "memory.db"), "doctor"
+    )
+    out = capsys.readouterr().out
+    assert "FAIL" not in out
+    assert "plugin trees" in out
