@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3193 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3191 passed, 4 skipped, 2 xfailed** |
 
-Read as at `6759b33` (chunk 53 — the shadow's fabrication rule narrowed to the memory
+Read as at `0e249bc` (chunk 53 — the shadow's fabrication rule narrowed to the memory
 id-space, from Hermes's P0c proof run: the v3 render's episodic surface legitimately
 injects `ep_*`/`mne_*` ids no v2 fact space can contain, and every proof line tripped
 the hard `v3_only == 0` ceiling on them; `comparison_ids` now drops the episode space —
