@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3205 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3203 passed, 4 skipped, 2 xfailed** |
 
-Read as at `3d53f1b` (chunk 56 — the shadow's scratch dir is an allowed migration root,
+Read as at `2e78748` (chunk 56 — the shadow's scratch dir is an allowed migration root,
 from Hermes's P0c blocker: the guard's catch-all refused the shadow's own copy location,
 so the shadow could never migrate its copy on a normal host and the collection produced
 nothing; the decision is now a pure `_path_decision` with an **exact**
