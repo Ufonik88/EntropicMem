@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3197 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3195 passed, 4 skipped, 2 xfailed** |
 
-Read as at `ba939f7` (chunk 54 — the fabrication evaluation refined to the ruling's own
+Read as at `2be4c74` (chunk 54 — the fabrication evaluation refined to the ruling's own
 word: each v3-only id is resolved against the shadow copy — **fabrication** = an
 unresolvable or non-servable row (the hard ceiling, 0); a set-size difference (v3's
 §3.6 block carries more real rows than v2's top-5) is reported as `extras_resolved`,
