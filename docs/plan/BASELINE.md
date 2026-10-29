@@ -26,13 +26,13 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3195 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the release commit has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3195 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40856373784` on `5cd547a` — 13/13 jobs green on that exact SHA — the 3.0.0 release run)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3100 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3101 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3197 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3195 passed, 4 skipped, 2 xfailed** |
 
-Read as at `f16fdff` (chunk 55 / EM-904's prep: the version 3.0.0, the SKILL.md bump, the CHANGELOG's release section; the counts unchanged) — the fabrication evaluation refined to the ruling's own
+Read as at `5cd547a` (chunk 55 / EM-904's prep: the version 3.0.0, the SKILL.md bump, the CHANGELOG's release section; the counts unchanged) — the fabrication evaluation refined to the ruling's own
 word: each v3-only id is resolved against the shadow copy — **fabrication** = an
 unresolvable or non-servable row (the hard ceiling, 0); a set-size difference (v3's
 §3.6 block carries more real rows than v2's top-5) is reported as `extras_resolved`,
