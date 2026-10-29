@@ -253,6 +253,35 @@ def shadow_ids(shadow_db: Path, *, profile: str, query: str) -> List[str]:
         store.close()
 
 
+#: The shadow's failure telemetry (chunk 57): how many turns failed to measure,
+#: and the first failure of each distinct exception type warned once — the
+#: EM-703 pattern (an unavailable screen warns once and shows its state).
+_FAILURES = {"count": 0, "warned": set(), "last": ""}
+
+
+def _record_failure(exc: BaseException) -> None:
+    """Count the failure; warn once per distinct exception type."""
+    _FAILURES["count"] += 1
+    _FAILURES["last"] = f"{type(exc).__name__}: {exc}"
+    kind = type(exc).__name__
+    if kind not in _FAILURES["warned"]:
+        _FAILURES["warned"].add(kind)
+        logger.warning(
+            "EntropicMem v3 shadow is failing and collecting nothing: %s: %s "
+            "(further failures of this kind log at debug; failure count: %d)",
+            kind, exc, _FAILURES["count"],
+        )
+
+
+def shadow_state() -> Dict[str, Any]:
+    """The shadow's health, for `stats`: lines are success, failures are silence."""
+    return {
+        "failures": _FAILURES["count"],
+        "failure_kinds": sorted(_FAILURES["warned"]),
+        "last_failure": _FAILURES["last"],
+    }
+
+
 def run(
     live_db: str | Path,
     *,
@@ -280,6 +309,12 @@ def run(
             age = 0.0
         v3_ids = shadow_ids(target, profile=profile, query=query)
     except Exception as exc:  # noqa: BLE001 - a shadow must never break a turn
+        # Chunk 57: the failure is counted, and the FIRST failure of each kind
+        # is a WARNING — a shadow that silently collects nothing reads as
+        # "healthy, no divergence" to everyone watching the log, which is how
+        # two host-side configuration failures (the guard's refusal of the
+        # copy's path) sat undetected through a whole flip. Never raises.
+        _record_failure(exc)
         logger.debug("EntropicMem v3 shadow failed: %s", exc)
         return None
 

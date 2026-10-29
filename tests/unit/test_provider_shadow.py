@@ -606,3 +606,45 @@ def test_without_a_copy_the_strict_reading_stands(tmp_path):
     condition = result["conditions"]["v3_only_never"]
     assert condition["verdict"] == "not met", condition
     assert condition["refined"] is False
+
+
+# --- chunk 57: the shadow's silence is visible -----------------------------
+
+
+def test_a_dead_shadow_warns_once_and_counts(tmp_path, monkeypatch, caplog):
+    """The flip looked healthy while collecting nothing — twice. The first
+    failure of each kind warns; the count never stops."""
+    monkeypatch.setenv("ENTROPICMEM_SHADOW_V3", str(tmp_path / "no-such-dir" / "memory.db"))
+    _shadow._FAILURES["count"] = 0
+    _shadow._FAILURES["warned"].clear()
+    _shadow._FAILURES["last"] = ""
+    for _ in range(3):
+        assert _shadow.run(str(tmp_path / "live.db"), profile="default", query="fern", v2_ids=[]) is None
+    assert _shadow.shadow_state()["failures"] == 3
+    warnings = [r for r in caplog.records if r.levelno == 30 and "collecting nothing" in r.getMessage()]
+    assert len(warnings) == 1, "the same failure kind must warn exactly once"
+
+
+def test_distinct_failure_kinds_each_warn_once(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("ENTROPICMEM_SHADOW_V3", str(tmp_path / "no-such-dir" / "memory.db"))
+    _shadow._FAILURES["count"] = 0
+    _shadow._FAILURES["warned"].clear()
+    _shadow._FAILURES["last"] = ""
+    assert _shadow.run(str(tmp_path / "live.db"), profile="default", query="fern", v2_ids=[]) is None
+    # a different failure kind: a copy that exists but is not a database
+    broken = tmp_path / "broken" / "memory.db"
+    broken.parent.mkdir(parents=True, exist_ok=True)
+    broken.write_bytes(b"this is not a database")
+    monkeypatch.setenv("ENTROPICMEM_SHADOW_V3", str(broken))
+    assert _shadow.run(str(tmp_path / "live.db"), profile="default", query="fern", v2_ids=[]) is None
+    assert _shadow.shadow_state()["failures"] == 2
+    warnings = [r for r in caplog.records if r.levelno == 30 and "collecting nothing" in r.getMessage()]
+    assert len(warnings) == 2, "each distinct failure kind warns once"
+
+
+def test_shadow_off_stays_silent(tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv("ENTROPICMEM_SHADOW_V3", raising=False)
+    _shadow._FAILURES["count"] = 0
+    assert _shadow.run(str(tmp_path / "live.db"), profile="default", query="fern", v2_ids=[]) is None
+    assert _shadow.shadow_state()["failures"] == 0
+    assert not [r for r in caplog.records if r.levelno == 30]

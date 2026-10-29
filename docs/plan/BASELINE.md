@@ -26,11 +26,22 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3203 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40870987173` on `3d53f1b` — 13/13 jobs green on that exact SHA)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3108 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3109 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3205 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3203 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3206 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-57 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3111 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3112 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3208 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3206 passed, 4 skipped, 2 xfailed** |
+
+Read as at `1a1e182` (chunk 57 — the shadow's silence made visible, from Hermes's
+second blocker report: the flip's copy path failed twice silently — `run` swallowed
+every failure at debug and a dead collection read as "healthy, no divergence"; the
+failure is now counted (`shadow_state()`: failures / failure kinds / the last failure)
+and the FIRST failure of each distinct kind logs a WARNING (the EM-703 pattern);
+3 new tests, 2 red mutation checks) — **measured on the tree that became the chunk's
+build commit, before it was committed** (the documented pre-stamp shape). The CI row is
+**projected**, not read: no run exists for this tree yet. The previous record (chunk
+56's read pass, run `40870987173`, CI **3203 passed, 4 skipped, 2 xfailed**) remains in
+the record's historical set.
 
 Read as at `2e78748` (chunk 56 — the shadow's scratch dir is an allowed migration root,
 from Hermes's P0c blocker: the guard's catch-all refused the shadow's own copy location,
@@ -230,12 +241,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3108 / 20 / 2
+bare          3111 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3205 /  2 / 2
+= CI-equiv    3208 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3203 /  4 / 2   (read from run 40870987173, 3.12 job log)
+= CI          3206 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap
