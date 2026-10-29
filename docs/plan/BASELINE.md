@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3214 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3212 passed, 4 skipped, 2 xfailed** |
 
-Read as at `9843578` (chunk 58 — the shadow's miss semantics learn the gate's abstention
+Read as at `d68d7b7` (chunk 58 — the shadow's miss semantics learn the gate's abstention
 (Hermes's early-signal report: every real turn so far read v2=1 injected / v3=0, the
 gate's calibrated abstention on short chat turns reading as a 100% miss): the line now
 records the gate's own decision (`v3_gate`, derived from the outcome's shape —
