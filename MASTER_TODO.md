@@ -160,6 +160,20 @@ points at.
 > backs the target up, the typed `core.writable_by_agent` gate is live, and the stale
 > rename record is corrected. The fresh-install challenge is deferred with a
 > recommendation to the release card.
+>
+> **2026-10-29: chunk 53 — the shadow's fabrication rule narrowed to the memory id-space
+> — LANDED on `main` at `5946b32`** (build `0e249bc`, record `49b63ed`, read `2e6d85c`,
+> re-stamp `5946b32`; 13/13 green on `49b63ed` after one recorded 3.14 perf-gate re-run
+> — uniform runner contention, the recorded class — and 26/26 on the merge tip). Hermes's
+> **P0c proof run** (200 synthetic turns over a read-only copy of its host's LIVE store —
+> 2,887 facts/1,931 episodes, real writes; the "dev box runs no plugin" note was stale)
+> proved the plumbing end to end and surfaced the structural false positive the fix
+> removes. **The flip is authorized and sequenced: Hermes pulls main, sets
+> `ENTROPICMEM_SHADOW_V3=1`, restarts its gateway at a quiet moment, and collects 200+
+> real turns (72-hour cap), handing back with the report.** The endgame stands: (1)
+> chunk 52's commands landed; (2) the release prep is next (the version bump, the
+> SKILL.md, the tag, the catalog PR — the owner authorized the acts); (3) the owner runs
+> the cutover on his host with `doctor` + `memory upgrade`.
 
 ---
 
@@ -223,13 +237,14 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-28, against branch `main` at `17bbb40` (chunk 51, the
-cutover-correctness round from Hermes's audit — build `18ffa4d`, record `4d75616`, read
-`a26dd8a`, re-stamp `17bbb40`; 13/13 green on `4d75616` and 26/26 on the merge tip;
-branch deleted). Before it the same day: chunk 50 at `b93037e` (EM-901's upgrade drills),
-chunk 49 at `830ffee` (the dependency-floor rework), chunk 48 at `d84f5f8` (EM-601's
-month paging); then 2026-10-27 against `1d2f631` (the EM-806 packaging landing
-`ceb70cb` and its docs passes).
+**Last reconciled:** 2026-10-29, against branch `main` at `5946b32` (chunk 53, the
+shadow's fabrication rule narrowed to the memory id-space — build `0e249bc`, record
+`49b63ed`, read `2e6d85c`, re-stamp `5946b32`; 13/13 green on `49b63ed` after one
+recorded 3.14 perf-gate re-run, 26/26 on the merge tip; branch deleted). Before it:
+chunk 52 at `6759b33` (doctor + memory upgrade), chunk 51 at `17bbb40` (the
+cutover-correctness round), chunk 50 at `b93037e` (EM-901's drills), chunk 49 at
+`830ffee` (the dependency-floor rework), chunk 48 at `d84f5f8` (EM-601's month paging);
+then 2026-10-27 against `1d2f631` (the EM-806 packaging landing).
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
