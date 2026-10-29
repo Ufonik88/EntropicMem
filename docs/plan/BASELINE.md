@@ -26,13 +26,13 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3217 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-61 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3217 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40947768254` on `1ec02d9` — 13/13 jobs green on that exact SHA)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3122 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3123 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3219 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3217 passed, 4 skipped, 2 xfailed** |
 
-Read as at `cced7f7` (chunk 61 — the shadow's version read anchored to its own tree:
+Read as at `1ec02d9` (chunk 61 — the shadow's version read anchored to its own tree:
 `_em_version` reads the `plugin.yaml` beside the running `_shadow.py` before falling
 back to the imported `em` — a report run without the scripts on PYTHONPATH used to
 self-describe as "unknown" and exclude every line (Hermes's readout gotcha), and a
@@ -290,7 +290,7 @@ bare          3122 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3219 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3217 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
+= CI          3217 /  4 / 2   (read from run 40947768254, 3.12 job log)
 ```
 
 ## Citing CI evidence — one trap
