@@ -26,7 +26,7 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3195 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40850429987` on `01ba5c5` — 13/13 jobs green on that exact SHA)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3195 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the release commit has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3100 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3101 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3197 passed, 2 skipped, 2 xfailed** |
