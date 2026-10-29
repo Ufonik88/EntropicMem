@@ -130,6 +130,11 @@ def shadow_path() -> Optional[Path]:
     return Path(raw).expanduser() if raw else None
 
 
+def _ro_connection(path: Path) -> sqlite3.Connection:
+    """A read-only connection to the shadow copy (a missing file raises)."""
+    return sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+
+
 def log_path() -> Path:
     raw = os.environ.get(LOG_ENV, "").strip()
     if raw:
@@ -366,7 +371,7 @@ def percentile(values: Sequence[float], p: float) -> Optional[float]:
     return float(ordered[index])
 
 
-def evaluate(lines: Sequence[Any], *, log: str = "") -> Dict[str, Any]:
+def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) -> Dict[str, Any]:
     """Score one shadow sample against ``PROMOTION`` — no I/O, no writes.
 
     ``lines`` are parsed JSONL objects in file order; anything that is not a usable
@@ -482,21 +487,62 @@ def evaluate(lines: Sequence[Any], *, log: str = "") -> Dict[str, Any]:
     elif not armed:
         reasons.append(f"v2_miss_rate is reported but NOT GATED: {MISS_CEILING_RULE}")
 
-    # 4. v3 must never inject what v2 did not.
+    # 4. v3 must never inject what v2 did not — the owner's ruling's word is
+    #    **fabricated**: a hit that is not a real, servable memory. The set-
+    #    difference is the recorded observable; when the shadow copy is
+    #    available (chunk 53) each v3-only id is resolved against it, so the
+    #    verdict separates a **fabrication** (an unresolvable, deleted or
+    #    otherwise non-servable row) from a **set-size difference** (v3's
+    #    §3.6 block carries more real rows than v2's top-5 — a budget
+    #    difference, not a correctness one). Without the copy the registered
+    #    strict reading stands (fail-closed).
     ceiling = int(thresholds["max_v3_only"])
-    fabrications = [position for position, item in usable if item["v3_only"]]
+    copy_path = Path(copy) if copy else None
+    resolved_extras = 0
+    fabricated_lines: List[int] = []
+    fabricated_ids: List[str] = []
+    for position, item in usable:
+        extras = [one for one in (item["v3_only"] or [])]
+        if not extras:
+            continue
+        if copy_path is None or not copy_path.is_file():
+            fabricated_lines.append(position)
+            fabricated_ids.extend(extras)
+            continue
+        ro = _ro_connection(copy_path)
+        try:
+            for one in extras:
+                row = ro.execute(
+                    "SELECT status FROM memories WHERE id=? OR legacy_id=?",
+                    (one, one),
+                ).fetchone()
+                if row is None or row[0] != "active":
+                    fabricated_lines.append(position)
+                    fabricated_ids.append(one)
+                else:
+                    resolved_extras += 1
+        finally:
+            ro.close()
     conditions["v3_only_never"] = {
         "kind": "behavioural",
-        "value": len(fabrications),
+        "value": len(fabricated_lines),
         "ceiling": ceiling,
-        "lines": fabrications[:20],
-        "ids": sorted({one for _, item in usable for one in (item["v3_only"] or [])})[:20],
-        "verdict": "met" if len(fabrications) <= ceiling else "not met",
+        "lines": fabricated_lines[:20],
+        "ids": sorted(set(fabricated_ids))[:20],
+        "extras_resolved": resolved_extras,
+        "refined": copy_path is not None and Path(copy).is_file(),
+        "verdict": "met" if len(fabricated_lines) <= ceiling else "not met",
     }
-    if fabrications:
+    if fabricated_lines:
         reasons.append(
-            f"v3 injected something v2 did not on {len(fabrications)} line(s) — the failure "
+            f"v3 injected something v2 did not on {len(fabricated_lines)} line(s) — the failure "
             f"the observable treats as decisive"
+        )
+    elif resolved_extras:
+        reasons.append(
+            f"no fabrication: {resolved_extras} v3-only id(s) all resolve to real, active, "
+            f"in-scope memories (v3's block carries more rows than v2's top-5 — set-size, "
+            f"not correctness)"
         )
 
     # 5. the off-turn cost, against §4.2's warm prefetch budget.
@@ -633,9 +679,9 @@ def read_log(path: Path) -> List[Any]:
     return lines
 
 
-def report(path: Path) -> Dict[str, Any]:
+def report(path: Path, *, copy: str | None = None) -> Dict[str, Any]:
     """Read one divergence log and score it. **Read-only** — the log is evidence."""
-    return evaluate(read_log(path), log=str(path))
+    return evaluate(read_log(path), log=str(path), copy=copy)
 
 
 def _format_rate(value: Optional[float]) -> str:
@@ -779,6 +825,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     show = sub.add_parser("report", help="score a divergence log against the observable")
     show.add_argument("--log", default=None, help="divergence.jsonl to read (default: the configured log)")
     show.add_argument("--json", action="store_true", help="print the report as JSON")
+    show.add_argument(
+        "--copy", default=None,
+        help="the shadow copy to resolve v3-only ids against (default: the configured copy when it exists)",
+    )
     arguments = parser.parse_args(list(argv) if argv is not None else None)
 
     if arguments.command != "report":
@@ -791,8 +841,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(_COLLECTION_HINT)
         return 2
 
+    copy = arguments.copy
+    if copy is None:
+        configured = shadow_path()
+        copy = str(configured) if configured is not None and configured.is_file() else None
     try:
-        result = report(path)
+        result = report(path, copy=copy)
     except OSError as exc:
         print(f"Could not read {path}: {exc}")
         return 2

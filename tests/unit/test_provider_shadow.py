@@ -515,3 +515,94 @@ def test_a_line_with_episode_hits_fires_no_fabrication(tmp_path, monkeypatch):
         )
     finally:
         store2.close()
+
+
+# --- chunk 53: the fabrication evaluation resolves v3-only ids -------------
+
+
+def _store_with_active_row(tmp_path: Path, content: str = "The fern prefers morning light."):
+    from em.store.db import Store
+    from em.store.memories import MemoryStore
+    from em.store.migrations import migrate
+    from em.store.types import MemoryDraft, Scope
+
+    shadow_db = tmp_path / "shadow" / "memory.db"
+    shadow_db.parent.mkdir(parents=True, exist_ok=True)
+    store = Store(str(shadow_db))
+    with store.writer() as conn:
+        migrate(conn)
+    with store.transaction() as conn:
+        result = MemoryStore(conn).add(
+            MemoryDraft(content=content), scope=Scope(profile="default"), actor="tester"
+        )
+    return store, result.id
+
+
+def _line_with_extras(v3_only_ids):
+    return {
+        "ts": "2026-10-29T00:00:00.000Z",
+        "query": "fern",
+        "v2_ids": ["598763def15d5515"],
+        "v3_ids": ["598763def15d5515", *v3_only_ids],
+        "divergence": list(v3_only_ids),
+        "v3_only": list(v3_only_ids),
+        "copy_age_s": 10.0,
+        "copy_refreshed": False,
+        "stale": False,
+        "shadow_ms": 100.0,
+        "caveat": _shadow.CAVEAT,
+    }
+
+
+def test_the_fabrication_verdict_resolves_extras_against_the_copy(tmp_path):
+    """A v3-only id that resolves to a real, active memory is set-size, not
+    fabrication — the registered rule's own word is *fabricated*."""
+    store, memory_id = _store_with_active_row(tmp_path)
+    try:
+        result = _shadow.evaluate(
+            [_line_with_extras([memory_id])], log="x", copy=str(tmp_path / "shadow" / "memory.db")
+        )
+    finally:
+        store.close()
+    condition = result["conditions"]["v3_only_never"]
+    assert condition["verdict"] == "met", condition
+    assert condition["extras_resolved"] == 1
+    assert condition["refined"] is True
+
+
+def test_the_fabrication_verdict_fires_on_an_unresolvable_id(tmp_path):
+    store, _mid = _store_with_active_row(tmp_path)
+    try:
+        result = _shadow.evaluate(
+            [_line_with_extras(["mem_not_a_real_row"])], log="x", copy=str(tmp_path / "shadow" / "memory.db")
+        )
+    finally:
+        store.close()
+    condition = result["conditions"]["v3_only_never"]
+    assert condition["verdict"] == "not met", condition
+    assert condition["ids"] == ["mem_not_a_real_row"]
+
+
+def test_the_fabrication_verdict_fires_on_a_deleted_row(tmp_path):
+    """The teeth: a row that must not serve (deleted) is a failure, not a set-size."""
+    from em.store.memories import MemoryStore
+
+    store, memory_id = _store_with_active_row(tmp_path)
+    with store.writer() as conn:
+        MemoryStore(conn).set_status(memory_id, "deleted", actor="tester", reason="forget")
+    try:
+        result = _shadow.evaluate(
+            [_line_with_extras([memory_id])], log="x", copy=str(tmp_path / "shadow" / "memory.db")
+        )
+    finally:
+        store.close()
+    condition = result["conditions"]["v3_only_never"]
+    assert condition["verdict"] == "not met", condition
+
+
+def test_without_a_copy_the_strict_reading_stands(tmp_path):
+    """Fail-closed: no copy to resolve against, the registered set-difference rules."""
+    result = _shadow.evaluate([_line_with_extras(["598763def15d5516"])], log="x", copy=None)
+    condition = result["conditions"]["v3_only_never"]
+    assert condition["verdict"] == "not met", condition
+    assert condition["refined"] is False
