@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3208 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3206 passed, 4 skipped, 2 xfailed** |
 
-Read as at `1a1e182` (chunk 57 — the shadow's silence made visible, from Hermes's
+Read as at `267107d` (chunk 57 — the shadow's silence made visible, from Hermes's
 second blocker report: the flip's copy path failed twice silently — `run` swallowed
 every failure at debug and a dead collection read as "healthy, no divergence"; the
 failure is now counted (`shadow_state()`: failures / failure kinds / the last failure)
