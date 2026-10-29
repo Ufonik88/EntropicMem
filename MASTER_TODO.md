@@ -201,6 +201,17 @@ points at.
 > workaround). The fix: the guard's decision is a pure `_path_decision` with an **exact**
 > `<hermes_root>/entropicmem-shadow` allow after the deny rules. **The collection runs**
 > (the flip live; hands back at 200+ turns / unreachable / the 72-hour cap).
+>
+> **2026-10-29, later: chunk 57 — the shadow's silence made visible — LANDED on `main`
+> at `fe54518`** (build `267107d`, record, read, re-stamp; 13/13 green and 26/26 on the
+> merge tip after one recorded plugin-validate infra flake — an Azure blob download —
+> re-run green). Hermes's correction: the /tmp workaround was ALSO dead (the plugin
+> isolation child inherits the gateway's `TMPDIR=scratch`, so `gettempdir()` resolved
+> there and the guard refused the /tmp copy too); the copy now lives inside the child's
+> own tempdir (scratch/em-shadow) and the probe verified a line appends. **The silence
+> itself is fixed:** a shadow failure now counts (`shadow_state()`) and the first
+> failure of each kind warns — a dead collection can no longer read as healthy. Hermes
+> needs one more restart onto main to carry the warning telemetry into the collection.
 
 ---
 
@@ -264,13 +275,13 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-29, against branch `main` at `6a796a1` (chunk 56, the
-shadow scratch root — build `5584c81`, record `3d53f1b`, read `2e78748`, re-stamp
-`6a796a1`; 13/13 green on `3d53f1b`, 26/26 on the merge tip after one recorded
-perf-smoke re-run; branch deleted). Before it: the 3.0.0 release at `1e8e7c4` (tagged,
-published, `release/3.0.x` protected, the catalog re-pin PR `#146446` open), chunk 54
-at `a29644c`, chunk 53 at `5946b32`, chunk 52 at `6759b33`, chunk 51 at `17bbb40`,
-chunk 50 at `b93037e`, chunk 49 at `830ffee`, chunk 48 at `d84f5f8`.
+**Last reconciled:** 2026-10-29, against branch `main` at `fe54518` (chunk 57, the
+shadow's silence made visible — build `267107d`, record, read, re-stamp; 13/13 green
+and 26/26 on the merge tip after one recorded plugin-validate infra flake; branch
+deleted). Before it: chunk 56 at `6a796a1` (the shadow scratch root), the 3.0.0 release
+at `1e8e7c4` (tagged, published, `release/3.0.x` protected, the catalog re-pin PR
+`#146446` open), chunk 54 at `a29644c`, chunk 53 at `5946b32`, chunk 52 at `6759b33`,
+chunk 51 at `17bbb40`, chunk 50 at `b93037e`.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
