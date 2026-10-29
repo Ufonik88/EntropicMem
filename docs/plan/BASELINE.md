@@ -26,11 +26,23 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3215 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40931247338` on `7d50e65` — 13/13 jobs green on that exact SHA)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3120 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3121 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3217 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3215 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3217 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-61 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3122 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3123 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3219 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3217 passed, 4 skipped, 2 xfailed** |
+
+Read as at `58c2746` (chunk 61 — the shadow's version read anchored to its own tree:
+`_em_version` reads the `plugin.yaml` beside the running `_shadow.py` before falling
+back to the imported `em` — a report run without the scripts on PYTHONPATH used to
+self-describe as "unknown" and exclude every line (Hermes's readout gotcha), and a
+shadowed `em` answered with the wrong tree's version; the discriminating test copies
+the module into a tree whose manifest disagrees; 2 new tests, 1 red mutation check)
+— **measured on the tree that became the chunk's build commit, before it was
+committed** (the documented pre-stamp shape). The CI row is **projected**, not read:
+no run exists for this tree yet. The previous record (chunk 60's read pass, run
+`40931247338`, CI **3215 passed, 4 skipped, 2 xfailed**) remains in the record's
+historical set.
 
 Read as at `9774026` (chunk 60 — the shared-log mixed-version problem, from Hermes's
 terminal inventory (11 profile plugin entries + a .bak, every tree stale, all feeding
@@ -273,12 +285,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3120 / 20 / 2
+bare          3122 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3217 /  2 / 2
+= CI-equiv    3219 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3215 /  4 / 2   (read from run 40931247338, 3.12 job log)
+= CI          3217 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap

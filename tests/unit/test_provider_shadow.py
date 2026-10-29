@@ -740,3 +740,31 @@ def test_the_gate_decision_is_derived_from_the_outcome_shape():
     assert _shadow._gate_decision(3, 5) == "pass"
     assert _shadow._gate_decision(0, 5) == "abstain"
     assert _shadow._gate_decision(0, 0) == "no-candidates"
+
+
+def test_the_em_version_reads_its_own_tree_manifest():
+    """Chunk 60's gotcha fixed: the line's version comes from the plugin.yaml
+    beside the running _shadow.py, not from whichever em imported first."""
+    import re as _re
+
+    manifest = (Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "plugin.yaml")
+    expected = _re.search(r"^version:\s*[\"']?([^\s\"'#]+)", manifest.read_text(encoding="utf-8"), _re.M).group(1)
+    assert _shadow._em_version() == expected
+
+
+def test_the_version_read_is_anchored_to_the_running_file(tmp_path):
+    """The discriminator: the SAME module copied into a tree whose manifest
+    says something else must self-describe with ITS tree's version — the
+    imported em (or its absence) must not decide."""
+    tree = tmp_path / "plugins" / "entropicmem"
+    tree.mkdir(parents=True)
+    source = (Path(__file__).resolve().parents[2] / "plugins" / "entropicmem" / "_shadow.py")
+    (tree / "_shadow.py").write_bytes(source.read_bytes())
+    (tree / "plugin.yaml").write_text('name: entropicmem\nversion: "9.9.9-test"\n', encoding="utf-8")
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("em_shadow_anchored", tree / "_shadow.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module._em_version() == "9.9.9-test"

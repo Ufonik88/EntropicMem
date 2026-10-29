@@ -131,7 +131,23 @@ def shadow_path() -> Optional[Path]:
 
 
 def _em_version() -> str:
-    """The running build's version, for the line's self-description."""
+    """The build that wrote the line — the shadow module's OWN tree's version.
+
+    Read from the ``plugin.yaml`` beside this file, not from the imported
+    ``em``: when another ``em`` shadows this tree on sys.path (chunk 59's
+    question), the imported package's version is the WRONG answer, and a
+    report run without the scripts on PYTHONPATH self-described as "unknown"
+    and excluded every line (Hermes's readout gotcha). The manifest beside
+    the running file is the build that wrote the line.
+    """
+    try:
+        manifest = Path(__file__).resolve().parent / "plugin.yaml"
+        if manifest.is_file():
+            match = re.search(r"^version:\s*[\"']?([^\s\"'#]+)", manifest.read_text(encoding="utf-8"), re.M)
+            if match:
+                return match.group(1)
+    except Exception:  # noqa: BLE001 - telemetry must never raise
+        pass
     try:
         import em
 
