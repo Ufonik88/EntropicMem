@@ -9,4 +9,4 @@ Hermes host or the provider layer, and never read ``os.environ["HERMES_HOME"]``
 — paths are passed in explicitly.
 """
 
-__version__ = "3.0.0.dev0"
+__version__ = "3.0.0"

@@ -280,13 +280,28 @@ def test_no_document_states_a_triple_that_is_neither_current_nor_historical():
 
 
 def test_the_changelog_states_the_current_ci_figure():
-    """The CHANGELOG is the one place that must restate the figures as evidence."""
+    """The CHANGELOG is the one place that must restate the figures as evidence.
+
+    The current CI figure lives in the **newest section with content**: the
+    `[Unreleased]` section while work is in flight, and — once a release
+    converts it (chunk 55) — the release section the figures shipped in. An
+    empty `[Unreleased]` above a release section is the released state, not a
+    drift.
+    """
     rec = _record()
     text = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = text.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+    after_head = text.split("## [Unreleased]", 1)[1]
+    unreleased = after_head.split("\n## [", 1)[0]
+    # A section carrying only the standing blockquote note is the released
+    # state: the newest section (the release the figures shipped in) is what
+    # must state the current figure.
+    prose = [ln for ln in unreleased.splitlines() if ln.strip() and not ln.strip().startswith(">")]
+    if not prose:
+        newest = after_head.split("## [", 1)[1]
+        unreleased = newest.split("\n## [", 1)[0]
     ci = rec["current"]["ci"]
     long_form = f"{ci[0]} / {ci[1]} / {ci[2]}"
     assert long_form in unreleased or "projected" in unreleased, (
-        f"the CHANGELOG's [Unreleased] section does not state the current CI figure "
+        f"the CHANGELOG's newest section does not state the current CI figure "
         f"({long_form}) or mark it projected"
     )

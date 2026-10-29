@@ -25,8 +25,8 @@ _PEP440_DEV = re.compile(r"^\d+\.\d+\.\d+\.dev\d+$")
 
 
 def test_em_version_is_pep440_dev_of_3_0_0():
-    assert _PEP440_DEV.match(em.__version__), em.__version__
-    assert em.__version__.startswith("3.0.0.dev"), em.__version__
+    """The released form: exactly 3.0.0 (the dev marker came off at the release)."""
+    assert em.__version__ == "3.0.0", em.__version__
 
 
 def _pyproject_text() -> str:
