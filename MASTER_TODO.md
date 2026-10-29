@@ -213,6 +213,18 @@ points at.
 > failure of each kind warns — a dead collection can no longer read as healthy. Hermes
 > needs one more restart onto main to carry the warning telemetry into the collection.
 
+> **2026-10-29, later: chunk 58 — the shadow's miss semantics learn the gate's abstention
+> — LANDED on `main` at `f3bb689`** (build `d559eba`, record `9843578`, read `d68d7b7`,
+> re-stamp `f3bb689`; 13/13 green and 26/26 on the merge tip). Hermes's early-signal
+> report: the first real turns all read `v2=1 injected, v3=0` — the gate's calibrated
+> abstention on short chat turns reading as a 100% miss rate that would have made the
+> P0c verdict pre-determined NOT MET on real traffic. The line now records the gate's
+> decision (`v3_gate`), an abstained turn leaves the miss-rate denominator (the abstain
+> rate is its own reported number), `no-candidates` stays a miss, and old logs keep the
+> strict reading. **Hermes restarts onto this before the collection concludes** (the
+> lines recorded before the fix keep their strict reading; the abstain shape only
+> refines the evaluation).
+
 ---
 
 ## STOP HERE — S5 is complete (2026-10-17); EM-601 and EM-608 are complete (2026-10-18); the owner handed the gated calls to the agent the same day and they are made — chunk 38 (the content-ceiling fix), chunk 39 (EM-602, both slices) and chunk 40 (EM-603, the incremental index) are complete, and **chunk 41 (EM-604, opt-in ingestion of human vault edits) is COMPLETE (landed 2026-10-19 as `31a7323`); EM-603's 5k AC is de-flaked (landed 2026-10-19 as `adb1439`); EM-605 slice 1 (graph model / renderers / assets split) is COMPLETE (landed 2026-10-19 as `2fd7812`); **chunk 43, the slice-1 follow-up (packaging verified where it ships, figures measured not typed, the warm AC's absolute ceiling), is COMPLETE (landed 2026-10-19 as `5258b46`); **EM-605 slice 2.1 (entity nodes and typed relation edges) is committed locally at `69dc223` (2026-10-20), not pushed; slice 2.2 (the owner-only scope filter and its byte-level leak test) is committed locally at `1e5b739` (2026-10-20), not pushed — 13 mutation checks red and the leak test scans the whole JSON/HTML output — slice 2.3, the relation time window, is committed locally at `e08694a` (2026-10-20), not pushed — 17 mutation checks red — **slice 2.4, dashed superseded edges, is committed locally at `6936574` (2026-10-21), not pushed — 11 mutation checks red — slice 2.5, the 5k-node export AC, at `0c40385` (2026-10-21), not pushed — 5 mutation checks red — and **EM-606, graph server hardening round 2, at `575eb06` (2026-10-21), not pushed — 15 mutation checks red and one equivalent recorded — so the next card is EM-607 (ingest v2); nothing is pushed, and no CI run exists for any of it** *(That state was the 2026-10-21 morning: EM-605/EM-606 landed later that day at `73bed69`, and EM-607 — the card this paragraph calls next — is now landed too, at `5f0670c`.)*
@@ -275,13 +287,14 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-29, against branch `main` at `fe54518` (chunk 57, the
-shadow's silence made visible — build `267107d`, record, read, re-stamp; 13/13 green
-and 26/26 on the merge tip after one recorded plugin-validate infra flake; branch
-deleted). Before it: chunk 56 at `6a796a1` (the shadow scratch root), the 3.0.0 release
-at `1e8e7c4` (tagged, published, `release/3.0.x` protected, the catalog re-pin PR
-`#146446` open), chunk 54 at `a29644c`, chunk 53 at `5946b32`, chunk 52 at `6759b33`,
-chunk 51 at `17bbb40`, chunk 50 at `b93037e`.
+**Last reconciled:** 2026-10-29, against branch `main` at `f3bb689` (chunk 58, the
+shadow's abstention semantics — build `d559eba`, record `9843578`, read `d68d7b7`,
+re-stamp `f3bb689`; 13/13 green, 26/26 on the merge tip; branch deleted). Before it:
+chunk 57 at `fe54518` (the shadow's silence made visible), chunk 56 at `6a796a1` (the
+shadow scratch root), the 3.0.0 release at `1e8e7c4` (tagged, published,
+`release/3.0.x` protected, the catalog re-pin PR `#146446` open), chunk 54 at
+`a29644c`, chunk 53 at `5946b32`, chunk 52 at `6759b33`, chunk 51 at `17bbb40`, chunk
+50 at `b93037e`.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
