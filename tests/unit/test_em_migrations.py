@@ -716,7 +716,7 @@ def test_guard_refuses_any_versioned_live_clone():
     """
     for name in ("entropicmem-live-2.8.0", "entropicmem-live-2.8.1", "entropicmem-live-9.9.9"):
         for db in ("memory.db", "index.db"):
-            with pytest.raises(emmig.MigrationRefused, match="inside the live"):
+            with pytest.raises(emmig.MigrationRefused, match="not inside a temporary or test path"):
                 emmig.assert_safe_db_path(Path.home() / ".hermes" / name / "plugins" / db)
 
 

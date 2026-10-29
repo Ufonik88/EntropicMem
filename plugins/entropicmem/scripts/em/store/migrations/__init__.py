@@ -188,7 +188,11 @@ def assert_safe_db_path(path: "os.PathLike[str] | str") -> None:
     memory.db`` cannot slip past the deny list.
 
     In-memory databases (``:memory:`` or an empty path) are always allowed:
-    they cannot be the live store.
+    they cannot be the live store. The shadow's own scratch directory
+    (``<hermes_root>/entropicmem-shadow`` — chunk 56) is allowed too: its copy
+    is a copy, refreshed from the live store, and its loss costs one re-copy —
+    there is no data there that has no other copy, which is the guard's whole
+    purpose. The decision is :func:`_path_decision` (pure, testable).
     """
     text = os.fspath(path) if not isinstance(path, str) else path
     if not text or text == ":memory:":
@@ -203,44 +207,48 @@ def assert_safe_db_path(path: "os.PathLike[str] | str") -> None:
     except OSError as exc:  # pragma: no cover - pathological input
         raise MigrationRefused(f"cannot resolve database path {text!r}: {exc}") from exc
 
-    home = Path.home().resolve()
+    if _path_decision(resolved, Path.home().resolve()) == "refused":
+        raise MigrationRefused(
+            f"refusing to migrate {resolved}: not inside a temporary or test path. "
+            f"Set {ALLOW_LIVE_ENV}=1 only for the real 3.0 cutover."
+        )
+
+
+def _path_decision(resolved: Path, home: Path) -> str:
+    """``"allowed"`` or ``"refused"`` — pure, so the distinctions are testable.
+
+    * Denied first: the live store's own directory and every pinned-clone
+      directory (``entropicmem-live-*``) under the hermes root.
+    * Allowed: a temporary directory, any tree under a directory named
+      ``tests``, and the shadow's own scratch directory — exactly
+      ``<hermes_root>/entropicmem-shadow`` (a prefix family is refused: a
+      sibling that merely starts with the same text is not the shadow's).
+    * Everything else: refused.
+    """
     hermes_root = home / ".hermes"
     deny = (hermes_root / "entropicmem",)
     for blocked in deny:
         if resolved == blocked or blocked in resolved.parents:
-            raise MigrationRefused(
-                f"refusing to migrate {resolved}: it is inside the live "
-                f"EntropicMem store. Set {ALLOW_LIVE_ENV}=1 only for the "
-                "real 3.0 cutover."
-            )
+            return "refused"
 
-    # Every pinned clone of the plugin (``entropicmem-live-<version>``) is the
-    # live install on the host, and the clone is renamed on every repoint. Match
-    # the family rather than one version: an enumerated path goes stale on the
-    # next release, and a stale entry fails silently — the catch-all rule below
-    # still refuses the path, so nothing looks wrong while the specific
-    # protection is gone.
     if hermes_root in resolved.parents:
         for part in resolved.relative_to(hermes_root).parts:
             if part == "entropicmem" or part.startswith("entropicmem-live-"):
-                raise MigrationRefused(
-                    f"refusing to migrate {resolved}: it is inside the live "
-                    f"EntropicMem store. Set {ALLOW_LIVE_ENV}=1 only for the "
-                    "real 3.0 cutover."
-                )
+                return "refused"
 
     allowed_roots = [Path(tempfile.gettempdir()).resolve()]
     # Any path under a directory named "tests" (the repo's tests/ tree, and
     # per-repo scratch dirs) is a test fixture by construction.
     allowed_roots.extend(p for p in resolved.parents if p.name == "tests")
+    # The shadow's own scratch: an exact directory match, so its copy —
+    # a copy of the live store, refreshed by the shadow itself — can migrate
+    # on a normal host (chunk 56: the P0c collection's blocker).
+    allowed_roots.append(hermes_root / "entropicmem-shadow")
     for root in allowed_roots:
         if root in resolved.parents:
-            return
+            return "allowed"
 
-    raise MigrationRefused(
-        f"refusing to migrate {resolved}: not inside a temporary or test path. "
-        f"Set {ALLOW_LIVE_ENV}=1 only for the real 3.0 cutover."
-    )
+    return "refused"
 
 
 def _applied_checksums(conn: sqlite3.Connection) -> dict:
