@@ -26,11 +26,25 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3178 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40752588511` on `4d75616` — 13/13 jobs green on that exact SHA)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3083 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3084 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3180 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3178 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3189 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-52 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3094 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3095 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3191 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3189 passed, 4 skipped, 2 xfailed** |
+
+Read as at `4314700` (chunk 52 — the release-readiness commands: `doctor` (the read-only
+health report: the store's integrity/schema/engine, the config, the vault, the index, the
+embedding state; ASCII PASS/WARN/FAIL, exit 1 on any FAIL, never writes) and `memory
+upgrade` (the friendly v2→v3 cutover: `--status` read-only, the refusals — already v3, a
+migration lock, a running provider, no `--yes` — before anything touches the store, the
+migration with the opt-in scoped to the command and the caller's env restored after);
+the command count moves 37→38 (doctor), the CLI reference + the README + the pyproject
+description updated; 11 new tests, 4 red mutation checks and one recorded equivalent —
+the doctor's integrity-status masking is absorbed by the unopenable-store FAIL path)
+— **measured on the tree that became the chunk's build commit, before it was committed**
+(the documented pre-stamp shape). The CI row is **projected**, not read: no run exists
+for this tree yet. The previous record (chunk 51's read pass, run `40752588511`, CI
+**3178 passed, 4 skipped, 2 xfailed**) remains in the record's historical set.
 
 Read as at `a26dd8a` (chunk 51 — the cutover-correctness round, from Hermes's audit:
 the migration guard runs only when a migration would run — an already-migrated store
@@ -179,12 +193,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3083 / 20 / 2
+bare          3094 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3180 /  2 / 2
+= CI-equiv    3191 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3178 /  4 / 2   (read from run 40752588511, 3.12 job log)
+= CI          3189 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap

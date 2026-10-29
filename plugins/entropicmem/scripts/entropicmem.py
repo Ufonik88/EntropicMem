@@ -1236,6 +1236,13 @@ def cmd_graph(args) -> int:
 # ── subcommand: project ──────────────────────────────────────────────────
 
 def cmd_memory(args) -> int:
+    if args.memory_command == "upgrade":
+        # Chunk 52: handled BEFORE the handler's own Vault/VaultIndex/engine
+        # constructions — the upgrade opens the store itself (read-only for
+        # --status, the migrator for the real act), and a v2 engine or index
+        # constructed over the file first would write to it and hold locks
+        # the migration must not compete with.
+        return _cmd_memory_upgrade(args)
     if args.memory_command == "project":
         # Guarded before any path is resolved: building a Vault/VaultIndex for a
         # command that is about to refuse would create directories for nothing.
@@ -1276,7 +1283,7 @@ def cmd_memory(args) -> int:
         engine.close()
         return 0
     else:
-        print("Usage: entropicmem memory project|stats|list|reindex", file=sys.stderr)
+        print("Usage: entropicmem memory project|stats|list|reindex|upgrade", file=sys.stderr)
         engine.close()
         return 1
 
@@ -2174,6 +2181,221 @@ def cmd_pending(args) -> int:
     return 1
 
 
+def _ro_connect(path: Path) -> sqlite3.Connection:
+    """A read-only connection: a missing file raises instead of being created."""
+    return sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+
+
+def cmd_doctor(args) -> int:
+    """Read-only health report (chunk 52): store, config, vault, index.
+
+    ASCII PASS/WARN/FAIL lines and exit 1 when anything FAILED. Never writes:
+    the store opens read-only (a missing store is a WARN, not a creation), the
+    vault and the index are probed through their own read-only paths.
+    """
+    from em.config import load_config
+    from em.facade.select import store_kind
+
+    checks: list[tuple[str, str, str]] = []
+
+    # The store.
+    db_path = _memory_db_path()
+    if not db_path.is_file():
+        checks.append(("WARN", "store", f"no store at {db_path} (created on first use)"))
+    else:
+        try:
+            kind = store_kind(db_path)
+            ro = _ro_connect(db_path)
+            try:
+                integrity = ro.execute("PRAGMA integrity_check").fetchone()[0]
+                uv = int(ro.execute("PRAGMA user_version").fetchone()[0])
+            finally:
+                ro.close()
+            status = "PASS"
+            detail = f"{kind} store at {db_path}, user_version={uv}, integrity={integrity}"
+            if kind == "v2":
+                detail += "; run 'memory upgrade --yes' to enable the v3 surface"
+            checks.append((status, "store", detail))
+        except Exception as exc:  # a store this build cannot open is a FAIL
+            checks.append(("FAIL", "store", f"{db_path}: {type(exc).__name__}: {exc}"))
+
+    # The config: whatever the host's config file says, loaded and judged.
+    try:
+        from em_internal.vault import hermes_home_path
+
+        home = hermes_home_path()
+        sources = []
+        config_file = Path(home) / "config.yaml"
+        if config_file.is_file():
+            from _backend import load_plugin_config
+
+            sources.append(load_plugin_config(Path(home)))
+            detail = f"config at {config_file}"
+        else:
+            detail = "no config file (defaults stand)"
+        loaded = load_config(sources)
+        if loaded.errors:
+            checks.append(("FAIL", "config", f"{detail}: {len(loaded.errors)} invalid value(s)"))
+        else:
+            checks.append(("PASS", "config", detail))
+    except Exception as exc:
+        checks.append(("WARN", "config", f"could not evaluate: {type(exc).__name__}: {exc}"))
+
+    # The vault.
+    vault_path, index_path = _resolve_env()
+    if not vault_path.is_dir():
+        checks.append(("WARN", "vault", f"no vault at {vault_path}"))
+    else:
+        notes = sum(1 for _ in vault_path.rglob("*.md"))
+        checks.append(("PASS", "vault", f"{vault_path}, {notes} note(s)"))
+
+    # The index.
+    if not Path(index_path).is_file():
+        checks.append(("WARN", "index", f"no index at {index_path} (built on first search)"))
+    else:
+        try:
+            from em_internal.index import SCHEMA_VERSION
+
+            ro = _ro_connect(Path(index_path))
+            try:
+                version = int(ro.execute("PRAGMA user_version").fetchone()[0])
+                notes_indexed = ro.execute("SELECT COUNT(*) FROM notes_meta").fetchone()[0]
+            finally:
+                ro.close()
+            if version < SCHEMA_VERSION:
+                checks.append((
+                    "WARN", "index",
+                    f"schema v{version}, current is v{SCHEMA_VERSION}; "
+                    "run 'index refresh' to migrate",
+                ))
+            else:
+                checks.append((
+                    "PASS", "index",
+                    f"schema v{version} (current), {notes_indexed} note(s) indexed",
+                ))
+        except Exception as exc:
+            checks.append(("FAIL", "index", f"{index_path}: {type(exc).__name__}: {exc}"))
+
+    # The embeddings state.
+    try:
+        import em_internal.embeddings as _embeddings
+
+        installed = _embeddings.EMBEDDINGS_AVAILABLE if hasattr(
+            _embeddings, "EMBEDDINGS_AVAILABLE"
+        ) else True
+        enabled = bool(_embeddings.is_enabled()) if hasattr(_embeddings, "is_enabled") else None
+        detail = "installed" if installed else "not installed (recall is lexical)"
+        if enabled:
+            checks.append(("PASS", "embeddings", f"enabled, {detail}"))
+        elif enabled is False:
+            checks.append(("WARN", "embeddings", f"disabled, {detail}"))
+        else:
+            checks.append(("PASS", "embeddings", detail))
+    except Exception:
+        checks.append(("PASS", "embeddings", "not installed (recall is lexical)"))
+
+    failed = 0
+    for status, name, detail in checks:
+        print(f"[{status}] {name}: {detail}")
+        if status == "FAIL":
+            failed += 1
+    print(f"doctor: {len(checks) - failed} ok, {failed} failed")
+    return 1 if failed else 0
+
+
+def _cmd_memory_upgrade(args) -> int:
+    """The friendly v2→v3 cutover (chunk 52).
+
+    The wrapper around the real migrator: `--status` reports read-only, the
+    refusals (already v3, a migration lock, a running provider, no `--yes`)
+    happen before anything touches the store, and the command sets the
+    cutover env var in its own process — the user's explicit `--yes`
+    invocation IS the deliberate act the guard asks for.
+    """
+    from em.facade.select import store_kind
+    from em.store.migrations import migrate
+    from memory_engine import MemoryEngine
+
+    db_path = _memory_db_path()
+    if not db_path.is_file():
+        print(f"No store at {db_path} — nothing to upgrade (a fresh install creates a v3 store).")
+        return 0
+
+    kind = store_kind(db_path)
+    if kind == "v3":
+        print(f"Store at {db_path} is already a v3 store — nothing to upgrade.")
+        return 1
+
+    if getattr(args, "status", False):
+        ro = _ro_connect(db_path)
+        try:
+            uv = int(ro.execute("PRAGMA user_version").fetchone()[0])
+            facts = ro.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+        finally:
+            ro.close()
+        print(f"Store: v2 (user_version={uv}), {facts} fact(s).")
+        print("An upgrade will: back this store up, copy every fact/episode/version into "
+              "the v3 tables (nothing is deleted), verify the counts, and flip the store "
+              "to the v3 engine.")
+        print("Run 'memory upgrade --yes' to perform it. Restart Hermes afterwards.")
+        return 0
+
+    lock = db_path.parent / MemoryEngine.MIGRATION_LOCK_FILENAME
+    if lock.exists():
+        print(f"Refused: {lock.name} present (a migration is running).", file=sys.stderr)
+        return 2
+    if _provider_running(db_path):
+        print("Refused: the provider is running. Stop Hermes, then upgrade.", file=sys.stderr)
+        return 2
+    if not getattr(args, "yes", False):
+        print("The upgrade converts this v2 store to the v3 engine (one-way).")
+        print("It backs the store up first and verifies every count before committing.")
+        print("Re-run with --yes to perform it.")
+        return 2
+
+    # The opt-in is scoped to THIS command's process act: save the caller's
+    # value, set the flag, and restore it after — a leaked flag would disable
+    # the guard's protection for real stores everywhere this process goes.
+    _saved_allow_live = os.environ.get("ENTROPICMEM_ALLOW_LIVE_MIGRATION")
+    os.environ["ENTROPICMEM_ALLOW_LIVE_MIGRATION"] = "1"
+    from em.store.db import open_db
+
+    conn = open_db(db_path)
+    try:
+        applied = migrate(conn)
+    finally:
+        conn.close()
+        if _saved_allow_live is None:
+            os.environ.pop("ENTROPICMEM_ALLOW_LIVE_MIGRATION", None)
+        else:
+            os.environ["ENTROPICMEM_ALLOW_LIVE_MIGRATION"] = _saved_allow_live
+    names = ", ".join(f"{m.version:04d}_{m.name}" for m in applied)
+    print(f"Applied {len(applied)} migration(s): {names}")
+
+    ro = _ro_connect(db_path)
+    try:
+        uv = int(ro.execute("PRAGMA user_version").fetchone()[0])
+        memories = ro.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+    finally:
+        ro.close()
+    backup_dir = db_path.parent / "backups"
+    backups = sorted(backup_dir.glob("pre-migrate-*"), key=lambda p: p.stat().st_mtime)
+    backup = backups[-1] if backups else None
+    print(f"Store is now v3 (user_version={uv}), {memories} memor(y/ies), "
+          f"integrity={'ok' if (ro := _ro_connect(db_path)) and _integrity(ro) else 'FAILED'}")
+    if backup:
+        print(f"Pre-upgrade backup: {backup}")
+    print("Restart Hermes to serve the store with the new engine.")
+    return 0
+
+
+def _integrity(ro) -> str:
+    try:
+        return ro.execute("PRAGMA integrity_check").fetchone()[0]
+    finally:
+        ro.close()
+
+
 def cmd_migrate(args) -> int:
     """P1 provenance migration: hold migration.lock (fail-closed window),
     upgrade schema, backfill legacy rows, stamp schema_info, release lock.
@@ -2359,6 +2581,7 @@ def dispatch(args, *, dest: str = "command", parser=None) -> int:
         "pending": cmd_pending,
         "consolidate": cmd_consolidate,
         "migrate": cmd_migrate,
+        "doctor": cmd_doctor,
         "shared-init": cmd_shared_init,
         "publish": cmd_publish,
         "pull": cmd_pull,

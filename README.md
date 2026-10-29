@@ -240,7 +240,7 @@ Five cooperating layers, full model in [docs/MEMORY_MODEL.md](docs/MEMORY_MODEL.
 
 ## Commands
 
-37 top-level commands in 10 groups. Full reference: [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md). Invocations use `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <command>`.
+38 top-level commands in 10 groups. Full reference: [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md). Invocations use `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <command>`.
 
 | Group | Commands |
 |-------|----------|

@@ -1,6 +1,6 @@
 # CLI Reference
 
-All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd>` (below shown without the prefix). Global flags: `--version`, `--check-deps` (print optional dependency status). Verified against the argparse definitions in `plugins/entropicmem/scripts/entropicmem.py`: 37 top-level commands.
+All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd>` (below shown without the prefix). Global flags: `--version`, `--check-deps` (print optional dependency status). Verified against the argparse definitions in `plugins/entropicmem/scripts/entropicmem.py`: 38 top-level commands.
 
 ## Vault & knowledge loop
 
@@ -27,9 +27,11 @@ All commands: `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py <cmd
 | `forget --confirm <entropic_id>` | Delete fact + vault note (requires `--confirm`, auto-backup first) |
 | `memory stats` | Engine statistics |
 | `stats` | Engine statistics (the `memory stats` shortcut — also reachable as `hermes entropicmem stats`, EM-408) |
+| `doctor` | Read-only health report: the store's integrity + schema version + engine, the config, the vault, the index, the embedding state (chunk 52) |
 | `memory list [--domain D] [--limit N]` | List facts |
 | `memory project` | Materialize facts into vault notes |
 | `memory reindex` | Rebuild `facts_fts` from `facts`, repair orphan rows |
+| `memory upgrade [--status] [--yes]` | The friendly v2→v3 store cutover (chunk 52): `--status` reports read-only; the migration backs the store up, verifies every count, and is one-way — `--yes` confirms. Refuses when already v3, a migration lock exists, or the provider is running |
 | `extract [--text T] [--session-id S] [--source SRC] [--min-confidence F]` | Regex fact extraction from conversation text (no LLM; defaults to stdin, source `auto_extracted`, threshold 0.4) |
 | `reinforce <entropic_id>` | Boost a fact's access count and timestamp |
 | `history <entropic_id>` | Show fact version snapshots |

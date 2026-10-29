@@ -202,6 +202,16 @@ def add_commands(parser: argparse.ArgumentParser, *, dest: str = "command") -> a
     m_sub.add_parser("project", help="Project memory facts to vault")
     m_sub.add_parser("stats", help="Show memory engine statistics")
     m_sub.add_parser("reindex", help="Rebuild facts_fts from facts (repair orphans)")
+    m_upgrade = m_sub.add_parser(
+        "upgrade",
+        help="Migrate a v2 store to the v3 engine (chunk 52: the deliberate act)",
+    )
+    m_upgrade.add_argument(
+        "--status", action="store_true", help="Report the store's shape without migrating"
+    )
+    m_upgrade.add_argument(
+        "--yes", action="store_true", help="Confirm the migration (required)"
+    )
     m_list = m_sub.add_parser("list", help="List facts in memory engine")
     m_list.add_argument("--domain", help="Filter by domain")
     m_list.add_argument("--limit", type=int, default=50)
@@ -210,6 +220,9 @@ def add_commands(parser: argparse.ArgumentParser, *, dest: str = "command") -> a
     # reached as `hermes entropicmem stats` through the plugin mount)
     p_stats = sub.add_parser("stats", help="Show memory engine statistics")
     p_stats.set_defaults(memory_command="stats")
+
+    # doctor (chunk 52: the read-only health report the release checklist owed)
+    sub.add_parser("doctor", help="Read-only health report: store, config, vault, index")
 
     # open
     p_open = sub.add_parser("open", help="Open a note in system editor")
