@@ -173,7 +173,23 @@ points at.
 > real turns (72-hour cap), handing back with the report.** The endgame stands: (1)
 > chunk 52's commands landed; (2) the release prep is next (the version bump, the
 > SKILL.md, the tag, the catalog PR — the owner authorized the acts); (3) the owner runs
-> the cutover on his host with `doctor` + `memory upgrade`.
+> 
+
+> **2026-10-29: THE 3.0 RELEASE IS TAGGED AND PUBLISHED — step 2 of the endgame is done.**
+> The release commit `1e8e7c4` (chunk 55: the version 3.0.0, the SKILL.md bump, the
+> CHANGELOG's `[3.0.0]` section; 13/13 green on the exact SHA and 26/26 on `main`'s
+> push), **tagged `v3.0.0`** (annotated, noreply identity, resolves to `1e8e7c4`),
+> **the GitHub Release published**, and **`release/3.0.x` created and protected**
+> (force-push/deletion blocked). **The catalog re-pin PR is open:
+> `NousResearch/hermes-agent#146446`** — both gates ran green (the structural validator:
+> 910 files valid; `hermes plugins validate --install-deps` at the new pin: passed; all
+> six image URLs 200 at the new pin; the fresh-install verification in an isolated
+> `HERMES_HOME` installed the exact pin). **Until the maintainer merges, the catalog
+> still lists 2.8.1** — users keep installing 2.8.1 until the re-pin lands, which is the
+> expected fork-PR state. **The cutover (step 3) is now TWO COMMANDS on the Hermes host:**
+> `entropicmem doctor`, then `entropicmem memory upgrade --yes`, then restart Hermes —
+> the migration takes its own verified backup and the drills have run this exact path.
+> Hermes's P0c collection continues (the flip is live; hands back with the report).
 
 ---
 
@@ -237,14 +253,14 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-29, against branch `main` at `5946b32` (chunk 53, the
-shadow's fabrication rule narrowed to the memory id-space — build `0e249bc`, record
-`49b63ed`, read `2e6d85c`, re-stamp `5946b32`; 13/13 green on `49b63ed` after one
-recorded 3.14 perf-gate re-run, 26/26 on the merge tip; branch deleted). Before it:
-chunk 52 at `6759b33` (doctor + memory upgrade), chunk 51 at `17bbb40` (the
-cutover-correctness round), chunk 50 at `b93037e` (EM-901's drills), chunk 49 at
-`830ffee` (the dependency-floor rework), chunk 48 at `d84f5f8` (EM-601's month paging);
-then 2026-10-27 against `1d2f631` (the EM-806 packaging landing).
+**Last reconciled:** 2026-10-29, against branch `main` at `1e8e7c4` — **the 3.0.0
+release commit** (chunk 55's version bump + the SKILL.md bump + the CHANGELOG's release
+section; 13/13 green on the exact SHA, 26/26 on `main`'s push; tagged `v3.0.0`, the
+GitHub Release published, `release/3.0.x` protected, the catalog re-pin PR
+`NousResearch/hermes-agent#146446` open). Before it: chunk 54 at `a29644c` (the shadow's
+fabrication evaluation), chunk 53 at `5946b32` (the memory id-space fix), chunk 52 at
+`6759b33` (doctor + memory upgrade), chunk 51 at `17bbb40`, chunk 50 at `b93037e`,
+chunk 49 at `830ffee`, chunk 48 at `d84f5f8`.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
