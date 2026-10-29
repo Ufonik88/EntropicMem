@@ -241,7 +241,13 @@ points at.
 > `doctor` counts + versions every entropicmem tree under the hermes home's plugin
 > paths. Hermes's terminal approved the operational plan: re-point the 11 profile
 > entries to the dev symlink, move the .bak outside the plugins root, ONE restart, and
-> the 200+/72h window counts only the v3_gate lines. The collection continues.
+> the 200+/72h window counts only the v3_gate lines. The collection continues. **2026-10-29, later: the workspace agent executed the re-point plan in full** — all
+> 11 profile entries now symlink to the dev mount (one source of truth), the .bak is
+> out of the plugins root as evidence, the dev checkout re-attached to origin/main, and
+> ONE gateway restart carried it all; verified: no shadow-failure warnings, the abstain
+> gate shape in the divergence log, plugin.yaml 3.0.0, ONE entropicmem tree. **The P0c
+> collection is live under the fully-fixed machinery**; hands back at 200+ turns /
+> unreachable / the 72-hour cap.
 
 ---
 
