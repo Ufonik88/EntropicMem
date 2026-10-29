@@ -179,6 +179,12 @@ def refresh(live_db: str | Path, shadow_db: Path) -> None:
         connection.close()
 
 
+#: The episode id-space (EM-307's render): ``ep_…`` — including the
+#: ``ep_sess_*``/``ep_sess_cron_*``/``ep_precomp_*`` shapes — and ``mne_…``.
+#: Not memories; excluded from the fabrication comparison (chunk 53).
+_EPISODE_ID_PREFIXES = ("ep_", "mne_")
+
+
 def comparison_ids(conn: sqlite3.Connection, ids: Sequence[str]) -> List[str]:
     """Map v3 ids onto the ids **v2 knows**, so the two sets are comparable.
 
@@ -192,6 +198,16 @@ def comparison_ids(conn: sqlite3.Connection, ids: Sequence[str]) -> List[str]:
 
     Discovered by running the shadow end to end against a real migrated store; the unit
     tests passed while every real line would have been meaningless.
+
+    **Chunk 53 (Hermes's P0c proof run): the same trap has a second door.** The v3
+    render's episodic surface (EM-307) legitimately injects **episode ids** — ``ep_…``
+    (with the ``ep_sess_*``, ``ep_sess_cron_*`` and ``ep_precomp_*`` shapes) and
+    ``mne_…`` — that no v2 fact space can contain, and the proof run's every line
+    tripped the fabrication ceiling on them. An episode is a new capability, not a
+    fabricated memory: ids in the episode space are dropped from the comparison, so the
+    ``v3_only == 0`` rule keeps its meaning (a v3 **memory** hit the v2 side never had).
+    An id that resolves to no memory row and carries no episode prefix still passes
+    through unchanged — the conservative alarm for anything unclassifiable.
     """
     wanted = list(dict.fromkeys(ids))
     if not wanted:
@@ -206,7 +222,13 @@ def comparison_ids(conn: sqlite3.Connection, ids: Sequence[str]) -> List[str]:
         mapping = {row["id"]: row["comparison"] for row in rows}
     except sqlite3.Error:
         return wanted
-    return [mapping.get(item, item) for item in wanted]
+    out: List[str] = []
+    for item in wanted:
+        if item in mapping:
+            out.append(mapping[item])
+        elif not item.startswith(_EPISODE_ID_PREFIXES):
+            out.append(item)
+    return out
 
 
 def shadow_ids(shadow_db: Path, *, profile: str, query: str) -> List[str]:

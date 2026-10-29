@@ -446,3 +446,72 @@ def test_the_promotion_observable_is_declared_in_advance():
     assert isinstance(_shadow.PROMOTION["max_v2_miss_rate"], float), "armed from the holdout"
     assert "max_divergence_rate" not in _shadow.PROMOTION, "the symmetric ceiling is retired"
     assert "ARMED" in _shadow.MISS_CEILING_RULE, "the rule must say what the ceiling is"
+
+
+def test_comparison_ids_drops_the_episode_id_space(tmp_path):
+    """Chunk 53: the v3 render's episode ids are not fabricated memories.
+
+    Hermes's P0c proof run: every line tripped the hard ``v3_only == 0``
+    ceiling on ``ep_*``/``mne_*`` ids — the episodic surface (EM-307) injects
+    them legitimately and the v2 fact space can never contain them. They are
+    dropped from the comparison; memory ids still map, and an unclassifiable
+    id still passes through (the conservative alarm).
+    """
+    from em.store.db import Store
+    from em.store.migrations import migrate
+
+    shadow_db = tmp_path / "shadow" / "memory.db"
+    shadow_db.parent.mkdir(parents=True, exist_ok=True)
+    store = Store(str(shadow_db))
+    with store.writer() as conn:
+        migrate(conn)
+    try:
+        mapped = _shadow.comparison_ids(
+            store.reader(),
+            [
+                "ep_224d3065bb87",
+                "mne_20e2a301d14b84e4",
+                "ep_sess_cron_8883bbe4bab3_20260920_030011",
+                "ep_precomp_20260921_165023_950766",
+            ],
+        )
+        assert mapped == [], "the episode space must not read as fabrication"
+    finally:
+        store.close()
+
+
+def test_a_line_with_episode_hits_fires_no_fabrication(tmp_path, monkeypatch):
+    """The end-to-end shape the proof run needed: memories compare, episodes
+    ride along, and the hard ceiling sees only memory fabrications."""
+    from em.store.db import Store
+    from em.store.memories import MemoryStore
+    from em.store.migrations import migrate
+    from em.store.types import MemoryDraft, Scope
+
+    shadow_db = tmp_path / "shadow" / "memory.db"
+    shadow_db.parent.mkdir(parents=True, exist_ok=True)
+    store = Store(str(shadow_db))
+    with store.writer() as conn:
+        migrate(conn)
+    with store.transaction() as conn:
+        result = MemoryStore(conn).add(
+            MemoryDraft(content="The fern prefers morning light."), scope=Scope(profile="default"),
+            actor="tester",
+        )
+    store.close()
+
+    # The v2 side returned the same memory (by its comparison id); the v3
+    # side returned it too, plus two episode ids — no fabrication.
+    store2 = Store(str(shadow_db))
+    try:
+        mapped = _shadow.comparison_ids(
+            store2.reader(),
+            [result.id, "ep_224d3065bb87", "mne_20e2a301d14b84e4"],
+        )
+        v2_ids = [result.id]
+        v3_only = sorted(set(mapped) - set(v2_ids))
+        assert v3_only == [], (
+            "a line whose v3-only set is episodes only must not read as fabrication"
+        )
+    finally:
+        store2.close()

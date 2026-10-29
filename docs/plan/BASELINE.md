@@ -26,11 +26,22 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3189 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `40829666854` on `8cac600` — 13/13 jobs green on that exact SHA)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3094 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3095 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3191 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3189 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3191 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the chunk-53 branch has no run to read yet; the record pass stamps the read figure and cites its run id here)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3096 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3097 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3193 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3191 passed, 4 skipped, 2 xfailed** |
+
+Read as at `6759b33` (chunk 53 — the shadow's fabrication rule narrowed to the memory
+id-space, from Hermes's P0c proof run: the v3 render's episodic surface legitimately
+injects `ep_*`/`mne_*` ids no v2 fact space can contain, and every proof line tripped
+the hard `v3_only == 0` ceiling on them; `comparison_ids` now drops the episode space —
+memory ids still map, a v3-native memory still fires, an unclassifiable id still passes
+through; 2 new tests, 1 red mutation check) — **measured on the tree that became the
+chunk's build commit, before it was committed** (the documented pre-stamp shape). The CI
+row is **projected**, not read: no run exists for this tree yet. The previous record
+(chunk 52's read pass, run `40829666854`, CI **3189 passed, 4 skipped, 2 xfailed**)
+remains in the record's historical set.
 
 Read as at `c7b3b8d` (chunk 52 — the release-readiness commands: `doctor` (the read-only
 health report: the store's integrity/schema/engine, the config, the vault, the index, the
@@ -193,12 +204,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3094 / 20 / 2
+bare          3096 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3191 /  2 / 2
+= CI-equiv    3193 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3189 /  4 / 2   (read from run 40829666854, 3.12 job log)
+= CI          3191 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap
