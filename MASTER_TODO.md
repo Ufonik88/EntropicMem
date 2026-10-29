@@ -247,7 +247,12 @@ points at.
 > ONE gateway restart carried it all; verified: no shadow-failure warnings, the abstain
 > gate shape in the divergence log, plugin.yaml 3.0.0, ONE entropicmem tree. **The P0c
 > collection is live under the fully-fixed machinery**; hands back at 200+ turns /
-> unreachable / the 72-hour cap.
+> unreachable / the 72-hour cap. **Chunk 61 — the shadow's version read anchored to its own tree — LANDED on `main`
+> at `6dcddb9`** (build `cced7f7`, record `1ec02d9`, read `aa0f867`, re-stamp
+> `6dcddb9`; 13/13 green, 26/26 on the merge tip; branch deleted): `_em_version` reads
+> the `plugin.yaml` beside the running `_shadow.py` — a report run without the
+> PYTHONPATH self-described as "unknown" and excluded every line (Hermes's readout
+> gotcha), and a shadowed `em` answered with the wrong tree's version; both closed.
 
 ---
 
@@ -311,14 +316,15 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-29, against branch `main` at `98e3e48` (chunk 60, the
-shared-log build marker + the doctor's duplicate-tree check — build `fb59ce2`, record
-`7d50e65`, read `9774026`, re-stamp `98e3e48`; 13/13 green, 26/26 on the merge tip;
-branch deleted). Before it: chunk 59 at `ff0cb52` (the failure WARNING's origins),
-chunk 58 at `f3bb689` (the abstention semantics), chunk 57 at `fe54518` (the silence
-made visible), chunk 56 at `6a796a1` (the scratch root), the 3.0.0 release at
-`1e8e7c4` (tagged, published, `release/3.0.x` protected, the catalog re-pin PR
-`#146446` open), and back through chunks 53-52-51-50-49-48.
+**Last reconciled:** 2026-10-29, against branch `main` at `6dcddb9` (chunk 61, the
+version read anchored to its own tree — build `cced7f7`, record `1ec02d9`, read
+`aa0f867`, re-stamp `6dcddb9`; 13/13 green, 26/26 on the merge tip; branch deleted).
+Before it: chunk 60 at `98e3e48` (the shared-log build marker + the doctor's
+duplicate-tree check), chunk 59 at `ff0cb52` (the failure WARNING's origins), chunk 58
+at `f3bb689` (the abstention semantics), chunk 57 at `fe54518` (the silence made
+visible), chunk 56 at `6a796a1` (the scratch root), the 3.0.0 release at `1e8e7c4`
+(tagged, published, `release/3.0.x` protected, the catalog re-pin PR `#146446` open),
+and back through chunks 54-53-52-51-50-49-48.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
