@@ -509,14 +509,6 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
     reasons: List[str] = []
     conditions: Dict[str, Dict[str, Any]] = {}
     turns = len(usable)
-    # The gate's own decision on every usable line, tallied. The miss rate's
-    # denominator excludes abstains (chunk 58), so the verdict is only readable
-    # beside the mix it was computed from — a run that mostly abstained is a
-    # different sample from one that mostly had candidates.
-    gates: Dict[str, int] = {}
-    for _, item in usable:
-        key = str(item.get("v3_gate") or "unrecorded")
-        gates[key] = gates.get(key, 0) + 1
 
     # 1. enough turns to be worth reading (sufficiency, not behaviour).
     floor = float(thresholds["min_turns"])
@@ -706,9 +698,7 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
         "value": p95,
         "ceiling": budget,
         "p50": percentile(costs, 50),
-        "min": (min(costs) if costs else None),
         "max": (max(costs) if costs else None),
-        "turns": len(costs),
         "refresh_turns": len(refresh_costs),
         "refresh_max_ms": (max(refresh_costs) if refresh_costs else None),
         "verdict": ("no signal" if p95 is None else "met" if p95 <= budget else "not met"),
@@ -800,13 +790,6 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
             ),
             "turns_with_injection": len(injections),
             "turns_abstaining": turns - len(injections),
-            "gatemix": {
-                "abstain": gates.get("abstain", 0),
-                "no_candidates": gates.get("no-candidates", 0),
-                "pass": gates.get("pass", 0),
-                "unrecorded": gates.get("unrecorded", 0),
-                "total": turns,
-            },
             # The decomposition that the 2026-10-08 ruling acted on: a miss and an
             # addition are opposite failures, and the retired symmetric ceiling counted
             # them alike. Kept in every report so the two readings stay comparable —
@@ -817,10 +800,8 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
             },
         },
         "distribution": {
-            "shadow_ms": {"min": (min(costs) if costs else None),
-                          "p50": percentile(costs, 50), "p95": p95,
-                          "max": (max(costs) if costs else None),
-                          "turns": len(costs), "refresh_turns": len(refresh_costs)},
+            "shadow_ms": {"p50": percentile(costs, 50), "p95": p95,
+                          "max": (max(costs) if costs else None)},
             "copy_age_s": {"p50": percentile(ages, 50), "p95": percentile(ages, 95),
                            "max": (max(ages) if ages else None)},
             "ids_per_turn": {
@@ -874,8 +855,6 @@ def render(result: Dict[str, Any]) -> str:
     two caveats that make it a lower bound rather than a verdict on quality."""
     conditions = result["conditions"]
     sample_info = result["sample"]
-    context = result["context"]
-    gate = context.get("gatemix", {})
     out: List[str] = [
         "EntropicMem v3 shadow — promotion observable report",
         f"log: {result['log'] or '(not a file)'}",
@@ -884,12 +863,6 @@ def render(result: Dict[str, Any]) -> str:
             f"{sample_info['malformed']} unreadable"
         ),
         f"window: {sample_info['first_ts']} .. {sample_info['last_ts']}",
-        (
-            f"gatemix: {gate.get('abstain', 0)} abstain / "
-            f"{gate.get('no_candidates', 0)} no-candidates / "
-            f"{gate.get('pass', 0)} pass / {gate.get('unrecorded', 0)} unrecorded "
-            f"({gate.get('total', 0)} gated turn(s))"
-        ),
         "",
     ]
 
@@ -928,12 +901,10 @@ def render(result: Dict[str, Any]) -> str:
             )
         else:
             detail = (
-                f"min {_format_number(condition['min'], ' ms')} / p50 "
-                f"{_format_number(condition['p50'], ' ms')} / p95 "
+                f"p50 {_format_number(condition['p50'], ' ms')} / p95 "
                 f"{_format_number(condition['value'], ' ms')} / max "
-                f"{_format_number(condition['max'], ' ms')} over "
-                f"{condition['turns']} non-refresh turn(s) (+{condition['refresh_turns']} "
-                f"refresh) / ceiling {condition['ceiling']:.0f} ms"
+                f"{_format_number(condition['max'], ' ms')} / ceiling "
+                f"{condition['ceiling']:.0f} ms"
             )
         out.append(f"[{condition['verdict']}] {label(name)}: {detail}")
         if "margin" in condition:
@@ -969,6 +940,7 @@ def render(result: Dict[str, Any]) -> str:
     if lines_out:
         out += ["", "findings (ids and line numbers only — no question text):"] + lines_out
 
+    context = result["context"]
     shape = context.get("divergence_shape", {})
     out += [
         "",
