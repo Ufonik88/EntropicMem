@@ -252,7 +252,20 @@ points at.
 > `6dcddb9`; 13/13 green, 26/26 on the merge tip; branch deleted): `_em_version` reads
 > the `plugin.yaml` beside the running `_shadow.py` — a report run without the
 > PYTHONPATH self-described as "unknown" and excluded every line (Hermes's readout
-> gotcha), and a shadowed `em` answered with the wrong tree's version; both closed.
+> gotcha), and a shadowed `em` answered with the wrong tree's version; both closed. **2026-10-30: chunk 62 — the p95 measures the retrieval, not the copy maintenance —
+> LANDED on `main` at `6777fa9`** (build `d05db3e`, record `6bb234d`, read `9774026`'s
+> successor, re-stamp; 13/13 green, 26/26 on the merge tip; branch deleted): the p95 is
+> computed over the NON-refresh turns (the refresh is the shadow's own 41→63 MB
+> copy-maintenance, 8-22 s — the production cutover has no copy) with the refresh
+> turns reported separately; the doctor's config check imports by path (the host's
+> doctor went blind outside the mount). **The P0c rulings sent to Hermes:** the
+> refresh-excluded p95 is the readout's number (the budget untouched — the retrieval
+> on its box reads ~0.55-0.82 s, an upper bound for the cutover's in-turn cost on that
+> hardware — the machine context travels with the verdict); the abstain dominance is
+> recorded as evidence, not gated; **the cutover restart gap is solved with a deferred
+> restart** (`systemd-run --on-active=90 --user systemctl --user restart
+> hermes-gateway` — scheduled from inside the process, fires after it exits) and the
+> full sequence ships with the go once the P0c verdict reads.
 
 ---
 
@@ -316,15 +329,13 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-29, against branch `main` at `6dcddb9` (chunk 61, the
-version read anchored to its own tree — build `cced7f7`, record `1ec02d9`, read
-`aa0f867`, re-stamp `6dcddb9`; 13/13 green, 26/26 on the merge tip; branch deleted).
-Before it: chunk 60 at `98e3e48` (the shared-log build marker + the doctor's
-duplicate-tree check), chunk 59 at `ff0cb52` (the failure WARNING's origins), chunk 58
-at `f3bb689` (the abstention semantics), chunk 57 at `fe54518` (the silence made
-visible), chunk 56 at `6a796a1` (the scratch root), the 3.0.0 release at `1e8e7c4`
-(tagged, published, `release/3.0.x` protected, the catalog re-pin PR `#146446` open),
-and back through chunks 54-53-52-51-50-49-48.
+**Last reconciled:** 2026-10-30, against branch `main` at `6777fa9` (chunk 62, the
+p95's retrieval-only read + the doctor's path import — build `d05db3e`, record
+`6bb234d`, read, re-stamp `6777fa9`; 13/13 green, 26/26 on the merge tip; branch
+deleted). Before it: chunk 61 at `6dcddb9` (the version anchor), chunk 60 at `98e3e48`
+(the shared-log build marker + the doctor's duplicate-tree check), chunk 59 at
+`ff0cb52`, chunk 58 at `f3bb689`, chunk 57 at `fe54518`, chunk 56 at `6a796a1`, the
+3.0.0 release at `1e8e7c4`, and back through chunks 54-53-52-51-50-49-48.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
