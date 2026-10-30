@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3221 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3219 passed, 4 skipped, 2 xfailed** |
 
-Read as at `7463cce` (chunk 62 — the p95 measures the retrieval, not the copy
+Read as at `d05db3e` (chunk 62 — the p95 measures the retrieval, not the copy
 maintenance (Hermes's host data: 56% of turns paid a copy refresh — a 41→63 MB
 backup-plus-migrate, 8-22 s under load — swamping the shadow_ms the 150 ms budget
 bounds; the production cutover has no copy at all): the p95 is computed over the
