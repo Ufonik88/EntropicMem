@@ -81,7 +81,10 @@ def line(
         "divergence": list(divergence) if divergence is not None else sorted(set(v2) ^ set(v3)),
         "v3_only": list(v3_only) if v3_only is not None else sorted(set(v3) - set(v2)),
         "copy_age_s": age,
-        "copy_refreshed": age == 0.0,
+        # The p95's subject is the read cost, so these lines model the reuse
+        # path (the copy was refreshed by an earlier turn); the refreshed
+        # turns are chunk 62's own tests' subject.
+        "copy_refreshed": False,
         "stale": stale,
         "shadow_ms": ms,
         "caveat": _shadow.CAVEAT,

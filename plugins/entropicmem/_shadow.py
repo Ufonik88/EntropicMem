@@ -680,7 +680,17 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
         )
 
     # 5. the off-turn cost, against §4.2's warm prefetch budget.
-    costs = [float(item["shadow_ms"]) for _, item in usable]
+    #
+    # Chunk 62 (Hermes's host data): the line's ``shadow_ms`` includes the
+    # COPY REFRESH when the turn paid one — a 41→63 MB backup-plus-migrate
+    # (measured 5.9 s quiet, 8-22 s under gateway load) that the SHADOW's
+    # machinery pays, not the retrieval the budget names. The production
+    # cutover has no copy at all. So the p95 is computed over the
+    # **non-refresh** turns (the retrieval cost the budget bounds), and the
+    # refresh turns are reported separately (count + their own max) — the
+    # budget itself is untouched.
+    costs = [float(item["shadow_ms"]) for _, item in usable if not item.get("copy_refreshed")]
+    refresh_costs = [float(item["shadow_ms"]) for _, item in usable if item.get("copy_refreshed")]
     p95 = percentile(costs, 95)
     budget = float(thresholds["max_p95_shadow_ms"])
     conditions["p95_within_budget"] = {
@@ -689,6 +699,8 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
         "ceiling": budget,
         "p50": percentile(costs, 50),
         "max": (max(costs) if costs else None),
+        "refresh_turns": len(refresh_costs),
+        "refresh_max_ms": (max(refresh_costs) if refresh_costs else None),
         "verdict": ("no signal" if p95 is None else "met" if p95 <= budget else "not met"),
     }
 

@@ -768,3 +768,24 @@ def test_the_version_read_is_anchored_to_the_running_file(tmp_path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module._em_version() == "9.9.9-test"
+
+
+def test_the_p95_excludes_the_refresh_turns(tmp_path):
+    """Chunk 62: the copy refresh is the shadow's own maintenance (a 41→63 MB
+    backup-plus-migrate), not the retrieval cost the budget bounds — and the
+    production cutover has no copy at all. The refresh turns are reported
+    separately and never decide the p95."""
+    # 15 fast reuse turns + 5 refresh turns: with the refresh INCLUDED the
+    # nearest-rank p95 lands on a 20,000 ms refresh (25% of the sample);
+    # excluded, it reads the fast band.
+    lines = [_line_with_gate(["598763def15d5515"], ["598763def15d5515"], "pass") for _ in range(15)]
+    for _ in range(5):
+        refresh_line = _line_with_gate(["598763def15d5515"], ["598763def15d5515"], "pass")
+        refresh_line["copy_refreshed"] = True
+        refresh_line["shadow_ms"] = 20_000.0
+        lines.append(refresh_line)
+    result = _shadow.evaluate(lines, log="x")
+    condition = result["conditions"]["p95_within_budget"]
+    assert condition["verdict"] == "met", condition
+    assert condition["refresh_turns"] == 5
+    assert condition["refresh_max_ms"] == 20_000.0

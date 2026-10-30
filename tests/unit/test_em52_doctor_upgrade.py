@@ -293,3 +293,20 @@ def test_doctor_passes_a_single_tree(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "FAIL" not in out
     assert "plugin trees" in out
+
+
+# --- chunk 62: the refresh-excluded p95 + the doctor's config import --------
+
+
+def test_doctor_config_check_survives_a_missing_backend_module(tmp_path, monkeypatch, capsys):
+    """The doctor ran outside the plugin mount and its config check went blind
+    (ModuleNotFoundError: _backend) — it must import the backend by path."""
+    # The doctor's own import resolves _backend.py beside entropicmem.py, so a
+    # plain run (no PYTHONPATH tricks) must produce a config line that is not
+    # the blind warning.
+    _run_cli(
+        capsys, monkeypatch, _upgrade_env(tmp_path, tmp_path / "memory.db"), "doctor"
+    )
+    out = capsys.readouterr().out
+    assert "config" in out
+    assert "_backend" not in out, "the config check must not go blind on its own tree"

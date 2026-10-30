@@ -2227,9 +2227,17 @@ def cmd_doctor(args) -> int:
         sources = []
         config_file = Path(home) / "config.yaml"
         if config_file.is_file():
-            from _backend import load_plugin_config
+            # Chunk 62: import by PATH, not by name — `_backend` lives at the
+            # plugin root, which is not on sys.path when the CLI runs outside
+            # the plugin mount (the host's doctor run warned
+            # ModuleNotFoundError and the config check went blind).
+            import importlib.util
 
-            sources.append(load_plugin_config(Path(home)))
+            backend_path = Path(__file__).resolve().parent.parent / "_backend.py"
+            spec = importlib.util.spec_from_file_location("_backend_doctor", backend_path)
+            backend = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(backend)
+            sources.append(backend.load_plugin_config(Path(home)))
             detail = f"config at {config_file}"
         else:
             detail = "no config file (defaults stand)"
