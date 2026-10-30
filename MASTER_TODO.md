@@ -294,7 +294,20 @@ points at.
 > today's fetch: a stray remote branch `land/tests-graph-model-tests`** (35 tests
 > for `em.graph.model`, unmerged, base `58c2746`, committed 2026-10-29 21:50 under
 > a joke display name with the short noreply email — NOT this box, NOT Hermes's
-> config) — **flagged to the owner, no action until answered.**
+> config) — **flagged to the owner, no action until answered.** **2026-10-30, later: Hermes handed the P0c back — the collection is COMPLETE**
+> (327 usable turns ≥ the 200 floor, margin 127; 0 shadow failures; the store stays
+> untouched) and **the verdict reads NOT MET as measured — the cutover is HELD**: v2
+> miss rate **1.0** (798/798 injected) against the armed 0.107143, the fabrication read
+> **260 lines** against a ceiling of 0 (refined vs unrefined read pending the handback
+> artifacts), and the retrieval-only p95 **24.6 s** against the 150 ms budget (p50
+> 3.2 s, 293 non-refresh turns; refresh turns excluded per chunk 62). The full readout
+> of record is [`docs/plan/P0C_READOUT.md`](docs/plan/P0C_READOUT.md) — threshold-wise:
+> nothing moves after the data is in; a re-armed P0c would have to be pre-declared
+> before any new collection. Hermes was stood down (no cutover, no upgrade, no restart)
+> and asked to attach the handback artifacts (the report JSON, a sanitized line dump,
+> the timed sample); its confirmation is pending. **Non-blocking:** the gateway's
+> exported `ENTROPICMEM_*` vars break 21 wiring tests on its host — the hermeticity
+> fixture lands here, in the figures-record dance I already own.
 
 ---
 
