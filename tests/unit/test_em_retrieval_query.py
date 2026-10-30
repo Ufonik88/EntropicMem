@@ -10,9 +10,11 @@ Invented data only (rule 4): Acme / Globex / Initech, Alice / Bob Example.
 from __future__ import annotations
 
 import math
+import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import List
 
 import pytest
 
@@ -554,3 +556,29 @@ def test_a_stemmed_term_is_still_probed_through_the_cache(store):
     # and a second call through the cache agrees
     again, _ = vocabulary(conn, ["staging"], cache=cache, generation="g1")
     assert again["staging"] == 3
+
+
+def test_entity_detection_drives_from_the_alias_index(store, monkeypatch):
+    """The P0c timed sample (2026-10-30) found the planner driving entity
+    detection from the 5k-row ``entities`` table (its autoindex on the profile)
+    instead of from ``entity_aliases``' alias_norm index — with the same rows at
+    0.18-0.42 ms forced alias-first versus 44-324 ms as driven. ``CROSS JOIN``
+    pins the alias-first order in SQLite (identical semantics, same rows).
+    """
+
+    class _Capture:
+        def __init__(self, inner: sqlite3.Connection):
+            self._inner = inner
+            self.sqls: List[str] = []
+
+        def execute(self, sql, *args, **kwargs):
+            self.sqls.append(str(sql))
+            return self._inner.execute(sql, *args, **kwargs)
+
+    capture = _Capture(store.reader())
+    got = detect_entities("what does Acme Corp use", conn=capture, scope=ALICE)
+    assert got == (), got
+    assert capture.sqls, "entity detection must hit entity_aliases"
+    for sql in capture.sqls:
+        assert "FROM entity_aliases ea CROSS JOIN entities e" in sql, sql
+    assert "alias_norm IN" in "".join(capture.sqls), "the indexed IN probe stays"

@@ -318,6 +318,13 @@ def detect_entities(
     The join through ``entities`` is deliberate: ``entity_aliases`` alone is keyed
     by alias, so two profiles that both know an "Acme" would resolve to whichever
     row the primary key found first. The profile is the scope.
+
+    The join is a ``CROSS JOIN``, which in SQLite is an inner join with the join
+    order pinned to ``ea`` first: the plain ``JOIN`` let the planner drive from
+    ``entities``' profile autoindex (a 5k-row scan per probe) and the P0c timed
+    sample caught entity detection costing 44-324 ms a turn. Alias-first is the
+    same rows (verified row-identical) at 0.18-0.42 ms, and a full retrieve drops
+    from 174-404 ms to 87-181 ms.
     """
     grams = ngrams(text, max_n=max_ngram)
     if not grams:
@@ -325,7 +332,7 @@ def detect_entities(
     placeholders = ",".join("?" for _ in grams)
     rows = conn.execute(
         "SELECT ea.alias_norm AS gram, ea.entity_id AS entity_id"
-        " FROM entity_aliases ea JOIN entities e ON e.id = ea.entity_id"
+        " FROM entity_aliases ea CROSS JOIN entities e ON e.id = ea.entity_id"
         f" WHERE ea.alias_norm IN ({placeholders}) AND e.scope_profile = ?",
         (*grams, scope.profile),
     ).fetchall()
