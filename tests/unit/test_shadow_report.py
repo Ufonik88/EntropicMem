@@ -545,3 +545,38 @@ def test_json_output_is_the_report_verbatim(tmp_path, capsys, armed):
     assert _shadow.main(["report", "--log", str(log), "--json"]) == 0
     printed = capsys.readouterr().out
     assert json.loads(printed) == _shadow.report(log)
+
+
+# --- the readout's shape ruling: raw distribution + gatemix beside the verdict ---
+
+
+def test_the_report_carries_the_gatemix_and_the_raw_ms_distribution():
+    """The 2026-10-30 report-shape ruling: a verdict is only readable beside the
+    mix it was computed from and the raw cost distribution it measured — a
+    mostly-abstaining run is a different sample from a candidate-heavy one, so
+    the gatemix travels with the result, and the non-refresh ms distribution
+    carries its min and turn count, not only its percentiles."""
+    data = miss_lines(N, missing=1)
+    data[0]["v3_gate"] = "abstain"
+    data[1]["v3_gate"] = "no-candidates"
+    data[2]["v3_gate"] = "pass"
+    # The rest carry no ``v3_gate`` (an older writer's line shape): they are
+    # counted as unrecorded, never dropped.
+    result = _shadow.evaluate(data, log="x")
+
+    gatemix = result["context"]["gatemix"]
+    assert gatemix["abstain"] == 1
+    assert gatemix["no_candidates"] == 1
+    assert gatemix["pass"] == 1
+    assert gatemix["unrecorded"] == N - 3
+    assert gatemix["total"] == N
+
+    ms = result["distribution"]["shadow_ms"]
+    assert ms["min"] == pytest.approx(40.0)
+    assert ms["max"] == pytest.approx(40.0)
+    assert ms["turns"] == N
+    assert ms["refresh_turns"] == 0
+
+    text = _shadow.render(_shadow.evaluate(data, log="x"))
+    assert "gatemix: 1 abstain / 1 no-candidates" in text
+    assert "non-refresh turn(s)" in text
