@@ -26,13 +26,13 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3220 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — this landing has no read run yet; the read pass stamps the run id here)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3220 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `123992897022` on `bf25d75`)*(13/13 jobs green on that exact SHA — exactly the projection)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3125 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3126 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3222 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3220 passed, 4 skipped, 2 xfailed** |
 
-Read as at `7ffd788` (the report-shape landing on `main`: Hermes pushed a
+Read as at `bf25d75` (the report-shape landing on `main`: Hermes pushed a
 report-only `_shadow.py` commit directly (`7230675`) under a non-noreply identity —
 reverted at `5d7bbd2` and re-applied at `3295968` with the identity the guard
 requires, a CHANGELOG entry, and the test holding the new report fields (`gatemix`
@@ -42,8 +42,10 @@ the copy on BOTH sides — 1 mutation check red); the published commit's identit
 named by SHA in the guard's `ALLOWED_SHAS` at `7ffd788` rather than rewritten).
 **Measured on the committed tree** (the four variant runs executed by the same
 commands the `--measure` script drives; the script's own green-refusal tripped on
-the lagging record, so the variant envelopes ran directly). The CI row is
-**projected**, not read: no run exists for this tree yet. The previous record
+the lagging record, so the variant envelopes ran directly). **The CI row is read, not projected:** run `123992897022` on `bf25d75`
+reads **3220 passed, 4 skipped, 2 xfailed** from its `test (3.12)` job log —
+13/13 jobs green on that exact SHA, exactly what the host-pin relation
+projected. The previous record
 (chunk 62's read pass, run `41023060441`, CI **3219 passed, 4 skipped, 2 xfailed**)
 remains in the record's historical set.
 
