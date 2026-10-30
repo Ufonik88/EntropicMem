@@ -6,7 +6,7 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 ### Added
 
-- **The shadow report carries its sample-shape evidence: the raw non-refresh ms distribution (min / p50 / p95 / max / turn count) and the gatemix totals (abstain / no-candidates / pass / unrecorded) beside the verdict** (readout-shape ruling, 2026-10-30, applied mid-collection; re-applied from `7230675` at `ae30ee0` with the identity the guard requires). No gate decision changes; the writer is untouched.
+- **The shadow report carries its sample-shape evidence: the raw non-refresh ms distribution (min / p50 / p95 / max / turn count) and the gatemix totals (abstain / no-candidates / pass / unrecorded) beside the verdict** (readout-shape ruling, 2026-10-30, applied mid-collection; re-applied from `7230675` at `3295968` with the identity the guard requires). No gate decision changes; the writer is untouched. Figures: bare **3125 / 20 / 2**, digest **3126 / 19 / 2**, CI-equivalent 3.12 **3222 / 2 / 2**, 3.10 **3220 / 4 / 2** — the measured triples live in [`docs/plan/BASELINE.md`](docs/plan/BASELINE.md); CI **3220 / 4 / 2**, **projected** from the CI-equivalent by the host-pin relation (the read pass stamps the run id).
 
 
 > Entries below that also shipped in the 2.8.1 patch are listed again, verbatim, in the `[2.8.1]` section.

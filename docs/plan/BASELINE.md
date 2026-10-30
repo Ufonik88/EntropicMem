@@ -26,24 +26,25 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3219 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `41023060441` on `6bb234d` — 13/13 jobs green on that exact SHA)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3124 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3125 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3221 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3219 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3220 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — this landing has no read run yet; the read pass stamps the run id here)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3125 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3126 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3222 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3220 passed, 4 skipped, 2 xfailed** |
 
-Read as at `b512245` (chunk 62 — the p95 measures the retrieval, not the copy
-maintenance (Hermes's host data: 56% of turns paid a copy refresh — a 41→63 MB
-backup-plus-migrate, 8-22 s under load — swamping the shadow_ms the 150 ms budget
-bounds; the production cutover has no copy at all): the p95 is computed over the
-non-refresh turns and the refresh turns are reported separately (count + their own
-max); and the doctor's config check imports `_backend` by PATH (the host's doctor run
-went blind with ModuleNotFoundError outside the plugin mount); 3 new tests, 2 red
-mutation checks — the first p95 mutant survived until the fixture had enough refresh
-share to move the rank, recorded) — **measured on the tree that became the chunk's
-build commit, before it was committed** (the documented pre-stamp shape). The CI row
-is **read, not projected** (run `41023060441`, 13/13 green). The previous record
-(chunk 61's read pass, run `40947768254`, CI **3217 passed, 4 skipped, 2 xfailed**)
+Read as at `7ffd788` (the report-shape landing on `main`: Hermes pushed a
+report-only `_shadow.py` commit directly (`7230675`) under a non-noreply identity —
+reverted at `5d7bbd2` and re-applied at `3295968` with the identity the guard
+requires, a CHANGELOG entry, and the test holding the new report fields (`gatemix`
++ the raw ms distribution's min/turns); the host-only verbatim-report failure fixed
+at `96707da` (`main`'s `--copy` default resolves the configured copy; the test pins
+the copy on BOTH sides — 1 mutation check red); the published commit's identity
+named by SHA in the guard's `ALLOWED_SHAS` at `7ffd788` rather than rewritten).
+**Measured on the committed tree** (the four variant runs executed by the same
+commands the `--measure` script drives; the script's own green-refusal tripped on
+the lagging record, so the variant envelopes ran directly). The CI row is
+**projected**, not read: no run exists for this tree yet. The previous record
+(chunk 62's read pass, run `41023060441`, CI **3219 passed, 4 skipped, 2 xfailed**)
 remains in the record's historical set.
 
 Read as at `aa0f867` (chunk 61 — the shadow's version read anchored to its own tree:
@@ -299,12 +300,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3124 / 20 / 2
+bare          3125 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3221 /  2 / 2
+= CI-equiv    3222 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3219 /  4 / 2   (read from run 41023060441, 3.12 job log)
+= CI          3220 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap
