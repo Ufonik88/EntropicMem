@@ -307,7 +307,27 @@ points at.
 > and asked to attach the handback artifacts (the report JSON, a sanitized line dump,
 > the timed sample); its confirmation is pending. **Non-blocking:** the gateway's
 > exported `ENTROPICMEM_*` vars break 21 wiring tests on its host — the hermeticity
-> fixture lands here, in the figures-record dance I already own.
+> fixture lands here, in the figures-record dance I already own. **2026-10-30, later: the handback artifacts closed the attribution — the readout is
+> corrected and the entity-plan fix landed.** **(1) Fabrication is MET refined** (0 lines;
+> 5 489 v3-only ids all resolve to real active memories — `extras_resolved`; the 260 was
+> the unrefined fail-closed artifact, reproduced exactly with a missing copy). **(2) The
+> 24.6 s p95 is burst queueing** (260 of 294 non-refresh turns in one 16-minute storm;
+> worst lines replay at 198-210 ms) — but the quiet-turn p95 is 453 ms, still over the
+> 150 ms budget: the condition stands not met on the honest read. **(3) The miss rate
+> (798/798) is the load-bearing failure and NOT a shadow artifact:** the timed sample
+> proved the vector generator returns before SQL when no embedding backend is configured
+> (0.0 ms) — **the cutover would serve exactly what was measured**, so the v2 engine
+> keeps serving until a backend exists or the evidence is otherwise resolved. **(4) The
+> sample found a real SQL bug — fixed on `main` at `a5fba7d`** (build `1be46a7`):
+> `detect_entities` drove from the 5,178-row `entities` autoindex (44-324 ms/turn); the
+> `CROSS JOIN` join-order pin restores alias-first drive — same rows row-identical at
+> 0.18-0.42 ms, full retrieve 87-181 ms vs 174-404 ms (1 structural test, 1 red mutation
+> check; the figures re-measured: bare **3127/20/2**, digest **3128/19/2**,
+> CI-equiv **3224/2/2**, 310 **3224/2/2**; CI **3222/4/2 read** from run
+> `124115571537`; 26/26 green on the merge tip). The `.venv310` was rebuilt this session
+> (a homebrew python upgrade broke its link — the record notes the restoration). The
+> corrected readout + sanitized evidence of record: [`docs/plan/P0C_READOUT.md`](
+> docs/plan/P0C_READOUT.md) + [`docs/plan/p0c_evidence/`](docs/plan/p0c_evidence/).
 
 ---
 
