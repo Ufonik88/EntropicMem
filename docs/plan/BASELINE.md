@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3222 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3220 passed, 4 skipped, 2 xfailed** |
 
-Read as at `bf25d75` (the report-shape landing on `main`: Hermes pushed a
+Read as at `6711e41` (the report-shape landing on `main`; the companion re-stamp — the read-pass commit itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite surface, so the record anchors at that tip instead) on `main`: Hermes pushed a
 report-only `_shadow.py` commit directly (`7230675`) under a non-noreply identity —
 reverted at `5d7bbd2` and re-applied at `3295968` with the identity the guard
 requires, a CHANGELOG entry, and the test holding the new report fields (`gatemix`
