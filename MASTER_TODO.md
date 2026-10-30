@@ -265,7 +265,19 @@ points at.
 > recorded as evidence, not gated; **the cutover restart gap is solved with a deferred
 > restart** (`systemd-run --on-active=90 --user systemctl --user restart
 > hermes-gateway` — scheduled from inside the process, fires after it exits) and the
-> full sequence ships with the go once the P0c verdict reads.
+> full sequence ships with the go once the P0c verdict reads. **2026-10-30, later: Hermes'
+> second check-in — 54/200 gated lines over 12.5 h** (44 abstain / 8 no-candidates /
+> 2 pass; copy healthy: user_version 5, 3268 memories, integrity ok; it pulled `b3f16c9`
+> with no restart needed — the writer already stamps `copy_refreshed` per line and the
+> doctor reads code from disk). **The readout is pre-faced with two context-shaped
+> signals:** the non-refresh p95 reads **11.2 s against the 150 ms budget** (the budget
+> is a dev-box figure; the direct retrieval on that hardware is 0.55-0.82 s and the
+> in-turn scoring is shadow-only — a retrieval/overhead split was requested so the
+> caveat is a number, not an assertion), and the miss-rate shape stands at ~8/10
+> non-abstained (no-candidates counts as a miss; abstains are excluded by chunk 58).
+> **The report-shape request was sent to Hermes:** raw distributions (min/p50/p95/max
+> + counts) carry the verdict, not caveats asserted after the fact. ETA ~78 turns/day
+> puts 200+ at ~2026-11-01 08:00Z, inside the cap.
 
 ---
 
