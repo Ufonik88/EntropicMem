@@ -26,11 +26,30 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3220 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `123992897022` on `bf25d75`)*(13/13 jobs green on that exact SHA — exactly the projection)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3125 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3126 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3222 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, full suite) | `pytest -q tests/` | **3220 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3222 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the read pass stamps the run id here)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3127 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3128 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3224 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3224 passed, 2 skipped, 2 xfailed** |
+
+Read as at `1be46a7` (the entity-plan landing on
+`em-entity-plan-alias-first`: the P0c timed sample's own SQL finding —
+`detect_entities` drove the alias probe from `entities`' profile autoindex, a
+5,178-row scan, 44-324 ms a turn; a `CROSS JOIN` join-order pin restores the
+alias-first drive, same rows row-identical at 0.18-0.42 ms and full retrieve
+87-181 ms versus 174-404 ms; 1 structural test, 1 red mutation check). **The
+bare/digest/CI-equivalent triples were measured green on the dirty tree before it
+was committed** (the documented pre-stamp shape); **the 3.10 triple is the
+post-stamp measured state** — the leg's first run read red only for the four
+figures-guard rows the stamp itself resolves, so its stamped count is the
+guard-inclusive total. The record's `.venv310` was REBUILT this session (a
+homebrew python upgrade had left it pointing at 3.14 with pytest missing); its
+restored package set follows CI's own install line (pytest/fastapi/httpx/
+cryptography/pyyaml/numpy), which is why its skip count is 2, matching the
+CI-equivalent, and not the 4 of the pre-crash leg. The CI row is **projected**,
+not read: no run exists for this tree yet. The previous record (the report-shape
+landing's read pass, run `123992897022`, CI **3220 passed, 4 skipped, 2 xfailed**)
+remains in the record's historical set.
 
 Read as at `6711e41` (the report-shape landing on `main`; the companion re-stamp — the read-pass commit itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite surface, so the record anchors at that tip instead) on `main`: Hermes pushed a
 report-only `_shadow.py` commit directly (`7230675`) under a non-noreply identity —
@@ -302,12 +321,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3125 / 20 / 2
+bare          3127 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3222 /  2 / 2
+= CI-equiv    3224 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3220 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
+= CI          3222 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap
