@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3224 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3224 passed, 2 skipped, 2 xfailed** |
 
-Read as at `5d71a93` (the entity-plan landing on
+Read as at `bcb74e7` (the entity-plan landing on; the companion re-stamp — the read-pass commit itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite surface, so the record anchors at that tip instead) — landing on
 `em-entity-plan-alias-first`: the P0c timed sample's own SQL finding —
 `detect_entities` drove the alias probe from `entities`' profile autoindex, a
 5,178-row scan, 44-324 ms a turn; a `CROSS JOIN` join-order pin restores the
