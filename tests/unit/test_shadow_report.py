@@ -538,13 +538,20 @@ def test_the_exit_code_carries_the_verdict(tmp_path, capsys, monkeypatch):
     assert run_and_code(sample(10), "short") == 2
 
 
-def test_json_output_is_the_report_verbatim(tmp_path, capsys, armed):
+def test_json_output_is_the_report_verbatim(tmp_path, capsys, armed, monkeypatch):
     log = tmp_path / "divergence.jsonl"
     log.write_text("".join(json.dumps(i) + "\n" for i in miss_lines()), encoding="utf-8")
+    # A configured copy (Hermes's host state) is what used to unhook this test:
+    # `main` resolves --copy from the configuration while the bare `report(log)` call
+    # ran unrefined — one host mismatched the two. Pin the copy explicitly on BOTH
+    # sides so the comparison measures the CLI verbatim-ness, not the host's config.
+    configured_copy = tmp_path / "shadow.mem"
+    configured_copy.write_bytes(b"")
+    monkeypatch.setattr(_shadow, "shadow_path", lambda: configured_copy)
 
     assert _shadow.main(["report", "--log", str(log), "--json"]) == 0
     printed = capsys.readouterr().out
-    assert json.loads(printed) == _shadow.report(log)
+    assert json.loads(printed) == _shadow.report(log, copy=str(configured_copy))
 
 
 # --- the readout's shape ruling: raw distribution + gatemix beside the verdict ---
