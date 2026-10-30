@@ -277,7 +277,24 @@ points at.
 > non-abstained (no-candidates counts as a miss; abstains are excluded by chunk 58).
 > **The report-shape request was sent to Hermes:** raw distributions (min/p50/p95/max
 > + counts) carry the verdict, not caveats asserted after the fact. ETA ~78 turns/day
-> puts 200+ at ~2026-11-01 08:00Z, inside the cap.
+> puts 200+ at ~2026-11-01 08:00Z, inside the cap. **2026-10-30, later: Hermes pushed its report-shape change straight to `main`
+> (`7230675`) — the landing raced the guards and main went red on two** (identity-guard:
+> its commit carried the wrong email; figures-record: the suite surface moved):
+> **fixed forward, never rewritten** — reverted (`5d7bbd2`), re-applied with the
+> correct identity + a CHANGELOG entry + the test holding the new fields (`3295968`;
+> 2 mutation checks red), the host-only verbatim-report failure fixed in the test at
+> `96707da` (`main` resolves `--copy` from the configuration, Hermes's host has one;
+> the test now pins the copy on BOTH sides — 1 mutation check red), and `7230675`
+> named **by SHA** in the guard's `ALLOWED_SHAS` (`7ffd788`, published history is
+> never rewritten). Figures re-measured on the committed tree: bare **3125 / 20 / 2**,
+> digest **3126 / 19 / 2**, CI-equiv **3222 / 2 / 2**, 3.10 **3220 / 4 / 2**; CI
+> **3220 / 4 / 2 read** from run `123992897022` (26/26 green on the tips
+> `bf25d75`/`6711e41`/`7fee701` — the allowlist read-pass commit moved the suite
+> surface, so the record is companion-stamped at `7fee701`). **Also found in
+> today's fetch: a stray remote branch `land/tests-graph-model-tests`** (35 tests
+> for `em.graph.model`, unmerged, base `58c2746`, committed 2026-10-29 21:50 under
+> a joke display name with the short noreply email — NOT this box, NOT Hermes's
+> config) — **flagged to the owner, no action until answered.**
 
 ---
 
@@ -341,13 +358,12 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-30, against branch `main` at `6777fa9` (chunk 62, the
-p95's retrieval-only read + the doctor's path import — build `d05db3e`, record
-`6bb234d`, read, re-stamp `6777fa9`; 13/13 green, 26/26 on the merge tip; branch
-deleted). Before it: chunk 61 at `6dcddb9` (the version anchor), chunk 60 at `98e3e48`
-(the shared-log build marker + the doctor's duplicate-tree check), chunk 59 at
-`ff0cb52`, chunk 58 at `f3bb689`, chunk 57 at `fe54518`, chunk 56 at `6a796a1`, the
-3.0.0 release at `1e8e7c4`, and back through chunks 54-53-52-51-50-49-48.
+**Last reconciled:** 2026-10-30, against branch `main` at `7fee701` (the
+report-shape landing's read pass + companion re-stamp; runs green on `bf25d75`,
+`6711e41`, `7fee701`). Before it: `b3f16c9`/`2947e09` (chunk 62 + the P0c
+check-in docs), `6777fa9` (chunk 62, the p95's retrieval-only read), `6dcddb9`
+(chunk 61), `98e3e48` (chunk 60), `ff0cb52` (59), `f3bb689` (58), `fe54518` (57),
+`6a796a1` (56), `1e8e7c4` (the 3.0.0 release), and back through chunks 54-48.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
