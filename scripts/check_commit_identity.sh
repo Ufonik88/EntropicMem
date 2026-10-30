@@ -34,6 +34,11 @@ ALLOWED_SHAS=(
   # this guard ran over that history, so it fails the address rule every push
   # from then on. Recorded here rather than rewritten.
   14925b301995ee2640b4c61ec7c284582da54888
+  # Commit 7230675 (2026-10-30) was pushed to main by Hermes's host under the
+  # identity ufonik@example.com before the guard's range could reach it; its
+  # content was reverted and re-applied with a good identity at 3295968, but a
+  # published commit is never rewritten. Recorded here rather than rewritten.
+  72306756d36643aca86d2b7b1490b24105fdda7d
 )
 
 RANGE="${1:?usage: check_commit_identity.sh <range>}"
