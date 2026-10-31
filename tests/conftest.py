@@ -1,4 +1,5 @@
 """Conftest for smart context tests."""
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -16,6 +17,38 @@ mock_memory_provider = MagicMock()
 sys.modules["agent"] = MagicMock()
 sys.modules["agent.memory_provider"] = mock_memory_provider
 mock_memory_provider.MemoryProvider = type("MemoryProvider", (), {})
+
+
+# ── the suite is hermetic against the environment (the P0c host's Finding 1) ─
+# A plugin-serving gateway exports ENTROPICMEM_VAULT_PATH / _INDEX_DB /
+# _MEMORY_DB / _SHADOW_V3 / _SHADOW_LOG (the 2026-10-30 incident: Hermes's
+# gateway exported all five, and provider.py's env-path source outranks every
+# config a test writes — so any provider a test builds resolved to the live
+# store paths). Measured there with those values exported: 51 env-caused
+# failures in tests/unit, zero store writes. This fixture scrubs the five
+# names before each test's provider init; tests that deliberately set one of
+# them (env dicts, monkeypatch.setenv) run after this and are unaffected.
+# ENTROPICMEM_PRIVACY_DIGESTS_FILE / _REQUIRE_PRIVACY_DIGESTS / _INTERNAL_DIR
+# are deliberately NOT scrubbed — tests read those by contract.
+
+_EM_PATH_ENV_VARS = (
+    "ENTROPICMEM_VAULT_PATH",
+    "ENTROPICMEM_INDEX_DB",
+    "ENTROPICMEM_MEMORY_DB",
+    "ENTROPICMEM_SHADOW_V3",
+    "ENTROPICMEM_SHADOW_LOG",
+)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_entropicmem_env():
+    scrubbed = {
+        name: os.environ.pop(name)
+        for name in _EM_PATH_ENV_VARS
+        if name in os.environ
+    }
+    yield
+    os.environ.update(scrubbed)
 
 
 # ── the graph server's search bucket is per process (EM-606) ────────────────
