@@ -961,7 +961,10 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing is in flight.**
+MNT W44 coverage card t_fd388101: add tests for the lowest-coverage real-logic module and land them on a branch.
+- Module: plugins/entropicmem/scripts/em/net.py — 79% before (73 stmts, 15 missing), outbound-URL validation / SSRF-rebound protection logic.
+- Excluded: em/jobs/cli.py at 68% (CLI wrapper per task), em/util/fsperm.py at 75% (8-stmt best-effort POSIX helper; uncovered region is a single best-effort `except OSError: pass` — coverage gaming on trivial logic, not a real-logic module in the task's sense).
+- Branch: land/coverage-net, to be cut from origin/main; before-% quoted from real coverage output (full suite ran 3205 passed / 74 failed pre-existing env issues on this box — unrelated to this change).
 
 **EM-806 — S8 packaging — is COMPLETE: LANDED on `main` at `ceb70cb` (2026-10-27, chunk 47)** —
 opening docs `1e683c1`, build `bf2e267`, record pass `ceb70cb`; **13/13 check-runs green on that
