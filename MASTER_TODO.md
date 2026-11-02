@@ -961,10 +961,14 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-MNT W44 coverage card t_fd388101: add tests for the lowest-coverage real-logic module and land them on a branch.
-- Module: plugins/entropicmem/scripts/em/net.py — 79% before (73 stmts, 15 missing), outbound-URL validation / SSRF-rebound protection logic.
-- Excluded: em/jobs/cli.py at 68% (CLI wrapper per task), em/util/fsperm.py at 75% (8-stmt best-effort POSIX helper; uncovered region is a single best-effort `except OSError: pass` — coverage gaming on trivial logic, not a real-logic module in the task's sense).
-- Branch: land/coverage-net, to be cut from origin/main; before-% quoted from real coverage output (full suite ran 3205 passed / 74 failed pre-existing env issues on this box — unrelated to this change).
+Nothing is in flight.
+
+MNT W44 coverage t_fd388101 — IMPLEMENTED, PUSHED, PR OPENED; not yet merged.
+- em/net 79% -> 100% (73/73 statements); +11 tests in tests/test_em_net.py; 10 mutation checks all red, each restored from a byte copy, net.py byte-identical
+- Commit 1873104 on land/coverage-net, pushed to origin; PR #14: https://github.com/Ufonik88/EntropicMem/pull/14 (CI pending on the branch)
+- Full suite on the branch: 3182 passed / 73 failed / 3 skipped / 2 xfailed — the 73 failures are pre-existing environmental issues on this box, byte-identical to the base run except test_suite_figures (flaked a pass this run); none touch em/net
+- Remote proof: git ls-tree --name-only origin/land/coverage-net tests/ | grep test_em_net -> tests/test_em_net.py
+- Next: PR review and ff-merge onto main (Git Gert lane); then identity-guard green on the merge commit
 
 **EM-806 — S8 packaging — is COMPLETE: LANDED on `main` at `ceb70cb` (2026-10-27, chunk 47)** —
 opening docs `1e683c1`, build `bf2e267`, record pass `ceb70cb`; **13/13 check-runs green on that
