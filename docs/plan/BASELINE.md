@@ -26,13 +26,13 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3222 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `124115571537` on `5d71a93` — 13/13 jobs green on that exact SHA, exactly the projection)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3127 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3128 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3224 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3224 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3257 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — CI has not run green on `beed10b` yet; the previous read figure 3222 / 4 / 2 from run `124115571537` remains in the record's historical set)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3162 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3163 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3259 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3259 passed, 2 skipped, 2 xfailed** |
 
-Read as at `bcb74e7` (the entity-plan landing on; the companion re-stamp — the read-pass commit itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite surface, so the record anchors at that tip instead) — landing on
+Read as at `beed10b` (the W44 graph-model-tests landing on `land/graph-tests-w44` — the companion re-stamp — the read-pass commit itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite surface, so the record anchors at that tip instead) — landing on
 `em-entity-plan-alias-first`: the P0c timed sample's own SQL finding —
 `detect_entities` drove the alias probe from `entities`' profile autoindex, a
 5,178-row scan, 44-324 ms a turn; a `CROSS JOIN` join-order pin restores the
@@ -323,12 +323,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3127 / 20 / 2
+bare          3162 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3224 /  2 / 2
+= CI-equiv    3259 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3222 /  4 / 2   (read from run 124115571537, 3.12 job log)
+= CI          3257 /  4 / 2   (projected from CI-equiv by the host-pin relation — CI has not run green on beed10b yet)
 ```
 
 ## Citing CI evidence — one trap
