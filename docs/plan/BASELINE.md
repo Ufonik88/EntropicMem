@@ -26,13 +26,24 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3222 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `124115571537` on `5d71a93` — 13/13 jobs green on that exact SHA, exactly the projection)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3127 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3128 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3224 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3224 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3238 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent run by the host-pin relation; CI on `3a15b2c` read `3236 passed` plus the two guards this landing fixes, which is the same total)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3143 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3144 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3240 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3240 passed, 2 skipped, 2 xfailed** |
 
-Read as at `bcb74e7` (the entity-plan landing on; the companion re-stamp — the read-pass commit itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite surface, so the record anchors at that tip instead) — landing on
+Read as at `8b8a246` (the host-surface patch: credentials through
+`agent.secret_scope.get_secret`, completions through `ctx.llm`, the graph
+docstring corrected; the catalog re-pin's review response) — 16 new tests (5 in
+`tests/unit/test_em_host_secret.py`, 6 in `test_em501_llm_backend.py`, 5 in
+`test_em_embeddings_backends.py`). **The local triples are the previous green
+measurement carried forward by exactly those 16 passing tests**: this box cannot
+produce a green `pytest -q tests/` today (51 pre-existing environmental failures,
+the same set on `origin/main` at `80f50ca`), and `--measure` refuses a non-zero
+failed by design. **The CI figure is projected**, and the next green run stamps
+the read figure.
+
+**The previous record** — read as at `bcb74e7` (the entity-plan landing on; the companion re-stamp — the read-pass commit itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite surface, so the record anchors at that tip instead) — landing on
 `em-entity-plan-alias-first`: the P0c timed sample's own SQL finding —
 `detect_entities` drove the alias probe from `entities`' profile autoindex, a
 5,178-row scan, 44-324 ms a turn; a `CROSS JOIN` join-order pin restores the
@@ -323,12 +334,13 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3127 / 20 / 2
+bare          3143 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3224 /  2 / 2
+= CI-equiv    3240 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3222 /  4 / 2   (read from run 124115571537, 3.12 job log)
+= CI          3238 /  4 / 2   (projected at 8b8a246; CI on 3a15b2c read 3236 passed
+                               plus the two guards this landing fixes, same total)
 ```
 
 ## Citing CI evidence — one trap
