@@ -145,8 +145,5 @@ def register(ctx) -> None:
     register_memory_provider(ctx)
     from em.formation.llm import register_auxiliary_tasks, set_host_llm
 
-    # Bind the host's public LLM facade for the formation backends. It is the
-    # supported surface for plugin completions: the host owns routing, auth and
-    # fallback, so no credential or private host module reaches the plugin.
-    set_host_llm(getattr(ctx, "llm", None))
+    set_host_llm(getattr(ctx, "llm", None))  # the host's public LLM facade
     register_auxiliary_tasks(ctx)
