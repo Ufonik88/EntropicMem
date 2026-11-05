@@ -32,12 +32,14 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3240 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3240 passed, 2 skipped, 2 xfailed** |
 
-Read as at `b25ca80` (the host-surface patch: credentials through
+Read as at `835d8a9` (the host-surface patch: credentials through
 `agent.secret_scope.get_secret`, completions through `ctx.llm`, the graph
 docstring corrected; the catalog re-pin's review response) — 16 new tests (5 in
 `tests/unit/test_em_host_secret.py`, 6 in `test_em501_llm_backend.py`, 5 in
 `test_em_embeddings_backends.py`), and the CI figure is **read** from the 3.12
-job of run `42104028088` (13/13 jobs green). **The local triples are the previous
+job of run `42104028088` (13/13 jobs green on that run's commit `b25ca80`; the
+anchoring commit only adds the run-id allowlist entry the citation needs, no
+test). **The local triples are the previous
 green measurement carried forward by exactly those 16 passing tests**: this box
 cannot produce a green `pytest -q tests/` today (51 pre-existing environmental
 failures, the same set on `origin/main` at `80f50ca`), and `--measure` refuses a
