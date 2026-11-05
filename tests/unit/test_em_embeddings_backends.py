@@ -221,3 +221,63 @@ def test_embeddings_degrade_gracefully_without_semantic_st_extra(monkeypatch):
     with pytest.raises(RuntimeError):
         service.embed_texts(["anything"])
     assert service.embed_query("anything") is None
+
+
+def test_the_embeddings_key_follows_the_profile_scope(monkeypatch):
+    """Catalog review: the key must not come from the process environment."""
+    monkeypatch.setattr(backends, "get_secret", lambda name, default="": "scoped-key")
+
+    backend = OpenAICompatBackend(base_url="https://acme.invalid/v1")
+    assert backend.api_key == "scoped-key"
+
+
+def test_an_explicit_env_mapping_beats_the_scope(monkeypatch):
+    monkeypatch.setattr(backends, "get_secret", lambda name, default="": "scoped-key")
+
+    backend = OpenAICompatBackend(
+        env={
+            "ENTROPICMEM_EMBEDDINGS_BASE_URL": "https://acme.invalid/v1",
+            "ENTROPICMEM_EMBEDDINGS_API_KEY": "injected-key",
+        }
+    )
+    assert backend.api_key == "injected-key", "the injectable seam must stay injectable"
+
+
+def test_a_constructor_key_beats_every_source(monkeypatch):
+    monkeypatch.setattr(backends, "get_secret", lambda name, default="": "scoped-key")
+
+    backend = OpenAICompatBackend(base_url="https://acme.invalid/v1", api_key="explicit-key")
+    assert backend.api_key == "explicit-key"
+
+
+def test_the_service_leaves_env_unset_so_the_backend_can_scope_the_key(monkeypatch):
+    from em.embeddings import service as service_mod
+
+    seen = {}
+
+    def fake_select(preference="auto", *, model=None, env=None):
+        seen["env"] = env
+        return NoneBackend()
+
+    monkeypatch.setattr(service_mod, "select_backend", fake_select)
+    service = EmbeddingService(":memory:")
+
+    assert seen["env"] is None, "a copied os.environ would bypass the profile scope"
+    assert service.available is False
+
+
+def test_an_explicit_env_still_reaches_the_backend(monkeypatch):
+    from em.embeddings import service as service_mod
+
+    seen = {}
+
+    def fake_select(preference="auto", *, model=None, env=None):
+        seen.update(preference=preference, env=env)
+        return NoneBackend()
+
+    monkeypatch.setattr(service_mod, "select_backend", fake_select)
+    injected = {"ENTROPICMEM_EMBEDDINGS_BACKEND": "none"}
+    EmbeddingService(":memory:", env=injected)
+
+    assert seen["preference"] == "none"
+    assert seen["env"] == injected

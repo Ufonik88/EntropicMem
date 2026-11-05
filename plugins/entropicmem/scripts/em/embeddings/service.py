@@ -70,12 +70,14 @@ class EmbeddingService:
     ) -> None:
         self.db_path = str(db_path)
         if backend is None:
-            environ = dict(os.environ) if env is None else dict(env)
-            backend = select_backend(
-                preference or environ.get("ENTROPICMEM_EMBEDDINGS_BACKEND", "auto"),
-                model=model,
-                env=environ,
+            # Keep ``env is None`` flowing through: the backend then resolves the
+            # API key through the host's profile secret scope instead of a
+            # snapshot of this process's environment.
+            environ = None if env is None else dict(env)
+            preference = preference or (environ or os.environ).get(
+                "ENTROPICMEM_EMBEDDINGS_BACKEND", "auto"
             )
+            backend = select_backend(preference, model=model, env=environ)
         self.backend = backend
         self.model = model or getattr(backend, "default_model", "") or ""
         self._warm = False

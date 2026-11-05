@@ -7,14 +7,17 @@ job — never to require one.
 
 Four backends, selected by ``formation.llm``:
 
-* ``HermesAuxBackend`` — the host's auxiliary client
-  (``agent.auxiliary_client.call_llm``), imported lazily so ``em`` keeps its
-  no-host rule. The ``entropicmem_extract`` / ``entropicmem_summarize`` /
-  ``entropicmem_reconcile`` task keys are registered (guarded) so the user can
-  pick a cheap model in the Hermes UI.
+* ``HermesAuxBackend`` — the host's public plugin LLM facade (``ctx.llm``),
+  captured at ``register()`` and called through ``complete``. Nothing here
+  imports a private host module, and ``em`` keeps its no-host rule because the
+  facade is injected rather than imported. The ``entropicmem_extract`` /
+  ``entropicmem_summarize`` / ``entropicmem_reconcile`` task keys are registered
+  (guarded) so the user can pick a cheap model in the Hermes UI.
 * ``OpenAICompatBackend`` — stdlib ``urllib`` against
   ``ENTROPICMEM_LLM_BASE_URL`` / ``ENTROPICMEM_LLM_API_KEY`` /
-  ``ENTROPICMEM_LLM_MODEL``, for CLI and cron use outside Hermes.
+  ``ENTROPICMEM_LLM_MODEL``, for CLI and cron use outside Hermes. The key is
+  read through :func:`em.host_secret.get_secret`, so it follows the active
+  profile instead of the process environment.
 * ``NullBackend`` — always ``None``; callers take the deterministic fallback.
 * ``auto`` — Hermes if importable, else ``openai_compat`` if configured, else
   none.
@@ -43,6 +46,7 @@ import time
 import urllib.request
 from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol
 
+from ..host_secret import get_secret
 from ..net import open_validated, read_capped
 from ..util.jsonschema_lite import ArgumentError, validate_arguments
 
@@ -67,6 +71,7 @@ __all__ = [
     "register_auxiliary_tasks",
     "response_text",
     "select_backend",
+    "set_host_llm",
     "wrap_transcript",
 ]
 
@@ -221,29 +226,83 @@ class NullBackend:
         return None
 
 
+#: The host's ``ctx.llm`` facade, captured at ``register()``. A module global
+#: rather than a constructor argument because ``select_backend`` is reached from
+#: code paths (the ingest CLI) that never see the plugin context.
+_HOST_LLM: Optional[Any] = None
+
+#: Auxiliary task keys the host accepted in :func:`register_auxiliary_tasks`.
+#: A task is only requested when the host owns the slot: asking for one it never
+#: registered is a trust error on the host side.
+_REGISTERED_TASKS: set[str] = set()
+
+
+def set_host_llm(llm: Optional[Any]) -> None:
+    """Bind the host's public plugin LLM facade (called from ``register``)."""
+    global _HOST_LLM
+    _HOST_LLM = llm
+
+
 class HermesAuxBackend:
-    """The host's auxiliary client, imported lazily (``em`` imports no host)."""
+    """The host's LLM facade (``ctx.llm``), injected at plugin registration.
+
+    ``ctx.llm`` is the supported public surface: the host owns routing, auth,
+    timeouts and fallback, so no credential ever reaches this module. ``caller``
+    stays as the test seam — it receives the keyword arguments the auxiliary
+    call used to take and may return a completion result or an OpenAI-shaped
+    response.
+    """
 
     name = "hermes"
 
-    def __init__(self, *, caller: Optional[Callable[..., Any]] = None) -> None:
+    def __init__(
+        self,
+        *,
+        llm: Optional[Any] = None,
+        caller: Optional[Callable[..., Any]] = None,
+    ) -> None:
+        self._llm = llm
         self._caller = caller
 
-    def _call_llm(self) -> Callable[..., Any]:
-        if self._caller is not None:
-            return self._caller
-        from agent.auxiliary_client import call_llm  # the one host import, lazy
-
-        return call_llm
-
     def available(self) -> bool:
+        return self._llm is not None or self._caller is not None
+
+    @staticmethod
+    def _task_key(task: str) -> Optional[str]:
+        key = f"entropicmem_{task}"
+        return key if key in _REGISTERED_TASKS else None
+
+    def _complete_text(
+        self, *, task: str, system: str, user: str, max_tokens: int, timeout: float
+    ) -> Optional[str]:
         if self._caller is not None:
-            return True
-        try:
-            self._call_llm()
-        except Exception:
-            return False
-        return True
+            return response_text(
+                self._caller(
+                    task=f"entropicmem_{task}",
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    max_tokens=max_tokens,
+                    timeout=timeout,
+                    temperature=0,
+                )
+            )
+        if self._llm is None:
+            return None
+        result = self._llm.complete(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            max_tokens=max_tokens,
+            timeout=timeout,
+            temperature=0,
+            purpose=f"entropicmem:{task}",
+            task=self._task_key(task),
+        )
+        text = getattr(result, "text", None)
+        return text if isinstance(text, str) else None
 
     def complete_json(
         self,
@@ -256,21 +315,13 @@ class HermesAuxBackend:
         timeout: float = DEFAULT_TIMEOUT,
     ) -> Optional[Dict[str, Any]]:
         try:
-            call_llm = self._call_llm()
-            response = call_llm(
-                task=f"entropicmem_{task}",
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                max_tokens=max_tokens,
-                timeout=timeout,
-                temperature=0,
+            text = self._complete_text(
+                task=task, system=system, user=user, max_tokens=max_tokens, timeout=timeout
             )
         except Exception:
-            logger.debug("hermes auxiliary call failed", exc_info=True)
+            logger.debug("hermes plugin LLM call failed", exc_info=True)
             return None
-        return parse_json_object(response_text(response), schema)
+        return parse_json_object(text, schema)
 
 
 class OpenAICompatBackend:
@@ -288,7 +339,13 @@ class OpenAICompatBackend:
     ) -> None:
         env = os.environ if environ is None else environ
         self._base_url = (base_url or env.get("ENTROPICMEM_LLM_BASE_URL", "")).strip().rstrip("/")
-        self._api_key = api_key or env.get("ENTROPICMEM_LLM_API_KEY", "")
+        # The key follows the active profile; an explicitly passed mapping (tests,
+        # standalone callers) still wins so the seam stays injectable.
+        self._api_key = api_key or (
+            env.get("ENTROPICMEM_LLM_API_KEY", "")
+            if environ is not None
+            else get_secret("ENTROPICMEM_LLM_API_KEY", "")
+        )
         self._model = model or env.get("ENTROPICMEM_LLM_MODEL", "")
 
     def available(self) -> bool:
@@ -349,7 +406,7 @@ def select_backend(
     choice = (mode or "auto").strip().lower()
     if choice == "none":
         return NullBackend()
-    hermes_backend = HermesAuxBackend() if hermes is None else hermes
+    hermes_backend = HermesAuxBackend(llm=_HOST_LLM) if hermes is None else hermes
     openai_backend = OpenAICompatBackend(environ=environ) if openai is None else openai
     if choice == "hermes":
         return hermes_backend
@@ -548,3 +605,7 @@ def register_auxiliary_tasks(ctx: Any) -> None:
             )
         except Exception:
             logger.debug("auxiliary task registration failed for %s", task, exc_info=True)
+        else:
+            # Only a slot the host accepted may be requested later: an
+            # unregistered task key is a trust error on the host side.
+            _REGISTERED_TASKS.add(f"entropicmem_{task}")

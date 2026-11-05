@@ -13,6 +13,20 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 > Entries below that also shipped in the 2.8.1 patch are listed again, verbatim, in the `[2.8.1]` section.
 
+## [3.0.1] - 2026-11-05
+
+Host-surface patch from the catalog review on the 3.0.0 re-pin: the plugin now
+reads its credentials and its completions through the host's public plugin API,
+not through a private module and the process environment.
+
+### Fixed
+
+- **The formation and embedding API keys follow the active profile (`em/host_secret.py`).** Both `OpenAICompatBackend`s (`em/formation/llm.py`, `em/embeddings/backends.py`) read `ENTROPICMEM_LLM_API_KEY` / `ENTROPICMEM_EMBEDDINGS_API_KEY` straight from `os.environ`. In a host that serves several profiles, `os.environ` holds the launch profile's value for every profile, so one profile could spend another's credential. Keys now resolve through `agent.secret_scope.get_secret`, which returns the active profile's value. The fallbacks are deliberate: `os.environ` only when the `agent` package is absent (standalone CLI, bare pip install), and a missing profile scope while multiplexing fails closed to the caller's default rather than borrowing another profile's secret. An explicitly passed `environ` / `env` mapping still wins, so the injectable seam the tests use is unchanged.
+- **The formation LLM calls the public `ctx.llm` facade.** `HermesAuxBackend` imported `agent.auxiliary_client.call_llm`, a private host module that the plugin-compat contract does not cover. `register()` now captures `ctx.llm` (`set_host_llm`) and the backend calls `ctx.llm.complete(...)`, so the host keeps routing, auth, timeouts and fallback, and no key or private surface crosses into the plugin. Auxiliary task keys are requested only when the host accepted the registration: an unregistered slot is a trust error on the host side, so `register_auxiliary_tasks` records what was accepted. A standalone CLI with no `ctx` still falls back to `openai_compat` / `none`.
+- **The graph viewer's docstring matches what ships.** `em/graph/export.py` still claimed D3 and marked load from public CDNs. They are vendored (`assets/d3.min.js`, `assets/marked.min.js`) and inlined at export; only Google Fonts still come from `fonts.googleapis.com`, with a system-font fallback offline.
+
+**Evidence:** 16 new tests (`tests/unit/test_em_host_secret.py` plus additions to `test_em501_llm_backend.py` and `test_em_embeddings_backends.py`); 3 mutation checks, all red, each restored from a byte copy — an unscoped read borrowing `os.environ`, the embeddings key back on `os.environ`, and the private auxiliary import reintroduced. `ruff==0.16.2 check` clean. Full `tests/unit` result recorded on the catalog PR.
+
 ## [3.0.0] - 2026-10-29
 
 **The v3 line's first release.** Everything from chunk 4 to chunk 54: the v3 storage core and its lossless v2 migration (drill-tested against every historical store generation — `docs/UPGRADING.md`), the retrieval stack, the provider's nine-tool surface with the legacy aliases, the vault projection and ingest, the graph, the security hardening, packaging that loads from a pip install, `doctor` and `memory upgrade`. A v2 store keeps running on the v2 engine until you migrate it (`memory upgrade --yes`); the new features ship switched off.

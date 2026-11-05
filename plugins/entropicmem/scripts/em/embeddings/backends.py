@@ -31,6 +31,7 @@ import urllib.error
 import urllib.request
 from typing import Dict, List, Optional, Sequence
 
+from em.host_secret import get_secret
 from em.net import open_validated, read_capped
 
 __all__ = [
@@ -154,9 +155,9 @@ class OpenAICompatBackend:
     """An OpenAI-compatible ``/embeddings`` endpoint, over stdlib urllib.
 
     Configuration precedence: constructor, then environment
-    (``ENTROPICMEM_EMBEDDINGS_BASE_URL`` / ``_API_KEY`` / ``_MODEL``). No base
-    URL means not available. ``dim`` is 0 until the first response teaches the
-    width.
+    (``ENTROPICMEM_EMBEDDINGS_BASE_URL`` / ``_API_KEY`` / ``_MODEL``), then the
+    host's profile secret scope for the key. No base URL means not available.
+    ``dim`` is 0 until the first response teaches the width.
     """
 
     name = "openai_compat"
@@ -176,8 +177,16 @@ class OpenAICompatBackend:
         self.base_url = (
             base_url if base_url is not None else environ.get("ENTROPICMEM_EMBEDDINGS_BASE_URL", "")
         ).rstrip("/")
+        # The key follows the active profile; an explicitly passed mapping (tests,
+        # standalone callers) still wins so the seam stays injectable.
         self.api_key = (
-            api_key if api_key is not None else environ.get("ENTROPICMEM_EMBEDDINGS_API_KEY", "")
+            api_key
+            if api_key is not None
+            else (
+                environ.get("ENTROPICMEM_EMBEDDINGS_API_KEY", "")
+                if env is not None
+                else get_secret("ENTROPICMEM_EMBEDDINGS_API_KEY", "")
+            )
         )
         self.model = (
             model if model is not None else environ.get("ENTROPICMEM_EMBEDDINGS_MODEL", "")

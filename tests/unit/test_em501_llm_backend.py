@@ -258,3 +258,108 @@ def test_auxiliary_task_registration_is_guarded():
             raise RuntimeError("nope")
 
     register_auxiliary_tasks(Bad())
+
+
+class FakeHostLlm:
+    """Stands in for the host's ``ctx.llm`` facade."""
+
+    def __init__(self, text=None, raises=None):
+        self.calls = []
+        self._text = text
+        self._raises = raises
+
+    def complete(self, messages, **kwargs):
+        self.calls.append({"messages": messages, **kwargs})
+        if self._raises is not None:
+            raise self._raises
+        return type("Result", (), {"text": self._text, "parsed": None})()
+
+
+def test_the_host_facade_is_called_and_its_text_parsed(monkeypatch):
+    import em.formation.llm as llm_mod
+
+    monkeypatch.setattr(llm_mod, "_REGISTERED_TASKS", set())
+    llm = FakeHostLlm(text='{"kind": "fact"}')
+
+    backend = HermesAuxBackend(llm=llm)
+    assert backend.available()
+    assert backend.complete_json(task="extract", system="s", user="u", schema=SCHEMA) == {
+        "kind": "fact"
+    }
+    call = llm.calls[0]
+    assert call["messages"] == [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "u"},
+    ]
+    assert call["temperature"] == 0
+    assert call["task"] is None, "an unregistered auxiliary slot must not be requested"
+
+
+def test_a_registered_auxiliary_slot_is_requested(monkeypatch):
+    import em.formation.llm as llm_mod
+
+    monkeypatch.setattr(llm_mod, "_REGISTERED_TASKS", {"entropicmem_extract"})
+    llm = FakeHostLlm(text='{"kind": "fact"}')
+
+    HermesAuxBackend(llm=llm).complete_json(task="extract", system="s", user="u")
+    assert llm.calls[0]["task"] == "entropicmem_extract"
+
+
+def test_a_failing_facade_is_none_and_never_propagates():
+    backend = HermesAuxBackend(llm=FakeHostLlm(raises=TimeoutError("stalled")))
+    assert backend.complete_json(task="extract", system="s", user="u") is None
+
+
+def test_the_private_auxiliary_client_is_never_imported(monkeypatch):
+    """The catalog rule the review enforced: no private host module import.
+
+    A fake ``agent.auxiliary_client`` that answers with valid JSON is installed.
+    The unbound backend must still return ``None``: if it reached for the
+    private client it would have parsed that JSON instead.
+    """
+    import types
+
+    calls = []
+
+    def call_llm(**kwargs):
+        calls.append(kwargs)
+        return {"choices": [{"message": {"content": '{"kind": "fact"}'}}]}
+
+    module = types.ModuleType("agent.auxiliary_client")
+    module.call_llm = call_llm
+    package = types.ModuleType("agent")
+    package.auxiliary_client = module
+    monkeypatch.setitem(sys.modules, "agent", package)
+    monkeypatch.setitem(sys.modules, "agent.auxiliary_client", module)
+
+    assert HermesAuxBackend().complete_json(task="extract", system="s", user="u") is None
+    assert calls == [], "the plugin must not call a private host module"
+
+
+def test_only_the_slots_the_host_accepted_are_recorded(monkeypatch):
+    import em.formation.llm as llm_mod
+
+    monkeypatch.setattr(llm_mod, "_REGISTERED_TASKS", set())
+
+    class Ctx:
+        def register_auxiliary_task(self, task, **kwargs):
+            if task.endswith("summarize"):
+                raise RuntimeError("rejected")
+
+    register_auxiliary_tasks(Ctx())
+    assert "entropicmem_extract" in llm_mod._REGISTERED_TASKS
+    assert "entropicmem_summarize" not in llm_mod._REGISTERED_TASKS
+
+
+def test_set_host_llm_binds_the_facade_for_select_backend(monkeypatch):
+    import em.formation.llm as llm_mod
+
+    llm = FakeHostLlm(text="{}")
+    monkeypatch.setattr(llm_mod, "_HOST_LLM", None)
+    llm_mod.set_host_llm(llm)
+    try:
+        backend = select_backend("hermes")
+        assert isinstance(backend, HermesAuxBackend)
+        assert backend.available(), "the bound facade makes the hermes backend available"
+    finally:
+        llm_mod.set_host_llm(None)

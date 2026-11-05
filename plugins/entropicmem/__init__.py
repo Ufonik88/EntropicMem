@@ -143,6 +143,10 @@ def register_memory_provider(ctx) -> None:
 def register(ctx) -> None:
     """General plugin loader entry point."""
     register_memory_provider(ctx)
-    from em.formation.llm import register_auxiliary_tasks
+    from em.formation.llm import register_auxiliary_tasks, set_host_llm
 
+    # Bind the host's public LLM facade for the formation backends. It is the
+    # supported surface for plugin completions: the host owns routing, auth and
+    # fallback, so no credential or private host module reaches the plugin.
+    set_host_llm(getattr(ctx, "llm", None))
     register_auxiliary_tasks(ctx)

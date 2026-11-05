@@ -8,10 +8,11 @@ renderers over it. The HTML viewer itself is three packaged assets —
 read through :mod:`importlib.resources` and **inlined** at export, so a written
 ``graph.html`` stays one self-contained file that works over ``file://``.
 
-Stdlib-only. The HTML output loads D3 v7 and marked from public CDNs
-(d3js.org, cdn.jsdelivr.net), plus Google Fonts, when it is opened in a
-browser. There is no vendored or offline fallback: opening the file offline
-shows no graph.
+Stdlib-only. D3 v7 and marked are vendored (``assets/d3.min.js``,
+``assets/marked.min.js``) and inlined at export, so the graph renders over
+``file://`` with no network. Only Google Fonts still come from
+``fonts.googleapis.com``; offline the page falls back to the system font stack
+and the graph itself is unaffected.
 """
 
 import json
