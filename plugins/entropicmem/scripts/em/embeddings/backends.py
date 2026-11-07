@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
@@ -33,6 +34,8 @@ from typing import Dict, List, Optional, Sequence
 
 from em.host_secret import get_secret
 from em.net import open_validated, read_capped
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "FastEmbedBackend",
@@ -183,6 +186,7 @@ class OpenAICompatBackend:
         # scope it was built in.
         self._api_key = api_key
         self._env_override = None if env is None else dict(env)
+        self._warned_keyless = False
         self.model = (
             model if model is not None else environ.get("ENTROPICMEM_EMBEDDINGS_MODEL", "")
         ) or self.default_model
@@ -214,8 +218,20 @@ class OpenAICompatBackend:
         if not self.available():
             raise RuntimeError("openai_compat has no base_url configured")
         headers = {}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        key = self.api_key
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        elif not self._warned_keyless:
+            # Warn once, before the request: a keyless endpoint refuses on the
+            # first call, so the per-call "failed" line is only ever seen at
+            # debug level. Without this, a missing or mis-scoped key looks
+            # exactly like a box with embeddings simply not configured.
+            self._warned_keyless = True
+            log.warning(
+                "openai_compat has a base_url but no ENTROPICMEM_EMBEDDINGS_API_KEY "
+                "for the active profile; the endpoint will refuse and callers fall "
+                "back to lexical search"
+            )
         body = _post_json(
             f"{self.base_url}/embeddings",
             {"model": self.model, "input": list(texts)},
