@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3243 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3241 passed, 4 skipped, 2 xfailed** |
 
-Read as at `905e308` (the embeddings credential-scope fix: the key is resolved
+Read as at `5a4954e` (the embeddings credential-scope fix: the key is resolved
 per request through the active profile's secret scope instead of once in
 `OpenAICompatBackend.__init__`; found from a reader's comment on the 3.0.1 post,
 confirmed with a probe that sent `Bearer key-A` on a profile-B turn) — 4 new
