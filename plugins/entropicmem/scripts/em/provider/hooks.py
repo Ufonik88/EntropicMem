@@ -68,6 +68,12 @@ HOOK_BUDGETS: Dict[str, float] = {
     "shutdown": 2000.0,
     "get_config_schema": 50.0,
     "save_config": 500.0,
+    # Host seams MemoryProvider gained after the 2026-10-09 pin. CLI/config-panel
+    # class, never a turn path (see their DEFERRED rows for why they are deferred).
+    "on_profile_created": 500.0,
+    "on_profile_renamed": 500.0,
+    "read_config_fields": 500.0,
+    "write_config_fields": 500.0,
 }
 
 #: Hooks whose failure the host must see. See the module docstring: a swallowed
