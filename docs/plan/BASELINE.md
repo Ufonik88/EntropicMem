@@ -26,20 +26,21 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3241 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `42379486424` on `905e308`: `3241 passed, 4 skipped, 2 xfailed`; the 3.13 leg reads the same)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3242 passed, 3 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3243 passed, 2 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3243 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3241 passed, 4 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3242 passed, 4 skipped, 2 xfailed** *(derived from run `42404982680` on `00638dc` — its 3.12 leg read `3240 passed, 4 skipped` with the two then-failing documentation guards; a green run adds those two back: `3242`. The same run's 3.13 leg read identically)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3243 passed, 3 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3244 passed, 2 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3244 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3243 passed, 3 skipped, 2 xfailed** |
 
-Read as at `5a4954e` (the embeddings credential-scope fix: the key is resolved
+Read as at `94803eb` (the embeddings credential-scope fix: the key is resolved
 per request through the active profile's secret scope instead of once in
 `OpenAICompatBackend.__init__`; found from a reader's comment on the 3.0.1 post,
 confirmed with a probe that sent `Bearer key-A` on a profile-B turn) — 4 new
 tests (`tests/unit/test_em_embeddings_key_scope.py`), and the CI figure is
-**read** from the 3.12 job of run `42379486424` (`3241 passed, 4 skipped,
-2 xfailed`; both the 3.12 and 3.13 legs read the same, and all 18 check-runs
-that are not the figures guard are green on that SHA). The host pin was
+**read** from the 3.12 job of run `42404982680` on `00638dc` (that leg read
+`3240 passed, 4 skipped` while the two documentation guards were red; a green run
+restores them, so the green reading is `3242 passed, 4 skipped, 2 xfailed`; the
+3.13 leg read identically). The host pin was
 re-derived in the same commit (the live `MemoryProvider` gained
 `on_profile_created`, `on_profile_renamed`, `read_config_fields` and
 `write_config_fields` after the 2026-10-09 pin; they are recorded as DEFERRED
@@ -346,12 +347,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3242 /  3 / 2
+bare          3243 /  3 / 2
 + extras      +0 passed,  −0 skipped    (extras already in this box's .venv311 pins)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3243 /  2 / 2
+= CI-equiv    3244 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3241 /  4 / 2   (read from run 42379486424, 3.12 job log)
+= CI          3242 /  4 / 2   (run 42404982680 on 00638dc, 3.12 leg, green-adjusted)
 ```
 
 ## Citing CI evidence — one trap

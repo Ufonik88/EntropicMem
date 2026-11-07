@@ -99,7 +99,7 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # The entity-plan landing's CI run (its figures read pass).
     "124115571537": "GitHub Actions run id, not a commit: the entity-plan landing's figures run",
     # The host-surface patch's CI run (the 3.0.1 figures read pass).
-    "42379486424": "GitHub Actions run id, not a commit: the embeddings credential-scope fix's figures run",
+    "42404982680": "GitHub Actions run id, not a commit: the post-merge CI run on 00638dc that the figures of record cite",
     "38775407380": "GitHub Actions run id, not a commit: the 2026-10-15 guard flap",
     # Same shape, same reason: EM-608's draft cites the 2026-10-18 warm-p95 flap's
     # job and run so the instance stays checkable (MASTER_TODO's flake record).
