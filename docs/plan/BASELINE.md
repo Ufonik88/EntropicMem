@@ -26,35 +26,25 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3242 passed, 4 skipped, 2 xfailed** *(derived from run `42404982680` on `00638dc` — its 3.12 leg read `3240 passed, 4 skipped` with the two then-failing documentation guards; a green run adds those two back: `3242`. The same run's 3.13 leg read identically)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3243 passed, 3 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3244 passed, 2 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3244 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3243 passed, 3 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3246 passed, 4 skipped, 2 xfailed** *(**projected** from this box's CI-equivalent by the host-pin relation; the landing run's `test (3.12)` leg reads the figure and a docs-only re-stamp replaces this projection with the read)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3247 passed, 3 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3248 passed, 2 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3248 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3247 passed, 3 skipped, 2 xfailed** |
 
-Read as at `49e077d` (the embeddings credential-scope fix: the key is resolved
-per request through the active profile's secret scope instead of once in
-`OpenAICompatBackend.__init__`; found from a reader's comment on the 3.0.1 post,
-confirmed with a probe that sent `Bearer key-A` on a profile-B turn) — 4 new
-tests (`tests/unit/test_em_embeddings_key_scope.py`), and the CI figure is
-**read** from the 3.12 job of run `42404982680` on `00638dc` (that leg read
-`3240 passed, 4 skipped` while the two documentation guards were red; a green run
-restores them, so the green reading is `3242 passed, 4 skipped, 2 xfailed`; the
-3.13 leg read identically). The host pin was
-re-derived in the same commit (the live `MemoryProvider` gained
-`on_profile_created`, `on_profile_renamed`, `read_config_fields` and
-`write_config_fields` after the 2026-10-09 pin; they are recorded as DEFERRED
-surface rows pointing at EM-904, the release act that re-pins the catalog,
-because AGENTS.md rule 10 gates a `provides_hooks` change to a release).
-**The local triples are the previous green measurement carried forward by
-exactly those 4 passing tests, plus the pin's re-derivation**: this box cannot
-produce a green `pytest -q tests/` in one process (the documented
-single-process contamination set), and `--measure` refuses a non-zero failed by
-design. The CI-equivalent and digest rows are derived from the measured bare
-row by the recorder's own two rules (the digest list converts exactly one skip
-into one pass; CI is the CI-equivalent moved by the two host pins), and the
-resulting CI figure is the one actually read from the run — the ladder and the
-read agree, which is the check that matters.
+Read as at `3c5a1e0` (the keyless-backend warning: a selected embeddings backend
+with no key now says so once, at WARNING, naming the variable — the per-call
+failure line is `debug`, so a missing or mis-scoped key used to look exactly
+like embeddings simply not configured) — 4 new tests
+(`tests/unit/test_em_embeddings_keyless_warning.py`). The local triples are
+**measured green on this tree**, not carried forward: bare `3247 passed, 3
+skipped, 2 xfailed` and Python 3.10 `3247 passed, 3 skipped` both exited 0 with
+no failing test excluded. The CI-equivalent and digest rows are derived from the
+bare row by the recorder's own two rules, and the CI row is **projected** from
+the CI-equivalent by the host-pin relation; the landing run's 3.12 leg reads the
+figure and a docs-only re-stamp follows. This record anchors at the commit that
+is the newest to touch the suite surface; because a squash merge mints a new
+SHA, the anchor is only ever stable from a docs-only commit.
 
 **The previous record** — read as at `bcb74e7` (the entity-plan landing on; the companion re-stamp — the read-pass commit itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite surface, so the record anchors at that tip instead) — landing on
 `em-entity-plan-alias-first`: the P0c timed sample's own SQL finding —
@@ -347,12 +337,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3243 /  3 / 2
+bare          3247 /  3 / 2
 + extras      +0 passed,  −0 skipped    (extras already in this box's .venv311 pins)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3244 /  2 / 2
+= CI-equiv    3248 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3242 /  4 / 2   (run 42404982680 on 00638dc, 3.12 leg, green-adjusted)
+= CI          3246 /  4 / 2   (projected; the landing run's 3.12 leg reads the green figure)
 ```
 
 ## Citing CI evidence — one trap
