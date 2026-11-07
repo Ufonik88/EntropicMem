@@ -177,21 +177,32 @@ class OpenAICompatBackend:
         self.base_url = (
             base_url if base_url is not None else environ.get("ENTROPICMEM_EMBEDDINGS_BASE_URL", "")
         ).rstrip("/")
-        # The key follows the active profile; an explicitly passed mapping (tests,
-        # standalone callers) still wins so the seam stays injectable.
-        self.api_key = (
-            api_key
-            if api_key is not None
-            else (
-                environ.get("ENTROPICMEM_EMBEDDINGS_API_KEY", "")
-                if env is not None
-                else get_secret("ENTROPICMEM_EMBEDDINGS_API_KEY", "")
-            )
-        )
+        # An explicitly passed key or mapping wins for the life of the object (the
+        # injectable test seam). Otherwise the key is resolved on every request
+        # through ``api_key`` below, because one client can outlive the profile
+        # scope it was built in.
+        self._api_key = api_key
+        self._env_override = None if env is None else dict(env)
         self.model = (
             model if model is not None else environ.get("ENTROPICMEM_EMBEDDINGS_MODEL", "")
         ) or self.default_model
         self.timeout = float(timeout)
+
+    @property
+    def api_key(self) -> str:
+        """The key for the profile serving THIS request.
+
+        Resolved on read, not in ``__init__``: ``EmbeddingService`` is long-lived
+        (one per provider, and its own docstring invites one per process), so a
+        host multiplexing profiles would otherwise keep spending the key of
+        whichever profile happened to construct it. ``get_secret`` fails closed
+        under multiplexing, so an unscoped read sends no key at all.
+        """
+        if self._api_key is not None:
+            return self._api_key
+        if self._env_override is not None:
+            return self._env_override.get("ENTROPICMEM_EMBEDDINGS_API_KEY", "")
+        return get_secret("ENTROPICMEM_EMBEDDINGS_API_KEY", "")
 
     def available(self) -> bool:
         return bool(self.base_url)

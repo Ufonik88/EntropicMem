@@ -57,7 +57,12 @@ def episode_text(title: str, summary: str) -> str:
 
 
 class EmbeddingService:
-    """Backend + model + batching. Construct once per process/worker."""
+    """Backend + model + batching. One instance per process/worker is safe.
+
+    The key is not captured here: ``OpenAICompatBackend.api_key`` resolves it per
+    request through the host's profile scope, so a long-lived service serves
+    whichever profile is on the turn rather than the one that built it.
+    """
 
     def __init__(
         self,
