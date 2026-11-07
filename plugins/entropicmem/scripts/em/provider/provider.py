@@ -2756,6 +2756,21 @@ HOOK_SURFACE: Tuple[HookSpec, ...] = (
     # lists only the on_* hooks the catalog review verifies.
     _spec("identity_signature", GATEWAY),
     _spec("save_config", CLI),
+    # MemoryProvider gained these four after the pin was taken (2026-10-09).
+    # Deferred, not implemented: the plugin inherits the host's defaults, which
+    # are the RIGHT behaviour here. EntropicMem declares
+    # storage=STORAGE_FLAT_JSON, so the dashboard config panel never reads or
+    # writes through the provider, and it keeps no per-profile state to create
+    # or re-key. Landing them would change provides_hooks, which AGENTS.md
+    # rule 10 gates to a release that also re-pins the catalog entry — EM-904.
+    _spec("on_profile_created", CLI, status=DEFERRED, deferred_to="EM-904",
+          defer_reason="host default is the correct no-op; the plugin keeps no per-profile state"),
+    _spec("on_profile_renamed", CLI, status=DEFERRED, deferred_to="EM-904",
+          defer_reason="host default is the correct no-op; nothing is keyed by profile name"),
+    _spec("read_config_fields", CLI, status=DEFERRED, deferred_to="EM-904",
+          defer_reason="storage=STORAGE_FLAT_JSON: the dashboard never reads through this provider"),
+    _spec("write_config_fields", CLI, status=DEFERRED, deferred_to="EM-904",
+          defer_reason="storage=STORAGE_FLAT_JSON: the dashboard never writes through this provider"),
 )
 
 

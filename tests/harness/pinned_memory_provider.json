@@ -189,6 +189,51 @@
       ],
       "property": false
     },
+    "on_profile_created": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "profile_name"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "hermes_home"
+        }
+      ],
+      "property": false
+    },
+    "on_profile_renamed": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "old_name"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "new_name"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "hermes_home"
+        }
+      ],
+      "property": false
+    },
     "on_session_end": {
       "params": [
         {
@@ -304,6 +349,21 @@
       ],
       "property": false
     },
+    "read_config_fields": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "hermes_home"
+        }
+      ],
+      "property": false
+    },
     "recall_status": {
       "params": [
         {
@@ -398,11 +458,31 @@
         }
       ],
       "property": false
+    },
+    "write_config_fields": {
+      "params": [
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "self"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "values"
+        },
+        {
+          "has_default": false,
+          "kind": "positional_or_keyword",
+          "name": "hermes_home"
+        }
+      ],
+      "property": false
     }
   },
   "module_constant": {
     "PRE_COMPRESS_CHECKPOINT_API_VERSION": 2
   },
-  "pinned_from": "hermes-agent checkout at ~/.hermes/hermes-agent (the host this plugin is developed against), enumerated 2026-10-09",
+  "pinned_from": "hermes-agent checkout at ~/.hermes/hermes-agent (the host this plugin is developed against), enumerated 2026-11-07",
   "source": "agent/memory_provider.py"
 }
