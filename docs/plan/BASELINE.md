@@ -32,14 +32,14 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3244 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3243 passed, 3 skipped, 2 xfailed** |
 
-Read as at `00638dc` (the embeddings credential-scope fix: the key is resolved
+Read as at `94803eb` (the embeddings credential-scope fix: the key is resolved
 per request through the active profile's secret scope instead of once in
 `OpenAICompatBackend.__init__`; found from a reader's comment on the 3.0.1 post,
 confirmed with a probe that sent `Bearer key-A` on a profile-B turn) — 4 new
 tests (`tests/unit/test_em_embeddings_key_scope.py`), and the CI figure is
 **read** from the 3.12 job of run `42404982680` on `00638dc` (that leg read
 `3240 passed, 4 skipped` while the two documentation guards were red; a green run
-restores them, so the figure of record is `3242 passed, 4 skipped, 2 xfailed`; the
+restores them, so the green reading is `3242 passed, 4 skipped, 2 xfailed`; the
 3.13 leg read identically). The host pin was
 re-derived in the same commit (the live `MemoryProvider` gained
 `on_profile_created`, `on_profile_renamed`, `read_config_fields` and
