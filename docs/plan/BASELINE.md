@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3248 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3247 passed, 3 skipped, 2 xfailed** |
 
-Read as at `e3bbd89` (the keyless-backend warning: a selected embeddings backend
+Read as at `1fe9da8` (the keyless-backend warning: a selected embeddings backend
 with no key now says so once, at WARNING, naming the variable — the per-call
 failure line is `debug`, so a missing or mis-scoped key used to look exactly
 like embeddings simply not configured) — 4 new tests
