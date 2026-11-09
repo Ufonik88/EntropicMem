@@ -104,9 +104,9 @@ owner's ruling); 2026-10-27 (forty-third pass — **EM-806 (S8 packaging) is LAN
   from a byte copy.
 - Figures: bare **3151 / 20 / 2** and digest **3152 / 19 / 2** measured on this box (it
   carries no CI extras; the ladder reconciles), CI-equivalent **3248 / 2 / 2**, 3.10
-  **3248 / 2 / 2**, CI **3246 / 4 / 2 projected** from the CI-equivalent by the host-pin
-  relation — the landing run's `test (3.12)` job reads the figure and a docs-only
-  re-stamp replaces the projection.
+  **3248 / 2 / 2**, CI **3246 / 4 / 2 read** from run `42601854714`'s
+  `test (3.12)` job (the merge push at `5954862`) — exactly what the host-pin
+  relation had projected.
 - **Doc-control note:** the 3.0.1 landings of Nov 5–7 (Hermes's commits) reached `main`
   without a MASTER_TODO/NEXT_CHUNK record; the same docs pass reconciles them
   (MASTER_TODO's banner records the three commits; the plan's State rows are current).

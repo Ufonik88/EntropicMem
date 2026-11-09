@@ -26,13 +26,13 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3246 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `129078238265` on `c801265` — 18/18 check-runs green on that exact SHA, exactly the projection)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3246 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `42601854714` on the merge tip `5954862` — 13/13 jobs green, and the branch tip's own run was green on the same figure; exactly the projection)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3151 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3152 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3248 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3248 passed, 2 skipped, 2 xfailed** |
 
-Read as at `b8c35b2` (the hermeticity fixture; the companion re-stamp — this read-pass commit itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite surface, so the record anchors at this tip instead of `c801265`) (the hermeticity fixture: an autouse `tests/conftest.py`
+Read as at `b2841ce` (the record's citation correction: the first read pass cited the check-run id of the branch-tip job as if it were a run id — it does not resolve as a run; the true source is run `42601854714`, the merge push at `5954862`, whose 3.12 job reads the same figure; the correction commit also touched the allowlist in `tests/test_cited_shas.py`, so the record anchors at it) (the hermeticity fixture: an autouse `tests/conftest.py`
 fixture scrubs the five gateway-exported `ENTROPICMEM_*` path vars around each
 test — provider.py's env-path source outranks every config a test writes, so a
 test's provider resolved to the live store paths wherever a plugin-serving
@@ -44,7 +44,7 @@ No test was added or removed. **Bare, digest and the CI-equivalent were measured
 on this box on the committed tree** (this box's `.venv311` carries no CI extras,
 so its bare row reads lower than the CI-equivalent — the ladder below
 reconciles), and the CI row is **projected** from the CI-equivalent by the
-host-pin relation; **the CI row is read, not projected:** run `129078238265` on `c801265` reads
+host-pin relation; **the CI row is read, not projected:** run `42601854714` on the merge tip `5954862` reads
 **3246 passed, 4 skipped, 2 xfailed** from its `test (3.12)` job log — 18/18
 check-runs green on that exact SHA, exactly what the host-pin relation had
 projected.
@@ -345,7 +345,7 @@ bare          3151 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3248 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3246 /  4 / 2   (read from run 129078238265, 3.12 job log)
+= CI          3246 /  4 / 2   (read from run 42601854714, the merge push at 5954862)
 ```
 
 ## Citing CI evidence — one trap
