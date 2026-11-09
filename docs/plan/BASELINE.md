@@ -32,7 +32,7 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3248 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3248 passed, 2 skipped, 2 xfailed** |
 
-Read as at `c801265` (the hermeticity fixture: an autouse `tests/conftest.py`
+Read as at `b8c35b2` (the hermeticity fixture; the companion re-stamp — this read-pass commit itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite surface, so the record anchors at this tip instead of `c801265`) (the hermeticity fixture: an autouse `tests/conftest.py`
 fixture scrubs the five gateway-exported `ENTROPICMEM_*` path vars around each
 test — provider.py's env-path source outranks every config a test writes, so a
 test's provider resolved to the live store paths wherever a plugin-serving
