@@ -419,7 +419,7 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-11-09, against `main` at `5954862` (the store-hermeticity
+**Last reconciled:** 2026-11-09, against branch `main` at `5954862` (the store-hermeticity
 fixture's companion re-stamp riding the read-pass commit; level with `origin/main`,
 26/26 check-runs green on the merge tip). Before it: `8a8e350`/`1fe9da8`/`00638dc`
 (the 2026-11-07 fixes, #15/#17, whose records were reconciled into this file this
