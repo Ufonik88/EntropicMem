@@ -789,3 +789,16 @@ def test_the_p95_excludes_the_refresh_turns(tmp_path):
     assert condition["verdict"] == "met", condition
     assert condition["refresh_turns"] == 5
     assert condition["refresh_max_ms"] == 20_000.0
+
+def test_the_suite_cannot_append_to_a_hosts_real_shadow_log():
+    """The conftest must strip the shadow env, or a plain test run is evidence damage.
+
+    Measured 2026-11-07: running this file on the serving host appended synthetic
+    lines to the production divergence log, because ``ENTROPICMEM_SHADOW_LOG`` is
+    exported process-wide there and a shadow-enabled test without ``destination``
+    inherits it. The log is evidence; the suite must not be able to write it.
+    """
+    import os
+
+    assert os.environ.get(_shadow.SHADOW_ENV) is None
+    assert os.environ.get(_shadow.LOG_ENV) is None
