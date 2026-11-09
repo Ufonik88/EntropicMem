@@ -419,12 +419,13 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-10-30, against branch `main` at `7fee701` (the
-report-shape landing's read pass + companion re-stamp; runs green on `bf25d75`,
-`6711e41`, `7fee701`). Before it: `b3f16c9`/`2947e09` (chunk 62 + the P0c
-check-in docs), `6777fa9` (chunk 62, the p95's retrieval-only read), `6dcddb9`
-(chunk 61), `98e3e48` (chunk 60), `ff0cb52` (59), `f3bb689` (58), `fe54518` (57),
-`6a796a1` (56), `1e8e7c4` (the 3.0.0 release), and back through chunks 54-48.
+**Last reconciled:** 2026-11-09, against `main` at `5954862` (the store-hermeticity
+fixture's companion re-stamp riding the read-pass commit; level with `origin/main`,
+26/26 check-runs green on the merge tip). Before it: `8a8e350`/`1fe9da8`/`00638dc`
+(the 2026-11-07 fixes, #15/#17, whose records were reconciled into this file this
+session), `947b0ba`/`3a15b2c`/`8b8a246` (the 3.0.1 host-surface patch), `80f50ca`
+(chunk 62's successor + the P0c close), `6777fa9` (chunk 62), `6dcddb9` (61) and
+back through chunks 54–48.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
