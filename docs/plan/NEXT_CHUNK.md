@@ -83,7 +83,7 @@ owner's ruling); 2026-10-27 (forty-third pass — **EM-806 (S8 packaging) is LAN
 
 ## Part A: what has landed
 
-### Chunk 63 — the suite is hermetic against the gateway's exported `ENTROPICMEM_*` paths (the P0c host's Finding 1). Landing on branch `em-hermetic-conftest-env`, build `1e454e3` on top of `8a8e350` (2026-11-09; built 2026-10-31 as `2ddeeb8` on `2cca877`, rebased forward over the 3.0.1 + #15/#17 landings)
+### Chunk 63 — the suite is hermetic against the gateway's exported `ENTROPICMEM_*` paths (the P0c host's Finding 1). Landing on branch `em-hermetic-conftest-env`, build `1e454e3` on top of `8a8e350` (2026-11-09; the original build was cut 2026-10-31 on the then-tip and rebased forward over the 3.0.1 + #15/#17 landings — the rebase discarded its pre-rebase SHA, which is why this page cites only the rebased one)
 
 - **The leak (measured on the collector's host, 2026-10-30):** Hermes's gateway exports
   five `ENTROPICMEM_*` vars verbatim — `VAULT_PATH`/`INDEX_DB`/`MEMORY_DB` in
