@@ -83,6 +83,18 @@ owner's ruling); 2026-10-27 (forty-third pass — **EM-806 (S8 packaging) is LAN
 
 ## Part A: what has landed
 
+>> **Part B close (2026-11-09): the three owner-gated items are resolved by the
+>> owner's on-the-day delegation.** `v3.0.2` is cut and published (Part A's
+>> chunk-63 record continues into the release: build `97ecda0` + `6eebc76`,
+>> record `5ee9c54`, read `4b4d26b` — CI **3281 / 4 / 2** read from run
+>> `42630706326` — companion `12ca8ae`; tag `v3.0.2`, GitHub Release up);
+>> catalog PR `#146446` re-pinned to 3.0.2 (committed on the fork's branch); the stray
+>> test-only landing recovered and landed (`97ecda0`) with its remote ref gone.
+>> Nothing else is in flight; the repo's remainder is the maintainer's review
+>> of the re-pin and the ungated future items (see the In flight row).
+>>
+
+
 ### Chunk 63 — the suite is hermetic against the gateway's exported `ENTROPICMEM_*` paths (the P0c host's Finding 1). Landing on branch `em-hermetic-conftest-env`, build `1e454e3` on top of `8a8e350` (2026-11-09; the original build was cut 2026-10-31 on the then-tip and rebased forward over the 3.0.1 + #15/#17 landings — the rebase discarded its pre-rebase SHA, which is why this page cites only the rebased one)
 
 - **The leak (measured on the collector's host, 2026-10-30):** Hermes's gateway exports

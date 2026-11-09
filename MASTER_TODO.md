@@ -329,6 +329,32 @@ points at.
 > corrected readout + sanitized evidence of record: [`docs/plan/P0C_READOUT.md`](
 > docs/plan/P0C_READOUT.md) + [`docs/plan/p0c_evidence/`](docs/plan/p0c_evidence/).
 >
+> **2026-11-09, later: the owner delegated all three open owner-gated items ("make the
+> safe logical decision on my behalf") and the agent made them.** (1) **The v3.0.1
+> release-shape question resolved as `v3.0.2` cut and published** — release
+> prep on `release/3-0-2-prep` (stray-graph tests recovered at `97ecda0`, the
+> version stamped everywhere it is identified at `6eebc76`, record `5ee9c54`,
+> read pass `4b4d26b` reading CI **3281 / 4 / 2** from run `42630706326`,
+> companion `12ca8ae`; 13/13 green on the branch/run tips and 26/26 on the
+> merge tip), **tagged `v3.0.2` at `12ca8ae` and the GitHub Release published**
+> (v3.0.2 supersedes the never-released `v3.0.1` tag — that tag predates the two
+> user-facing embeddings fixes #15/#17, so the release of record carries
+> everything; CHANGELOG's `[3.0.2]` section folds the line). (2) **The catalog
+> re-pin PR `#146446` now pins `v3.0.2`** (`12ca8ae06ca4b9da0271a49d7cf7ce40d019befd`
+> via the fork's contents API at the fork's re-pin commit; all six image URLs 200 at
+> the new sha; the maintainer's review comes due on the new pin). (3) **The stray
+> branch `land/tests-graph-model-tests` was resolved by landing it**: its single
+> test-only commit is 35 green tests for `em.graph.model` authored under the
+> owner's own noreply account with a nonstandard display name; re-applied under
+> the standard identity with the source SHA credited (`97ecda0`, all 35 green on
+> `main`, zero product code); the remote ref was then found already deleted on
+> the remote (by its own session's cleanup or a peer). **Not touched:** a NEW
+> batch of stray refs appeared on the remote while this session ran
+> (`em-shadow-turn-source`, `fix/plugin-host-surfaces`, `land/coverage-net`,
+> `land/graph-tests-w44`, `wt/t_d9e81a25`, `wt/t_566b902e-fix`) — outside this
+> session's delegation, recorded here for the next pass, zero-delta checks and
+> owner attribution pending.
+>
 > **2026-11-05, the catalog re-pin's review demanded two host-surface changes and they
 > shipped as the `v3.0.1` patch on `main`** (`3a15b2c`, `8b8a246`): plugin credentials
 > resolve through `agent.secret_scope` (the **active profile's** value — `os.environ` in
@@ -419,13 +445,14 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-11-09, against branch `main` at `5954862` (the store-hermeticity
-fixture's companion re-stamp riding the read-pass commit; level with `origin/main`,
-26/26 check-runs green on the merge tip). Before it: `8a8e350`/`1fe9da8`/`00638dc`
-(the 2026-11-07 fixes, #15/#17, whose records were reconciled into this file this
-session), `947b0ba`/`3a15b2c`/`8b8a246` (the 3.0.1 host-surface patch), `80f50ca`
-(chunk 62's successor + the P0c close), `6777fa9` (chunk 62), `6dcddb9` (61) and
-back through chunks 54–48.
+**Last reconciled:** 2026-11-09, against branch `main` at `12ca8ae` (the v3.0.2
+release commit's own figure record; level with `origin/main`, 26/26 check-runs
+green on it — plus the release's publication, the catalog re-pin to 3.0.2, and
+the stray-branch recovery recorded in the banner above and in
+[`NEXT_CHUNK.md`](docs/plan/NEXT_CHUNK.md) Part B's close). Before it: `78aad21`
+(the reconcile wording guard's fix + the run-id correction), `8a8e350` chain
+(the 3.0.1 line and #15/#17), `80f50ca`, and back through chunks 62
+\…48/the 3.0.0 release.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
