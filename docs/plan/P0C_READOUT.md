@@ -107,6 +107,15 @@ p95 burst read).
    (systemd `Environment=`), and the fix has landed on this tree — an autouse
    `tests/conftest.py` fixture that scrubs the five names around each test (deliberate
    per-test setters unaffected; the privacy-digest/internal-dir vars stay readable by
-   contract). A separate perf red on the host
+   contract). 4. **The version filter's watchdog ruling (2026-11-09, on Hermes's finding):** `em_version`
+   is read from `plugin.yaml` on every call, not from the loaded build — so a pull that
+   stamps a later version flips the label the moment it lands, and `evaluate()`
+   excludes other-build lines. Measured consequence: read from a 3.0.2 tree the sample
+   scores 3 usable lines (the whole 3,279-line 3.0.1 sample excluded as other-build).
+   **The held verdict is read from the 3.0.1 tree until ~200 post-pull turns exist**;
+   the no-silently-resetting sample note is recorded here rather than wired into the
+   evaluation, because a filter carve-out is evaluation machinery and a **re-armed run
+   must be pre-declared anyway**.
+A separate perf red on the host
    (`test_50k_vectors_search_p95_under_25ms_with_numpy`, 36.67 ms vs the 25 ms guard) is
    env-independent — hardware, not this bug — noted for a future look.

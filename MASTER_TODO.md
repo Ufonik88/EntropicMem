@@ -353,7 +353,14 @@ points at.
 > (`em-shadow-turn-source`, `fix/plugin-host-surfaces`, `land/coverage-net`,
 > `land/graph-tests-w44`, `wt/t_d9e81a25`, `wt/t_566b902e-fix`) — outside this
 > session's delegation, recorded here for the next pass, zero-delta checks and
-> owner attribution pending.
+> owner attribution pending. **Later 2026-11-09, the turn-source card was handed over
+> by its session and landed re-applied** (`51fc919` re-applies `9406c86`'s writer tag +
+> report filter with the source SHA credited; `a86eb0e` keeps `d355187`'s pinning test
+> anchored to this suite's five-var hermeticity fixture per the handover's own
+> resolution — the branch's duplicate fixture dropped, its test kept; 7 new tests,
+> mutation checks red; ff-merge at `d20843c`; CI **3288 / 4 / 2 read** from run
+> `42655175550`; 26/26 on the merge tip; the source branch's remote ref retired after
+> landing). The remote stray list shrinks by one; the rest remain for their own passes.
 >
 > **2026-11-05, the catalog re-pin's review demanded two host-surface changes and they
 > shipped as the `v3.0.1` patch on `main`** (`3a15b2c`, `8b8a246`): plugin credentials
@@ -445,14 +452,11 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-11-09, against branch `main` at `12ca8ae` (the v3.0.2
-release commit's own figure record; level with `origin/main`, 26/26 check-runs
-green on it — plus the release's publication, the catalog re-pin to 3.0.2, and
-the stray-branch recovery recorded in the banner above and in
-[`NEXT_CHUNK.md`](docs/plan/NEXT_CHUNK.md) Part B's close). Before it: `78aad21`
-(the reconcile wording guard's fix + the run-id correction), `8a8e350` chain
-(the 3.0.1 line and #15/#17), `80f50ca`, and back through chunks 62
-\…48/the 3.0.0 release.
+**Last reconciled:** 2026-11-09, against branch `main` at `d20843c` (the turn-source
+card's companion re-stamp; level with `origin/main`, 26/26 check-runs green on the
+merge tip). Before it: `6fb6637` (the delegated decisions' record), `12ca8ae`-chain
+(the v3.0.2 release), `8a8e350` chain (the 3.0.1 line), `80f50ca`, and back through
+the release and chunks 62–48.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
