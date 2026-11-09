@@ -26,7 +26,7 @@ _PEP440_DEV = re.compile(r"^\d+\.\d+\.\d+\.dev\d+$")
 
 def test_em_version_is_the_released_patch():
     """The released form: exactly 3.0.1 (the dev marker came off at the release)."""
-    assert em.__version__ == "3.0.1", em.__version__
+    assert em.__version__ == "3.0.2", em.__version__
 
 
 def _pyproject_text() -> str:

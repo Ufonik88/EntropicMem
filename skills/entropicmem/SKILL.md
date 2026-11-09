@@ -1,7 +1,7 @@
 ---
 name: entropicmem
 description: Standalone knowledge engine: vault, memory, graph.
-version: 3.0.0
+version: 3.0.2
 author: Ufonik
 platforms: [linux, macos, windows]
 metadata:

@@ -4,6 +4,19 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-11-09
+
+The 3.0.1 patch line's content, folded with the landings that reached `main`
+after the `v3.0.1` tag was cut (the tag predates the two embeddings fixes —
+they ship in this release of record together with everything else on `main`).
+
+### Added
+
+- **35 tests for `em.graph.model`** (re-applied from the owner's own session's
+  landing `ae7d718`, branch `land/tests-graph-model-tests`, unmerged since
+  2026-10-29 and recovered under the standard identity with the source SHA
+  credited; all 35 green on `main`'s current tree).
+
 ### Added
 
 - **The suite is hermetic against the gateway's exported `ENTROPICMEM_*` paths (the P0c host's Finding 1, landing `em-hermetic-conftest-env`).** Hermes's gateway exports five `ENTROPICMEM_*` vars verbatim (`VAULT_PATH`/`INDEX_DB`/`MEMORY_DB`/`SHADOW_V3`/`SHADOW_LOG`; the first three in `$HERMES_HOME/.env`, the shadow pair as systemd `Environment=`), and `provider.py`'s env-path source outranks every config a test writes — a provider any test builds resolves to the live store paths. Measured there with those values: 51 env-caused failures in `tests/unit`, zero live-store writes (audit checked). This lands an autouse `tests/conftest.py` fixture that scrubs the five names around each test (deliberate per-test setters are unaffected; the privacy-digest/internal-dir vars stay readable by contract). Red-checked with the verbatim values on the dev box (50 red → 50 green on the measured sample file, full `tests/unit` 2002/2 green under the leak), red mutation-check by removing the scrub, figures re-stamped at the landing tip.
