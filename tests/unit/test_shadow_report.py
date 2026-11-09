@@ -587,3 +587,95 @@ def test_the_report_carries_the_gatemix_and_the_raw_ms_distribution():
     text = _shadow.render(_shadow.evaluate(data, log="x"))
     assert "gatemix: 1 abstain / 1 no-candidates" in text
     assert "non-refresh turn(s)" in text
+
+
+# --- the source split: tag at the writer, filter at report time -----------------
+#
+# 2026-11-07 handoff decision (Opencode, on the P0c sample): a cron/system-prompt
+# turn is tagged at the collector and kept in the log, and only the REPORT excludes
+# it. Dropping at write time is irreversible and destroys the denominator; filtering
+# here lets the abstain rate and any recall figure be computed over real chat turns,
+# with the cron slice carried beside them as its own denominator.
+
+CRON_QUERY = _shadow.CRON_PREAMBLE + ". DELIVERY: your final response will be delivered."
+
+
+def _cron_line(index: int = 0, **kwargs) -> Dict[str, Any]:
+    data = line(index, query=CRON_QUERY, **kwargs)
+    data["source"] = _shadow.SOURCE_CRON
+    return data
+
+
+def test_the_writer_tags_a_real_turn_and_a_cron_turn_differently():
+    assert _shadow.turn_source("a real question about the port") == _shadow.SOURCE_TURN
+    assert _shadow.turn_source(CRON_QUERY) == _shadow.SOURCE_CRON
+    assert _shadow.turn_source("") == _shadow.SOURCE_TURN
+
+
+def test_the_writer_puts_the_tag_on_the_line(tmp_path, monkeypatch):
+    """The tag is written, not inferred later — the panel is in the log."""
+    import sqlite3
+
+    monkeypatch.setenv(_shadow.SHADOW_ENV, str(tmp_path / "copy" / "memory.db"))
+    live = tmp_path / "live.db"
+    sqlite3.connect(str(live)).close()
+    log = tmp_path / "d.jsonl"
+
+    written = _shadow.run(live, profile="eval", query=CRON_QUERY, v2_ids=[], destination=log)
+    assert written is not None and written["source"] == _shadow.SOURCE_CRON
+    assert json.loads(log.read_text().splitlines()[0])["source"] == _shadow.SOURCE_CRON
+
+    written = _shadow.run(live, profile="eval", query="a real turn", v2_ids=[], destination=log)
+    assert written["source"] == _shadow.SOURCE_TURN
+
+
+def test_a_cron_turn_is_excluded_from_the_scored_sample_and_reported_apart(armed):
+    """The two denominators: real turns score, cron turns are counted beside them."""
+    real = [line(i, v2=[f"a{i:04d}"], v3=[f"a{i:04d}"]) for i in range(N)]
+    cron = [_cron_line(N + i, v2=[f"c{i:04d}"], v3=[]) for i in range(4)]
+    result = _shadow.evaluate(real + cron, log="x")
+
+    assert result["sample"]["usable"] == N
+    assert result["sample"]["cron"] == 4
+    split = result["context"]["source_split"]
+    assert split["turn"] == N and split["cron_preamble"] == 4
+    # The four cron misses did NOT enter the scored miss rate: 0 of N, not 4 of N+4.
+    assert result["conditions"]["v2_miss_rate"]["value"] == 0.0
+    assert result["conditions"]["v2_miss_rate"]["injected_ids"] == N
+    assert result["verdict"] == "met"
+    assert "4 cron/system-prompt turn(s)" in " ".join(result["reasons"])
+
+    text = _shadow.render(result)
+    assert f"sources: {N} real turn(s) scored, 4 cron-preamble excluded" in text
+
+
+def test_a_sample_dominated_by_cron_reads_as_no_signal_not_as_a_verdict():
+    """The finding of record: 300 cron turns and 3 real ones is not evidence."""
+    cron = [_cron_line(i, v2=[f"c{i:04d}"], v3=[]) for i in range(300)]
+    real = [line(i, v2=["a0001"], v3=["a0001"]) for i in range(3)]
+    result = _shadow.evaluate(cron + real, log="x")
+
+    assert result["verdict"] == "cannot conclude"
+    assert any("no signal: the sample is dominated by cron boilerplate" in r
+               for r in result["reasons"])
+    assert result["conditions"]["v2_miss_rate"]["value"] == 0.0
+
+
+def test_an_untagged_cron_line_from_an_older_writer_is_still_sliced():
+    """No backfill needed: a line without the field is classified from its own text."""
+    data = [line(0, v2=["a"], v3=["a"], query=CRON_QUERY), line(1, v2=["b"], v3=["b"])]
+    for item in data:
+        item.pop("source", None)
+    result = _shadow.evaluate(data, log="x")
+    assert result["sample"]["cron"] == 1
+    assert result["sample"]["usable"] == 1
+
+
+def test_the_cron_slice_keeps_its_own_gate_mix():
+    """The cron slice is evidence about the collector's inputs, so its mix travels."""
+    data = [line(0, v2=["a"], v3=["a"]), _cron_line(1, v2=["c"], v3=[])]
+    data[1]["v3_gate"] = "abstain"
+    result = _shadow.evaluate(data, log="x")
+    split = result["context"]["source_split"]
+    assert split["cron_gates"] == {"abstain": 1}
+    assert result["context"]["gatemix"]["abstain"] == 0, "the cron abstain is not the scored mix"

@@ -4,6 +4,11 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 ## [Unreleased]
 
+### Fixed
+
+- **The shadow tags every divergence line as a real turn or a cron preamble, and the report scores the real turns only** (re-applied from the source session's landing `9406c86`, branch `em-shadow-turn-source`, with the source SHA credited; tag, do not drop — the writer classifies from the turn's text at write time and old lines slice from their own text, so no backfill is needed). The P0c sample on the collector's host reads ~98% cron/system-preamble text: the abstain rate and the recall figures on a cron-heavy sample describe the collector's inputs, not the cutover. The report now prints the cron slice beside the real-turn denominator (`context.source_split` keeps each side's gate mix) and scores the miss/fabrication/p95 conditions on real turns only.
+
+
 ## [3.0.2] - 2026-11-09
 
 The 3.0.1 patch line's content, folded with the landings that reached `main`

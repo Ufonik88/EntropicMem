@@ -63,6 +63,36 @@ CAVEAT = (
     " divergence is a LOWER BOUND because the copy lags"
 )
 
+#: The collector's tag for a turn whose text is a cron/system prompt rather than a
+#: real chat turn. **Tagged at the writer, kept in the log, filtered only at REPORT
+#: time** (2026-11-07 handoff decision): dropping is irreversible and destroys the
+#: denominator, and a cron slice that is worthless for recall is still evidence about
+#: the collector's inputs. The report scores real turns and reports the cron slice
+#: beside them as its own denominator.
+CRON_PREAMBLE = "[IMPORTANT: You are running as a scheduled cron job"
+SOURCE_FIELD = "source"
+SOURCE_TURN = "turn"
+SOURCE_CRON = "cron-preamble"
+
+
+def turn_source(query: str) -> str:
+    """The collector's tag for one turn's text: cron preamble, or a real turn."""
+    return SOURCE_CRON if (query or "").startswith(CRON_PREAMBLE) else SOURCE_TURN
+
+
+def _source_of(item: Dict[str, Any]) -> str:
+    """A line's tag: the writer's own field, else derived from its own text.
+
+    The explicit field is what keeps the tag correct if the preamble format ever
+    changes; the fallback is what makes the log written before the field existed
+    sliceable without a backfill.
+    """
+    tagged = item.get(SOURCE_FIELD)
+    if tagged in (SOURCE_TURN, SOURCE_CRON):
+        return tagged
+    return turn_source(str(item.get("query") or ""))
+
+
 #: The promotion observable, **fixed before any data is collected** so the threshold
 #: cannot be chosen to fit the sample.
 #:
@@ -381,6 +411,8 @@ def run(
     line: Dict[str, Any] = {
         "ts": moment.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
         "query": (query or "")[:200],
+        # The tag the report filters on (see CRON_PREAMBLE): written, never dropped.
+        "source": turn_source(query),
         "v2_ids": list(v2_ids),
         "v3_ids": v3_ids,
         # Chunk 57: the gate's own decision on this turn — "abstain" (it had
@@ -506,6 +538,13 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
         usable.append((position, item))
     malformed = len(unreadable)
 
+    # Tag, do not drop. A cron/system-prompt turn is not evidence about real
+    # retrieval, so it leaves the *scored* sample — but it stays in the log, it is
+    # counted, and its gate mix is reported. A defect visible in the data beats one
+    # inferred from a commit message, and the slice is one flag from useful again.
+    cron_turns = [(position, item) for position, item in usable if _source_of(item) == SOURCE_CRON]
+    usable = [(position, item) for position, item in usable if _source_of(item) != SOURCE_CRON]
+
     reasons: List[str] = []
     conditions: Dict[str, Dict[str, Any]] = {}
     turns = len(usable)
@@ -517,6 +556,10 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
     for _, item in usable:
         key = str(item.get("v3_gate") or "unrecorded")
         gates[key] = gates.get(key, 0) + 1
+    cron_gates: Dict[str, int] = {}
+    for _, item in cron_turns:
+        key = str(item.get("v3_gate") or "unrecorded")
+        cron_gates[key] = cron_gates.get(key, 0) + 1
 
     # 1. enough turns to be worth reading (sufficiency, not behaviour).
     floor = float(thresholds["min_turns"])
@@ -717,6 +760,17 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
     for name, condition in conditions.items():
         if condition["verdict"] == "not met" and name != "min_turns":
             reasons.append(f"{name}: {condition['verdict']}")
+    if cron_turns:
+        reasons.append(
+            f"{len(cron_turns)} cron/system-prompt turn(s) are tagged '{SOURCE_CRON}' and "
+            "excluded from every number above (their own gate mix: "
+            f"{cron_gates}); the scored sample is {turns} real turn(s)"
+        )
+        if len(cron_turns) > turns:
+            reasons.append(
+                "no signal: the sample is dominated by cron boilerplate — "
+                f"{len(cron_turns)} cron turn(s) against {turns} real one(s)"
+            )
     if turns < floor:
         reasons.append(f"only {turns} usable turn(s) of the {floor:.0f} the observable needs")
     if malformed:
@@ -781,6 +835,7 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
         "sample": {
             "lines": len(lines),
             "usable": turns,
+            "cron": len(cron_turns),
             "malformed": malformed,
             "other_build": len(other_build),
             "first_ts": (usable[0][1]["ts"] if usable else None),
@@ -800,6 +855,11 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
             ),
             "turns_with_injection": len(injections),
             "turns_abstaining": turns - len(injections),
+            "source_split": {
+                "turn": turns,
+                "cron_preamble": len(cron_turns),
+                "cron_gates": cron_gates,
+            },
             "gatemix": {
                 "abstain": gates.get("abstain", 0),
                 "no_candidates": gates.get("no-candidates", 0),
@@ -889,6 +949,10 @@ def render(result: Dict[str, Any]) -> str:
             f"{gate.get('no_candidates', 0)} no-candidates / "
             f"{gate.get('pass', 0)} pass / {gate.get('unrecorded', 0)} unrecorded "
             f"({gate.get('total', 0)} gated turn(s))"
+        ),
+        (
+            f"sources: {sample_info['usable']} real turn(s) scored, "
+            f"{sample_info.get('cron', 0)} cron-preamble excluded from the verdict"
         ),
         "",
     ]
