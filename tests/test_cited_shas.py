@@ -102,6 +102,8 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "42601854714": "GitHub Actions run id, not a commit: the hermeticity-fixture landing's figures run (the merge push at 5954862; the check-run id 129078238265 a first citation carried does not resolve and was corrected)",
     # The 3.0.2 release-prep's CI run (its figures read pass).
     "42630706326": "GitHub Actions run id, not a commit: the 3.0.2 release-prep's figures run",
+    # The turn-source landing's CI run (its figures read pass).
+    "42655175550": "GitHub Actions run id, not a commit: the turn-source landing's figures run",
     # The host-surface patch's CI run (the 3.0.1 figures read pass).
     "38775407380": "GitHub Actions run id, not a commit: the 2026-10-15 guard flap",
     # Same shape, same reason: EM-608's draft cites the 2026-10-18 warm-p95 flap's
