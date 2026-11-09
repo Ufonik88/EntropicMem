@@ -57,8 +57,14 @@ p95 burst read).
    measured 0.0 ms** — no attempt, no backend. The shadow's v3 side served exactly the
    configuration the cutover would serve (lexical/entity/episodic only), so **the miss
    rate is not a shadow artifact.** Re-arming the P0c with embeddings on requires an
-   embedding backend to exist first; on this host it does not. Until one does, or the
-   miss-rate evidence is otherwise resolved, the v2 engine keeps serving.
+   embedding backend to exist first; **the backend question is now answered on the host**:
+   config.json absent → `embeddings.enabled` default false, backend auto; the
+   `ENTROPICMEM_EMBEDDINGS` env is unset; the gateway's Python imports no fastembed /
+   sentence_transformers / openai module, and `select_backend(env=os.environ)` returns
+   `none` with `available=False`. **No backend exists; the recommendation stands as
+   written — the v2 engine keeps serving.** Recorded caveat: the live `memory.db` still
+   carries 2 892 embedding rows stamped `all-MiniLM-L6-v2` from a historical backfill;
+   they are inert (nothing generates query vectors for them), not evidence of a backend.
 2. **The 24.6 s p95 is burst queueing, not retrieval.** 260 of the 294 non-refresh
    turns sit in one 16-minute storm (40+ turns on one process in single-second windows;
    turns 23.8–25.3 s each); the two worst lines replay at **198.6/210.9 ms** against
@@ -94,6 +100,13 @@ p95 burst read).
    (an embedding backend on the serving host) is not met.
 2. **The cutover stays held** until a verdict reads a clean go.
 3. Recorded alongside (non-blocking): the gateway's exported `ENTROPICMEM_*` env breaks
-   21 wiring tests on the host (Finding 1) — a tests/conftest.py hermeticity fixture is
-   the fix, landed here rather than there so the suite-surface figures dance stays in one
-   place.
+   wiring tests on the host (Finding 1). **Later 2026-10-30, on Hermes's measured
+   repro:** the honest count is 51 env-caused failures in `tests/unit` at `80f50ca`
+   (the earlier "21" was a narrower selection whose scope cannot be reconstructed), the
+   five leaks are `VAULT_PATH`/`INDEX_DB`/`MEMORY_DB` (`.env`) + `SHADOW_V3`/`SHADOW_LOG`
+   (systemd `Environment=`), and the fix has landed on this tree — an autouse
+   `tests/conftest.py` fixture that scrubs the five names around each test (deliberate
+   per-test setters unaffected; the privacy-digest/internal-dir vars stay readable by
+   contract). A separate perf red on the host
+   (`test_50k_vectors_search_p95_under_25ms_with_numpy`, 36.67 ms vs the 25 ms guard) is
+   env-independent — hardware, not this bug — noted for a future look.

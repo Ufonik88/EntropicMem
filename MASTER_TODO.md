@@ -328,6 +328,34 @@ points at.
 > (a homebrew python upgrade broke its link — the record notes the restoration). The
 > corrected readout + sanitized evidence of record: [`docs/plan/P0C_READOUT.md`](
 > docs/plan/P0C_READOUT.md) + [`docs/plan/p0c_evidence/`](docs/plan/p0c_evidence/).
+>
+> **2026-11-05, the catalog re-pin's review demanded two host-surface changes and they
+> shipped as the `v3.0.1` patch on `main`** (`3a15b2c`, `8b8a246`): plugin credentials
+> resolve through `agent.secret_scope` (the **active profile's** value — `os.environ` in
+> a multi-profile host holds the launch profile's key for every profile, so one profile
+> could spend another's); formation completions call the host's public `ctx.llm` facade
+> instead of the private `agent.auxiliary_client` import; the graph viewer docstring now
+> matches what ships (D3 vendored, only Google Fonts live). 16 new tests, 3 red mutation
+> checks, version 3.0.1 everywhere it is stamped. **Record-keeping gap (corrected
+> 2026-11-09):** these commits landed without a MASTER_TODO pass — this banner is the
+> reconciliation.
+>
+> **2026-11-07, two follow-up fixes from a reader's comment on the 3.0.1 post, both
+> landed via PR (#15 `00638dc`, #17 `1fe9da8`):** the embeddings API key is resolved
+> **per request** — 3.0.1 read it once in `OpenAICompatBackend.__init__` and a
+> long-lived `EmbeddingService` kept sending the constructing profile's key on later
+> profiles' turns (probe-verified `Bearer key-A` on a profile-B turn); now an explicit
+> constructor key or injected `env` mapping still wins and everything else follows the
+> scope at request time, failing closed to no header. And a keyless backend now warns
+> **once** at WARNING naming the variable — the per-call failure line is `debug`, so a
+> missing or mis-scoped key used to look exactly like embeddings simply not
+> configured. 8 new tests total, 6 mutation checks red. The stale host pin
+> (`pinned_memory_provider.json`, enumerated 2026-10-09) was re-derived; the four host
+> methods the provider gained (`on_profile_created`, `on_profile_renamed`,
+> `read_config_fields`, `write_config_fields`) are DEFERRED rows pointing at EM-904
+> (implementing them would change `provides_hooks`, a release-gated act).
+> **The tag `v3.0.1` resolves to `947b0ba` and therefore predates both fixes**; no
+> GitHub Release exists for it; the catalog re-pin PR (`#146446`) still pins 3.0.0.
 
 ---
 

@@ -83,6 +83,36 @@ owner's ruling); 2026-10-27 (forty-third pass — **EM-806 (S8 packaging) is LAN
 
 ## Part A: what has landed
 
+### Chunk 63 — the suite is hermetic against the gateway's exported `ENTROPICMEM_*` paths (the P0c host's Finding 1). Landing on branch `em-hermetic-conftest-env`, build `1e454e3` on top of `8a8e350` (2026-11-09; built 2026-10-31 as `2ddeeb8` on `2cca877`, rebased forward over the 3.0.1 + #15/#17 landings)
+
+- **The leak (measured on the collector's host, 2026-10-30):** Hermes's gateway exports
+  five `ENTROPICMEM_*` vars verbatim — `VAULT_PATH`/`INDEX_DB`/`MEMORY_DB` in
+  `$HERMES_HOME/.env`, `SHADOW_V3`/`SHADOW_LOG` as systemd `Environment=` on
+  `hermes-gateway` — and `provider.py`'s env-path source outranks every config a test
+  writes, so any provider a test builds resolves to the live store paths. With those
+  values exported: **51 env-caused failures in `tests/unit`** (the earlier "21" was a
+  narrower selection whose scope could not be reconstructed), and a live-store audit
+  confirmed **no writes reached the store**.
+- **The fix:** an autouse `tests/conftest.py` fixture scrubs the five names around each
+  test (direct `os.environ` pop, not `monkeypatch` — the file's own `PROMOTION` belt
+  teardown interacts with a shared monkeypatch's undo ordering); tests that deliberately
+  set one run after it and are unaffected, and the privacy-digest/internal-dir vars stay
+  readable by contract.
+- **Verification:** red-checked with the verbatim values (50 red → 50 green on the
+  measured sample file; full `tests/unit` 2 002/2 green under the leak on this box);
+  mutation-checked by removing the scrub and confirming the class returns, restored
+  from a byte copy.
+- Figures: bare **3151 / 20 / 2** and digest **3152 / 19 / 2** measured on this box (it
+  carries no CI extras; the ladder reconciles), CI-equivalent **3248 / 2 / 2**, 3.10
+  **3248 / 2 / 2**, CI **3246 / 4 / 2 projected** from the CI-equivalent by the host-pin
+  relation — the landing run's `test (3.12)` job reads the figure and a docs-only
+  re-stamp replaces the projection.
+- **Doc-control note:** the 3.0.1 landings of Nov 5–7 (Hermes's commits) reached `main`
+  without a MASTER_TODO/NEXT_CHUNK record; the same docs pass reconciles them
+  (MASTER_TODO's banner records the three commits; the plan's State rows are current).
+
+
+
 ### Chunk 50 — EM-901's upgrade drills: the old stores and vaults driven to 3.0, two real upgrade breaks found and fixed, and the report. **LANDED on `main` at `b93037e` (2026-10-28; build `a1c7c8a` + the figure fix `dd63001` + the windows fix `7a2999e`, record `1765a2d`, read `adb88bc`, re-stamp `b93037e`); 13/13 check-runs green on `1765a2d` and 26/26 on the merge tip**
 
 - **The drills (`tests/unit/test_em901_upgrade_drills.py`, 10 tests)** run in the normal

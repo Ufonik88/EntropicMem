@@ -27,24 +27,25 @@ other three.
 | Environment | Command | Triple |
 |---|---|---|
 | **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3246 passed, 4 skipped, 2 xfailed** *(**projected** from this box's CI-equivalent by the host-pin relation; the landing run's `test (3.12)` leg reads the figure and a docs-only re-stamp replaces this projection with the read)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3247 passed, 3 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3248 passed, 2 skipped, 2 xfailed** |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3151 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3152 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3248 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3247 passed, 3 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3248 passed, 2 skipped, 2 xfailed** |
 
-Read as at `1fe9da8` (the keyless-backend warning: a selected embeddings backend
-with no key now says so once, at WARNING, naming the variable — the per-call
-failure line is `debug`, so a missing or mis-scoped key used to look exactly
-like embeddings simply not configured) — 4 new tests
-(`tests/unit/test_em_embeddings_keyless_warning.py`). The local triples are
-**measured green on this tree**, not carried forward: bare `3247 passed, 3
-skipped, 2 xfailed` and Python 3.10 `3247 passed, 3 skipped` both exited 0 with
-no failing test excluded. The CI-equivalent and digest rows are derived from the
-bare row by the recorder's own two rules, and the CI row is **projected** from
-the CI-equivalent by the host-pin relation; the landing run's 3.12 leg reads the
-figure and a docs-only re-stamp follows. This record anchors at the commit that
-is the newest to touch the suite surface; because a squash merge mints a new
-SHA, the anchor is only ever stable from a docs-only commit.
+Read as at `1e454e3` (the hermeticity fixture: an autouse `tests/conftest.py`
+fixture scrubs the five gateway-exported `ENTROPICMEM_*` path vars around each
+test — provider.py's env-path source outranks every config a test writes, so a
+test's provider resolved to the live store paths wherever a plugin-serving
+gateway exports them; measured on the collector's box with its verbatim values,
+51 env-caused failures in `tests/unit` that this fixture removes — verified
+50 red -> 50 green on the sample file and full `tests/unit` green under the
+leak on this box, and the scrub removed once to confirm the class returns).
+No test was added or removed. **Bare, digest and the CI-equivalent were measured
+on this box on the committed tree** (this box's `.venv311` carries no CI extras,
+so its bare row reads lower than the CI-equivalent — the ladder below
+reconciles), and the CI row is **projected** from the CI-equivalent by the
+host-pin relation; the landing run's `test (3.12)` job reads the figure and a
+docs-only re-stamp replaces this projection with the read.
 
 **The previous record** — read as at `bcb74e7` (the entity-plan landing on; the companion re-stamp — the read-pass commit itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite surface, so the record anchors at that tip instead) — landing on
 `em-entity-plan-alias-first`: the P0c timed sample's own SQL finding —
@@ -337,8 +338,8 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3247 /  3 / 2
-+ extras      +0 passed,  −0 skipped    (extras already in this box's .venv311 pins)
+bare          3151 / 20 / 2
++ extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3248 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
