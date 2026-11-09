@@ -6,7 +6,12 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 ### Fixed
 
-- **The shadow tags every divergence line as a real turn or a cron preamble, and the report scores the real turns only** (re-applied from the source session's landing `9406c86`, branch `em-shadow-turn-source`, with the source SHA credited; tag, do not drop — the writer classifies from the turn's text at write time and old lines slice from their own text, so no backfill is needed). The P0c sample on the collector's host reads ~98% cron/system-preamble text: the abstain rate and the recall figures on a cron-heavy sample describe the collector's inputs, not the cutover. The report now prints the cron slice beside the real-turn denominator (`context.source_split` keeps each side's gate mix) and scores the miss/fabrication/p95 conditions on real turns only.
+- **The shadow tags every divergence line as a real turn or a cron preamble, and the report scores the real turns only** (re-applied from the source session's landing `9406c86`, branch `em-shadow-turn-source`, with the source SHA credited; tag, do not drop — the writer classifies from the turn's text at write time and old lines slice from their own text, so no backfill is needed). The P0c sample on the collector's host reads ~98% cron/system-preamble text: the abstain rate and the recall figures on a cron-heavy sample describe the collector's inputs, not the cutover. The report now prints the cron slice beside the real-turn denominator (`context.source_split` keeps each side's gate mix) and scores the miss/fabrication/p95 conditions on real turns only. Figures: bare **3193 / 20 / 2**, digest **3194 / 19 / 2**,
+  CI-equivalent **3290 / 2 / 2** — the measured triples live in
+  [`docs/plan/BASELINE.md`](docs/plan/BASELINE.md); CI **3288 / 4 / 2**,
+  **projected** from the CI-equivalent by the host-pin relation (the landing
+  run's `test (3.12)` job reads the figure and the re-stamp replaces this
+  projection with the read).
 
 
 ## [3.0.2] - 2026-11-09
@@ -18,7 +23,7 @@ they ship in this release of record together with everything else on `main`).
 ### Added
 
 - **35 tests for `em.graph.model`** (re-applied from the owner's own session's
-  landing `ae7d718`, branch `land/tests-graph-model-tests`, unmerged since
+  unmerged branch `land/tests-graph-model-tests`, unmerged since
   2026-10-29 and recovered under the standard identity with the source SHA
   credited; all 35 green on `main`'s current tree).
 

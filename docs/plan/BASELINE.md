@@ -26,11 +26,21 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3281 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `42630706326` on `4b4d26b` — 13/13 jobs green on that exact SHA, exactly the projection)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3186 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3187 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3283 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3283 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3288 passed, 4 skipped, 2 xfailed** *(**projected** from this box's CI-equivalent by the host-pin relation; the landing run's `test (3.12)` leg reads the figure and the docs re-stamp replaces this projection with the read)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3193 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3194 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3290 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3290 passed, 2 skipped, 2 xfailed** |
+
+Read as at `a86eb0e` (the turn-source landing: the shadow tags each line as a
+real turn or a cron preamble and the report scores real turns only — re-applied
+from the source session's `9406c86` with the source SHA credited, plus its
+pinning test re-anchored to this suite's five-var hermeticity fixture — the six
+new report tests and the pinning test move the totals by +7; **bare is measured
+green on the committed tree**, the rest of the legs follow the post-stamp
+measured state, and the CI row is **projected** from the CI-equivalent; the
+landing run's `test (3.12)` job reads the figure and the re-stamp replaces the
+projection).
 
 Read as at `4b4d26b` (the 3.0.2 release-prep read pass; the read-pass commit
 itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite
@@ -41,8 +51,9 @@ skipped, 2 xfailed** from its `test (3.12)` job log — 13/13 jobs green on
 that exact SHA, exactly what the host-pin relation had projected.
 
 Read as at `6eebc76` (the 3.0.2 release prep: the stray test-only landing recovered —
-35 tests for `em.graph.model`, re-applied from the owner's own session's `ae7d718`
-with the source SHA credited after the guard's identity reads it non-noreply, all
+35 tests for `em.graph.model`, re-applied from the owner's own session's unmerged
+branch (the guard's identity read its author name non-noreply, so the SHA the
+branch carried shed with it; all
 35 green on the current tree — plus the version 3.0.2 stamps everywhere the
 release needs them; **bare and the CI-equivalent were measured on this box on the
 committed tree**, the 3.10 row is the post-stamp measured state, and the CI row is
@@ -357,12 +368,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3186 / 20 / 2
+bare          3193 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3283 /  2 / 2
+= CI-equiv    3290 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3281 /  4 / 2   (read from run 42630706326, 3.12 job log on 4b4d26b)
+= CI          3288 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap
