@@ -93,6 +93,172 @@ def load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _add_delta(old, delta):
+    """Element-wise addition of a (passed, skipped, xfailed) delta."""
+    return [old[0] + delta[0], old[1] + delta[1], old[2] + delta[2]]
+
+
+def derive_triples(old: dict, new_ci_equiv: tuple) -> dict:
+    """Derive bare/python310/digest from the old record by the measured ci_equiv delta.
+
+    bare_new   = bare_old   + (ci_equiv_new - ci_equiv_old)
+    python310  = python310_old + (ci_equiv_new - ci_equiv_old)
+    digest_new = (bare_new_passed + 1, bare_new_skipped - 1, bare_new_xfailed)
+
+    Refuses (SystemExit) when the base record has no ci_equiv or any derived
+    triple would go negative.
+    """
+    old_current = old.get("current", {})
+    old_ci_equiv = old_current.get("ci_equiv")
+    if not old_ci_equiv:
+        raise SystemExit(
+            "refusing: the on-disk record has no ci_equiv figure to derive from. "
+            "Re-measure with --measure first, or supply --ci-equiv explicitly."
+        )
+    delta = tuple(n - o for n, o in zip(new_ci_equiv, old_ci_equiv))
+
+    bare_new = _add_delta(old_current["bare"], delta)
+    py310_old = old_current.get("python310", old_current["bare"])
+    py310_new = _add_delta(py310_old, delta)
+    digest_new = [bare_new[0] + 1, bare_new[1] - 1, bare_new[2]]
+
+    result = {
+        "bare": bare_new,
+        "digest": digest_new,
+        "ci_equiv": list(new_ci_equiv),
+        "python310": py310_new,
+    }
+    _check_non_negative(result)
+    return result
+
+
+def _check_non_negative(current: dict) -> None:
+    """Refuse (SystemExit) when any derived count is negative."""
+    for name in ("bare", "digest", "ci_equiv", "ci", "python310"):
+        triple = current.get(name)
+        if triple is None:
+            continue
+        for i, label in enumerate(("passed", "skipped", "xfailed")):
+            if triple[i] < 0:
+                raise SystemExit(
+                    f"refusing: derived {name} {label} would be negative ({triple[i]}). "
+                    "The base record or the measured ci_equiv is inconsistent with the delta."
+                )
+
+
+def _check_ladder(current: dict) -> None:
+    """The two existing ladder checks, shared by derive and measure paths.
+
+    digest == bare + (1, -1, 0)  and  ci == ci_equiv - HOST_PINS.
+    """
+    bare = tuple(current["bare"])
+    digest = tuple(current["digest"])
+    ci_equiv = tuple(current["ci_equiv"])
+    ci = tuple(current["ci"])
+    if digest != (bare[0] + 1, bare[1] - 1, bare[2]):
+        raise SystemExit(
+            f"refusing: the digest reads {digest} but bare is {bare}; enabling the digest "
+            "list must convert exactly one skip into one pass (test_no_personal_data.py)."
+        )
+    expected_ci = (ci_equiv[0] - HOST_PINS[0], ci_equiv[1] + HOST_PINS[1], ci_equiv[2])
+    if ci != expected_ci:
+        raise SystemExit(
+            f"refusing: CI reads {ci} but this box's CI-equivalent is {ci_equiv}, which the "
+            f"host-pin relation ({HOST_PINS[0]} passed -> skipped) makes {expected_ci}. "
+            "One of the two was measured on a different tree."
+        )
+
+
+def derive_record(old: dict, new_ci_equiv: tuple, ci_line: str | None, ci_run: str | None) -> dict:
+    """Build the full new record from the old one and a measured ci_equiv.
+
+    * bare / python310 / digest are derived by the measured delta (derive_triples).
+    * ci comes from --ci-line when given, else the host-pin projection.
+    * `derived: true`; `ci_projected` true unless a real run backs a read ci line.
+    * sha is the caller's concern: derive_record never invents one, it inherits
+      old["sha"] and the CLI overwrites it with the actual HEAD.
+    """
+    current = derive_triples(old, new_ci_equiv)
+
+    if ci_line:
+        current["ci"] = list(parse_triple(ci_line))
+        projected = not ci_run
+    else:
+        current["ci"] = [
+            new_ci_equiv[0] - HOST_PINS[0],
+            new_ci_equiv[1] + HOST_PINS[1],
+            new_ci_equiv[2],
+        ]
+        projected = True
+
+    _check_ladder(current)
+    _check_non_negative(current)
+
+    historical = {tuple(t) for t in old.get("historical", [])}
+    historical |= {tuple(v) for v in old.get("current", {}).values()}
+    historical -= {tuple(v) for v in current.values()}
+
+    return {
+        "sha": old.get("sha", ""),
+        "ci_run": ci_run if ci_run is not None else old.get("ci_run", ""),
+        "ci_projected": projected,
+        "derived": True,
+        "comment": old.get("comment", ""),
+        "current": {k: current[k] for k in ("bare", "digest", "ci_equiv", "ci", "python310")},
+        "historical": sorted(list(t) for t in historical),
+    }
+
+
+def _run_derive(args) -> int:
+    """The --derive-from-record mode: measure only ci_equiv, derive the rest.
+
+    Refuses (SystemExit, writes nothing) when there is no usable base record.
+    Exits 1 with DRIFT when --check and the on-disk counts disagree with a fresh
+    measurement, so the mode cannot launder drift.
+    """
+    old = load(RECORD)
+    if not old.get("current"):
+        raise SystemExit("refusing: no usable base record on disk. Run --measure first.")
+
+    print("=== derive-from-record ===")
+    if args.ci_equiv:
+        new_ci_equiv = parse_triple(args.ci_equiv)
+        print(f"  ci_equiv given: {new_ci_equiv[0]} / {new_ci_equiv[1]} / {new_ci_equiv[2]}")
+    else:
+        print(f"measuring ci_equiv ({args.ciequiv_python}) ...", flush=True)
+        new_ci_equiv = run_variant("ci_equiv", args.ciequiv_python, args.digests_file)
+        print(f"  ci_equiv: {new_ci_equiv[0]} / {new_ci_equiv[1]} / {new_ci_equiv[2]}")
+
+    sha = args.sha or subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], cwd=REPO, capture_output=True, text=True
+    ).stdout.strip()
+
+    record = derive_record(old, new_ci_equiv, args.ci_line, args.ci_run)
+    record["sha"] = sha
+
+    if args.check:
+        drift = {
+            k: (old["current"].get(k), record["current"][k])
+            for k in record["current"]
+            if old["current"].get(k) != record["current"][k]
+        }
+        if drift or old.get("sha") != sha:
+            print("DRIFT:", json.dumps({"sha": (old.get("sha"), sha), "triples": drift}, indent=2))
+            return 1
+        print(f"record matches the derivation at {sha}")
+        return 0
+
+    RECORD.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {RECORD.relative_to(REPO)} at {sha} (derived, historical: {len(record['historical'])})")
+
+    print("=== the guard ===")
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", GUARD, "--no-header"],
+        cwd=REPO, text=True,
+    )
+    return proc.returncode
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     for name in VARIANTS:
@@ -105,6 +271,10 @@ def main(argv=None) -> int:
     ap.add_argument("--ci-run", default=None, help="the GitHub Actions run id the CI figure came from")
     ap.add_argument("--check", action="store_true", help="verify, write nothing")
     ap.add_argument(
+        "--derive-from-record", action="store_true",
+        help="measure only ci_equiv locally; derive bare, python310 and digest from the on-disk record",
+    )
+    ap.add_argument(
         "--seed-historical",
         action="store_true",
         help="bootstrap: allowlist every triple currently in the docs as historical",
@@ -114,6 +284,9 @@ def main(argv=None) -> int:
     ap.add_argument("--python310-python", default=str(REPO / ".venv310/bin/python"))
     ap.add_argument("--digests-file", default=os.environ.get("ENTROPICMEM_PRIVACY_DIGESTS_FILE"))
     args = ap.parse_args(argv)
+
+    if args.derive_from_record:
+        return _run_derive(args)
 
     current: dict = {}
     print("=== local variants ===")
