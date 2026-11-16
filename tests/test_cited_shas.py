@@ -160,6 +160,14 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     # evidence" section uses it as the worked example of a run whose head_sha
     # names a rebased-away commit. Removing the citation breaks the lesson.
     "cb88d47": "unreachable on purpose: the rebased-away head_sha BASELINE.md uses as the worked example",
+    # Provenance from the 2026-11-09 turn-source landing. Both commits landed only on
+    # the branch `em-shadow-turn-source`, which was deleted on the remote after the
+    # landing, so no ref reaches them and a fresh clone cannot check them out. The
+    # commits were re-applied to main with the source SHA credited -- `51fc919` for
+    # 9406c86's writer tag and report filter, `a86eb0e` for d355187's pinning test --
+    # and the citations name the source of record, not a checkout-able commit.
+    "9406c86": "deleted branch em-shadow-turn-source: re-applied to main by 51fc919, cited as provenance",
+    "d355187": "deleted branch em-shadow-turn-source: its pinning test re-applied by a86eb0e, cited as provenance",
 }
 
 #: Sanity floors: the scan must keep seeing a real corpus, or a broken regex or glob
