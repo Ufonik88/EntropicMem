@@ -4,6 +4,15 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 
 ## [Unreleased]
 
+### Added
+
+- **The 11 new `em/net` tests recovered from `land/coverage-net` (W47 P1, card `t_a438dc81`).** PR #14's branch carried 16 tests where `origin/main` has 5 (`tests/test_em_net.py`, 43 → 135 lines), and `plugins/entropicmem/scripts/em/net.py` is **byte-identical on both sides** — so the 11 cover symbols main already ships (`_ValidatingRedirectHandler`, `open_validated`) and no production code changes. The branch is not rebased or merged wholesale; the test file is taken alone. All 16 green. Figures: bare **3204 / 20 / 2**, digest **3205 / 19 / 2**,
+  CI-equivalent **3301 / 2 / 2** — the measured triples live in
+  [`docs/plan/BASELINE.md`](docs/plan/BASELINE.md); CI **3299 / 4 / 2**,
+  **projected** from the CI-equivalent by the host-pin relation (the landing
+  run's `test (3.12)` job reads the figure and the re-stamp replaces this
+  projection with the read).
+
 ### Fixed
 
 - **The shadow tags every divergence line as a real turn or a cron preamble, and the report scores the real turns only** (re-applied from the source session's landing `9406c86`, branch `em-shadow-turn-source`, with the source SHA credited; tag, do not drop — the writer classifies from the turn's text at write time and old lines slice from their own text, so no backfill is needed). The P0c sample on the collector's host reads ~98% cron/system-preamble text: the abstain rate and the recall figures on a cron-heavy sample describe the collector's inputs, not the cutover. The report now prints the cron slice beside the real-turn denominator (`context.source_split` keeps each side's gate mix) and scores the miss/fabrication/p95 conditions on real turns only. Figures: bare **3193 / 20 / 2**, digest **3194 / 19 / 2**,

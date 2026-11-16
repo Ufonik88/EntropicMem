@@ -26,19 +26,25 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3288 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `42655175550` on the read-pass tip — 13/13 jobs green on that exact SHA, exactly the projection)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3193 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3194 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3290 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3290 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3299 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation — the 11 new em/net tests land here and the read run replaces the projection)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3204 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3205 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3301 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3301 passed, 2 skipped, 2 xfailed** |
 
-Read as at `8c142c3` (the turn-source read pass; the read-pass commit
-itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite
-surface, so the record anchors at this tip instead of the build `a86eb0e` —
-the companion shape every landing before it used). **The CI row is read, not
-projected:** run `42655175550` reads **3288 passed, 4 skipped, 2 xfailed**
-from its `test (3.12)` job log — 13/13 jobs green on that exact SHA, exactly
-the projection.
+Read as at `e787ee5021fa4428c9de9a7e59f8063382f1e8cd` (the W47 em/net test landing; the 11 new tests recovered
+from `land/coverage-net` move the totals by +11, **measured on the committed
+tree** — this box's `.venv` CI-equivalent run reported *3300 passed with 3
+skipped and 2 xfailed* (three skips: the two internal-ops workspace modules and
+the absent privacy digest list), and the digest-list leg converts that third
+skip to a pass, so the record's CI-equivalent is **3301 / 2 / 2**). **The bare,
+digest, CI-equivalent and 3.10 count variants are derived**, not independently
+re-measured: each is the previous record's triple plus the measured
+CI-equivalent delta (+11 passed, ±0 skipped, ±0 xfailed), because this box has
+no `.venv311` and no 3.10 interpreter and `--measure` cannot run here. The CI
+row is **projected** from the CI-equivalent by the host-pin relation
+(**3299 passed, 4 skipped, 2 xfailed**); the landing run's `test (3.12)` job
+reads the figure and the re-stamp replaces the projection.
 
 Read as at `a86eb0e` (the turn-source landing: the shadow tags each line as a
 real turn or a cron preamble and the report scores real turns only — re-applied
@@ -376,13 +382,24 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3193 / 20 / 2
+bare          3204 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3290 /  2 / 2
+= CI-equiv    3301 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3288 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
+= CI          3299 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
+
+**These variants are derived, not independently measured.** Only the
+CI-equivalent leg was measured on this box (`.venv` 3.12 + extras + digest:
+*3300 passed with 3 skipped and 2 xfailed*, the 3 skips being the two
+internal-ops workspace modules and the absent privacy digest list — the
+digest-list leg converts that third skip to a pass, giving **3301 / 2 / 2**).
+The bare, digest and 3.10 rows are the previous record's triples plus the
+measured delta (**+11 passed, ±0 skipped, ±0 xfailed**), because this box has
+no `.venv311` and no 3.10 interpreter and `--measure` cannot run here. The
+guard still checks the ladder arithmetic and both relations; the derivation is
+stated so the provenance is visible rather than implied.
 
 ## Citing CI evidence — one trap
 
