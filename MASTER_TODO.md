@@ -480,6 +480,28 @@ points at.
 > its host is handed over and pending; the flag flip itself stays with the
 > owner's specific word, per the ruling.
 >
+> **The readiness measurement is in (Hermes's read-only run on the serving
+> host, 2026-11-18):** `entropicmem doctor`'s embeddings line reads the WARN
+> — **no embeddings backend; recall is lexical; 2,987 row(s) stamped
+> 'all-MiniLM-L6-v2' — inert** — cross-checked before the run (no
+> fastembed/sentence_transformers on the serving interpreter, no
+> `ENTROPICMEM_EMBEDDINGS_*` env, a direct read-only count of 2,987 rows on
+> the live v2 store). The store side needs nothing else: the existing rows
+> serve with no fresh backfill once a local backend exists and the flag is
+> on. **The owner's word, if given, carries two install facts the
+> measurement found:** (a) the sentence-transformers extra must land in the
+> SERVING interpreter (the gateway's hermes tools python 3.14.9), not any
+> python on the box; (b) that interpreter has no PyYAML, so a config-file
+> flag flip would not be honored by it unless pyyaml lands alongside the
+> extra (Hermes's recorded caveat: it measured the CLI/doctor path of the
+> same interpreter; whether Hermes core hands plugin config to the provider
+> by another path in-process is untraced). **And the old pending
+> gateway-restart item is CLEARED** — the gateway restarted 2026-11-18
+> 11:15 SAST; the running build predates the re-arm tip but that tip's delta
+> is CLI/report/docs/test code only, so it loads at the next natural
+> restart; **P3 (gateway on the current tree) is a precondition to satisfy
+> at flip time, before any window opens.**
+>
 > **2026-11-18, latest: the owner ruled on the three open calls — "wire it,
 > retire it, use your own logic" — and the P2 cutover path is now PREPARED end
 > to end.** (1) The **"main red > 24h" heartbeat alert** is wired-by-Hermes
