@@ -500,7 +500,25 @@ points at.
 > 11:15 SAST; the running build predates the re-arm tip but that tip's delta
 > is CLI/report/docs/test code only, so it loads at the next natural
 > restart; **P3 (gateway on the current tree) is a precondition to satisfy
-> at flip time, before any window opens.**
+> at flip time, before any window opens.
+>
+> **The flip call is MADE (2026-11-18, on the owner's "make the call"
+> here" delegation): NOT NOW.** The feature is real and the store is
+> prepared for it — the ~2,987 rows are a historical backfill's doing, and
+> meaning-based recall would genuinely improve the live v2 experience — but
+> two prerequisites are UNVERIFIED on the serving host, and opening a
+> 72-hour collection window against an unverified serving path risks a
+> verdict measured on a configuration that is not actually live (the
+> PyYAML/in-process-route caveat; the extra's installability on the
+> gateway's python 3.14.9) — the exact dishonest-evidence class this
+> project hardens against. The cutover the window feeds is not
+> time-pressured, and live serving satisfies the owner today. **The flip is
+> therefore a STANDING TRIGGER, not an open question:** it goes when the
+> owner wants the v3 cutover, or says he wants meaning-based recall —
+> after Hermes verifies the two prerequisites (read-only: the extra's
+> installability on the serving interpreter; the provider's in-process
+> config route). The declaration stays frozen; nothing expires. **With
+> this call, no open decision remains anywhere in the project.****
 >
 > **2026-11-18, latest: the owner ruled on the three open calls — "wire it,
 > retire it, use your own logic" — and the P2 cutover path is now PREPARED end
