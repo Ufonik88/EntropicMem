@@ -26,11 +26,21 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3288 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `44272632061` on the branch tip `1c61644` — 13/13 jobs green on that exact SHA, exactly the projection; the counts are unchanged by the card, which adds no tests)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3193 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3194 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3290 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3290 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3296 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation; the landing run's `test (3.12)` leg reads the figure and the docs re-stamp replaces this projection with the read)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3201 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3202 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3298 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3298 passed, 2 skipped, 2 xfailed** |
+
+Read as at `05f5ef5` (the derive-mode landing: `scripts/record_suite_figures.py
+--derive-from-record`, re-applied from the standing branch `w45/derive-stamp`
+with two review defects fixed — the ci-line-vs-measured ladder check now red
+under an eighth test, and the end-to-end test no longer coupled to this file's
+transient wording). **The one measured leg is the CI-equivalent, 3298 / 2 / 2**
+on this box's `.venv`; bare / digest / 3.10 are derived by the measured delta
+(+8, the eight new tests) and the record carries `derived: true`; the CI row is
+**projected** — the landing run's `test (3.12)` leg reads the figure and the
+read pass replaces the projection.
 
 Read as at `2ce814a` (the provenance-fix read pass; the read-pass commit moved
 the suite surface via the run-id allowlist, so the record anchors at it — the
@@ -390,12 +400,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3193 / 20 / 2
+bare          3201 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3290 /  2 / 2
+= CI-equiv    3298 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3288 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
+= CI          3296 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap
