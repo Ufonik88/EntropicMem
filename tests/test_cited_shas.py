@@ -112,10 +112,12 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "42630706326": "GitHub Actions run id, not a commit: the 3.0.2 release-prep's figures run",
     # The turn-source landing's CI run (its figures read pass).
     "42655175550": "GitHub Actions run id, not a commit: the turn-source landing's figures run",
-    # The red run the provenance fix closes: all five test legs failed on the
+    # The 2026-11-09 red run the provenance fix closes: all five test legs failed on the
     # cited-shas guard from this run on 2026-11-09, while a dev clone with stale
     # remote-tracking refs stayed green — which is why the red hid for nine days.
     "42661406763": "GitHub Actions run id, not a commit: the 2026-11-09 red run the provenance fix closes",
+    # The provenance-fix landing's CI run (its figures read pass).
+    "44272632061": "GitHub Actions run id, not a commit: the provenance-fix landing's figures run",
     # The host-surface patch's CI run (the 3.0.1 figures read pass).
     "38775407380": "GitHub Actions run id, not a commit: the 2026-10-15 guard flap",
     # Same shape, same reason: EM-608's draft cites the 2026-10-18 warm-p95 flap's
