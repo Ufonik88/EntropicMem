@@ -26,11 +26,19 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3288 passed, 4 skipped, 2 xfailed** *(**projected** from this box's CI-equivalent by the host-pin relation; the landing run's `test (3.12)` leg reads the figure and the docs re-stamp replaces this projection with the read)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3288 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `44272632061` on the branch tip `1c61644` — 13/13 jobs green on that exact SHA, exactly the projection; the counts are unchanged by the card, which adds no tests)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3193 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3194 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3290 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3290 passed, 2 skipped, 2 xfailed** |
+
+Read as at `2ce814a` (the provenance-fix read pass; the read-pass commit moved
+the suite surface via the run-id allowlist, so the record anchors at it — the
+companion shape every landing uses). **The CI row is read, not projected:** run
+`44272632061` reads **3288 passed, 4 skipped, 2 xfailed** from its
+`test (3.12)` job log — 13/13 jobs green on the branch tip `1c61644`, exactly
+the projection; the card adds no tests, so the counts carry forward unchanged
+from `8c142c3`.
 
 Read as at `6859d7e` (the provenance-fix record re-anchor: the counts are
 unchanged by the card — it adds no tests, only `ALLOWED_NON_RESOLVING` entries —
