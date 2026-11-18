@@ -718,6 +718,21 @@ def test_other_minor_lines_and_unknowns_stay_excluded():
     assert report["sample"]["other_build"] == 4
 
 
+def test_a_dev_tree_stamp_stays_excluded_even_in_the_same_minor_line():
+    """Chunk 60's original class: a dev checkout's stamp (``3.0.0.dev0-old-tree``)
+    is a different checkout's build — the carve-out scores released patch
+    stamps only, so it stays excluded. A two-part stamp (``3.0``) is not a
+    clean patch stamp either: fail-closed."""
+    this = _shadow._em_version()
+    major, minor = this.split(".")[:2]
+    lines = [line(i) for i in range(N)]
+    lines[0]["em_version"] = f"{major}.{minor}.0.dev0-old-tree"
+    lines[1]["em_version"] = f"{major}.{minor}"
+    report = _shadow.evaluate(lines)
+    assert report["sample"]["usable"] == N - 2
+    assert report["sample"]["other_build"] == 2
+
+
 def test_the_report_names_the_minor_line_rule():
     report = _shadow.evaluate([line(i, version="2.8.1") for i in range(3)])
     reasons = " ".join(report["reasons"])

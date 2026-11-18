@@ -84,8 +84,9 @@ recorded shapes — before any new data exists.
   sample is too thin to judge) — not met, not not-met.
 - **The version filter**: the **same-minor carve-out** — landed in
   `_shadow._same_minor` together with this declaration, before any new data —
-  scores 3.0.x lines across patch stamps; other minor lines, `unknown` and
-  empty stay excluded, fail-closed as before.
+  scores clean `major.minor.patch` stamps in the same minor line across patch
+  versions; dev-tree stamps (`3.0.0.dev0`-shaped), other minor lines,
+  `unknown` and empty stay excluded, fail-closed as before.
 - **The verdict reads against this page as it stood when the window opened.**
 
 ## What this page does not authorize

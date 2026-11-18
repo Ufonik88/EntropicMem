@@ -161,16 +161,21 @@ def shadow_path() -> Optional[Path]:
 
 
 def _same_minor(a: str, b: str) -> bool:
-    """True when two em_version strings share a major.minor line (``3.0.x``).
+    """True when two em_version strings are clean ``major.minor.patch`` stamps
+    in the same minor line (``3.0.1`` and ``3.0.2``).
 
     The re-arm's pre-declared carve-out (``P0C_REARM_DECLARATION.md``): a
-    patch stamp must not silently reset the sample, so a 3.0.2 tree scores a
-    3.0.1 line. Anything else — 2.8.x, 3.1.x, ``unknown``, empty — stays
-    excluded, fail-closed as before. Two dot-separated numeric parts must
-    agree; a non-version string never agrees with a version.
+    released patch stamp must not silently reset the sample, so a 3.0.2 tree
+    scores a 3.0.1 line. **Only clean tri-part numeric stamps score** — a
+    dev-tree stamp like ``3.0.0.dev0-old-tree`` is a different checkout's
+    build, chunk 60's original exclusion class, and stays excluded; so do
+    other minor lines (2.8.x, 3.1.x), ``unknown`` and empty, fail-closed as
+    before.
     """
     pa, pb = a.split("."), b.split(".")
-    return len(pa) >= 2 and len(pb) >= 2 and pa[:2] == pb[:2]
+    if len(pa) != 3 or len(pb) != 3:
+        return False
+    return all(p.isdigit() for p in pa) and all(p.isdigit() for p in pb) and pa[:2] == pb[:2]
 
 
 def _em_version() -> str:
