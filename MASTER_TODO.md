@@ -466,6 +466,36 @@ points at.
 > report: 7,259 lines, zero failure warnings; the last twenty lines all
 > cron-preamble and abstaining — the turn-source card's tagging separating
 > exactly what the collection's quiet period produces.
+>
+> **2026-11-18, latest: the owner ruled on the three open calls — "wire it,
+> retire it, use your own logic" — and the P2 cutover path is now PREPARED end
+> to end.** (1) The **"main red > 24h" heartbeat alert** is wired-by-Hermes
+> with his word (its host, its tooling; the nine-day red is the recorded case
+> study). (2) The **catalog watcher is retired** at his discretion — it had
+> finished its whole job. (3) On his "use your own logic" delegation, the safe
+> sequence ran: **the re-armed P0c is pre-declared and its machinery landed on
+> `main` at `82c2f23`** — [`P0C_REARM_DECLARATION.md`](
+> docs/plan/P0C_REARM_DECLARATION.md) freezes the observable BEFORE any new
+> data (sufficiency ≥ 200 turns in a 72-hour window; copy age p95 ≤ 900 s;
+> fabrication 0 refined; the miss ceiling **unchanged at the armed
+> 0.107143**; the p95 budget re-derived machine-independently — the v3
+> quiet-turn p95 ≤ 10× the v2 leg's, same-window same-host, 150 ms floor,
+> 1000 ms cap; burst exclusion by declared rule, and a more-than-half-burst
+> sample reads CANNOT CONCLUDE). The **same-minor carve-out**
+> (`_shadow._same_minor`) is its declared machinery, with a review catch on
+> the way: the first cut scored dev-tree stamps until the existing chunk-60
+> pin went red and forced the refinement to clean tri-part numeric patch
+> stamps only — 5 mutation classes red, the old pin passes unchanged. And
+> **`entropicmem doctor` gained an embeddings-readiness section** (6 mutation
+> classes red; `HERMES_HOME` pinned per test) — the re-arm's P1 precondition
+> in one read-only command. CI **3317 / 4 / 2 read** from run `44290312795`,
+> the derive mode's third exact projection. **What remains is exactly one
+> owner word:** the declaration's P2 — the embeddings flag flip, a
+> live-serving change (semantic recall turns on for the live v2 engine using
+> its existing ~2,900 rows; the v3 model-switch backfill queues on
+> initialize; reversible) — taken only on his specific word, never the
+> general delegation; on it, the 72-hour window opens and Hermes's host runs
+> the collection under the declared rules.
 
 ---
 
@@ -529,13 +559,15 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-11-18, against branch `main` at `25b739d` (the em/net
-coverage landing's companion re-stamp; level with `origin/main`, 24/24
-check-runs green on the merge tip). The session's three cards, in order: the
-CI-red fix (`ae863c1`), the figures recorder's derive mode (`c9e5c6c`), and
-the `em/net` coverage (`25b739d`). Before them: `53afab8` (the turn-source
-record), `d20843c` (the turn-source companion), `12ca8ae`-chain (the v3.0.2
-release), and back through the release and chunks 62–48.
+**Last reconciled:** 2026-11-18, against branch `main` at `82c2f23` (the
+re-arm-preparation landing's companion re-stamp; level with `origin/main`,
+24/24 check-runs green on the merge tip). The session's four cards, in order:
+the CI-red fix (`ae863c1`), the figures recorder's derive mode (`c9e5c6c`),
+the `em/net` coverage (`25b739d`), and the re-armed P0c's pre-declared
+machinery — the declaration with the same-minor carve-out and the doctor's
+embeddings-readiness section (`82c2f23`). Before them: `53afab8` (the
+turn-source record), `d20843c` (the turn-source companion), `12ca8ae`-chain
+(the v3.0.2 release), and back through the release and chunks 62–48.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift

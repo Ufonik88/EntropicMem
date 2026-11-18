@@ -83,6 +83,56 @@ owner's ruling); 2026-10-27 (forty-third pass — **EM-806 (S8 packaging) is LAN
 
 ## Part A: what has landed
 
+>> **2026-11-18, latest: the P2 cutover path is prepared end to end — the
+>> re-armed P0c pre-declared, its machinery landed, one owner word
+>> remaining.** The owner's "use your own logic" delegation ran the safe
+>> sequence: everything that can be prepared lands BEFORE any data, and the
+>> single live-serving act comes back for his specific word.
+>>
+>> **The declaration** — [`docs/plan/P0C_REARM_DECLARATION.md`](
+>> docs/plan/P0C_REARM_DECLARATION.md) — freezes the re-armed observable
+>> before any new collection can exist: sufficiency ≥ 200 usable turns in a
+>> 72-hour window; copy age p95 ≤ 900 s; fabrication 0 refined (hard); the
+>> miss ceiling **unchanged at the armed 0.107143**; the p95 budget
+>> re-derived machine-independently (the v3 quiet-turn p95 ≤ 10× the v2 leg's
+>> p95, both measured same-window on the same host — the machine context IS
+>> the measurement now — with a 150 ms floor and a 1000 ms cap, the
+>> derivation and its policy nature stated in the page); burst exclusion by
+>> declared rule (any 60-second window holding ≥ 30 usable turns is a burst;
+>> a more-than-half-burst sample reads CANNOT CONCLUDE); the target
+>> configuration (local sentence-transformers, `all-MiniLM-L6-v2`, the model
+>> the store's existing rows are stamped with, so they serve with no fresh
+>> backfill); and the preconditions, headed by **P2 — the embeddings flag
+>> flip, the owner's specific word**.
+>>
+>> **The machinery, landed at `82c2f23`:** the same-minor carve-out
+>> (`_shadow._same_minor`) — the version-filter watchdog ruling wired as
+>> declared machinery, scoring clean `major.minor.patch` stamps across patch
+>> versions while dev-tree stamps, other minor lines, `unknown` and empty
+>> stay excluded. **A review catch on the way:** the first cut scored
+>> dev-tree stamps (`3.0.0.dev0-old-tree`) until the existing chunk-60 pin
+>> went red and forced the refinement — the pin passes unchanged, five
+>> mutation classes red. **And the doctor's embeddings-readiness section**
+>> (`entropicmem doctor`): the backend the selection would make, the flag as
+>> the config stands, the store's inert vectors with their model stamps, the
+>> owner's-word advisory, and a FAIL for an enabled flag with no backend —
+>> six mutation classes red, `HERMES_HOME` pinned per test so no real config
+>> is borrowed.
+>>
+>> **Figures:** the CI-equivalent measured **3319 / 2 / 2** on the branch
+>> content (the worktree measurement's single red was exactly the new
+>> declaration page's exists-on-disk-but-uncommitted docs-links artifact,
+>> verified green once committed — named in the record note); CI **3317 /
+>> 4 / 2 read** from run `44290312795` — **the derive mode's third exact
+>> projection**. 24/24 on the merge tip, identity-guard green both runs.
+>>
+>> **Part B — what remains, one word deep:** the declaration's P2, the
+>> embeddings flag flip. On the owner's specific word the window opens:
+>> Hermes's host flips the flag (its live-v2 consequences spelled out in the
+>> declaration), the 72-hour collection runs under the declared rules, and
+>> the verdict reads against the page as it stood when the window opened.
+>> No other act is pending from this repo.
+
 >> **2026-11-18: the improvement-ladder session — three cards landed, a nine-day
 >> red closed, and every stray remote ref retired.** The owner said "Let's go",
 >> and the ladder ran end to end:
