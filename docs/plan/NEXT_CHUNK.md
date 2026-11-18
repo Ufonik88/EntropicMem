@@ -83,6 +83,67 @@ owner's ruling); 2026-10-27 (forty-third pass — **EM-806 (S8 packaging) is LAN
 
 ## Part A: what has landed
 
+>> **2026-11-18: the improvement-ladder session — three cards landed, a nine-day
+>> red closed, and every stray remote ref retired.** The owner said "Let's go",
+>> and the ladder ran end to end:
+>>
+>> **Card 1 — the CI-red fix, landed on `main` at `ae863c1`.** `main` had been
+>> RED since 2026-11-09 (run `42661406763`, all five test legs): the turn-source
+>> docs commit credited the deleted source branch's commits, no ref reached them,
+>> and every CI fresh clone failed the cited-SHA guard while dev clones with
+>> stale remote-tracking refs stayed green — the red hid for nine days. The fix
+>> re-applied the standing branch `fix/cited-shas-nonresolving-w47` verbatim (its
+>> two `ALLOWED_NON_RESOLVING` entries) plus the red run's id allowlisted; the
+>> citations are kept, historically correct. **Verified in a CI-faithful fresh
+>> clone** — the red reproduced exactly, the tip went green, and three mutations
+>> (each entry removed) went red with hash-verified restores. This box's stale
+>> remote-tracking refs were pruned, so local guard runs now see reachability as
+>> CI does. CI **3288 / 4 / 2 read** from run `44272632061` (unchanged counts);
+>> 24/24 on the merge tip.
+>>
+>> **Card 2 — the figures recorder's derive mode, landed on `main` at
+>> `c9e5c6c`.** Re-applied from the standing branch `w45/derive-stamp` (authored
+>> under a non-noreply local identity; the standard recovery applied) with **two
+>> review defects found and fixed**: (1) dropping the ci-line-vs-measured ladder
+>> check from the derive path *survived* the source branch's seven tests — a
+>> hand-typed `--ci-line` contradicting the measured leg could have landed as a
+>> read figure, the exact "measured, never typed" violation; an eighth test
+>> refuses such a line and the mutation is red. (2) The end-to-end test passed
+>> only by borrowing the real CHANGELOG's transient `projected` wording; its
+>> synthetic stamp now states the guard's long form. The mode measures one leg
+>> (the CI-equivalent) and derives the rest by the pinned delta, refusing an
+>> unusable base, a negative count, or a failed ladder check; `--check` still
+>> reports drift. **Its first two uses stamped both this session's landings, and
+>> both CI reads matched the projections exactly** (3296 and 3307). CI **3296 /
+>> 4 / 2 read** from run `44275327193`; 24/24 on the merge tip.
+>>
+>> **Card 3 — the `em/net` coverage, landed on `main` at `25b739d`.** Eleven
+>> test-only tests re-applied from `land/em-net-tests-w47` (itself recovered
+>> from `land/coverage-net`; the module byte-identical, no test deleted, no
+>> assertion weakened) — `validate_outbound_url`'s DNS-failure and empty-answer
+>> refusals, the non-IP skip, the plain-http refusal, `_ValidatingRedirectHandler`'s
+>> blocked-host refusal and allowed-host proceed, `open_validated`'s timeout
+>> plumbing, and `read_capped`'s two sides. **4 mutation checks red against the
+>> real module** (DNS-failure refusal swallowed, redirect validation dropped,
+>> response cap dropped, empty-answer refusal dropped). The CI-equivalent
+>> measured green **3309 / 2 / 2**; CI **3307 / 4 / 2 read** from run
+>> `44278563759` — the derive mode's second exact projection.
+>>
+>> **The strays retired.** `land/coverage-net` and `land/graph-tests-w44`
+>> carried nothing unique (the latter byte-identical to the landed graph-model
+>> tests — verified, not assumed); the six zero-delta refs
+>> (`fix/plugin-host-surfaces`, `wt/t_d9e81a25`, `wt/t_113a29d5`,
+>> `wt/t_566b902e-fix`, `em-55-release`, `test/split-reachability-fix`) and all
+>> four landing-source branches are deleted. **The remote carries exactly
+>> `main`, `release/2.8.x`, `release/3.0.x`.**
+>>
+>> **Part B is back to the stop.** Nothing is in flight. The remainder is the
+>> P2 cutover-path list, each piece behind the owner's word: the
+>> embedding-backend readiness on the host (enabling one is his call), the
+>> machine-independent p95 budget, and the pre-declared re-armed P0c — plus his
+>> one pending gateway-restart note, no deadline.
+>>
+
 >> **Part B close (2026-11-09): the three owner-gated items are resolved by the
 >> owner's on-the-day delegation.** `v3.0.2` is cut and published (Part A's
 >> chunk-63 record continues into the release: build `97ecda0` + `6eebc76`,

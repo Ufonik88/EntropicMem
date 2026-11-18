@@ -419,6 +419,37 @@ points at.
 > (embedding-backend readiness on the host, the machine-independent p95 budget,
 > a pre-declared re-armed P0c) stays behind the owner's word — enabling a
 > backend on the live host is his call.
+>
+> **2026-11-18, later: THE LADDER IS LANDED END TO END — `main` green with three
+> cards on it, the remote's strays all retired.** (1) **The CI-red fix landed**
+> (`5149ac1` → `ae863c1`; CI **3288 / 4 / 2 read** from run `44272632061`, 24/24
+> on the merge tip, identity-guard green both runs; the fix re-applied the
+> standing branch `fix/cited-shas-nonresolving-w47` verbatim plus the red run's
+> id allowlisted beside it; verified in a CI-faithful fresh clone where the red
+> reproduced exactly, three mutations red, each entry's removal bites). (2) **The
+> figures recorder's derive mode landed** (`05f5ef5` → `c9e5c6c`; CI **3296 / 4
+> / 2 read** from run `44275327193`) — re-applied from `w45/derive-stamp` with
+> **two review defects found and fixed**: the ci-line-vs-measured ladder check
+> could be dropped without the source branch's seven tests going red (an eighth
+> test makes that mutation red — a hand-typed CI line contradicting the measured
+> leg is now refused, the exact "measured, never typed" invariant), and the
+> end-to-end test was accidentally coupled to the real CHANGELOG's transient
+> `projected` wording (its synthetic stamp now states the guard's long form).
+> (3) **The `em/net` coverage landed** (`af11d24` → `25b739d`; CI **3307 / 4 / 2
+> read** from run `44278563759`) — 11 test-only tests re-applied from
+> `land/em-net-tests-w47` (itself recovered from `land/coverage-net`; the module
+> byte-identical), 4 mutation checks red against the real module. **The derive
+> mode's first two uses stamped both landings' records from one measured leg
+> each, and both CI reads matched the projections exactly** — a landing's local
+> measurement cost is now one suite run, not four. **The strays are retired:**
+> `land/coverage-net` and `land/graph-tests-w44` carried nothing unique (the
+> latter byte-identical to the landed graph-model tests), the six zero-delta
+> refs and all four landing-source branches are deleted — **the remote carries
+> exactly `main`, `release/2.8.x`, `release/3.0.x`**, the cleanest state in the
+> project's records. What remains is exactly the P2 list behind the owner's
+> word: the embedding-backend readiness on the host, the machine-independent
+> p95 budget, and the pre-declared re-armed P0c — plus his one pending
+> gateway-restart note, no deadline.
 
 ---
 
@@ -482,11 +513,13 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-11-09, against branch `main` at `d20843c` (the turn-source
-card's companion re-stamp; level with `origin/main`, 26/26 check-runs green on the
-merge tip). Before it: `6fb6637` (the delegated decisions' record), `12ca8ae`-chain
-(the v3.0.2 release), `8a8e350` chain (the 3.0.1 line), `80f50ca`, and back through
-the release and chunks 62–48.
+**Last reconciled:** 2026-11-18, against branch `main` at `25b739d` (the em/net
+coverage landing's companion re-stamp; level with `origin/main`, 24/24
+check-runs green on the merge tip). The session's three cards, in order: the
+CI-red fix (`ae863c1`), the figures recorder's derive mode (`c9e5c6c`), and
+the `em/net` coverage (`25b739d`). Before them: `53afab8` (the turn-source
+record), `d20843c` (the turn-source companion), `12ca8ae`-chain (the v3.0.2
+release), and back through the release and chunks 62–48.
 
 **Follow-up landing, 2026-10-16 (`56dc588`, branch-first, 11/11 check-runs green
 on the exact SHA, on top of the docs record `a74707a`): the guard's drift
