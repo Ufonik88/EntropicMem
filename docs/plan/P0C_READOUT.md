@@ -115,7 +115,10 @@ p95 burst read).
    **The held verdict is read from the 3.0.1 tree until ~200 post-pull turns exist**;
    the no-silently-resetting sample note is recorded here rather than wired into the
    evaluation, because a filter carve-out is evaluation machinery and a **re-armed run
-   must be pre-declared anyway**.
+   must be pre-declared anyway**. **That pre-declaration now exists** — see
+   [`P0C_REARM_DECLARATION.md`](P0C_REARM_DECLARATION.md) (2026-11-18), which carries
+   the carve-out as declared machinery, the machine-independent p95 budget, the burst
+   rule and the target configuration, all frozen before any new data.
 A separate perf red on the host
    (`test_50k_vectors_search_p95_under_25ms_with_numpy`, 36.67 ms vs the 25 ms guard) is
    env-independent — hardware, not this bug — noted for a future look.

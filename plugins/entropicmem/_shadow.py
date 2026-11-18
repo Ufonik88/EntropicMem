@@ -160,6 +160,19 @@ def shadow_path() -> Optional[Path]:
     return Path(raw).expanduser() if raw else None
 
 
+def _same_minor(a: str, b: str) -> bool:
+    """True when two em_version strings share a major.minor line (``3.0.x``).
+
+    The re-arm's pre-declared carve-out (``P0C_REARM_DECLARATION.md``): a
+    patch stamp must not silently reset the sample, so a 3.0.2 tree scores a
+    3.0.1 line. Anything else — 2.8.x, 3.1.x, ``unknown``, empty — stays
+    excluded, fail-closed as before. Two dot-separated numeric parts must
+    agree; a non-version string never agrees with a version.
+    """
+    pa, pb = a.split("."), b.split(".")
+    return len(pa) >= 2 and len(pb) >= 2 and pa[:2] == pb[:2]
+
+
 def _em_version() -> str:
     """The build that wrote the line — the shadow module's OWN tree's version.
 
@@ -529,10 +542,14 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
             continue
         # Chunk 60: the shared log receives lines from every profile's
         # installed tree — some stale, some other builds. A line that does not
-        # carry this build's version is not this build's evidence: excluded
+        # carry this build's MINOR line is not this build's evidence: excluded
         # (reported), never scored. The sample's floor counts only the
         # scoring lines, so an excluded-heavy sample cannot read as met.
-        if item.get("em_version", "") != this_version:
+        # The 3.0.x carve-out is the re-arm's pre-declared machinery
+        # (P0C_REARM_DECLARATION.md): same-minor lines are scored across
+        # patch stamps; other lines — 2.8.x, 3.1.x, unknown, empty — stay
+        # excluded, fail-closed as before.
+        if not _same_minor(str(item.get("em_version", "")), this_version):
             other_build.append(position)
             continue
         usable.append((position, item))
@@ -777,8 +794,9 @@ def evaluate(lines: Sequence[Any], *, log: str = "", copy: str | None = None) ->
         reasons.append(f"{malformed} line(s) were unreadable and are excluded from every number")
     if other_build:
         reasons.append(
-            f"{len(other_build)} line(s) came from other builds (a shared log receives every "
-            f"profile tree's shadow) and are excluded; this build's sample: {turns}"
+            f"{len(other_build)} line(s) came from other minor lines (a shared log receives "
+            f"every profile tree's shadow; same-minor patch stamps score, per the re-arm "
+            f"declaration) and are excluded; this build's sample: {turns}"
         )
 
     # Margin, on every condition: how much room was left before it would have failed

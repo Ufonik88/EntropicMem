@@ -70,10 +70,11 @@ def line(
     stale: bool = False,
     ms: float = 40.0,
     query: str = "an invented question about the staging server",
+    version: str | None = None,
 ) -> Dict[str, Any]:
     """One divergence line in the shape ``_shadow.run`` writes."""
     return {
-        "em_version": _shadow._em_version(),
+        "em_version": version if version is not None else _shadow._em_version(),
         "ts": f"2026-10-08T09:{index // 60:02d}:{index % 60:02d}.000Z",
         "query": query,
         "v2_ids": list(v2),
@@ -679,3 +680,46 @@ def test_the_cron_slice_keeps_its_own_gate_mix():
     split = result["context"]["source_split"]
     assert split["cron_gates"] == {"abstain": 1}
     assert result["context"]["gatemix"]["abstain"] == 0, "the cron abstain is not the scored mix"
+
+
+# --- the re-arm's pre-declared version-line carve-out ------------------------
+
+
+def test_a_patch_stamp_no_longer_resets_the_sample():
+    """The 3.0.x carve-out, wired as the re-arm's declared machinery.
+
+    The version-filter watchdog ruling (2026-11-09): a pull that stamps a later
+    patch version flips the label the moment it lands, and the old filter
+    excluded every older-stamped line — so each patch stamp silently reset the
+    sample. The carve-out scores same-minor lines regardless of their patch
+    stamp; it is evaluation machinery, so it lands only inside the re-arm's
+    pre-declared plan (P0C_REARM_DECLARATION.md), before any new data exists.
+    """
+    this = _shadow._em_version()
+    major, minor = this.split(".")[:2]
+    other_patch = f"{major}.{minor}.0"
+    if other_patch == this:
+        other_patch = f"{major}.{minor}.1"
+    report = _shadow.evaluate([line(i, version=other_patch) for i in range(N)])
+    assert report["sample"]["usable"] == N, "a same-minor line must score"
+    assert report["sample"]["other_build"] == 0
+    assert report["conditions"]["min_turns"]["value"] == N
+
+
+def test_other_minor_lines_and_unknowns_stay_excluded():
+    """Fail-closed as before: 2.8.x, 3.1.x, unknown and empty never score."""
+    lines = [line(i) for i in range(N)]
+    lines[0]["em_version"] = "2.8.1"
+    lines[1]["em_version"] = "3.1.0"
+    lines[2]["em_version"] = "unknown"
+    lines[3]["em_version"] = ""
+    report = _shadow.evaluate(lines)
+    assert report["sample"]["usable"] == N - 4
+    assert report["sample"]["other_build"] == 4
+
+
+def test_the_report_names_the_minor_line_rule():
+    report = _shadow.evaluate([line(i, version="2.8.1") for i in range(3)])
+    reasons = " ".join(report["reasons"])
+    assert "other minor lines" in reasons
+    assert "same-minor patch stamps score" in reasons
