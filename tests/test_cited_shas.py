@@ -59,6 +59,14 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "437c89b": "dead SHA: the 2.8.0 catalog pin the republish made vanish",
     # Upstream, never in this repository: the fork branch the 2.8.0 catalog PR ended in.
     "cdfcd83": "upstream commit in NousResearch/hermes-agent, not this repo",
+    # Provenance from the 2026-11-09 turn-source landing. Both commits landed only on
+    # the branch `em-shadow-turn-source`, which was deleted on the remote after the
+    # landing, so no ref reaches them and a fresh clone cannot check them out. The
+    # commits were re-applied to main with the source SHA credited -- `51fc919` for
+    # 9406c86's writer tag and report filter, `a86eb0e` for d355187's pinning test --
+    # and the citations name the source of record, not a checkout-able commit.
+    "9406c86": "deleted branch em-shadow-turn-source: re-applied to main by 51fc919, cited as provenance",
+    "d355187": "deleted branch em-shadow-turn-source: its pinning test re-applied by a86eb0e, cited as provenance",
     # Commits the 2026-10-20 dependency round touched in sibling repositories. Each
     # was verified against its owning repo, but none of them is published: they live
     # only on local branches, so no reader can check them out yet. The reasons say so
@@ -104,6 +112,10 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "42630706326": "GitHub Actions run id, not a commit: the 3.0.2 release-prep's figures run",
     # The turn-source landing's CI run (its figures read pass).
     "42655175550": "GitHub Actions run id, not a commit: the turn-source landing's figures run",
+    # The red run the provenance fix closes: all five test legs failed on the
+    # cited-shas guard from this run on 2026-11-09, while a dev clone with stale
+    # remote-tracking refs stayed green — which is why the red hid for nine days.
+    "42661406763": "GitHub Actions run id, not a commit: the 2026-11-09 red run the provenance fix closes",
     # The host-surface patch's CI run (the 3.0.1 figures read pass).
     "38775407380": "GitHub Actions run id, not a commit: the 2026-10-15 guard flap",
     # Same shape, same reason: EM-608's draft cites the 2026-10-18 warm-p95 flap's
