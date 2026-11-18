@@ -26,11 +26,17 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3288 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `42655175550` on the read-pass tip — 13/13 jobs green on that exact SHA, exactly the projection)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3288 passed, 4 skipped, 2 xfailed** *(**projected** from this box's CI-equivalent by the host-pin relation; the landing run's `test (3.12)` leg reads the figure and the docs re-stamp replaces this projection with the read)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3193 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3194 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3290 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3290 passed, 2 skipped, 2 xfailed** |
+
+Read as at `6859d7e` (the provenance-fix record re-anchor: the counts are
+unchanged by the card — it adds no tests, only `ALLOWED_NON_RESOLVING` entries —
+so the measured triples carry forward from `8c142c3` and the CI row is
+**projected**; the fix branch's landing run reads the figure and the read pass
+replaces the projection).
 
 Read as at `8c142c3` (the turn-source read pass; the read-pass commit
 itself touches the allowlist in `tests/test_cited_shas.py`, moving the suite
