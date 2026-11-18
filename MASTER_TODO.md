@@ -518,7 +518,32 @@ points at.
 > after Hermes verifies the two prerequisites (read-only: the extra's
 > installability on the serving interpreter; the provider's in-process
 > config route). The declaration stays frozen; nothing expires. **With
-> this call, no open decision remains anywhere in the project.****
+> this call, no open decision remains anywhere in the project.**
+>
+> **The trigger is fully de-risked (Hermes's two read-only verifications,
+> 2026-11-18):** (1) **Install feasibility — YES on the serving
+> interpreter's exact Python**: torch 2.15.0+cpu has cp314 wheels;
+> sentence-transformers 6.3.0 installs clean in a throwaway venv and
+> end-to-end embeds through the repo's own backend class (384 dims,
+> normalized, `all-MiniLM-L6-v2`) — no fastembed fallback needed. (2) **The
+> PyYAML caveat is dead, and the readiness run's caveat was itself wrong
+> about the import context**: the gateway activates a PM-selected
+> dependency environment at launch whose site-packages holds PyYAML 6.0.3 —
+> the readiness probe used the bare tools interpreter without that
+> environment; the provider reads its own config through its own PyYAML
+> path at `initialize()`, and PyYAML is present in-process, corroborated by
+> zero PyYAML warnings in 24h of gateway journal. **The flip's operational
+> facts, for the record:** the extra installs into the **PM-selected
+> serving env** (the committed venv), never the tools interpreter —
+> activation strips other site-packages, so a wrong-target install would
+> be silently inert; the install survives restarts but the next dependency
+> sync would drop it unless the extra is carried into the tree's dependency
+> set, and the flip plan names that carry step; and
+> `embeddings.backend: sentence_transformers` must be **pinned** (auto
+> tries fastembed first, whose different default model would turn the
+> no-backfill path into a model-switch backfill). **The standing trigger
+> is now: the owner's word + one semantic-st install into the named serving
+> env + the planned restart. No unverified prerequisite remains.****
 >
 > **2026-11-18, latest: the owner ruled on the three open calls — "wire it,
 > retire it, use your own logic" — and the P2 cutover path is now PREPARED end
