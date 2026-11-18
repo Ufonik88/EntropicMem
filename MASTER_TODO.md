@@ -467,6 +467,19 @@ points at.
 > cron-preamble and abstaining — the turn-source card's tagging separating
 > exactly what the collection's quiet period produces.
 >
+> **Executed, later the same day (Hermes's report, both items verified on this
+> side):** (1) the **"main red > 24h" alert is LIVE** — hourly cron on its
+> host, resolving `main`'s head SHA and reading that SHA's check-runs (the
+> Checks API, not run-list), red seeded from the earliest failing run's
+> `completed_at` so a predating red alerts once genuinely past 24h (the
+> run-`42661406763` class), one alert per episode, green re-arms, and an
+> eight-scenario synthetic harness ran before trusting it; its first live
+> read: GREEN, 13/13. (2) The **catalog watcher is retired** — the cron job
+> paused with its schedule dead, logs and state kept as history exactly the
+> way the 124837 records were kept. The readiness-section read-only run on
+> its host is handed over and pending; the flag flip itself stays with the
+> owner's specific word, per the ruling.
+>
 > **2026-11-18, latest: the owner ruled on the three open calls — "wire it,
 > retire it, use your own logic" — and the P2 cutover path is now PREPARED end
 > to end.** (1) The **"main red > 24h" heartbeat alert** is wired-by-Hermes
