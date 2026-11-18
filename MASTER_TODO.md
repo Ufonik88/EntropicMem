@@ -450,6 +450,22 @@ points at.
 > word: the embedding-backend readiness on the host, the machine-independent
 > p95 budget, and the pre-declared re-armed P0c — plus his one pending
 > gateway-restart note, no deadline.
+>
+> **Later 2026-11-18: Hermes's independent close-out verification round-tripped
+> clean.** Its retargeted catalog watcher had already closed the post-merge
+> verification on 2026-11-11 — the published catalog serves the `12ca8ae` pin,
+> a fresh catalog install pinned at it, and the manifest validation passed
+> (pass-quiet since; its retirement is the owner's discretion). Its pulled tree
+> verified the red fix, both cards and the remote state line-for-line, it pruned
+> twelve stale remote-tracking refs on its own box (the same blind-spot class
+> this session fixed here), and it took the standing figures double-check
+> offer: run `44278563759`'s `test (3.12)` line — resolves, matches exactly.
+> Its proposal to the owner, deliberately not wired unprompted: a "main red
+> > 24h" heartbeat alert on its host (feasible, its queries work) — this
+> session's nine-day red is the case for it. Shadow collection healthy at its
+> report: 7,259 lines, zero failure warnings; the last twenty lines all
+> cron-preamble and abstaining — the turn-source card's tagging separating
+> exactly what the collection's quiet period produces.
 
 ---
 
