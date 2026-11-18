@@ -2220,6 +2220,7 @@ def cmd_doctor(args) -> int:
             checks.append(("FAIL", "store", f"{db_path}: {type(exc).__name__}: {exc}"))
 
     # The config: whatever the host's config file says, loaded and judged.
+    loaded = None
     try:
         from em_internal.vault import hermes_home_path
 
@@ -2324,23 +2325,72 @@ def cmd_doctor(args) -> int:
     except Exception as exc:
         checks.append(("WARN", "plugin trees", f"could not scan: {type(exc).__name__}: {exc}"))
 
-    # The embeddings state.
+    # The embeddings readiness (the re-armed P0c's precondition; read-only —
+    # nothing here enables, installs, embeds or writes). Three facts, each
+    # measured the way the serving path would measure it: the backend the
+    # selection would make, the flag as the config stands, and the store's
+    # existing vectors with their model stamps (the P0c readout's finding:
+    # rows from a historical backfill sit inert while nothing embeds the
+    # query for them).
     try:
-        import em_internal.embeddings as _embeddings
+        from em.embeddings.backends import select_backend
 
-        installed = _embeddings.EMBEDDINGS_AVAILABLE if hasattr(
-            _embeddings, "EMBEDDINGS_AVAILABLE"
-        ) else True
-        enabled = bool(_embeddings.is_enabled()) if hasattr(_embeddings, "is_enabled") else None
-        detail = "installed" if installed else "not installed (recall is lexical)"
-        if enabled:
-            checks.append(("PASS", "embeddings", f"enabled, {detail}"))
-        elif enabled is False:
-            checks.append(("WARN", "embeddings", f"disabled, {detail}"))
-        else:
+        cfg = loaded.config.embeddings if loaded is not None else None
+        enabled = bool(cfg.enabled) if cfg is not None else False
+        preference = cfg.backend if cfg is not None else "auto"
+        model = cfg.model if cfg is not None else ""
+        backend = select_backend(preference, env=dict(os.environ))
+        vectors: list[tuple[str, int]] = []
+        if db_path.is_file():
+            try:
+                ro = _ro_connect(db_path)
+                try:
+                    vectors = ro.execute(
+                        "SELECT model, COUNT(*) FROM embeddings GROUP BY model "
+                        "ORDER BY COUNT(*) DESC"
+                    ).fetchall()
+                finally:
+                    ro.close()
+            except Exception:  # no embeddings table on this store generation
+                vectors = []
+        stamp = "; ".join(f"{count} row(s) stamped '{name}'" for name, count in vectors)
+        if backend.available():
+            detail = f"embeddings.enabled is {'ON' if enabled else 'OFF'}, backend '{backend.name}' available"
+            if model:
+                detail += f" (config model '{model}')"
+            if not enabled:
+                detail += (
+                    " — present and unused; enabling it is a serving-config change "
+                    "the owner makes deliberately (it also turns on semantic recall "
+                    "for the live v2 engine), never a doctor act"
+                )
+            if vectors and model and all(name != model for name, _ in vectors):
+                detail += (
+                    f"; the store's vectors ({stamp}) do not match the config model — "
+                    "a model-switch backfill must run before they serve"
+                )
             checks.append(("PASS", "embeddings", detail))
-    except Exception:
-        checks.append(("PASS", "embeddings", "not installed (recall is lexical)"))
+        elif enabled:
+            checks.append((
+                "FAIL", "embeddings",
+                "embeddings.enabled is ON but no backend is available (preference "
+                f"'{preference}' resolved to none) — semantic recall silently cannot "
+                "run; install an optional extra or point "
+                "ENTROPICMEM_EMBEDDINGS_BASE_URL at an endpoint",
+            ))
+        else:
+            detail = (
+                "no embeddings backend, recall is lexical (the optional extras "
+                "enable one: sentence-transformers, local, downloads its model's "
+                "weights on first use — or an ENTROPICMEM_EMBEDDINGS_BASE_URL endpoint)"
+            )
+            if vectors:
+                detail += (
+                    f"; {stamp} — inert: no backend generates query vectors for them"
+                )
+            checks.append(("WARN", "embeddings", detail))
+    except Exception as exc:
+        checks.append(("WARN", "embeddings", f"could not evaluate: {type(exc).__name__}: {exc}"))
 
     failed = 0
     for status, name, detail in checks:
