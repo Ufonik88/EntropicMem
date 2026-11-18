@@ -26,11 +26,25 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3307 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `44278563759` on the branch tip `421aab5` — 13/13 jobs green on that exact SHA, exactly the derive mode's projection from the measured CI-equivalent)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3212 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3213 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3309 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3309 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3317 passed, 4 skipped, 2 xfailed** *(**projected** from the CI-equivalent by the host-pin relation; the landing run's `test (3.12)` leg reads the figure and the docs re-stamp replaces this projection with the read)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3222 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3223 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3319 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3319 passed, 2 skipped, 2 xfailed** |
+
+Read as at `ce1a816` (the re-arm-preparation landing: the pre-declared
+[`P0C_REARM_DECLARATION.md`](P0C_REARM_DECLARATION.md) with its machinery — the
+same-minor carve-out in `_shadow._same_minor`, clean tri-part patch stamps
+only, dev-tree stamps still excluded — and `entropicmem doctor`'s
+embeddings-readiness section, the re-arm's P1 precondition). **The one
+measured leg is the CI-equivalent, 3319 / 2 / 2**, measured on the branch
+content at this tree; the +10 delta over the em/net record is the nine new
+tests plus the one docs-links parametrized case the new declaration page adds
+(the worktree measurement's single red was exactly that case's
+exists-on-disk-but-uncommitted artifact, verified green once committed); bare /
+digest / 3.10 are derived and the record carries `derived: true`; the CI row is
+**projected** — the landing run's `test (3.12)` leg reads the figure and the
+read pass replaces the projection.
 
 Read as at `6547e26` (the em/net read pass; the read-pass commit moved
 the suite surface via the run-id allowlist, so the record anchors at it — the
@@ -423,12 +437,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder**, all measured on the same tree:
 
 ```
-bare          3212 / 20 / 2
+bare          3222 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3309 /  2 / 2
+= CI-equiv    3319 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3307 /  4 / 2   (read from run 44278563759, 3.12 job log)
+= CI          3317 /  4 / 2   (projected from the CI-equivalent by the host-pin relation)
 ```
 
 ## Citing CI evidence — one trap
