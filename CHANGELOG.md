@@ -10,9 +10,9 @@ All notable changes to EntropicMem are documented here. The format follows Keep 
 - **The shadow tags every divergence line as a real turn or a cron preamble, and the report scores the real turns only** (re-applied from the source session's landing `9406c86`, branch `em-shadow-turn-source`, with the source SHA credited; tag, do not drop — the writer classifies from the turn's text at write time and old lines slice from their own text, so no backfill is needed). The P0c sample on the collector's host reads ~98% cron/system-preamble text: the abstain rate and the recall figures on a cron-heavy sample describe the collector's inputs, not the cutover. The report now prints the cron slice beside the real-turn denominator (`context.source_split` keeps each side's gate mix) and scores the miss/fabrication/p95 conditions on real turns only. Figures: bare **3193 / 20 / 2**, digest **3194 / 19 / 2**,
   CI-equivalent **3290 / 2 / 2** — the measured triples live in
   [`docs/plan/BASELINE.md`](docs/plan/BASELINE.md); CI **3288 / 4 / 2**,
-  **projected** from the CI-equivalent by the host-pin relation (the landing
-  run's `test (3.12)` job reads the figure and the re-stamp replaces this
-  projection with the read).
+  **read** from the `test (3.12)` job log of run `42655175550` on the read-pass
+  tip `8c142c3` (13/13 green on the branch tip `58e0ce1` and 26/26 on the merge
+  tip `d20843c` — exactly the projection).
 
 
 ## [3.0.2] - 2026-11-09

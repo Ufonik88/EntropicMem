@@ -389,6 +389,36 @@ points at.
 > (implementing them would change `provides_hooks`, a release-gated act).
 > **The tag `v3.0.1` resolves to `947b0ba` and therefore predates both fixes**; no
 > GitHub Release exists for it; the catalog re-pin PR (`#146446`) still pins 3.0.0.
+>
+> **2026-11-18: the owner approved the improvement ladder ("Let's go"), and the
+> session opened by closing one record and finding one live defect.** (1) **The
+> catalog re-pin `#146446` was MERGED by the maintainer on 2026-11-10** and the
+> published entry verified live this session: `entropicmem` version `3.0.2`,
+> pinned at `12ca8ae` — the release/publishing loop is fully closed; catalog
+> installs get 3.0.2. (2) **`main`'s CI has been RED since 2026-11-09** (run
+> `42661406763`, all five test legs on the cited-SHA guard): the turn-source
+> docs commit cited the deleted source branch's commits `9406c86`/`d355187`, so
+> no ref reaches them and every CI fresh clone fails — while dev clones with
+> stale remote-tracking refs stayed green, which is why the red hid for nine
+> days. The fix is in flight on branch `fix/cited-shas-provenance`: re-applied
+> from the standing branch `fix/cited-shas-nonresolving-w47` (its two allowlist
+> entries verbatim, authored under the owner's noreply identity) plus the red
+> run's id allowlisted beside them; the citations are kept because they are
+> historically correct — `51fc919`/`a86eb0e` re-applied exactly that content.
+> (3) **New strays appeared on the remote 2026-11-16** — the consumed
+> `fix/cited-shas-nonresolving-w47`, `land/em-net-tests-w47` (11 test-only
+> `em/net` tests, 79%→100% coverage, and a derived figures re-stamp),
+> `w45/derive-stamp` (a `--derive-from-record` mode for the figures recorder,
+> authored under a non-noreply local identity so it needs the re-apply
+> recovery), plus the earlier-recorded `land/coverage-net` (the em/net branch's
+> source) and `land/graph-tests-w44`. Six older refs are confirmed zero-delta:
+> `fix/plugin-host-surfaces`, `wt/t_d9e81a25`, `wt/t_113a29d5`,
+> `wt/t_566b902e-fix`, `em-55-release`, `test/split-reachability-fix`. The
+> session's ladder: the red fix first, then the em/net tests and the derive
+> mode, then the superseded strays retire; the P2 cutover-path work
+> (embedding-backend readiness on the host, the machine-independent p95 budget,
+> a pre-declared re-armed P0c) stays behind the owner's word — enabling a
+> backend on the live host is his call.
 
 ---
 
