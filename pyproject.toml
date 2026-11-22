@@ -62,6 +62,11 @@ dev = ["pytest>=9.0.3", "ruff>=0.16.2"]
 #   sentence-transformers 6.x, numpy 2.x, scikit-learn 1.9 are major jumps
 #                      (sklearn 1.9 resolves only on Python >= 3.14).
 
+[project.scripts]
+# The MCP stdio entry point used by OpenBot's custom-MCP settings and by the
+# marketplace listing's `command`. It adds no dependency: the server is stdlib.
+entropicmem-mcp = "em.mcp_server:main"
+
 [project.urls]
 Homepage = "https://github.com/Ufonik88/EntropicMem"
 Repository = "https://github.com/Ufonik88/EntropicMem"

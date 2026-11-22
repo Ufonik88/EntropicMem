@@ -242,7 +242,7 @@ def test_only_a_retraction_is_reversible(tmp_path):
     undone — not on a clean row, and not on one a retraction once touched."""
     db = _v3_db(tmp_path)
     retracted = _seed(db, content="the kanban board is called Flow 7", session="s1", turn=2)
-    forgotten = _seed(db, content="the office wifi password is hunter2x", session="s1", turn=1)
+    forgotten = _seed(db, content="the office wifi network drops at midnight", session="s1", turn=1)
 
     store = Store(str(db))
     try:

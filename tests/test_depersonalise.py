@@ -49,6 +49,42 @@ class TestPolicyMessage:
             )
 
 
+class TestCredentialGate:
+    """A credential is refused however it is phrased.
+
+    Only the ``=``/``:`` shapes were caught, so "my password is hunter2" and a
+    raw AWS access key id reached the store verbatim while "password=hunter2"
+    was blocked — the gap the OpenBot review found on the MCP surface.
+    """
+
+    def test_natural_phrase_passwords_are_blocked(self):
+        for content in (
+            "my password is hunter2",
+            "the root passwd is on the sticker under the desk",
+            "the office wifi pwd is cafeguest99",
+        ):
+            action, reason = policy.evaluate_write(content, domain="Work")
+            assert action == "block", content
+            assert "secrets manager" in (reason or ""), content
+
+    def test_raw_aws_access_key_ids_are_blocked(self):
+        for content in (
+            "the backup user runs with AKIAIOSFODNN7EXAMPLE",
+            "rotate the ASIAIOSFODNN7EXAMPLE pair before it expires",
+        ):
+            action, _ = policy.evaluate_write(content, domain="Work")
+            assert action == "block", content
+
+    def test_plain_prose_about_passwords_still_writes(self):
+        for content in (
+            "we never send passwords over plain HTTP",
+            "the password policy rotates weekly",
+            "the passwd file lives at /etc/passwd",
+        ):
+            action, _ = policy.evaluate_write(content, domain="Work")
+            assert action == "allow", content
+
+
 class TestLocalePacks:
     def test_generic_pii_detected_by_default(self):
         findings = scan_pii("reach me at jane.doe@example.com for the file")
