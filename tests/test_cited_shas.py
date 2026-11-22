@@ -59,6 +59,13 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "437c89b": "dead SHA: the 2.8.0 catalog pin the republish made vanish",
     # Upstream, never in this repository: the fork branch the 2.8.0 catalog PR ended in.
     "cdfcd83": "upstream commit in NousResearch/hermes-agent, not this repo",
+    # The OpenBot co-author trailer's GitHub App user id
+    # (335604065+openbotgit[bot]@users.noreply.github.com). It is not a cited
+    # commit SHA at all, but the landing scan's SHA-like token regex sees the
+    # digits inside the trailer email of every agent-authored commit on this
+    # branch, so the token is allowlisted with its reason rather than every
+    # trailer-bearing commit reading as a broken citation.
+    "335604065": "GitHub App user id in the OpenBot co-author trailer, not a SHA",
     # Provenance from the 2026-11-09 turn-source landing. Both commits landed only on
     # the branch `em-shadow-turn-source`, which was deleted on the remote after the
     # landing, so no ref reaches them and a fresh clone cannot check them out. The

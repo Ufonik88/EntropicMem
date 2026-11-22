@@ -79,6 +79,14 @@ _READ_ONLY_TOOLS = frozenset(
         "entropicmem_stats",
     }
 )
+#: Tools whose read/write nature depends on the *action* argument. The
+#: annotation is a static per-tool claim made in ``tools/list``, before the
+#: client has chosen an action, so for these the server asserts no
+#: ``readOnlyHint`` at all rather than one that is wrong for half the
+#: actions: ``entropicmem_review`` reads on ``list_pending`` and
+#: ``consolidate_preview`` and mutates on ``promote``/``discard``/
+#: ``restore``/``feedback``.
+_ACTION_MIXED_TOOLS = frozenset({"entropicmem_review"})
 _DESTRUCTIVE_TOOLS = frozenset({"entropicmem_forget"})
 
 #: JSON-RPC error codes. MCP uses the standard set.
@@ -277,15 +285,17 @@ class McpServer:
         tools: List[Dict[str, Any]] = []
         for schema in self.provider.get_tool_schemas():
             name = str(schema.get("name") or "")
+            annotations: Dict[str, Any] = {
+                "destructiveHint": name in _DESTRUCTIVE_TOOLS,
+                "openWorldHint": False,
+            }
+            if name not in _ACTION_MIXED_TOOLS:
+                annotations["readOnlyHint"] = name in _READ_ONLY_TOOLS
             tool: Dict[str, Any] = {
                 "name": name,
                 "description": str(schema.get("description") or ""),
                 "inputSchema": schema.get("parameters") or {"type": "object", "properties": {}},
-                "annotations": {
-                    "readOnlyHint": name in _READ_ONLY_TOOLS,
-                    "destructiveHint": name in _DESTRUCTIVE_TOOLS,
-                    "openWorldHint": False,
-                },
+                "annotations": annotations,
             }
             tools.append(tool)
         return {"tools": tools}

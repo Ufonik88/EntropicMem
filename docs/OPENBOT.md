@@ -113,11 +113,21 @@ The server exposes the provider's v3 surface unchanged. Names keep the
 Safety behaviour is the engine's, not a new layer:
 
 - a memory over the content ceiling is refused, never silently truncated;
-- secrets are screened before storage; flagged content is marked, not silently
-  dropped;
+- a detected credential is **refused, never stored**: the write policy's gate
+  catches `=`/`:` assignments, natural phrasing ("my password is …") and raw
+  AWS access key ids (`AKIA`/`ASIA` plus 16 characters), and answers with its
+  secrets-manager reason. Refusing is the deliberate policy for this class —
+  a flagged credential would still be a plaintext credential at rest, while
+  the flag-through path belongs to screened *injection* text, which is inert
+  when marked;
 - `entropicmem_forget` by query needs the one-time confirm token;
 - profile patching is opt-in;
-- only a primary agent context writes. The MCP server declares itself primary.
+- only a primary agent context writes. The MCP server declares itself primary;
+- `tools/list` marks the pure reads (`search`, `timeline`, `entity`, `stats`)
+  read-only and `forget` destructive. `entropicmem_review` carries **no**
+  read-only claim at all: its `list_pending` and `consolidate_preview`
+  actions read while `promote`/`discard`/`restore`/`feedback` mutate, and the
+  annotation is a static claim made before the client has chosen an action.
 
 ## 3. Marketplace listing
 
@@ -146,12 +156,14 @@ do not have.
 
 ```bash
 python3 -m pytest -q tests/test_mcp_server.py
-ruff check plugins/entropicmem/scripts/em/mcp_server.py tests/test_mcp_server.py
+ruff check plugins/entropicmem/scripts/em/mcp_server.py \
+  plugins/entropicmem/scripts/em_internal/policy.py tests/test_mcp_server.py
 ```
 
 The smoke tests start the real subprocess and cover `initialize`, `tools/list`,
-a remember/search round trip, the JSON-RPC error paths, and that an existing v2
-store is not migrated.
+a remember/search round trip, the JSON-RPC error paths, that an existing v2
+store is not migrated, that a credential is refused however it is phrased, and
+that the read-only hints match what each call does.
 
 The server was also added to OpenBot itself as a temporary custom stdio server
 (absolute console-script path, a throwaway `--home`). OpenBot's connection test

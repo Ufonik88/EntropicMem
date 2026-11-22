@@ -319,6 +319,102 @@ def test_a_non_utf8_stdout_still_serves_and_writes_unicode(tmp_path: Path) -> No
     assert any("東京" in hit["content"] for hit in found["results"]), found
 
 
+def test_a_credential_is_refused_however_it_is_phrased(tmp_path: Path) -> None:
+    """The remember gate must catch natural phrasing and raw key ids.
+
+    Only the ``=``/``:`` shapes were caught, so "my password is hunter2" and a
+    bare AWS access key id reached the store verbatim — active, unflagged —
+    while "password=hunter2" was blocked. Both shapes are now policy blocks,
+    the caller is told, and nothing lands in the store.
+    """
+    _, lines = _run(
+        tmp_path,
+        [
+            _request(1, "initialize", {}),
+            _request(
+                2,
+                "tools/call",
+                {
+                    "name": "entropicmem_remember",
+                    "arguments": {"content": "my password is hunter2"},
+                },
+            ),
+            _request(
+                3,
+                "tools/call",
+                {
+                    "name": "entropicmem_remember",
+                    "arguments": {
+                        "content": "the backup user runs with AKIAIOSFODNN7EXAMPLE"
+                    },
+                },
+            ),
+            _request(4, "tools/call", {"name": "entropicmem_stats", "arguments": {}}),
+        ],
+    )
+    for index in (1, 2):
+        blocked = json.loads(_text(lines[index]))
+        assert blocked["ok"] is False, blocked
+        assert blocked["reason_code"] == "policy_block", blocked
+        assert lines[index]["result"]["isError"] is True
+    stats = json.loads(_text(lines[3]))
+    assert stats["fact_count"] == 0, "a refused credential must leave no row"
+
+
+def test_read_only_hints_match_what_each_call_does(tmp_path: Path) -> None:
+    """A static hint a client might auto-approve on must be true.
+
+    ``entropicmem_review`` straddles: ``list_pending`` and
+    ``consolidate_preview`` only read, while ``promote``/``discard``/
+    ``restore``/``feedback`` mutate. The annotation is a per-tool claim made in
+    ``tools/list``, before the client has chosen an action, so the server
+    asserts no ``readOnlyHint`` for it at all rather than one that is wrong
+    for half its actions. The pure reads keep theirs; ``forget`` keeps the
+    destructive mark.
+    """
+    _, lines = _run(
+        tmp_path,
+        [
+            _request(
+                1,
+                "initialize",
+                {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "pytest"}},
+            ),
+            _request(2, "tools/list"),
+        ],
+    )
+    listed = lines[1]["result"]["tools"]
+    by_name = {tool["name"]: tool["annotations"] for tool in listed}
+
+    for reader in ("entropicmem_search", "entropicmem_timeline", "entropicmem_entity", "entropicmem_stats"):
+        assert by_name[reader]["readOnlyHint"] is True, reader
+    review = by_name["entropicmem_review"]
+    assert "readOnlyHint" not in review, review
+    assert review["destructiveHint"] is False
+    for writer in ("entropicmem_remember", "entropicmem_update"):
+        assert by_name[writer]["readOnlyHint"] is False, writer
+    assert by_name["entropicmem_forget"]["destructiveHint"] is True
+
+
+def test_a_new_home_creates_the_vault_so_profile_read_works(tmp_path: Path) -> None:
+    """f8f17e6's regression, pinned: a brand-new home serves profile read.
+
+    The bootstrap used to create only the v3 database, so the first profile
+    read answered "Vault not initialized" and a remembered fact stored no
+    vault note. Both need the vault directory to exist on a new home.
+    """
+    _, lines = _run(
+        tmp_path,
+        [
+            _request(1, "initialize", {}),
+            _request(2, "tools/call", {"name": "entropicmem_profile", "arguments": {"action": "read"}}),
+        ],
+    )
+    profile = json.loads(_text(lines[1]))
+    assert profile["ok"] is True, profile
+    assert (tmp_path / "vault").is_dir()
+
+
 def test_protocol_versions_claim_only_the_handshake_era() -> None:
     """2026-07-28 removed the handshake, ``ping`` and ``logging/setLevel``.
 
