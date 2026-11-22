@@ -26,11 +26,25 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3325 passed, 4 skipped, 2 xfailed** *(**projected**, not read: `bda39c6` is branch-local and unpushed, so no CI run exists for this tree)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3230 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3231 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3327 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3327 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3334 passed, 4 skipped, 2 xfailed** *(**projected**, not read: `b9a2e40` is branch-local and unpushed, so no CI run exists for this tree)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3239 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3240 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3336 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3336 passed, 2 skipped, 2 xfailed** |
+
+Read as at `b9a2e40` (Change Reviewer's two design calls on the OpenBot bridge:
+the credential gate that now refuses natural phrasing and raw AWS key ids, and
+the honest read-only hints; **+9 tests over the `bda39c6` record** — the
+reviewer's `ac8a3bb` added three, this commit adds six — plus the cited-SHAs
+allowlist for the OpenBot co-author trailer's GitHub App user id, which closes
+the third red that trailer-bearing commits carried). **The CI row is
+projected**, not read: the branch is local and unpushed, so no run exists for
+this tree. The local figures are the previous record plus the measured +9-test
+delta; every new test passes in each variant. The one local red is the
+pre-existing host-pin mismatch described under "Known CI coverage gap" — the
+installed `hermes-agent` is newer than
+`tests/harness/pinned_memory_provider.json`, so the live host pin cannot pass
+here, which is unrelated to this branch.
 
 Read as at `bda39c6` (the OpenBot MCP bridge: a stdlib-only MCP stdio server,
 the `entropicmem-mcp` console script, the prepared marketplace bundle and
@@ -452,15 +466,15 @@ be verified on a box that has one — this box does, which is why the two pins s
 *passes* in the CI-equivalent 3.12 row above; the 3.10 venv has no host checkout, so
 its row shows the same four skips as CI.
 
-**The full bare → CI ladder** (the new tests add +8 passed at every leg; the measured ladder below carries the rest):
+**The full bare → CI ladder** (the new tests add +9 passed at every leg — `ac8a3bb`'s three and this commit's six; the measured ladder below carries the rest):
 
 ```
-bare          3230 / 20 / 2
+bare          3239 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3327 /  2 / 2
+= CI-equiv    3336 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3325 /  4 / 2   (projected; branch-local, no run exists)
+= CI          3334 /  4 / 2   (projected; branch-local, no run exists)
 ```
 
 ## Citing CI evidence — one trap

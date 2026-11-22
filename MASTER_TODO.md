@@ -638,8 +638,8 @@ stop-state: what is done, the evidence, and the exact counts.
 ---
 
 **Last reconciled:** 2026-11-22, against branch `openbot-marketplace` at
-`bda39c6` (the OpenBot MCP bridge; branch-local and unpushed). The prior
-reconciliation, 2026-11-18 against `main` at `82c2f23`, recorded the
+`b9a2e40` (the OpenBot MCP bridge plus the review fixes; branch-local and
+unpushed). The prior reconciliation, 2026-11-18 against `main` at `82c2f23`, recorded the
 re-arm-preparation landing's companion re-stamp (level with `origin/main`,
 24/24 check-runs green on the merge tip) and the session's four cards, in order:
 the CI-red fix (`ae863c1`), the figures recorder's derive mode (`c9e5c6c`),
@@ -748,11 +748,31 @@ custom stdio server; OpenBot's connection test reported `ready` with all nine
 tools, and the test entry was removed. Three mutation checks (protocol echo,
 new-home v3 bootstrap, no-auto-migration) each went red and were restored from
 a byte copy.
+
+**Review pass, same day:** QA Tester's `f8f17e6` (a new home creates the vault,
+so `profile` read and remember's vault note work) and Change Reviewer's
+`ac8a3bb` (the protocol era this server actually implements, forced UTF-8
+stdio, the provider-resolved bootstrap path) are on the branch. The reviewer's
+two open design calls are closed at `b9a2e40`: the credential gate now refuses
+natural phrasing ("my password is …") and raw AWS access key ids
+(`AKIA`/`ASIA` + 16 characters) — one refuse rule for one risk class, since a
+flagged credential would still be a plaintext credential at rest while the
+injection screen's flag-through governs untrusted *instructions*, which are
+inert when marked — and `tools/list` asserts **no** `readOnlyHint` for
+`entropicmem_review` at all, because its `list_pending`/`consolidate_preview`
+actions read while `promote`/`discard`/`restore`/`feedback` mutate and the
+annotation is a static claim made before the client chooses an action; the
+pure reads keep theirs and a test pins `stats`. Six new tests, three mutation
+checks red against byte copies, QA's regression case for `f8f17e6` pinned,
+and the cited-SHAs landing guard allowlists the OpenBot co-author trailer's
+GitHub App user id (`335604065`), the third red the branch carried.
+
 The full suite is **not green on this box for one pre-existing reason**: the
 installed `hermes-agent` is newer than `tests/harness/pinned_memory_provider.json`,
 so `test_the_pin_matches_the_host_when_the_host_is_reachable` fails; a clean
 `main` clone on the same box fails it identically. The figures record is
-re-stamped at `bda39c6` for the +8-test delta; CI is **projected**, because this
+re-stamped at `b9a2e40` for the +9-test delta (`ac8a3bb`'s three and the
+review-fix commit's six); CI is **projected**, because this
 branch has no run.
 
 **Not done, by design:** no push, tag, release, publish, marketplace PR, or
