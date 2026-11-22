@@ -359,12 +359,19 @@ def build_provider(
     # A brand-new MCP home gets the v3 store, so the full nine-tool surface works
     # from the first call. An existing store is served exactly as it is: a v2
     # store is never migrated here, because that cutover is a deliberate act.
-    _, _, memory_path = host.resolve_paths(host.home, host.load_plugin_config(host.home))
+    vault_path, index_path, memory_path = host.resolve_paths(
+        host.home, host.load_plugin_config(host.home)
+    )
     if not memory_path.exists():
         from em.facade.engine import V3Engine
 
         engine = V3Engine(memory_path)
         engine.close()
+        # Profile reads and remember's vault note need the directory to exist.
+        # CoreMemory and Vault create their own files after that. An existing
+        # store, including one with no vault, is left exactly as it was.
+        vault_path.mkdir(parents=True, exist_ok=True)
+        index_path.parent.mkdir(parents=True, exist_ok=True)
     provider = EntropicMemProvider(config={}, host=host)
     provider.initialize(
         "openbot",
