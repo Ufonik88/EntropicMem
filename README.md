@@ -29,6 +29,7 @@ A Hermes Agent memory provider and skill delivering a complete, standalone knowl
 | **Index** | Vault FTS5 plus graph edges powering cited retrieval |
 | **Visual graph** | Self-contained D3 galaxy HTML export with lazy wikilink resolution |
 | **MemoryProvider plugin** | 9 `entropicmem_*` tools and 6 lifecycle hooks wired into Hermes |
+| **MCP server** | The same nine tools over stdio for OpenBot and other MCP clients, with no network call |
 
 ## The v3 Line (In Development)
 
@@ -143,9 +144,11 @@ EntropicMem/
 │   │   ├── policy.py / pii.py   # Write policy + PII redaction
 │   │   ├── embeddings.py        # Vector search (optional)
 │   │   ├── em/                  # v3 storage + retrieval core + typed config (in development)
+│   │   │   └── mcp_server.py    # MCP stdio server for OpenBot (stdlib only)
 │   │   ├── em_internal/         # The six shared-name engine modules (EM-212)
 │   │   └── entropicmem.py       # CLI
 │   └── README.md                # Plugin quick reference
+├── integrations/openbot/        # Marketplace listing bundle + submission notes
 ├── skills/entropicmem/          # /learn skill: instructions + references + templates
 │   ├── SKILL.md                 # Agent instructions (loaded by /learn)
 │   ├── SETUP.md                 # First-run bootstrap checklist
@@ -269,6 +272,28 @@ memory:
 - **Cron:** Hermes cron runs execute with memory writes disabled; persist durable facts through the CLI or the MemoryEngine API (deterministic, no LLM), never through interactive memory tools.
 - **Full integration guide:** [skills/entropicmem/references/HERMES_INTEGRATION.md](skills/entropicmem/references/HERMES_INTEGRATION.md).
 
+## OpenBot Integration
+
+OpenBot connects over a local MCP stdio server that exposes the same nine
+`entropicmem_*` tools. Nothing leaves the computer, and no key is needed:
+
+```bash
+pipx install entropicmem
+# until the next release is published: pipx install --force /path/to/EntropicMem
+```
+
+Then, in OpenBot: **Settings → MCP servers → Connect to a custom MCP**. Name it
+`entropicmem`, choose `stdio`, command `entropicmem-mcp`, no arguments. A new
+home is created at `~/.entropicmem` as a v3 store; an existing store is served
+as-is and is never migrated automatically.
+
+The server also runs from a checkout with
+`PYTHONPATH=plugins/entropicmem/scripts python3 -m em.mcp_server`.
+
+Full guide: [docs/OPENBOT.md](docs/OPENBOT.md). Marketplace bundle:
+[`integrations/openbot/plugin.json`](integrations/openbot/plugin.json) (prepared,
+not submitted).
+
 ## Security
 
 - **Write policy:** secret and credential content is blocked. High-confidence `api_key` / `password` findings are auto-redacted; other PII types are recorded as warn-only findings. Auto-extracted facts are quarantined as pending until promoted.
@@ -319,6 +344,7 @@ These are pinned by strict `xfail` tests in `tests/regressions/test_findings_v27
 | [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md) | Encrypted backup + restore drill |
 | [MASTER_TODO.md](MASTER_TODO.md) | **Start here** (agents and humans): where the project is, what is in flight, what is next, the gates, and the document-control rule |
 | [docs/MARKETPLACE.md](docs/MARKETPLACE.md) | The Hermes Marketplace entry: the pin-is-the-release rule, the owner-gated release procedure, catalog PR mechanics, and the pitfalls |
+| [docs/OPENBOT.md](docs/OPENBOT.md) | OpenBot: the local MCP server, its nine tools, custom-MCP setup, and the marketplace listing submission |
 | [docs/plan/REMAINING_PLAN.md](docs/plan/REMAINING_PLAN.md) | **Project status** (§2 state, §11 how to pick it up), what is left of the v3 plan, and the rules for doing it in small chunks |
 | [docs/plan/NEXT_CHUNK.md](docs/plan/NEXT_CHUNK.md) | The single next development chunk, planned one ahead (Part A is the chunk that just landed) |
 | [docs/BACKFILL_PROCEDURE.md](docs/BACKFILL_PROCEDURE.md) | Opt-in shared-store backfill for multi-profile sync |

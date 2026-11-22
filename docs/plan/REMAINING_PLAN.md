@@ -805,3 +805,27 @@ Two flakes are already on record, and both were fixed at the test or CI layer, n
 - The v3 concurrency AC test could compute its p95 from an empty sample list when the writers outran the reader's spawn. The reader now floors at 20 samples.
 
 The pattern that confirms a flake: `gh run rerun <id> --failed` on the **same** SHA. A rerun that goes green on an unchanged commit is the evidence. Never loosen a budget, skip a test or mark a job non-blocking to clear a red gate.
+
+## Appendix: OpenBot bridge (branch `openbot-marketplace`, 2026-11-22)
+
+A separate branch from `main` at `0999996`, committed at `bda39c6`, adding an
+OpenBot-facing MCP stdio server. It is not part of S5–S9 and it does not move
+the Hermes plugin surface:
+
+- `em/mcp_server.py` reuses the provider's nine tools and serves them over
+  newline-delimited JSON-RPC. Stdlib only; no network call. A new home becomes
+  a v3 store, an existing store is served as-is and is never migrated.
+- `entropicmem-mcp` is the console script; `integrations/openbot/plugin.json`
+  is the marketplace-shaped bundle (one stdio app, no auth, no secret), and
+  `docs/OPENBOT.md` is the setup and submission guide.
+- Seven smoke/structural tests; three mutation checks red, each restored from a
+  byte copy. The wheel was built and installed into a throwaway venv, where the
+  console script completed initialize/remember/search against a temporary home.
+- The full suite's only local red is the pre-existing host-pin mismatch (the
+  installed `hermes-agent` is newer than `tests/harness/pinned_memory_provider.json`),
+  reproduced on a clean `main` clone. The figures record is re-stamped for the
+  +8-test delta with CI projected; the branch has no run.
+
+**Not approved and not done:** push, tag, release, publish, marketplace PR or
+catalog pin. The next acts outside this branch are a release that ships
+`em/mcp_server.py` and the upstream OpenBot catalog PR.

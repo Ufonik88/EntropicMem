@@ -2764,3 +2764,28 @@ deliberately was not, and the process record for the two direct-to-`main` commit
 **Deliberately not repeated here:** duplicating them is how the two copies drifted in
 the first place (the build note claimed slice 3 "done" while `MASTER_TODO` still said
 the service was unwired — the contradiction this reconciliation removed).
+
+## OpenBot bridge (2026-11-22, branch `openbot-marketplace`, local only)
+
+Not a chunk in the S5–S9 plan. A separate branch from `main` at `0999996`,
+committed at `bda39c6`, for the OpenBot marketplace work:
+
+- `em/mcp_server.py` — stdlib-only MCP stdio server over the provider's nine
+  tools; no new dependency, no network call. A new home is bootstrapped as v3,
+  an existing store is served as-is.
+- `entropicmem-mcp` console script in `pyproject.toml`.
+- `integrations/openbot/plugin.json` — marketplace-shaped bundle (one stdio app,
+  no auth, no secret) with submission notes beside it.
+- `docs/OPENBOT.md` — custom-MCP setup, tool table, paths, submission steps.
+- `tests/test_mcp_server.py` — seven smoke/structural tests; three mutation
+  checks red (protocol echo, v3 bootstrap, no-auto-migration), each restored
+  from a byte copy.
+
+The wheel was built and installed into a throwaway venv; `entropicmem-mcp`
+completed initialize/remember/search against a temporary home. The full suite's
+only local red is the pre-existing host-pin mismatch (the installed
+`hermes-agent` is newer than the pin), reproduced on a clean `main` clone. The
+figures record is re-stamped for the +8-test delta with CI projected, because
+this branch has no run. **No push, tag, release, publish or marketplace PR.**
+Next outside this branch: a release that ships the server, then the upstream
+catalog PR.
