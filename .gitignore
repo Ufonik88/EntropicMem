@@ -30,6 +30,8 @@ build/
 # Exports (generated)
 export/
 *.json
+# The OpenBot marketplace listing is source, not an export: it carries no data.
+!integrations/openbot/plugin.json
 !benchmarks/probes.json
 !export/graph.html
 !evals/baselines/*.json

@@ -27,10 +27,19 @@ _SECRET_PATTERNS = [
     re.compile(r"(?i)\b(sk|pk)[_-][A-Za-z0-9_-]{10,}\b"),
     re.compile(r"(?i)\b(api[_-]?key|access[_-]?token|secret[_-]?key)\s*[=:]\s*\S+"),
     re.compile(r"(?i)-----BEGIN (RSA |OPENSSH |EC )?PRIV" r"ATE KEY-----"),
-    re.compile(r"(?i)\b(password|passwd|pwd)\s*[=:]\s*\S+"),
+    # "my password is hunter2" is as much a credential as "password=hunter2":
+    # the natural-phrasing form reached the store verbatim while only the
+    # =/: shapes were caught, so "is" joins the separators. The \b after the
+    # keyword keeps "passwordist"-shaped words from matching.
+    re.compile(r"(?i)\b(password|passwd|pwd)\b\s*(?:is|[=:])\s*\S+"),
     re.compile(r"(?i)\bVaultKnox master password\b"),
     re.compile(r"(?i)\b(aws_secret_access_key|xox[baprs]-)\S+"),
     re.compile(r"(?i)\bsk_live_[A-Za-z0-9]+\b"),
+    # A raw AWS access key id carries no keyword at all, so AKIAIOSFODNN7EXAMPLE
+    # passed every pattern above. Both the permanent (AKIA) and the temporary
+    # (ASIA) prefix, exactly 16 uppercase alphanumerics, are credentials in
+    # themselves.
+    re.compile(r"\bA(?:KIA|SIA)[0-9A-Z]{16}\b"),
 ]
 
 

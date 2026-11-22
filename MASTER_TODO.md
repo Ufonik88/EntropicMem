@@ -637,9 +637,11 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-11-18, against branch `main` at `82c2f23` (the
-re-arm-preparation landing's companion re-stamp; level with `origin/main`,
-24/24 check-runs green on the merge tip). The session's four cards, in order:
+**Last reconciled:** 2026-11-22, against branch `openbot-marketplace` at
+`b9a2e40` (the OpenBot MCP bridge plus the review fixes; branch-local and
+unpushed). The prior reconciliation, 2026-11-18 against `main` at `82c2f23`, recorded the
+re-arm-preparation landing's companion re-stamp (level with `origin/main`,
+24/24 check-runs green on the merge tip) and the session's four cards, in order:
 the CI-red fix (`ae863c1`), the figures recorder's derive mode (`c9e5c6c`),
 the `em/net` coverage (`25b739d`), and the re-armed P0c's pre-declared
 machinery — the declaration with the same-minor carve-out and the doctor's
@@ -726,6 +728,56 @@ one user-visible change is that semantic recall now needs
 > building anything. The only things that would legitimately create *new* 2.8.x
 > work are (a) a security or correctness bug specific to 2.8.x, or (b) a
 > deliberate owner decision to cut a 2.8.2 patch; neither is open today.
+
+### OpenBot branch — `openbot-marketplace` (local only)
+
+**A separate branch from `main` at `0999996`, cut 2026-11-22 for the OpenBot
+bridge, committed at `bda39c6`, and not pushed.** It adds `em/mcp_server.py`
+(a stdlib-only MCP stdio server over the provider's nine tools), the
+`entropicmem-mcp` console script, a marketplace-shaped bundle at
+`integrations/openbot/plugin.json` (one stdio app, no auth, no secret), the
+connection guide `docs/OPENBOT.md`, seven MCP smoke/structural tests (thirteen
+after the review pass below) and the README/CHANGELOG entries. A new MCP home is bootstrapped as v3; an existing
+store is served as-is and is never migrated automatically.
+
+**Verification on this box:** `tests/test_mcp_server.py` is green; the wheel was
+built with `uv build --wheel`, installed into a throwaway venv, and its
+`entropicmem-mcp` console script completed an initialize/remember round trip
+against a temporary home. The same server was added to OpenBot as a temporary
+custom stdio server; OpenBot's connection test reported `ready` with all nine
+tools, and the test entry was removed. Three mutation checks (protocol echo,
+new-home v3 bootstrap, no-auto-migration) each went red and were restored from
+a byte copy.
+
+**Review pass, same day:** QA Tester's `f8f17e6` (a new home creates the vault,
+so `profile` read and remember's vault note work) and Change Reviewer's
+`ac8a3bb` (the protocol era this server actually implements, forced UTF-8
+stdio, the provider-resolved bootstrap path) are on the branch. The reviewer's
+two open design calls are closed at `b9a2e40`: the credential gate now refuses
+natural phrasing ("my password is …") and raw AWS access key ids
+(`AKIA`/`ASIA` + 16 characters) — one refuse rule for one risk class, since a
+flagged credential would still be a plaintext credential at rest while the
+injection screen's flag-through governs untrusted *instructions*, which are
+inert when marked — and `tools/list` asserts **no** `readOnlyHint` for
+`entropicmem_review` at all, because its `list_pending`/`consolidate_preview`
+actions read while `promote`/`discard`/`restore`/`feedback` mutate and the
+annotation is a static claim made before the client chooses an action; the
+pure reads keep theirs and a test pins `stats`. Six new tests, three mutation
+checks red against byte copies, QA's regression case for `f8f17e6` pinned,
+and the cited-SHAs landing guard allowlists the OpenBot co-author trailer's
+GitHub App user id (`335604065`), the third red the branch carried.
+
+The full suite is **not green on this box for one pre-existing reason**: the
+installed `hermes-agent` is newer than `tests/harness/pinned_memory_provider.json`,
+so `test_the_pin_matches_the_host_when_the_host_is_reachable` fails; a clean
+`main` clone on the same box fails it identically. The figures record is
+re-stamped at `b9a2e40` for the +9-test delta (`ac8a3bb`'s three and the
+review-fix commit's six); CI is **projected**, because this
+branch has no run.
+
+**Not done, by design:** no push, tag, release, publish, marketplace PR, or
+catalog pin. The listing cannot go upstream until a release ships
+`em/mcp_server.py` and users can install `entropicmem-mcp`.
 
 ### Development line — `main`, `3.0.0.dev0`
 
@@ -1218,8 +1270,7 @@ dead-job exit code and missing-file refusal covered for the first time),
 the module at 100% on the scoped coverage measurement, 8 mutation checks
 red against the real module, the figures record stamped by the derive mode
 (the CI-equivalent leg measured green, CI projected), and the branch pushed
-with a PR against `main`. The landing — and the CI read that replaces the
-projection — belong to the owner's merge.**
+with a PR against `main`. Its landing is the owner's merge.**
 
 **EM-806 — S8 packaging — is COMPLETE: LANDED on `main` at `ceb70cb` (2026-10-27, chunk 47)** —
 opening docs `1e683c1`, build `bf2e267`, record pass `ceb70cb`; **13/13 check-runs green on that
@@ -1398,6 +1449,10 @@ runtime activity, provably not the suite, attribution still open with the owner.
 Only the parts a later reader needs to know. The full ledger with commit SHAs is
 [plan §5](docs/plan/REMAINING_PLAN.md).
 
+- **OpenBot MCP bridge (branch-local, `bda39c6`, 2026-11-22):** a stdlib-only
+  MCP stdio server over the provider's nine tools, the `entropicmem-mcp`
+  console script, the prepared marketplace bundle and `docs/OPENBOT.md`. Not
+  pushed, released or submitted; see the branch section under "Where we are".
 - **2.8.1 reached and is catalog-pinned** (2026-09-28). Safe point.
 - **S2, the v3 storage core**, merged to `main`: migrations, `MemoryStore`,
   episodes and content-addressed transcript chunks, entities with a two-sighting
@@ -1536,8 +1591,11 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-**Nothing agent-owned is left to build: every card in S5–S8 has landed, and the file is
-waiting on the owner's release call.** The last code card — S8's EM-806 packaging — landed
+**Nothing agent-owned is left to build on `main`: every card in S5–S8 has landed, and the file is
+waiting on the owner's release call.** The OpenBot bridge is committed locally on
+`openbot-marketplace` at `bda39c6`; its remaining acts are a release that carries
+`em/mcp_server.py` and the upstream OpenBot catalog PR, both outside that branch
+and not approved here. The last code card — S8's EM-806 packaging — landed
 2026-10-27 (`ceb70cb`, recorded through `0482a49`; the branch and read-pass commits are in
 §11). What §6.5 still holds is **S9**, and both of its cards are release acts:
 

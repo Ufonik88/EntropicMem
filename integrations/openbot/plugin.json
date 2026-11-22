@@ -1,0 +1,42 @@
+{
+  "slug": "entropicmem",
+  "name": "EntropicMem",
+  "tagline": "Local long-term memory for agents",
+  "description": "EntropicMem gives agents durable memory on this computer: SQLite facts with full-text search, a Markdown vault, entities and relations, a timeline, and review tools. The MCP server runs locally over stdio and makes no network calls. Install the package first with `pipx install entropicmem` (or `pip install entropicmem`), then connect; the server creates a new v3 store under ~/.entropicmem on first use. An existing store is served as it is and is never migrated automatically.",
+  "category": "productivity",
+  "creatorName": "Ufonik88",
+  "iconUrl": "https://raw.githubusercontent.com/Ufonik88/EntropicMem/main/docs/assets/logo.png",
+  "version": "0.1.0",
+  "prompts": [
+    {
+      "id": "prompt-recall",
+      "text": "What do you remember about the decisions we made on this project?"
+    },
+    {
+      "id": "prompt-save",
+      "text": "Remember that this project deploys from the release branch, never from main."
+    },
+    {
+      "id": "prompt-timeline",
+      "text": "Show me what happened in this project over the last two weeks."
+    }
+  ],
+  "apps": [
+    {
+      "id": "app-entropicmem-mcp",
+      "name": "EntropicMem",
+      "description": "Local memory search, writes, corrections and history over the EntropicMem MCP stdio server. No key and no network call.",
+      "iconUrl": "https://raw.githubusercontent.com/Ufonik88/EntropicMem/main/docs/assets/logo.png",
+      "server": {
+        "name": "entropicmem",
+        "transport": "stdio",
+        "command": "entropicmem-mcp",
+        "args": []
+      }
+    }
+  ],
+  "skills": [],
+  "websiteUrl": "https://github.com/Ufonik88/EntropicMem",
+  "privacyPolicyUrl": null,
+  "termsUrl": null
+}

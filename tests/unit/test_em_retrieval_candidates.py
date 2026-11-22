@@ -234,7 +234,7 @@ def test_scope_isolation_covers_the_chat_dimension(store):
 
 
 def test_bm25_hides_an_owner_only_tier_from_a_guest_but_not_from_the_owner(store):
-    mid = remember(store, "the staging server password is hunter2", scope=OWNER)
+    mid = remember(store, "the staging server hosts the owner-only build", scope=OWNER)
     restamp(store, mid, sensitivity="sensitive")
     guest = ids(bm25(ctx_for(store, scope=ALICE, terms=["staging"])))
     owner = ids(bm25(ctx_for(store, scope=OWNER, terms=["staging"])))
