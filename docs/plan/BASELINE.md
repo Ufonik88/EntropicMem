@@ -26,11 +26,33 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3334 passed, 4 skipped, 2 xfailed** *(**projected**, not read: `b9a2e40` is branch-local and unpushed, so no CI run exists for this tree)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3239 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3240 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3336 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3336 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3343 passed, 4 skipped, 2 xfailed** *(**projected**, not read: the merge tip's own run was red on the figures-guard pair alone — the documented pre-stamp shape this docs-only re-stamp resolves, and a red summary line is never recorded — so the landing run's `test (3.12)` leg reads the figure)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3248 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3249 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3345 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3345 passed, 2 skipped, 2 xfailed** |
+
+Read as at `c7b6838` (the W45 coverage merge: nine in-process tests for
+`em/jobs/cli.py` landing on the OpenBot-bridge main. A merge commit touches
+`tests/` by construction, so by the merge rule above the record anchors here and
+one docs-only commit re-stamps the pair; the code and its tests are the merge's,
+this stamp is the companion). **The one measured leg is the CI-equivalent,
+3345 / 2 / 2**: the full suite under CI's own install line ran on the box against
+this exact tree and read red on exactly three rows — the two figures-guard rows
+(the pre-stamp shape this stamp resolves) and the one known host-pin mismatch
+under "Known CI coverage gap" — with a pass count identical to the merge tip's
+own CI read and the only skips the two internal-ops files and the absent private
+digest list. The triple follows from that read by the relations the recorder
+itself pins: the two host pins of `HOST_PINS` (the cli-mount pin passes here
+beside the red provider pin; both pass on a pin-matched box), the one digest row
+the ladder pins, and the two guard rows the stamp itself turns green. The history
+agrees independently — the OpenBot-bridge record at `b9a2e40` carried **+17** and
+this branch carried **+9** over the fork-point CI-equivalent of **3319 / 2 / 2**:
+3319 + 17 + 9 = 3345. bare / digest / 3.10 are derived by the measured +9 delta
+over the `b9a2e40` record and the record carries `derived: true`; the CI row is
+**projected** — the merge tip's own run was red on the figures-guard pair alone,
+and the tooling refuses a red summary line as a recorded figure — so the landing
+run's `test (3.12)` leg reads the figure and a later read pass can cite it.
 
 Read as at `b9a2e40` (Change Reviewer's two design calls on the OpenBot bridge:
 the credential gate that now refuses natural phrasing and raw AWS key ids, and
@@ -466,15 +488,15 @@ be verified on a box that has one — this box does, which is why the two pins s
 *passes* in the CI-equivalent 3.12 row above; the 3.10 venv has no host checkout, so
 its row shows the same four skips as CI.
 
-**The full bare → CI ladder** (the new tests add +9 passed at every leg — `ac8a3bb`'s three and this commit's six; the measured ladder below carries the rest):
+**The full bare → CI ladder** (the W45 coverage's nine tests add +9 passed at every leg over the OpenBot-bridge record; the measured ladder below carries the rest):
 
 ```
-bare          3239 / 20 / 2
+bare          3248 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3336 /  2 / 2
+= CI-equiv    3345 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3334 /  4 / 2   (projected; branch-local, no run exists)
+= CI          3343 /  4 / 2   (projected; the merge tip's red pair resolves at this stamp)
 ```
 
 ## Citing CI evidence — one trap
