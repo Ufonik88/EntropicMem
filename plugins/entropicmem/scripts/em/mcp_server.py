@@ -44,8 +44,14 @@ logger = logging.getLogger("em.mcp")
 #: MCP revisions this server can answer. The client's requested revision is
 #: echoed when it is in this list; otherwise the newest one is offered and the
 #: client decides whether to continue (the protocol's own negotiation rule).
+#:
+#: Nothing newer than 2025-11-25 is listed on purpose. The 2026-07-28 revision
+#: removed the ``initialize``/``notifications/initialized`` handshake, ``ping``,
+#: ``logging/setLevel`` and the unversioned result shape, and requires a
+#: ``server/discover`` RPC; this server implements the handshake era only, so
+#: naming 2026-07-28 would promise a contract it does not honour. A client that
+#: offers only a newer revision is answered with 2025-11-25 and decides.
 PROTOCOL_VERSIONS: Tuple[str, ...] = (
-    "2026-07-28",
     "2025-11-25",
     "2025-06-18",
     "2025-03-26",
@@ -340,8 +346,35 @@ def _error(request_id: Any, code: int, message: str) -> Dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
+def _use_utf8_stdio() -> None:
+    """Force UTF-8 on stdin/stdout regardless of the host's locale.
+
+    MCP frames are UTF-8 by definition, but Python decodes a pipe with the
+    locale's preferred encoding. On a Windows host whose code page is not
+    UTF-8 (or any C-locale POSIX box), a non-ASCII byte in a client request
+    raised ``UnicodeDecodeError`` out of ``serve``'s loop — which ``main``
+    reported as a startup failure, exiting the whole server — and a non-ASCII
+    memory could not be written to the response at all.
+    """
+    for stream in (sys.stdin, sys.stdout):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:  # a StringIO under test
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="strict")
+        except Exception:  # noqa: BLE001 - a stream that cannot change is left alone
+            logger.debug("could not force UTF-8 on %r", stream)
+
+
 def _write(stdout: TextIO, payload: Mapping[str, Any]) -> None:
-    stdout.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
+    # ensure_ascii=False keeps text readable for the client; the console stream
+    # is UTF-8 (see ``_use_utf8_stdio``), and a stream that still cannot encode
+    # a character must not kill the server mid-session.
+    line = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+    try:
+        stdout.write(line)
+    except UnicodeEncodeError:
+        stdout.write(json.dumps(payload, ensure_ascii=True, separators=(",", ":")) + "\n")
     stdout.flush()
 
 
@@ -356,22 +389,6 @@ def build_provider(
     host = StandaloneHost(
         home, memory_db=memory_db, vault_path=vault_path, index_db=index_db
     )
-    # A brand-new MCP home gets the v3 store, so the full nine-tool surface works
-    # from the first call. An existing store is served exactly as it is: a v2
-    # store is never migrated here, because that cutover is a deliberate act.
-    vault_path, index_path, memory_path = host.resolve_paths(
-        host.home, host.load_plugin_config(host.home)
-    )
-    if not memory_path.exists():
-        from em.facade.engine import V3Engine
-
-        engine = V3Engine(memory_path)
-        engine.close()
-        # Profile reads and remember's vault note need the directory to exist.
-        # CoreMemory and Vault create their own files after that. An existing
-        # store, including one with no vault, is left exactly as it was.
-        vault_path.mkdir(parents=True, exist_ok=True)
-        index_path.parent.mkdir(parents=True, exist_ok=True)
     provider = EntropicMemProvider(config={}, host=host)
     provider.initialize(
         "openbot",
@@ -379,6 +396,34 @@ def build_provider(
         agent_context="primary",
         agent_identity="default",
     )
+    # A brand-new MCP home gets the v3 store, so the full nine-tool surface works
+    # from the first call. An existing store is served exactly as it is: a v2
+    # store is never migrated here, because that cutover is a deliberate act.
+    #
+    # The path comes from the provider, not from ``host.resolve_paths``: the
+    # provider's typed loader also reads the nested ``paths.*`` form of
+    # ``<home>/config.json``, which the flat pass below does not. Bootstrapping
+    # the flat answer created a v3 file the provider never served, and the file
+    # it did serve was then created by the v2 engine — so ``update``, ``entity``
+    # and ``review restore`` refused on a home the docs call new.
+    memory_path = provider._memory_db
+    if memory_path is not None and not Path(memory_path).exists():
+        from em.facade.engine import V3Engine
+
+        engine = V3Engine(memory_path)
+        engine.close()
+        # Profile reads and remember's vault note need the directory to exist.
+        # CoreMemory and Vault create their own files after that. An existing
+        # store, including one with no vault, is left exactly as it was.
+        if provider._vault_path is not None:
+            provider._vault_path.mkdir(parents=True, exist_ok=True)
+        if provider._index_db is not None:
+            provider._index_db.parent.mkdir(parents=True, exist_ok=True)
+        # ``initialize`` ran before the file existed, so its job-worker start
+        # took the "not created yet" early return. Start it now that the store
+        # is there: otherwise the projection and embed jobs a first session
+        # enqueues wait for the next process. The call is idempotent.
+        provider._start_job_workers()
     return provider
 
 
@@ -401,6 +446,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
+    _use_utf8_stdio()
     logging.basicConfig(
         stream=sys.stderr,
         level=os.environ.get("ENTROPICMEM_MCP_LOG_LEVEL", "WARNING").upper(),

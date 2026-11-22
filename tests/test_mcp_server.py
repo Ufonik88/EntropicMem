@@ -235,3 +235,103 @@ def test_startup_failure_is_a_clean_stderr_error(tmp_path: Path) -> None:
     )
     assert proc.returncode != 0
     assert "EntropicMem MCP server failed to start" in proc.stderr
+
+
+def test_a_nested_paths_config_is_the_store_that_gets_bootstrapped(tmp_path: Path) -> None:
+    """The bootstrap and the served store must be the same file.
+
+    The provider's typed loader reads the nested ``paths.memory_db`` form; a
+    flat pass over the same file does not. When the two disagreed, a "new" home
+    got a v3 file at the flat answer while the provider served the nested path,
+    which the v2 engine then created — so the v3-only tools refused on a home
+    the documentation calls new.
+    """
+    nested = tmp_path / "elsewhere" / "memory.db"
+    (tmp_path / "config.json").write_text(
+        json.dumps({"paths": {"memory_db": str(nested)}}), encoding="utf-8"
+    )
+
+    _, lines = _run(
+        tmp_path,
+        [
+            _request(1, "initialize", {}),
+            _request(2, "tools/call", {"name": "entropicmem_stats", "arguments": {}}),
+            _request(
+                3,
+                "tools/call",
+                {
+                    "name": "entropicmem_update",
+                    "arguments": {"id": "no-such-id", "content": "x"},
+                },
+            ),
+        ],
+    )
+    stats = json.loads(_text(lines[1]))
+    assert stats["db_path"] == str(nested)
+    # A v3 store answers "not found"; a v2 store answers needs_v3_store.
+    update = json.loads(_text(lines[2]))
+    assert update.get("reason_code") != "needs_v3_store", update
+    assert int(sqlite3.connect(str(nested)).execute("PRAGMA user_version").fetchone()[0]) >= 3
+    assert not (tmp_path / "memory.db").exists(), "the flat answer must not be bootstrapped"
+
+
+def test_a_non_utf8_stdout_still_serves_and_writes_unicode(tmp_path: Path) -> None:
+    """A host locale must not decide whether the server starts or can answer.
+
+    MCP frames are UTF-8. Python decodes a pipe with the locale's encoding, so
+    on a non-UTF-8 code page a non-ASCII request byte raised out of ``serve``
+    and ``main`` reported it as a startup failure — and a non-ASCII memory
+    could not be encoded onto stdout at all.
+    """
+    payload = "\n".join(
+        json.dumps(message, ensure_ascii=False)
+        for message in [
+            _request(1, "initialize", {}),
+            _request(
+                2,
+                "tools/call",
+                {
+                    "name": "entropicmem_remember",
+                    "arguments": {"content": "Staging is in 東京 — café ✓"},
+                },
+            ),
+            _request(3, "tools/call", {"name": "entropicmem_search", "arguments": {"query": "東京"}}),
+        ]
+    )
+    env = _clean_env()
+    env["PYTHONIOENCODING"] = "cp1252"
+    proc = subprocess.run(
+        [sys.executable, "-m", "em.mcp_server", "--home", str(tmp_path)],
+        input=payload.encode("utf-8") + b"\n",
+        text=False,
+        capture_output=True,
+        cwd=str(REPO),
+        env=env,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
+    lines = [json.loads(line) for line in proc.stdout.decode("utf-8").splitlines() if line]
+    assert len(lines) == 3, proc.stdout
+    remembered = json.loads(_text(lines[1]))
+    assert remembered["ok"] is True
+    found = json.loads(_text(lines[2]))
+    assert found["ok"] is True
+    assert any("東京" in hit["content"] for hit in found["results"]), found
+
+
+def test_protocol_versions_claim_only_the_handshake_era() -> None:
+    """2026-07-28 removed the handshake, ``ping`` and ``logging/setLevel``.
+
+    This server implements those, so naming the newer revision would promise a
+    contract it cannot honour. A client that offers only a newer one is
+    answered with the newest revision this server does implement.
+    """
+    from em import mcp_server
+
+    assert "2026-07-28" not in mcp_server.PROTOCOL_VERSIONS
+    assert mcp_server.LATEST_PROTOCOL_VERSION == "2025-11-25"
+    server = mcp_server.McpServer.__new__(mcp_server.McpServer)
+    answer = server._initialize({"protocolVersion": "2026-07-28"})
+    assert answer["protocolVersion"] == "2025-11-25"
+    answer = server._initialize({"protocolVersion": "2025-06-18"})
+    assert answer["protocolVersion"] == "2025-06-18"
