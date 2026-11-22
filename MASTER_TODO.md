@@ -736,8 +736,8 @@ bridge, committed at `bda39c6`, and not pushed.** It adds `em/mcp_server.py`
 (a stdlib-only MCP stdio server over the provider's nine tools), the
 `entropicmem-mcp` console script, a marketplace-shaped bundle at
 `integrations/openbot/plugin.json` (one stdio app, no auth, no secret), the
-connection guide `docs/OPENBOT.md`, seven MCP smoke/structural tests and the
-README/CHANGELOG entries. A new MCP home is bootstrapped as v3; an existing
+connection guide `docs/OPENBOT.md`, seven MCP smoke/structural tests (thirteen
+after the review pass below) and the README/CHANGELOG entries. A new MCP home is bootstrapped as v3; an existing
 store is served as-is and is never migrated automatically.
 
 **Verification on this box:** `tests/test_mcp_server.py` is green; the wheel was

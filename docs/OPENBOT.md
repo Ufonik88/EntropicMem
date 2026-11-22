@@ -54,6 +54,21 @@ The server writes nothing to stdout except protocol messages; logs go to
 stderr. If the command is not found, the install step above was not on the
 `PATH` OpenBot uses — use the absolute path.
 
+### Protocol and transport
+
+The server speaks the `initialize`/`notifications/initialized` handshake era of
+MCP and names **2025-11-25** as its newest revision (`2025-06-18`,
+`2025-03-26` and `2024-11-05` are also accepted). A client that offers only a
+newer revision is answered with `2025-11-25` and decides whether to continue,
+which is the protocol's own negotiation rule. The `2026-07-28` revision is
+deliberately not claimed: it removed the handshake, `ping`, `logging/setLevel`
+and the unversioned result shape in favour of `server/discover`, and this server
+does not implement that contract.
+
+stdin and stdout are forced to UTF-8 whatever the host locale is, so a non-ASCII
+memory and a non-ASCII request work on a Windows code page or a C-locale POSIX
+box. One JSON-RPC object per line; nothing else is written.
+
 ### Paths and configuration
 
 | Setting | Default | Meaning |
