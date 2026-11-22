@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#07070a">
 <title>EntropicMem — Vault Graph</title>
 <link rel="icon" type="image/png" href="__ENTROPICMEM_FAVICON__">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,12 +25,15 @@ __ENTROPICMEM_CSS__</style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
+    <!-- Soft bloom: enough to lift a hovered/selected node off the canvas
+         without smearing light across the graph (values tuned down from the
+         v2.2 overhaul's 2.5 / 4.5). -->
     <filter id="node-glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feGaussianBlur stdDeviation="1.1" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
     <filter id="node-glow-strong" x="-100%" y="-100%" width="300%" height="300%">
-      <feGaussianBlur stdDeviation="4.5" result="blur"/>
+      <feGaussianBlur stdDeviation="2.2" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
@@ -36,24 +41,19 @@ __ENTROPICMEM_CSS__</style>
 
 <div id="panel">
   <button class="collapse-btn" id="collapse-panel" aria-label="Toggle control panel" aria-expanded="true" title="Toggle panel (H)"><svg class="icon icon-chev" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></button>
-  <h2>EntropicMem Graph</h2>
+  <h2><span class="brand-dot" aria-hidden="true"></span>EntropicMem</h2>
+  <div class="panel-sub">Vault graph</div>
   <label for="node-search">Find a note</label>
   <input type="text" id="node-search" placeholder="Search titles… (Enter to jump)" autocomplete="off" aria-label="Search notes by title">
   <label for="vault-search">Search the vault</label>
   <input type="text" id="vault-search" placeholder="Full-text search… (Enter)" autocomplete="off" aria-label="Full-text vault search">
   <div id="search-results" hidden></div>
+  <div class="panel-divider" role="presentation"></div>
   <label for="tag-search">Filter by tag</label>
   <input type="text" id="tag-search" list="tag-suggestions" placeholder="e.g. infrastructure, hermes" aria-label="Filter nodes by tag">
   <datalist id="tag-suggestions"></datalist>
   <label>Domains</label>
   <div id="domain-checks"></div>
-  <label for="color-mode">Color by</label>
-  <select id="color-mode" aria-label="Node color mode">
-    <option value="domain" selected>Domain</option>
-    <option value="community">Community</option>
-  </select>
-  <label class="domain-check" style="margin-top:10px;"><input type="checkbox" id="island-toggle" aria-label="Cluster islands layout"> Cluster islands</label>
-  <label class="domain-check"><input type="checkbox" id="orphan-toggle" aria-label="Highlight orphan notes"> Highlight orphans</label>
   <label for="imp-slider">Min importance: <span id="imp-val">0.0</span></label>
   <input type="range" id="imp-slider" min="0" max="1" step="0.05" value="0" aria-label="Minimum importance filter">
   <label>Time window</label>
@@ -67,6 +67,15 @@ __ENTROPICMEM_CSS__</style>
       <span class="time-label" id="time-to-label">—</span>
     </div>
   </div>
+  <div class="panel-divider" role="presentation"></div>
+  <label for="color-mode">Color by</label>
+  <select id="color-mode" aria-label="Node color mode">
+    <option value="domain" selected>Domain</option>
+    <option value="community">Community</option>
+  </select>
+  <label class="domain-check" style="margin-top:10px;"><input type="checkbox" id="island-toggle" aria-label="Cluster islands layout"> Cluster islands</label>
+  <label class="domain-check"><input type="checkbox" id="orphan-toggle" aria-label="Highlight orphan notes"> Highlight orphans</label>
+  <div class="panel-divider" role="presentation"></div>
   <div class="zoom-row" role="group" aria-label="Zoom controls">
     <button class="zoom-btn" id="btn-zoom-in" type="button" aria-label="Zoom in (+)" title="Zoom in (+)"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
     <button class="zoom-btn" id="btn-zoom-out" type="button" aria-label="Zoom out (-)" title="Zoom out (-)"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
@@ -79,7 +88,7 @@ __ENTROPICMEM_CSS__</style>
     <button class="btn" id="btn-theme" type="button">Theme: Dark</button>
   </div>
   <div class="shortcuts">
-    <kbd>+</kbd>/<kbd>-</kbd> zoom &nbsp; <kbd>0</kbd> fit &nbsp; <kbd>Esc</kbd> clear path / release focus<br>
+    <kbd>+</kbd>/<kbd>-</kbd> zoom &nbsp; <kbd>0</kbd> fit &nbsp; <kbd>Esc</kbd> release<br>
     <kbd>H</kbd> panel &nbsp; <kbd>L</kbd> legend &nbsp; <kbd>M</kbd> minimap &nbsp; <kbd>S</kbd> stats
   </div>
 </div>
