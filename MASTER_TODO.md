@@ -743,8 +743,11 @@ store is served as-is and is never migrated automatically.
 **Verification on this box:** `tests/test_mcp_server.py` is green; the wheel was
 built with `uv build --wheel`, installed into a throwaway venv, and its
 `entropicmem-mcp` console script completed an initialize/remember round trip
-against a temporary home. Three mutation checks (protocol echo, new-home v3
-bootstrap, no-auto-migration) each went red and were restored from a byte copy.
+against a temporary home. The same server was added to OpenBot as a temporary
+custom stdio server; OpenBot's connection test reported `ready` with all nine
+tools, and the test entry was removed. Three mutation checks (protocol echo,
+new-home v3 bootstrap, no-auto-migration) each went red and were restored from
+a byte copy.
 The full suite is **not green on this box for one pre-existing reason**: the
 installed `hermes-agent` is newer than `tests/harness/pinned_memory_provider.json`,
 so `test_the_pin_matches_the_host_when_the_host_is_reachable` fails; a clean

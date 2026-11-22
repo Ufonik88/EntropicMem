@@ -2782,7 +2782,9 @@ committed at `bda39c6`, for the OpenBot marketplace work:
   from a byte copy.
 
 The wheel was built and installed into a throwaway venv; `entropicmem-mcp`
-completed initialize/remember/search against a temporary home. The full suite's
+completed initialize/remember/search against a temporary home, and OpenBot's
+own custom-MCP test reported it `ready` with all nine tools (the temporary
+entry was removed). The full suite's
 only local red is the pre-existing host-pin mismatch (the installed
 `hermes-agent` is newer than the pin), reproduced on a clean `main` clone. The
 figures record is re-stamped for the +8-test delta with CI projected, because

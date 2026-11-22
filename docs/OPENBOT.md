@@ -153,6 +153,11 @@ The smoke tests start the real subprocess and cover `initialize`, `tools/list`,
 a remember/search round trip, the JSON-RPC error paths, and that an existing v2
 store is not migrated.
 
+The server was also added to OpenBot itself as a temporary custom stdio server
+(absolute console-script path, a throwaway `--home`). OpenBot's connection test
+returned `ready` with all nine tools; the temporary entry was removed after the
+check.
+
 ## 5. Limits worth knowing
 
 - One process per store is the safe shape. SQLite WAL allows readers, but two
