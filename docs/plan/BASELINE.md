@@ -26,7 +26,7 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3343 passed, 4 skipped, 2 xfailed** *(**projected**, not read: the merge tip's own run was red on the figures-guard pair alone — the documented pre-stamp shape this docs-only re-stamp resolves, and a line carrying `failed` is not a figure of record — so the landing run's `test (3.12)` leg reads the figure)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3343 passed, 4 skipped, 2 xfailed** *(**projected**, not read: the merge tip's own run was red on the figures-guard pair alone — the documented pre-stamp shape this docs-only re-stamp resolves, and a red summary line is never recorded — so the landing run's `test (3.12)` leg reads the figure)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3248 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3249 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3345 passed, 2 skipped, 2 xfailed** |
@@ -51,8 +51,8 @@ this branch carried **+9** over the fork-point CI-equivalent of **3319 / 2 / 2**
 3319 + 17 + 9 = 3345. bare / digest / 3.10 are derived by the measured +9 delta
 over the `b9a2e40` record and the record carries `derived: true`; the CI row is
 **projected** — the merge tip's own run was red on the figures-guard pair alone,
-and the tooling refuses a red line as a figure of record — so the landing run's
-`test (3.12)` leg reads the figure and a later read pass can cite it.
+and the tooling refuses a red summary line as a recorded figure — so the landing
+run's `test (3.12)` leg reads the figure and a later read pass can cite it.
 
 Read as at `b9a2e40` (Change Reviewer's two design calls on the OpenBot bridge:
 the credential gate that now refuses natural phrasing and raw AWS key ids, and
