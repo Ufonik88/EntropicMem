@@ -26,11 +26,22 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3343 passed, 4 skipped, 2 xfailed** *(**projected**, not read: the merge tip's own run was red on the figures-guard pair alone — the documented pre-stamp shape this docs-only re-stamp resolves, and a red summary line is never recorded — so the landing run's `test (3.12)` leg reads the figure)* |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3343 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `45086186655` on `main` at the merge tip `8b1099c` — 13/13 jobs green on that exact SHA, exactly what the derive mode's one measured leg implied)* |
 | This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3248 passed, 20 skipped, 2 xfailed** |
 | This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3249 passed, 19 skipped, 2 xfailed** |
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3345 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3345 passed, 2 skipped, 2 xfailed** |
+
+Read as at `5f4e0a8` (the W45 coverage landing's figures read pass; the
+read-pass commit moved the suite surface via the run-id allowlist, so the record
+anchors at it — the companion shape every landing uses). **The CI row is read,
+not projected:** run `45086186655` — the landing merge's own post-merge run on
+`main` — reads **3343 passed, 4 skipped, 2 xfailed** from its `test (3.12)` job
+log, 13/13 jobs green on the merge tip `8b1099c`. The merge tip's run before the
+stamp was red on the figures-guard pair alone (the documented pre-stamp shape,
+and a line carrying `failed` is never recorded), so the stamp was
+recorded projected and this pass replaces the projection with the read: the
+projection and the read agree exactly, as the host-pin relation predicted.
 
 Read as at `c7b6838` (the W45 coverage merge: nine in-process tests for
 `em/jobs/cli.py` landing on the OpenBot-bridge main. A merge commit touches
@@ -496,7 +507,7 @@ bare          3248 / 20 / 2
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
 = CI-equiv    3345 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3343 /  4 / 2   (projected; the merge tip's red pair resolves at this stamp)
+= CI          3343 /  4 / 2   (read from run 45086186655, 3.12 job log on main)
 ```
 
 ## Citing CI evidence — one trap
