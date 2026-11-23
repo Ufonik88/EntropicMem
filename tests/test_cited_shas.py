@@ -131,6 +131,8 @@ ALLOWED_NON_RESOLVING: Dict[str, str] = {
     "44278563759": "GitHub Actions run id, not a commit: the em/net coverage landing's figures run",
     # The re-arm-preparation landing's CI run (its figures read pass).
     "44290312795": "GitHub Actions run id, not a commit: the re-arm-preparation landing's figures run",
+    # The W45 coverage landing's figures read pass: main's own run at the merge tip.
+    "45086186655": "GitHub Actions run id, not a commit: the W45 coverage landing's figures run on main",
     # The host-surface patch's CI run (the 3.0.1 figures read pass).
     "38775407380": "GitHub Actions run id, not a commit: the 2026-10-15 guard flap",
     # Same shape, same reason: EM-608's draft cites the 2026-10-18 warm-p95 flap's
