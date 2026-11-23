@@ -147,7 +147,7 @@ const CFG = {
   // mouse-wheel notch (~100px) zooms ~1.18x and trackpads feel identical.
   zoom: { min: 0.05, max: 8, wheelFactor: 0.0016, keyboardFactor: 1.3, focusScale: 1.8 },
   lod: { hideBelow: 0.35, fadeBelow: 0.6, badgesAbove: 2.5 },
-  halo: { baseScale: 2.2, speedDivisor: 3, maxIntensity: 0.6, minOpacity: 0.08, restScale: 2.0, velScale: 0.5 },
+  halo: { baseScale: 1.85, speedDivisor: 2.6, maxIntensity: 0.32, minOpacity: 0.05, restScale: 1.7, velScale: 0.35 },
   // community rendering: legendMax caps legend rows; islandStrength drives the
   // optional cluster-centroid force (2D reading of the reference tool's
   // multi-galaxy; default off, toggle in the panel).
@@ -679,6 +679,9 @@ function updateStats() {
     (timeHidden > 0 ? ` (${timeHidden} outside time window)` : "") +
     ` | ${DATA.meta.domains.length} domains` +
     ` | ${orphans} orphans` +
+    ((DATA.edges && DATA.edges.length === 0)
+      ? " | no links yet — edges appear as notes gain wikilinks"
+      : "") +
     scope;
 }
 
@@ -744,7 +747,9 @@ function applyDimming() {
   }
   nodeG.style("opacity", 1).classed("selected", false).classed("on-path", false);
   if (labelG) labelG.style("opacity", 1);
-  if (linkG) linkG.style("opacity", 0.5);
+  // Calm at rest: the full element opacity keeps the whole edge field quiet
+  // (Obsidian-grade), while per-edge stroke-opacity still encodes strength.
+  if (linkG) linkG.style("opacity", 0.34);
 }
 
 function applyFocus(id) {
@@ -913,7 +918,7 @@ function labelSize(d) {
   return Math.max(LABEL.min, Math.min(LABEL.max, LABEL.base + (nodeRadius(d) - 10) * 0.25));
 }
 
-function labelMaxWidth(d) { return Math.max(40, nodeRadius(d) * 2 - LABEL.pad); }
+function labelMaxWidth(d) { return Math.max(76, nodeRadius(d) * 2 - LABEL.pad); }
 
 function labelMeasureText(text, sizePx) {
   labelMeasure.style.font = `600 ${sizePx}px var(--label-font)`;
@@ -980,6 +985,10 @@ function render() {
   const oldPos = new Map();
   if (nodeG) nodeG.each(function(d) { oldPos.set(d.id, { x: d.x, y: d.y, vx: d.vx, vy: d.vy }); });
 
+  // Hub cut for hub-first labels (updateLOD/isHubNode), from the visible set.
+  const degrees = nodes.map(n => n.degree || 0).sort((a, b) => a - b);
+  hubDegreeCut = degrees.length ? Math.max(4, degrees[Math.floor(degrees.length * 0.75)]) : 0;
+
   svg.selectAll(".layer").remove();
   rootG = svg.append("g").attr("class", "layer").style("will-change", "transform");
   syncEdgeGradients(edges);
@@ -989,7 +998,7 @@ function render() {
     .attr("stroke-opacity", d => strengthOf(d.weight, sLo, sHi).opacity)
     .attr("stroke-dasharray", d => edgeDash(d))
     .attr("stroke-linecap", "round").attr("stroke-linejoin", "round");
-  linkG.style("filter", "drop-shadow(0 0 2px rgba(107,107,125,0.3))")
+  linkG
     .on("mouseenter", function(event, d) {
       d3.select(this).attr("stroke-opacity", 1).attr("stroke-width", strengthOf(d.weight, sLo, sHi).width * 2.5);
       if (labelG) labelG.style("opacity", 1);
@@ -1014,13 +1023,29 @@ function render() {
           ? Math.min(EDGE_OPACITY_MAX, base * EDGE_HOVER_CONNECTED_BOOST)
           : Math.max(EDGE_OPACITY_MIN, base * EDGE_HOVER_UNCONNECTED_DIM);
       });
-      d3.select(event.currentTarget).select(".node-shape").attr("stroke", "#5AE4AA").attr("stroke-width", 2.2);
+      // Inline style (not attr): the .node-shape ring is owned by CSS now,
+      // and only an inline style can override it while hovered.
+      d3.select(event.currentTarget).select(".node-shape").style("stroke", "var(--accent)").style("stroke-width", 2.2);
       if (labelG) labelG.style("opacity", computeLabelOpacity(currentTransform.k));
+      // Neighborhood spotlight: with no focus, path or orphan view active,
+      // fade every node that is not this one or one of its neighbours, so the
+      // eye lands on the local graph the way Obsidian's graph view does.
+      if (!focusedId && !activePath && !orphanMode) {
+        nodeG.style("opacity", n => (n.id === d.id || incident.has(n.id)) ? 1 : 0.22);
+        if (labelG) labelG.style("opacity", n => (n.id === d.id || incident.has(n.id))
+          ? 1 : 0.05);
+      }
+      showTooltip(event, d);
     })
     .on("mouseout", (event, d) => {
       linkG.style("opacity", null);
       linkG.style("stroke-opacity", null);
-      d3.select(event.currentTarget).select(".node-shape").attr("stroke", null).attr("stroke-width", null);
+      d3.select(event.currentTarget).select(".node-shape").style("stroke", null).style("stroke-width", null);
+      // Restore whatever dimming the current mode dictates (default, focus,
+      // path or orphan), then re-apply the zoom LOD to the labels.
+      applyDimming();
+      updateLOD();
+      hideTooltip();
     })
     .call(d3.drag()
       .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(CFG.physics.dragAlphaTarget).restart(); d.fx = d.x; d.fy = d.y; })
@@ -1035,9 +1060,7 @@ function render() {
     .on("keydown", (event, d) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openModal(d, event.currentTarget); }
     })
-    .on("mouseover", (event, d) => showTooltip(event, d))
     .on("mousemove", moveTooltip)
-    .on("mouseout", hideTooltip)
     .on("focusin", (event, d) => { expandLabel(d); })
     .on("focusout", (event, d) => {
       collapseLabel(d);
@@ -1062,17 +1085,17 @@ function render() {
       .attr("r", r * CFG.halo.baseScale).attr("fill", haloGradientRef(color))
       .attr("opacity", 0.0).attr("pointer-events", "none");
 
-    // Core shape
+    // Core shape. The ring (stroke) is owned by graph.css (.node-shape):
+    // a dark cut ring that separates the dot from the edges behind it and
+    // yields to the accent ring on hover / focus / selected / on-path states.
     const path = shapePath(d.shape, r);
     if (path) {
       g.append("path").attr("class", "node-shape").attr("d", path)
-        .attr("fill", color).attr("stroke", "#fff")
-        .attr("stroke-width", 0.6).attr("stroke-opacity", 0.25)
+        .attr("fill", color)
         .attr("filter", "url(#node-glow)");
     } else {
       g.append("circle").attr("class", "node-shape").attr("r", r)
-        .attr("fill", color).attr("stroke", "#fff")
-        .attr("stroke-width", 0.6).attr("stroke-opacity", 0.25)
+        .attr("fill", color)
         .attr("filter", "url(#node-glow)");
     }
   });
@@ -1162,14 +1185,26 @@ function updateNodeHalos() {
   });
 }
 
-/* ── Semantic LOD (level of detail) — hide labels at low zoom ── */
+/* ── Semantic LOD (level of detail) — hub-first labels ── */
 let lastBadgeZoom = null; // true/false/null: whether badges are currently shown
+// Hub cut for hub-first labels: the 75th-percentile degree of the currently
+// visible set (never below 4), so at overview zoom only MOCs, index notes
+// and high-degree nodes carry labels — the rest reveal as you zoom in.
+let hubDegreeCut = 0;
+function isHubNode(d) {
+  return d.type === "moc" || d.type === "index" || (d.degree || 0) >= hubDegreeCut;
+}
 function computeLabelOpacity(k) { return k < CFG.lod.hideBelow ? 0 : k < CFG.lod.fadeBelow ? 0.3 : 1; }
 function updateLOD() {
   if (!labelG) return;
   const k = currentTransform.k;
-  const labelOpacity = k < CFG.lod.hideBelow ? 0 : k < CFG.lod.fadeBelow ? 0.3 : 1;
-  labelG.style("opacity", labelOpacity);
+  // Below the fade threshold only hubs are labelled (near-full opacity);
+  // above it every label follows the classic three-band opacity curve.
+  if (k < CFG.lod.fadeBelow) {
+    labelG.style("opacity", d => isHubNode(d) ? 0.9 : 0);
+  } else {
+    labelG.style("opacity", computeLabelOpacity(k));
+  }
   // Show tags as badges at high zoom; only touch the DOM when crossing the threshold
   if (!nodeG) return;
   const showBadges = k > CFG.lod.badgesAbove;
@@ -1198,7 +1233,7 @@ function showTooltip(event, d) {
   tip.innerHTML = `<div class="tt-title" style="color:${nodeColor(d)}">${escapeHtml(d.title || d.id)}</div>
     <div class="tt-meta">${meta}</div>
     <div class="tt-meta">tags: ${escapeHtml((d.tags || []).join(", ") || "—")}</div>
-    <div class="tt-meta" style="margin-top:3px;color:#5AE4AA;">click to open · shift-click path · drag to move</div>`;
+    <div class="tt-hint">click to open · shift-click path · drag to move</div>`;
   moveTooltip(event);
 }
 function moveTooltip(event) {
@@ -1393,6 +1428,14 @@ function renderModalContent(node, bodyEl) {
   }
 
   bodyEl.innerHTML = content;
+  // A note body conventionally opens with "# <title>", which the modal header
+  // already shows — hide that first heading when it repeats the title, so the
+  // most-focused surface never starts with a duplicated title line.
+  const firstHeading = bodyEl.querySelector("h1");
+  if (firstHeading && (firstHeading.textContent || "").trim().toLowerCase() ===
+      String(node.title || "").trim().toLowerCase()) {
+    firstHeading.style.display = "none";
+  }
   linkifyWikilinks(bodyEl);
 
   // ── Linked Mentions pane (v2 Obsidian-style backlinks) ──
@@ -1404,17 +1447,15 @@ function renderModalContent(node, bodyEl) {
     const pane = document.createElement("section");
     pane.className = "modal-links";
     const heading = document.createElement("h3");
-    heading.style.cssText = "font-family:var(--display);font-size:1.05em;color:var(--accent);border-bottom:1px solid var(--border);padding-bottom:6px;margin:1.2em 0 0.6em;";
+    heading.className = "modal-links-title";
     heading.textContent = "Linked Mentions";
     const ul = document.createElement("ul");
-    ul.style.cssText = "margin:0;padding-left:18px;color:#ccc;font-size:13px;line-height:1.6;";
     linked.forEach(nid => {
       const n = DATA.nodes.find(x => x.id === nid) || { title: nid };
       const li = document.createElement("li");
       const a = document.createElement("a");
       a.href = "#note=" + encodeURIComponent(n.title || nid);
       a.dataset.noteId = nid;
-      a.style.cssText = "color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent);cursor:pointer;";
       a.textContent = n.title || nid;
       a.addEventListener("click", () => { closeModal(); applyFocus(a.dataset.noteId); });
       li.appendChild(a);
@@ -1546,7 +1587,7 @@ function exportPNG() {
   clone.setAttribute("viewBox", `0 0 ${W} ${H}`);
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-  bg.setAttribute("width", W); bg.setAttribute("height", H); bg.setAttribute("fill", "#0a0a0f");
+  bg.setAttribute("width", W); bg.setAttribute("height", H); bg.setAttribute("fill", "#07070A");
   clone.insertBefore(bg, clone.firstChild);
   const xml = new XMLSerializer().serializeToString(clone);
   const img = new Image();
@@ -1587,10 +1628,22 @@ function toggleOverlay(idOrEntry) {
   if (el) setOverlayCollapsed(entry, !el.classList.contains("collapsed"));
 }
 function restoreOverlayStates() {
+  // Small screens start with the instruments folded away — the graph owns the
+  // viewport and one tap brings any of them back (Obsidian mobile behaviour).
+  const smallScreen = !!(window.matchMedia && window.matchMedia("(max-width: 480px)").matches);
   OVERLAYS.forEach(entry => {
     let collapsed = false;
     try { collapsed = localStorage.getItem(lsKey(entry.id)) === "1"; } catch (e) {}
-    if (collapsed) setOverlayCollapsed(entry, true);
+    if (collapsed) {
+      setOverlayCollapsed(entry, true);
+    } else if (smallScreen && entry.id !== "stats-wrap") {
+      // Class-only: an auto-collapse must never be written back to
+      // localStorage as if the user had chosen it.
+      const el = document.getElementById(entry.id);
+      if (el) el.classList.add("collapsed");
+      const btn = document.getElementById(entry.btn);
+      if (btn) btn.setAttribute("aria-expanded", "false");
+    }
     const btn = document.getElementById(entry.btn);
     if (btn) btn.addEventListener("click", ev => { ev.stopPropagation(); toggleOverlay(entry); });
   });
@@ -1686,7 +1739,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const [mx, my] = d3.pointer(event, svg.node());
     zoomBy(1.5, mx, my);
   });
-  initMinimap();
   restoreDisplayPrefs();
   restoreTheme();
   buildLegend();
@@ -1757,10 +1809,15 @@ document.addEventListener("DOMContentLoaded", () => {
   if (simulation) simulation.on("tick.loading", () => hideLoading());
   setTimeout(hideLoading, 2500); // failsafe for tiny graphs that end instantly
 
-  // Deep-link: open a note from #note=Title
-  const m = location.hash.match(/#note=(.+)/);
-  if (m) {
-    const node = nodeByTitle.get(decodeURIComponent(m[1]).toLowerCase());
+  // Deep-link: open a note from #note=Title. A deep link jump wins over the
+  // on-load auto-fit below (both target the view ~700 ms in).
+  const deepLinked = location.hash.match(/#note=(.+)/);
+  // Auto-fit once the first layout settles, so the whole constellation lands
+  // in view on open (Obsidian fits on open); on large graphs this lands below
+  // the LOD fade threshold, where hub-first labels keep the overview calm.
+  if (!deepLinked) setTimeout(() => { if (svg && nodeG) zoomFit(); }, 700);
+  if (deepLinked) {
+    const node = nodeByTitle.get(decodeURIComponent(deepLinked[1]).toLowerCase());
     if (node) setTimeout(() => { jumpToNode(node); openModal(node, null); }, 700);
   }
 });
