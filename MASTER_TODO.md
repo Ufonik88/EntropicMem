@@ -637,9 +637,11 @@ stop-state: what is done, the evidence, and the exact counts.
 
 ---
 
-**Last reconciled:** 2026-11-22, against branch `openbot-marketplace` at
-`b9a2e40` (the OpenBot MCP bridge plus the review fixes; branch-local and
-unpushed). The prior reconciliation, 2026-11-18 against `main` at `82c2f23`, recorded the
+**Last reconciled:** 2026-11-23, against branch `docs/reconcile-tracker-2026-11-23` at
+`bf834de` (the `main` tip after the OpenBot bridge's PR #22, W45 coverage's PR #21
+and the figures read pass's PR #23). The prior reconciliation, 2026-11-22 against
+`openbot-marketplace` at `b9a2e40`, recorded the bridge plus its review fixes;
+before it, 2026-11-18 against `main` at `82c2f23`, recorded the
 re-arm-preparation landing's companion re-stamp (level with `origin/main`,
 24/24 check-runs green on the merge tip) and the session's four cards, in order:
 the CI-red fix (`ae863c1`), the figures recorder's derive mode (`c9e5c6c`),
@@ -729,10 +731,10 @@ one user-visible change is that semantic recall now needs
 > work are (a) a security or correctness bug specific to 2.8.x, or (b) a
 > deliberate owner decision to cut a 2.8.2 patch; neither is open today.
 
-### OpenBot branch — `openbot-marketplace` (local only)
+### OpenBot bridge — merged to `main` (PR #22, `bba866f`)
 
-**A separate branch from `main` at `0999996`, cut 2026-11-22 for the OpenBot
-bridge, committed at `bda39c6`, and not pushed.** It adds `em/mcp_server.py`
+**Cut from `main` at `0999996` on 2026-11-22 as `openbot-marketplace`, built at
+`bda39c6` and merged to `main` the same day via PR #22 at `bba866f`.** It adds `em/mcp_server.py`
 (a stdlib-only MCP stdio server over the provider's nine tools), the
 `entropicmem-mcp` console script, a marketplace-shaped bundle at
 `integrations/openbot/plugin.json` (one stdio app, no auth, no secret), the
@@ -767,17 +769,16 @@ checks red against byte copies, QA's regression case for `f8f17e6` pinned,
 and the cited-SHAs landing guard allowlists the OpenBot co-author trailer's
 GitHub App user id (`335604065`), the third red the branch carried.
 
-The full suite is **not green on this box for one pre-existing reason**: the
-installed `hermes-agent` is newer than `tests/harness/pinned_memory_provider.json`,
-so `test_the_pin_matches_the_host_when_the_host_is_reachable` fails; a clean
-`main` clone on the same box fails it identically. The figures record is
-re-stamped at `b9a2e40` for the +9-test delta (`ac8a3bb`'s three and the
-review-fix commit's six); CI is **projected**, because this
-branch has no run.
+The local `test_the_pin_matches_the_host_when_the_host_is_reachable` failure is a
+pre-existing host-pin mismatch (a clean `main` clone on the same box fails it
+identically); the figures record was re-stamped at `b9a2e40` for the +9-test
+delta, and `main`'s CI read the merged tree green after the landing — the
+figures are in `docs/plan/BASELINE.md` and none is restated here.
 
-**Not done, by design:** no push, tag, release, publish, marketplace PR, or
-catalog pin. The listing cannot go upstream until a release ships
-`em/mcp_server.py` and users can install `entropicmem-mcp`.
+**Done since:** the push, the PR and the merge to `main` (PR #22, `bba866f`);
+not done: tag, release, publish, marketplace submission and catalog pin. The
+listing bundle stays prepared in `integrations/openbot/plugin.json`, with notes
+in `docs/OPENBOT.md`.
 
 ### Development line — `main`, `3.0.0.dev0`
 
@@ -980,10 +981,11 @@ START HERE and `NEXT_CHUNK.md` Part A.
 > turn-path p95 ≤ 150 ms, and the shadow's `v3_only == 0` still holding.**
 > Nothing about the live store moves without that and the owner's go.
 
-**The only route to a new user-facing update is the 3.0 release (EM-904)**, and
-it cannot happen until the v3 core is wired in and the live store is migrated.
-That work is listed under [What is next](#what-is-next); the cutover itself is
-owner-gated.
+**The 3.0 release (EM-904) has shipped** — tags `v3.0.0` / `v3.0.1` / `v3.0.2`, the
+three `CHANGELOG.md` sections and the catalog re-pin PR
+`NousResearch/hermes-agent#146446` merged 2026-11-10. What has **not** happened
+is the v3 cutover of the live store: that stays the owner's call, gated on the
+P0c verdict, and no destructive embedding run is scheduled.
 
 What `em/` contains today: `em.clock` (freezable UTC, ULIDs), `em.config`
 (EM-306's calibrated scalars inside EM-407's typed model, the `RULES` table and
@@ -1262,15 +1264,16 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**MNT W45 — the weekly coverage card — is in flight on branch
-`w45/coverage-jobs-cli`: nine in-process tests for `em/jobs/cli.py` (the
-coverage scan's lowest real-logic module at 68%, its refusals pinned
-directly against `run_worker`, and its `--max-seconds` budget loop,
-dead-job exit code and missing-file refusal covered for the first time),
-the module at 100% on the scoped coverage measurement, 8 mutation checks
-red against the real module, the figures record stamped by the derive mode
-(the CI-equivalent leg measured green, CI projected), and the branch pushed
-with a PR against `main`. Its landing is the owner's merge.**
+**Nothing is in flight.** MNT W45 — the weekly coverage card — landed: nine in-process tests
+for `em/jobs/cli.py` (the coverage scan's lowest real-logic module at 68%, its
+refusals pinned directly against `run_worker`, and its `--max-seconds` budget
+loop, dead-job exit code and missing-file refusal covered for the first time),
+the module at 100% on the scoped coverage measurement, 8 mutation checks red
+against the real module, and the figures record stamped by the derive mode and
+read from `main`'s own CI. The build merged via PR #21 at `8b1099c`; the
+figures read pass merged via PR #23 at `bf834de`, the `main` tip this page is
+reconciled against. The OpenBot bridge merged earlier the same day via PR #22 at
+`bba866f`. All three landings ran their checks green.
 
 **EM-806 — S8 packaging — is COMPLETE: LANDED on `main` at `ceb70cb` (2026-10-27, chunk 47)** —
 opening docs `1e683c1`, build `bf2e267`, record pass `ceb70cb`; **13/13 check-runs green on that
@@ -1449,10 +1452,11 @@ runtime activity, provably not the suite, attribution still open with the owner.
 Only the parts a later reader needs to know. The full ledger with commit SHAs is
 [plan §5](docs/plan/REMAINING_PLAN.md).
 
-- **OpenBot MCP bridge (branch-local, `bda39c6`, 2026-11-22):** a stdlib-only
-  MCP stdio server over the provider's nine tools, the `entropicmem-mcp`
-  console script, the prepared marketplace bundle and `docs/OPENBOT.md`. Not
-  pushed, released or submitted; see the branch section under "Where we are".
+- **OpenBot MCP bridge (built at `bda39c6`, merged 2026-11-22 via PR #22 at `bba866f`):**
+  a stdlib-only MCP stdio server over the provider's nine tools, the
+  `entropicmem-mcp` console script, the prepared marketplace bundle and
+  `docs/OPENBOT.md`. On `main` and checked green; not released, published or
+  submitted to the marketplace; see the bridge section under "Where we are".
 - **2.8.1 reached and is catalog-pinned** (2026-09-28). Safe point.
 - **S2, the v3 storage core**, merged to `main`: migrations, `MemoryStore`,
   episodes and content-addressed transcript chunks, entities with a two-sighting
@@ -1591,27 +1595,33 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-**Nothing agent-owned is left to build on `main`: every card in S5–S8 has landed, and the file is
-waiting on the owner's release call.** The OpenBot bridge is committed locally on
-`openbot-marketplace` at `bda39c6`; its remaining acts are a release that carries
-`em/mcp_server.py` and the upstream OpenBot catalog PR, both outside that branch
-and not approved here. The last code card — S8's EM-806 packaging — landed
-2026-10-27 (`ceb70cb`, recorded through `0482a49`; the branch and read-pass commits are in
-§11). What §6.5 still holds is **S9**, and both of its cards are release acts:
+**Nothing agent-owned is left to build on `main`: S5–S9 are complete and the file is
+waiting on the owner's cutover and flip calls.** The OpenBot bridge is on `main` —
+built at `bda39c6`, merged via PR #22 at `bba866f` (2026-11-22); the marketplace
+submission and any catalog pin for it are still not done. The last code card —
+S8's EM-806 packaging — landed 2026-10-27 (`ceb70cb`, recorded through `0482a49`;
+the branch and read-pass commits are in §11); the W45 coverage pair and its
+figures read pass closed the year's last landings on PRs #21 (`8b1099c`) and
+#23 (`bf834de`).
 
-- **EM-901 — the upgrade drills.** v2.3 / v2.5 / v2.7 / 2.8 fixture DBs and vaults → 3.0:
-  `doctor` clean, eval parity, legacy ids resolvable, and sync between a 2.8 and a 3.0
-  profile (publish/pull) either verified or documented as requiring both upgraded; the
-  report is `docs/UPGRADING.md`.
-- **EM-904 — the 3.0 release.** Version everywhere, migration notes, the `SKILL.md` bump,
-  the tool rename with aliases, the catalog re-pin (a PR) and the announce.
+**S9 is done, not held:**
 
-The drills validate an upgrade path to a release the owner has not scheduled, and the
-release itself is owner-gated end to end (§3.3; `docs/MARKETPLACE.md` has the procedure).
-The v3 cutover is likewise the owner's call, the live store stays v2, and no destructive
-embedding run is scheduled. **A fresh owner instruction is the usual go.** §11 is the
-cold-start page, `NEXT_CHUNK.md` Part B records the same recommendation, and §6.6's third
-use is the written one.
+- **EM-901 — the upgrade drills** landed as chunk 50 (`b93037e`). The v2.3 /
+  v2.5 / v2.7 / 2.8 fixture DBs and vaults are driven to 3.0 in
+  `tests/unit/test_em901_upgrade_drills.py`, with the drill report in
+  `docs/UPGRADING.md`.
+- **EM-904 — the 3.0 release** shipped: `CHANGELOG.md` carries `[3.0.0]`,
+  `[3.0.1]` and `[3.0.2]` (3.0.2 dated 2026-11-09), tags `v3.0.0` / `v3.0.1` /
+  `v3.0.2` exist, and the catalog re-pin PR `NousResearch/hermes-agent#146446`
+  merged 2026-11-10 and was verified live 2026-11-18.
+
+What remains is the owner's call, not a build: the live-store v3 cutover stays
+held on the P0c verdict, and the embeddings flag flip is **not now, standing
+trigger** — his word plus one semantic-st install into the named serving env and
+the planned restart (§11's In flight row; `P0C_REARM_DECLARATION.md`). The live
+store stays v2 and no destructive embedding run is scheduled. **A fresh owner
+instruction is the usual go.** §11 is the cold-start page; `NEXT_CHUNK.md` Part B
+records the pre-release recommendation and §6.6's third use is the written one.
 
 <details>
 <summary>Historical: how this section read while S6 was still being built (not current)</summary>
@@ -1723,13 +1733,16 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**Nothing is in flight; there is no build to start.** Every card in S5–S8 has landed — the
-last was S8's EM-806 packaging on 2026-10-27 (`ceb70cb`, recorded through `0482a49`) — and
-what remains is **S9**: the upgrade drills (EM-901) and the 3.0 release (EM-904), which are
-release acts the owner owns end to end. The v3 cutover is the owner's call; the live store
-stays v2; no destructive embedding run is scheduled. Read §11 for the state, `## What is
-next` above for why nothing is queued, and `docs/plan/NEXT_CHUNK.md` Part B for the §6.6
-recommendation. **A fresh owner instruction is the only thing that opens a new chunk.**
+**Nothing is in flight; there is no build to start.** Every card in S5–S9 has landed: S8's
+EM-806 packaging on 2026-10-27 (`ceb70cb`, recorded through `0482a49`), EM-901's drills as
+chunk 50 (`b93037e`), EM-904's 3.0 release (tags `v3.0.0` / `v3.0.1` / `v3.0.2`;
+`CHANGELOG.md` carries all three sections), the OpenBot bridge's merge (PR #22, `bba866f`)
+and the W45 coverage pair (PRs #21 `8b1099c` and #23 `bf834de`). The v3 cutover and the
+embeddings flag flip are the owner's calls — the flip is **not now, standing trigger** —
+the live store stays v2, and no destructive embedding run is scheduled. Read §11 for the
+state, `## What is next` above for why nothing is queued, and `docs/plan/NEXT_CHUNK.md`
+Part B for the §6.6 recommendation. **A fresh owner instruction is the only thing that
+opens a new chunk.**
 
 <details>
 <summary>Historical: the S6 build order as it stood on 2026-10-19 (not current)</summary>
