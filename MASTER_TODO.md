@@ -1262,9 +1262,15 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
-**Nothing is in flight on `main`.** The OpenBot bridge is committed locally on
-`openbot-marketplace` at `bda39c6` and not pushed; its next act is a release and
-an upstream catalog PR, both outside this branch.
+**MNT W45 — the weekly coverage card — is in flight on branch
+`w45/coverage-jobs-cli`: nine in-process tests for `em/jobs/cli.py` (the
+coverage scan's lowest real-logic module at 68%, its refusals pinned
+directly against `run_worker`, and its `--max-seconds` budget loop,
+dead-job exit code and missing-file refusal covered for the first time),
+the module at 100% on the scoped coverage measurement, 8 mutation checks
+red against the real module, the figures record stamped by the derive mode
+(the CI-equivalent leg measured green, CI projected), and the branch pushed
+with a PR against `main`. Its landing is the owner's merge.**
 
 **EM-806 — S8 packaging — is COMPLETE: LANDED on `main` at `ceb70cb` (2026-10-27, chunk 47)** —
 opening docs `1e683c1`, build `bf2e267`, record pass `ceb70cb`; **13/13 check-runs green on that
