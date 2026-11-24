@@ -42,10 +42,23 @@ keeps this page and its fragments honest against that server.
 
 ## One-time setup
 
-The server comes with the package:
+**No release carrying the server exists yet.** The server landed on `main`
+on 2026-11-22 and the newest release is `v3.0.2` (2026-11-09), which
+predates it — and the package is not on PyPI (checked 2026-11-24) — so
+install the checkout, the same caveat
+[docs/OPENBOT.md](OPENBOT.md#install-the-command) carries:
 
 ```bash
-pipx install entropicmem        # or: python3 -m pip install entropicmem
+pipx install --force /path/to/EntropicMem
+# or, in a project venv:
+python3 -m pip install /path/to/EntropicMem
+```
+
+Once a release that includes the server is published, the plain install
+replaces it:
+
+```bash
+pipx install entropicmem        # post-release only — not on PyPI today
 ```
 
 From a source checkout, without installing:
@@ -99,11 +112,13 @@ of MCP and names **2025-11-25** as its newest revision; a client offering
 only a newer revision gets `2025-11-25` back and decides whether to continue
 (the protocol's own negotiation rule — full detail in
 [docs/OPENBOT.md](OPENBOT.md#protocol-and-transport)). Every harness in the
-matrix defaults to that era today. A client that *requires* the
-`2026-07-28` revision (`server/discover`, no handshake) will not connect;
-none of the harnesses below requires it by default, and OpenCode documents a
-per-server `protocol` field whose default (`legacy`) is exactly this era —
-leave it unset.
+matrix can connect to this handshake-era server today: several negotiate a
+newer revision and fall back to this era for a server that offers it
+(Claude Code's current runtime, for one), and none requires the
+`2026-07-28` revision by default — OpenCode documents a per-server
+`protocol` field whose default (`legacy`) is exactly this era, so leave it
+unset. A client that *requires* the `2026-07-28` revision
+(`server/discover`, no handshake) will not connect.
 
 ## Claude Code
 
@@ -192,11 +207,12 @@ Sources: Gemini CLI configuration reference
 
 ## Cursor
 
-Save [generic.mcp.json](../integrations/harnesses/generic.mcp.json) as
-`.cursor/mcp.json` in the project (commit it to share with the team) or
-`~/.cursor/mcp.json` for every project. Verify in the Customize panel's MCP
-list. Sources: cursor.com MCP docs (cursor.com/docs/mcp), checked
-2026-11-24.
+Save [claude-code.mcp.json](../integrations/harnesses/claude-code.mcp.json)
+as `.cursor/mcp.json` in the project (commit it to share with the team) or
+`~/.cursor/mcp.json` for every project — Cursor's STDIO field reference
+marks `type` as required, so use the typed fragment rather than the untyped
+one. Verify in the Customize panel's MCP list. Sources: cursor.com MCP docs
+(cursor.com/docs/mcp), checked 2026-11-24.
 
 ## VS Code (Copilot)
 
@@ -273,10 +289,12 @@ from inside a dot on this box.
 ## Any other MCP client
 
 Save [generic.mcp.json](../integrations/harnesses/generic.mcp.json) wherever
-your client keeps its `mcpServers` block — the shape Claude Code, Cursor,
-MausBot and VS Code's portable format all use. The server is a plain
-JSON-RPC-over-stdio process: any client that speaks the initialize era and
-can launch a local command can use it.
+your client keeps its `mcpServers` block — the untyped shape Gemini CLI
+documents and MausBot ingests (Claude Code, Cursor and VS Code's portable
+format take the typed variant in
+[claude-code.mcp.json](../integrations/harnesses/claude-code.mcp.json)). The
+server is a plain JSON-RPC-over-stdio process: any client that speaks the
+initialize era and can launch a local command can use it.
 
 ## The nine tools
 
