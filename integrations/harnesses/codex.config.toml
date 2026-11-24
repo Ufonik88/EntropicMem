@@ -1,0 +1,4 @@
+# Merge into ~/.codex/config.toml (or a trusted project's .codex/config.toml).
+[mcp_servers.entropicmem]
+command = "entropicmem-mcp"
+args = []

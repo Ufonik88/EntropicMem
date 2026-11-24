@@ -1,0 +1,4 @@
+# Merge into ~/.grok/config.toml (or .grok/config.toml in the repo).
+[mcp_servers.entropicmem]
+command = "entropicmem-mcp"
+args = []

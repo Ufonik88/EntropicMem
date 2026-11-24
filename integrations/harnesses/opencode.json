@@ -1,0 +1,12 @@
+{
+  "mcp": {
+    "servers": {
+      "entropicmem": {
+        "type": "local",
+        "command": [
+          "entropicmem-mcp"
+        ]
+      }
+    }
+  }
+}

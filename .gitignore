@@ -32,6 +32,11 @@ export/
 *.json
 # The OpenBot marketplace listing is source, not an export: it carries no data.
 !integrations/openbot/plugin.json
+# The harness config fragments are source, not an export: copy-paste configs
+# for wiring agent harnesses to entropicmem-mcp (docs/HARNESSES.md links them,
+# tests/test_harness_snippets.py pins them). Placeholder paths only, never
+# user data.
+!integrations/harnesses/*.json
 !benchmarks/probes.json
 !export/graph.html
 !evals/baselines/*.json

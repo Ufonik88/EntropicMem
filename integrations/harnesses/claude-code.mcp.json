@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "entropicmem": {
+      "type": "stdio",
+      "command": "entropicmem-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}

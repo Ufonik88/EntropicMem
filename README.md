@@ -112,6 +112,15 @@ requires a host with `spawn_context_thread` and `RecallStatus` (`requires_hermes
 
 Full detail: [docs/SELF_INSTALL.md](docs/SELF_INSTALL.md).
 
+## Works with your agent harness
+
+The same MCP stdio server OpenBot uses (`entropicmem-mcp`) plugs into Claude
+Code, Codex, OpenCode, Gemini CLI, Cursor, VS Code, the grok CLI, OpenClaw and
+MausBot — and Hermes uses EntropicMem natively as its memory provider.
+Copy-paste configs for each, plus the honest status for OpenAI dots (which
+reaches local tools only through delegated Codex tasks):
+[docs/HARNESSES.md](docs/HARNESSES.md).
+
 ## Quickstart
 
 All commands run through the engine CLI under the plugin directory, `python3 ~/.hermes/plugins/entropicmem/scripts/entropicmem.py`:
