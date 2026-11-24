@@ -26,11 +26,46 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3362 passed, 4 skipped, 2 xfailed** *(**projected** by the recorder's host-pin relation from the one measured CI-equivalent leg at the MNT W48 record stamp — the branch is local-only with no check-run yet, so the landing run's `test (3.12)` job log reads the figure and a later read pass replaces the projection)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3267 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3268 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3364 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3364 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3374 passed, 4 skipped, 2 xfailed** *(**projected** by the recorder's host-pin relation from the one measured CI-equivalent leg at the harness-compatibility record stamp — the branch is local-only with no check-run yet, so the landing run's `test (3.12)` job log reads the figure and a later read pass replaces the projection)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3279 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3280 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3376 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3376 passed, 2 skipped, 2 xfailed** |
+
+Read as at `ca822f7` (the harness-compatibility card: `docs/HARNESSES.md` maps
+the one MCP server onto every common agent harness with verified per-harness
+configs — six copy-paste fragments under `integrations/harnesses/`, a README
+pointer, the `.gitignore` allowlist that carries them past the blanket
+`*.json` privacy guard, and `tests/test_harness_snippets.py`'s eleven guards
+pinning the fragment set, the fragments' launch commands, the map's links and
+its tool table to the server that ships; no production line changed — every
+behaviour asserted is behaviour the server already has). **The one measured
+leg is the CI-equivalent, 3376 / 2 / 2, reconciled by the pinned relations:**
+the full suite under CI's own install line ran on the box against this exact
+tree — **2 failed, 3373 passes, 3 skips, 2 xfails in 13:52** — and the two
+reds are each a documented row, not a suite fault: the known host-pin
+mismatch under "Known CI coverage gap" (a clean `main` clone fails
+identically) and the figures-guard drift row (the pre-stamp shape this stamp
+itself resolves, red only because the card added tests while the record
+still anchored at `5e72e76`). The recorder refuses a red summary line as a
+figure by design, so the triple is carried by the relations it pins instead:
+the red provider pin passes on a pin-matched box, the digest skip becomes a
+pass with the list, and the drift row goes green at this stamp — 3373 + 3 =
+3376, skips 3 − 1 = 2. The history agrees independently: the W48 record's
+CI-equivalent was 3364 / 2 / 2 and this card adds exactly **+12** — eleven
+new guards plus the one new case `test_docs_links` parametrizes over
+`docs/HARNESSES.md` itself: 3364 + 12 = 3376. bare / digest / 3.10 are
+derived by the measured +12 delta and the record carries `derived: true`;
+the CI row is **projected** by the host-pin relation — the branch is
+local-only and the push/PR/ff-merge are GitHubGert's side of the handoff, so
+the landing run's `test (3.12)` leg reads the figure and a later read pass
+replaces the projection. Both launch forms the fragments name were
+smoke-verified on this box — the installed `entropicmem-mcp` console script,
+from a throwaway install of this exact tree, and the checkout
+`python -m em.mcp_server` form — each answering `initialize` + `tools/list`
+with the nine tools at protocol `2025-11-25`. The private digest list is
+still not on this host, so the digest leg stays derived and the collision
+walk unmeasured, as the W45/W48 landings recorded before it.
 
 Read as at `5e72e76` (the MNT W48 coverage record stamp: nineteen in-process
 tests for `em/mcp_server.py`, the OpenBot bridge's MCP stdio server, on the
@@ -531,12 +566,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder** (the MNT W48 coverage's nineteen tests add +19 passed at every leg over the W45 read-pass record; the measured ladder below carries the rest):
 
 ```
-bare          3267 / 20 / 2
+bare          3279 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3364 /  2 / 2
+= CI-equiv    3376 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3362 /  4 / 2   (projected by the host-pin relation; the landing run's 3.12 job log reads it)
+= CI          3374 /  4 / 2   (projected by the host-pin relation; the landing run's 3.12 job log reads it)
 ```
 
 ## Citing CI evidence — one trap
