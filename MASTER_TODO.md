@@ -1264,9 +1264,11 @@ the owner's deliberate act, now technically available.
 
 ### In flight
 
+**MNT W48 — the weekly coverage card — is in flight on the local branch `w48/coverage-mcp-server` (cut from `origin/main` at `b552761`, built and gated 2026-11-24): in-process coverage for `em/mcp_server.py`, the OpenBot bridge's MCP stdio server — the suite's lowest-covered real-logic module on the `--cov=em` scan at 24.7% (243 statements, 183 missed), because its existing tests drive the server as a subprocess, which the suite's own measurement cannot see.** 19 new in-process tests in `tests/test_mcp_server.py` (the file's subprocess tests untouched) take the module to **100%**: the dispatcher's refusals and notification rules, the `tools/call` contract (unknown tool, non-object arguments, a failing handler as an internal error with the server surviving, `ok:false` → `isError`), the transport (parse-error recovery, the `_ProtocolError` conversion, `_write`'s ASCII fallback, `_use_utf8_stdio`'s three stream shapes), the `StandaloneHost` seam (both config shapes, path precedence explicit > config > env > home, idempotent path insertion, the inert shadow seams), the bootstrap (a new home becomes v3 with its vault and is idempotent; an existing v2 store stays at `user_version=0`, never migrated), and `main`'s exit contracts (0 served, 130 interrupted, 1 broken home, `--version` clean). **10 mutation checks red against the real module**, each restored from a byte copy, hash-verified; no production line changed. Gates run locally: the module's 32 tests green, the doc guards 67 passed, `ruff==0.16.2` clean on the changed file, and the full-suite CI-equivalent leg reconciled to the pinned relations (the one red row the known host-pin mismatch, unrelated to this branch). **The branch is local-only and has no check-run yet — the GitHub side (push, PR, ff-merge after green CI on the exact SHA) is handed to GitHubGert per the standing split; the figures record is stamped by the derive mode on the branch tip and its CI figure is projected until the landing's own run is read.**
+
 **The graph viewer's "quiet observatory" redesign landed from branch `redesign/obsidian-graph-polish` — the visual pass complete at `4619653`, caught up with `origin/main` at the local merge `22cb3cc`, record docs written, all gates re-run on the catch-up tip; now landed on `main`.** The change is CSS/HTML/JS only (`graph.css`, `graph.html`, `graph.js`): deep flat canvas, thin dark-glass chrome, Inter labels with a paint-order halo cut, hover neighborhood spotlight, hub-first label LOD with a wider truncation floor, auto-fit on open with deep links still winning, one iridescent modal hairline, a refined light theme with an AA accent, responsive rules, focus-visible rings — and the d3 same-type-replacement fix that had silently killed the hover edge-boost on the deployed page. The commit's own record: all 253 graph tests pass, live-verified at 360/768/1440 plus modal state with zero handler errors, Design Critic approved after two pre-commit fixes. The catch-up merge `22cb3cc` brought in main's W45 coverage landings #21/#23 clean — the three asset files are byte-identical to `4619653` across it, and `node --check` on `graph.js` is clean. Gates on `22cb3cc`: `ruff==0.16.2` clean; doc guards 54 passed; evals ci (v2 adapter) with no gated metric regressed; perf prefetch warm p95 **5.27 ms** against the 20 ms budget; the full suite under CI's own install line reads red on exactly one row — the pre-existing host-pin mismatch (the installed hermes-agent is newer than `tests/harness/pinned_memory_provider.json`, a clean `main` clone fails identically) — with the absent private digest list the only extra skip, and reconciling both reproduces the record's CI-equivalent **3345 / 2 / 2** exactly: **no test changed, no figure moves, no re-stamp** (the recorder refuses this box's red-line read as a figure by design; the record still anchors at `main`'s W45 read pass `5f4e0a8`, and the landing's own read pass belongs to the owner's merge). The landing is on `main` with CI green on the exact landed SHA.
 
-**Nothing is in flight.** MNT W45 — the weekly coverage card — landed: nine in-process tests
+**MNT W45 — the previous weekly coverage card — landed:** nine in-process tests
 for `em/jobs/cli.py` (the coverage scan's lowest real-logic module at 68%, its
 refusals pinned directly against `run_worker`, and its `--max-seconds` budget
 loop, dead-job exit code and missing-file refusal covered for the first time),
@@ -1597,8 +1599,7 @@ Only the parts a later reader needs to know. The full ledger with commit SHAs is
 
 ## What is next
 
-**Nothing agent-owned is left to build on `main`: S5–S9 are complete and the file is
-waiting on the owner's cutover and flip calls.** The OpenBot bridge is on `main` —
+**The one card in flight is MNT W48, the weekly coverage card: `em/mcp_server.py` covered in-process on the local branch `w48/coverage-mcp-server` (24.7%→100%, 19 new tests, 10 mutation checks red), built and gated with the GitHub side handed to GitHubGert.** Outside that maintenance card, nothing agent-owned is left to build on `main`: S5–S9 are complete and the file is waiting on the owner's cutover and flip calls. The OpenBot bridge is on `main` —
 built at `bda39c6`, merged via PR #22 at `bba866f` (2026-11-22); the marketplace
 submission and any catalog pin for it are still not done. The last code card —
 S8's EM-806 packaging — landed 2026-10-27 (`ceb70cb`, recorded through `0482a49`;
@@ -1735,7 +1736,7 @@ also showed v3 injecting exactly what v2 injected, divergence empty.
 
 ### START HERE TOMORROW
 
-**Nothing is in flight; there is no build to start.** Every card in S5–S9 has landed: S8's
+**MNT W48 is in flight** — the weekly coverage card on the local branch `w48/coverage-mcp-server` (`em/mcp_server.py` in-process, 24.7%→100%, handed to GitHubGert for the push/PR/merge side; the branch has no check-run until it lands). Once it lands, the stop state below is current again: every card in S5–S9 has landed, S8's
 EM-806 packaging on 2026-10-27 (`ceb70cb`, recorded through `0482a49`), EM-901's drills as
 chunk 50 (`b93037e`), EM-904's 3.0 release (tags `v3.0.0` / `v3.0.1` / `v3.0.2`;
 `CHANGELOG.md` carries all three sections), the OpenBot bridge's merge (PR #22, `bba866f`)
