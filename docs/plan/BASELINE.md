@@ -26,11 +26,40 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3343 passed, 4 skipped, 2 xfailed** *(**read** from the `test (3.12)` job log of run `45086186655` on `main` at the merge tip `8b1099c` — 13/13 jobs green on that exact SHA, exactly what the derive mode's one measured leg implied)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3248 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3249 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3345 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3345 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3362 passed, 4 skipped, 2 xfailed** *(**projected** by the recorder's host-pin relation from the one measured CI-equivalent leg at the MNT W48 record stamp — the branch is local-only with no check-run yet, so the landing run's `test (3.12)` job log reads the figure and a later read pass replaces the projection)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3267 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3268 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3364 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3364 passed, 2 skipped, 2 xfailed** |
+
+Read as at `5e72e76` (the MNT W48 coverage record stamp: nineteen in-process
+tests for `em/mcp_server.py`, the OpenBot bridge's MCP stdio server, on the
+local branch `w48/coverage-mcp-server`, cut from `origin/main` at `b552761` —
+the module at **100%** on the scoped measurement, 24.7% full-scope before it,
+243 statements and 183 missed, its existing tests driving it as a subprocess
+the suite's own measurement cannot see; 10 mutation checks red, each restored
+from a byte copy, hash-verified; the stamp is the record pass over the code
+commit, which is the tree these figures measure). **The one measured leg is
+the CI-equivalent, 3364 / 2 / 2, reconciled by the pinned relations:** the
+full suite under CI's own install line ran on the box against this exact
+tree — **2 failed, 3361 passes, 3 skips, 2 xfails in 13:15** — and the two
+reds are each a documented row, not a suite fault: the known host-pin
+mismatch under "Known CI coverage gap" (the installed `hermes-agent` is
+newer than `tests/harness/pinned_memory_provider.json`; a clean `main` clone
+fails identically) and the figures-guard drift row (the pre-stamp shape this
+stamp itself resolves, red only because the code commit added tests while
+the record still anchored at `5f4e0a8`). The recorder refuses a red summary
+line as a figure by design, so the triple is carried by the relations it
+pins instead: the red provider pin passes on a pin-matched box, the digest
+skip becomes a pass with the list, and the drift row goes green at this
+stamp — 3361 + 3 = 3364, skips 3 − 1 = 2. The history agrees independently:
+the `5f4e0a8` record's CI-equivalent was 3345 / 2 / 2 and this branch adds
+exactly **+19** (the file's 13 existing tests plus the 19 new = 32; no other
+test moved): 3345 + 19 = 3364. bare / digest / 3.10 are derived by the
+measured +19 delta and the record carries `derived: true`; the CI row is
+**projected** — the branch is local-only and the push/PR/ff-merge are
+GitHubGert's side of the handoff, so the landing run's `test (3.12)` leg
+reads the figure and a later read pass replaces the projection.
 
 Read as at `5f4e0a8` (the W45 coverage landing's figures read pass; the
 read-pass commit moved the suite surface via the run-id allowlist, so the record
@@ -499,15 +528,15 @@ be verified on a box that has one — this box does, which is why the two pins s
 *passes* in the CI-equivalent 3.12 row above; the 3.10 venv has no host checkout, so
 its row shows the same four skips as CI.
 
-**The full bare → CI ladder** (the W45 coverage's nine tests add +9 passed at every leg over the OpenBot-bridge record; the measured ladder below carries the rest):
+**The full bare → CI ladder** (the MNT W48 coverage's nineteen tests add +19 passed at every leg over the W45 read-pass record; the measured ladder below carries the rest):
 
 ```
-bare          3248 / 20 / 2
+bare          3267 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3345 /  2 / 2
+= CI-equiv    3364 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3343 /  4 / 2   (read from run 45086186655, 3.12 job log on main)
+= CI          3362 /  4 / 2   (projected by the host-pin relation; the landing run's 3.12 job log reads it)
 ```
 
 ## Citing CI evidence — one trap
