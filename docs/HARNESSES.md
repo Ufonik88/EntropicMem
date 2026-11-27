@@ -42,23 +42,17 @@ keeps this page and its fragments honest against that server.
 
 ## One-time setup
 
-**No release carrying the server exists yet.** The server landed on `main`
-on 2026-11-22 and the newest release is `v3.0.2` (2026-11-09), which
-predates it — and the package is not on PyPI (checked 2026-11-24) — so
-install the checkout, the same caveat
-[docs/OPENBOT.md](OPENBOT.md#install-the-command) carries:
+**The release carries the server.** The server landed on `main` on 2026-11-22 and
+ships from `v3.0.3` (2026-11-27), which declares the `entropicmem-mcp` console
+script. The package is not on PyPI, so install the wheel attached to the
+release — no registry account and no `git` needed:
 
 ```bash
-pipx install --force /path/to/EntropicMem
+pipx install https://github.com/Ufonik88/EntropicMem/releases/download/v3.0.3/entropicmem-3.0.3-py3-none-any.whl
 # or, in a project venv:
-python3 -m pip install /path/to/EntropicMem
-```
-
-Once a release that includes the server is published, the plain install
-replaces it:
-
-```bash
-pipx install entropicmem        # post-release only — not on PyPI today
+python3 -m pip install https://github.com/Ufonik88/EntropicMem/releases/download/v3.0.3/entropicmem-3.0.3-py3-none-any.whl
+# or, with git on the machine:
+pipx install "git+https://github.com/Ufonik88/EntropicMem@v3.0.3"
 ```
 
 From a source checkout, without installing:

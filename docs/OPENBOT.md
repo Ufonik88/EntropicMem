@@ -18,12 +18,16 @@ This page covers three things:
 The MCP entry point is the `entropicmem-mcp` console script:
 
 ```bash
-pipx install entropicmem
+pipx install https://github.com/Ufonik88/EntropicMem/releases/download/v3.0.3/entropicmem-3.0.3-py3-none-any.whl
+# or, with git on the machine:
+pipx install "git+https://github.com/Ufonik88/EntropicMem@v3.0.3"
 # or, in a project venv:
-python3 -m pip install entropicmem
+python3 -m pip install https://github.com/Ufonik88/EntropicMem/releases/download/v3.0.3/entropicmem-3.0.3-py3-none-any.whl
 ```
 
-Until a release that contains this server is published, install the checkout:
+The wheel is attached to the release by `.github/workflows/release.yml`; the
+package is not on PyPI, so the release URL is the install line. To work from a
+checkout instead:
 
 ```bash
 pipx install --force /path/to/EntropicMem
@@ -154,8 +158,9 @@ fields because the server reads only local files.
 
 The listing is **not submitted**. To submit it:
 
-1. publish a release that includes `em/mcp_server.py`, so `pipx install
-   entropicmem` provides `entropicmem-mcp`;
+1. publish a release that includes `em/mcp_server.py` and carries the wheel its
+   release workflow attaches, so the listing's install line provides
+   `entropicmem-mcp`;
 2. copy the bundle into
    `marketplace/plugin-catalog/plugins/entropicmem/plugin.json` in
    `nightly-labs/openbot`;

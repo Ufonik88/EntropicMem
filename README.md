@@ -88,11 +88,15 @@ Full detail: [docs/SELF_INSTALL.md](docs/SELF_INSTALL.md).
 
 The agent fetches the repo, installs the skill and plugin, bootstraps the vault, and smoke-tests in one pass. Follow [skills/entropicmem/SETUP.md](skills/entropicmem/SETUP.md) for the bootstrap checklist.
 
-### Option C: `pip install` (engine + provider in one distribution)
+### Option C: `pip install` from the release wheel (engine + provider in one distribution)
 
 ```bash
-pip install entropicmem
+pip install https://github.com/Ufonik88/EntropicMem/releases/download/v3.0.3/entropicmem-3.0.3-py3-none-any.whl
 ```
+
+The wheel and the sdist are attached to every release by
+`.github/workflows/release.yml`; the package is not on PyPI yet, so the wheel
+URL is the install line (it needs no registry account and no `git`).
 
 The package declares the host's `hermes_agent.memory_providers` entry point
 (`entropicmem = entropicmem_plugin:register`) and ships the engine's flat modules, the
@@ -287,8 +291,9 @@ OpenBot connects over a local MCP stdio server that exposes the same nine
 `entropicmem_*` tools. Nothing leaves the computer, and no key is needed:
 
 ```bash
-pipx install entropicmem
-# until the next release is published: pipx install --force /path/to/EntropicMem
+pipx install https://github.com/Ufonik88/EntropicMem/releases/download/v3.0.3/entropicmem-3.0.3-py3-none-any.whl
+# or, with git on the machine:
+pipx install "git+https://github.com/Ufonik88/EntropicMem@v3.0.3"
 ```
 
 Then, in OpenBot: **Settings → MCP servers → Connect to a custom MCP**. Name it

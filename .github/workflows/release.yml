@@ -1,0 +1,106 @@
+name: Release artifacts
+
+# Publishes the installable distributions on the GitHub Release. This is the
+# install path until the package has a PyPI project: the catalog listing's
+# `command` is a console script that has to exist on the user's machine first,
+# and a wheel attached to a release is a stable URL that needs no registry
+# account, no token and no `git` on the user's machine.
+#
+# Triggered by the owner publishing the release (tag first, then release), so
+# the tag and the packaged version are already fixed when this runs. It never
+# creates or edits the release itself and never publishes to a package index.
+on:
+  release:
+    types: [published]
+
+# Attaching assets is the only write this workflow needs.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Build the sdist and the wheel
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet "build==1.6.1"
+          python -m build --outdir dist
+          ls -l dist
+
+      - name: The tag, the version and the artifact names agree
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, pathlib, sys
+          tag = os.environ["TAG"]
+          version = tag[1:] if tag.startswith("v") else tag
+          wheels = sorted(pathlib.Path("dist").glob("*.whl"))
+          sdists = sorted(pathlib.Path("dist").glob("*.tar.gz"))
+          assert len(wheels) == 1 and len(sdists) == 1, (wheels, sdists)
+          for artifact in wheels + sdists:
+              assert version in artifact.name, (version, artifact.name)
+          print(f"tag {tag} -> {wheels[0].name}, {sdists[0].name}")
+          PY
+
+      - name: The wheel carries the MCP console script
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib, zipfile
+          wheel = next(pathlib.Path("dist").glob("*.whl"))
+          with zipfile.ZipFile(wheel) as zf:
+              entries = [n for n in zf.namelist() if n.endswith("entry_points.txt")]
+              assert len(entries) == 1, entries
+              text = zf.read(entries[0]).decode("utf-8")
+              print(text)
+              assert "entropicmem-mcp = em.mcp_server:main" in text, text
+              assert "hermes_agent.memory_providers" in text, text
+          # The server module itself has to be inside the wheel, not only the
+          # entry point that names it.
+          with zipfile.ZipFile(wheel) as zf:
+              assert "em/mcp_server.py" in zf.namelist(), "em/mcp_server.py missing"
+          PY
+
+      - name: Install the built wheel in a clean venv and speak MCP to it
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/venv"
+          mkdir -p "$RUNNER_TEMP/home"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --quiet dist/*.whl
+          "$RUNNER_TEMP/venv/bin/entropicmem-mcp" --version
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"release-check","version":"0"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
+            | HOME="$RUNNER_TEMP/home" "$RUNNER_TEMP/venv/bin/entropicmem-mcp" > "$RUNNER_TEMP/out.jsonl"
+          python - "$RUNNER_TEMP/out.jsonl" <<'PY'
+          import json, sys
+          lines = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+          init = next(line for line in lines if line.get("id") == 1)
+          tools = next(line for line in lines if line.get("id") == 2)
+          assert init["result"]["serverInfo"]["name"] == "entropicmem", init
+          names = sorted(t["name"] for t in tools["result"]["tools"])
+          assert len(names) == 9, names
+          print(names)
+          PY
+
+      - name: Attach the artifacts to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber
+          gh release view "$TAG" --json assets --jq '.assets[].name'

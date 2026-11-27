@@ -1,5 +1,17 @@
 # EntropicMem: next steps (one chunk at a time)
 
+> **2026-11-27: the `v3.0.3` release-prep is on the local branch
+> `release/v3.0.3-mcp-entrypoint` (cut from `main` at `d1c17b8`) and it is not a
+> development chunk.** It bumps the version so the tag carries the
+> `entropicmem-mcp` console script `v3.0.2` predates, adds
+> `.github/workflows/release.yml` (build the sdist and wheel on a published
+> release, refuse a tag/version/artifact mismatch or a wheel without the console
+> script or `em/mcp_server.py`, install and handshake the built wheel, attach
+> both files), and fixes `integrations/openbot/plugin.json` (packaged version,
+> tag-pinned icon, the release-wheel install line). The next chunk below is
+> unchanged; the GitHub side of this branch (push, tag, release, catalog PR) is
+> GitHubGert's, and PyPI publication needs the owner's account.
+
 **Updated:** 2026-10-28 (forty-fourth pass — **the owner asked for anything outstanding that
 is still autonomous, and to do it now; the sweep opened chunk 48: EM-601's one deferred spec
 promise, month paging for `Memories/Unfiled.md` past 200 rows — and chunk 48 has now LANDED

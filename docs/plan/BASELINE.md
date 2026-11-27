@@ -26,11 +26,32 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3374 passed, 4 skipped, 2 xfailed** *(**projected** by the recorder's host-pin relation from the one measured CI-equivalent leg at the harness-compatibility record stamp — the branch is local-only with no check-run yet, so the landing run's `test (3.12)` job log reads the figure and a later read pass replaces the projection)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3279 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3280 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3376 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3376 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3375 passed, 4 skipped, 2 xfailed** *(**projected** by the recorder's host-pin relation from the one measured CI-equivalent leg at the `v3.0.3` release-prep stamp — the branch is local-only with no check-run yet, so the landing run's `test (3.12)` job log reads the figure and a later read pass replaces the projection)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3280 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3281 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3377 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3377 passed, 2 skipped, 2 xfailed** |
+
+Read as at `7319450` (the `v3.0.3` release-prep: the version moves to `3.0.3`
+so the tag carries the `entropicmem-mcp` console script `v3.0.2` predates,
+`.github/workflows/release.yml` builds the sdist and wheel on a published
+release and refuses a wheel without the console script, the provider entry
+point or `em/mcp_server.py`, and `integrations/openbot/plugin.json` pins both
+`iconUrl` fields to the tag and states the release-wheel install line —
+`tests/test_mcp_server.py` gains one validator-shape guard, 3 mutation checks
+red against the real bundle, and the version test moves with the bump; no
+production line changed). **The one measured leg is the CI-equivalent,
+3377 / 2 / 2, reconciled by the pinned relations:** the full suite under CI's
+own install line ran on the box against this exact tree — **2 failed, 3374
+passes, 3 skips, 2 xfails in 11:48** — and the two reds are the same two
+documented rows the previous stamp names: the known host-pin mismatch under
+"Known CI coverage gap" (a clean `main` clone fails identically) and the
+figures-guard drift row (the pre-stamp shape this stamp resolves). The +1 pass
+over the previous stamp is the new listing guard. The three derived rows carry
+the measured delta (+1 passed, no skip change): bare **3280 / 20 / 2**, digest
+**3281 / 19 / 2**, 3.10 **3377 / 2 / 2**; CI **3375 / 4 / 2**, **projected**
+by the host-pin relation — the branch is local-only, so the landing run's
+`test (3.12)` leg reads it and a later read pass replaces the projection.
 
 Read as at `ca822f7` (the harness-compatibility card: `docs/HARNESSES.md` maps
 the one MCP server onto every common agent harness with verified per-harness
@@ -563,15 +584,15 @@ be verified on a box that has one — this box does, which is why the two pins s
 *passes* in the CI-equivalent 3.12 row above; the 3.10 venv has no host checkout, so
 its row shows the same four skips as CI.
 
-**The full bare → CI ladder** (the MNT W48 coverage's nineteen tests add +19 passed at every leg over the W45 read-pass record; the measured ladder below carries the rest):
+**The full bare → CI ladder** (the `v3.0.3` release-prep's one listing guard adds +1 passed at every leg over the harness-compatibility stamp; the measured ladder below carries the rest):
 
 ```
-bare          3279 / 20 / 2
+bare          3280 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3376 /  2 / 2
+= CI-equiv    3377 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3374 /  4 / 2   (projected by the host-pin relation; the landing run's 3.12 job log reads it)
+= CI          3375 /  4 / 2   (projected by the host-pin relation; the landing run's 3.12 job log reads it)
 ```
 
 ## Citing CI evidence — one trap
