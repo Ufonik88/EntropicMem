@@ -32,7 +32,9 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3377 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3377 passed, 2 skipped, 2 xfailed** |
 
-Read as at `7319450` (the `v3.0.3` release-prep: the version moves to `3.0.3`
+Read as at `fce8c09` (the `v3.0.3` release-prep, re-anchored at the squash merge
+that landed it — the merge touches `tests/`, so the ancestry rule needs the stamp
+one commit later: the version moves to `3.0.3`
 so the tag carries the `entropicmem-mcp` console script `v3.0.2` predates,
 `.github/workflows/release.yml` builds the sdist and wheel on a published
 release and refuses a wheel without the console script, the provider entry

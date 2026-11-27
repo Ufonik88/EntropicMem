@@ -8,8 +8,7 @@ This page covers three things:
 
 1. connecting it to OpenBot today as a custom MCP server;
 2. what each tool does;
-3. how the marketplace listing is prepared and what still has to happen before
-   it can be submitted upstream.
+3. the marketplace listing and where its submission stands.
 
 ## 1. Connect to OpenBot
 
@@ -156,7 +155,8 @@ It follows the shape OpenBot's catalog expects: one app, a `stdio` server with
 `command` and `args`, no `workingDirectory`, no secret value, and no `auth`
 fields because the server reads only local files.
 
-The listing is **not submitted**. To submit it:
+The listing is **submitted**: [nightly-labs/openbot#17784](https://github.com/nightly-labs/openbot/pull/17784),
+against the `v3.0.3` release. What the submission consisted of:
 
 1. publish a release that includes `em/mcp_server.py` and carries the wheel its
    release workflow attaches, so the listing's install line provides
@@ -169,8 +169,10 @@ The listing is **not submitted**. To submit it:
 5. open the pull request.
 
 The marketplace review checks the listing against the code at the release it
-names. Until the release exists, a merged listing would install a command users
-do not have.
+names, which is why the release came first: `v3.0.3`, whose workflow also speaks
+MCP to the built wheel before attaching it. The only open item on the pull
+request is OpenBot's CLA, a signature the contributor gives individually;
+nothing in the listing depends on it.
 
 ## 4. Verification
 
