@@ -41,7 +41,9 @@ Desktop installed. It is not something the marketplace installs for the user.
 
 ## Submitting to the OpenBot marketplace
 
-Prepared here; **not submitted**. The upstream repository is
+**Submitted**: [nightly-labs/openbot#17784](https://github.com/nightly-labs/openbot/pull/17784)
+carries this bundle. The only open item on it is the upstream CLA, which the
+contributor signs individually. The upstream repository is
 `nightly-labs/openbot`, and the catalog lives at
 `marketplace/plugin-catalog/`.
 
