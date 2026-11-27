@@ -19,12 +19,16 @@ network call. The default home is `~/.entropicmem`; the first connection creates
 a v3 store there (`memory.db`, `vault/`, `index.db`). An existing v2 store is
 served without being migrated — that cutover stays explicit.
 
-Install the command before connecting:
+Install the command before connecting — the wheel attached to the release:
 
 ```bash
-pipx install entropicmem
-# or: python3 -m pip install --user entropicmem
+pipx install https://github.com/Ufonik88/EntropicMem/releases/download/v3.0.3/entropicmem-3.0.3-py3-none-any.whl
+# or: python3 -m pip install --user https://github.com/Ufonik88/EntropicMem/releases/download/v3.0.3/entropicmem-3.0.3-py3-none-any.whl
 ```
+
+The package is not on PyPI, so `pipx install entropicmem` does not work yet.
+`.github/workflows/release.yml` builds the wheel and the sdist and attaches both
+to the published release, which is what makes the URL above stable.
 
 From a source checkout, without installing:
 
@@ -41,8 +45,10 @@ Prepared here; **not submitted**. The upstream repository is
 `nightly-labs/openbot`, and the catalog lives at
 `marketplace/plugin-catalog/`.
 
-1. Publish a release of this repo that contains `em/mcp_server.py`, so
-   `pipx install entropicmem` gives users the `entropicmem-mcp` command.
+1. Publish a release of this repo that contains `em/mcp_server.py`; its
+   release workflow attaches the wheel, so the listing's install line gives
+   users the `entropicmem-mcp` command. The icon URL and the install URL both
+   name that tag, so the tag has to exist before the catalog PR.
 2. Copy this bundle to
    `marketplace/plugin-catalog/plugins/entropicmem/plugin.json` in a fresh
    checkout of `nightly-labs/openbot`.
@@ -63,9 +69,11 @@ the server reads only local files.
 |---|---|---|
 | `slug` / server `name` | `entropicmem` | Lowercase, matches the package and tool prefix. |
 | `category` | `productivity` | The marketplace's closest category for agent memory. |
-| `version` | `0.1.0` | The listing's own version, bumped when the listing changes. |
+| `version` | `3.0.3` | The release the listing's claims are true at; a re-pin moves it with the tag. |
 | `skills` | `[]` | Marketplace rules keep this empty until pinned skill versions exist. |
 | `privacyPolicyUrl` / `termsUrl` | `null` | The project has no separate policy pages; the repo and MIT licence are the source. Do not invent URLs. |
 
-The logo URL points at the repo's committed PNG on `main`. A marketplace entry
-should pin an immutable URL if the catalog requires one.
+Both `iconUrl` fields point at the repo's committed PNG through the release
+tag (`/v3.0.3/docs/assets/logo.png`), not `main`: a `main` URL moves under the
+review and the icon would change without a commit. `tests/test_mcp_server.py`
+fails if either URL goes back to `main` or stops naming the packaged version.

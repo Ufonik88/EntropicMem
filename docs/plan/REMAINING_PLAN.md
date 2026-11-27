@@ -829,3 +829,27 @@ the Hermes plugin surface:
 **Not approved and not done:** push, tag, release, publish, marketplace PR or
 catalog pin. The next acts outside this branch are a release that ships
 `em/mcp_server.py` and the upstream OpenBot catalog PR.
+
+## Appendix: `v3.0.3` release-prep (branch `release/v3.0.3-mcp-entrypoint`, 2026-11-27)
+
+Cut from `main` at `d1c17b8`. It is the packaging half of the OpenBot listing and
+it moves no product behaviour:
+
+- The version moves to `3.0.3` (`em/__init__.py`, `plugin.yaml`,
+  `skills/entropicmem/SKILL.md`, the version test) so the tag can carry the
+  `entropicmem-mcp` console script that `v3.0.2` predates.
+- `.github/workflows/release.yml` builds the sdist and wheel when a release is
+  published, refuses a tag/version/artifact mismatch, refuses a wheel without the
+  console script, the provider entry point or `em/mcp_server.py`, installs the
+  wheel in a clean venv and speaks `initialize` + `tools/list` to it, then
+  attaches both files to the release. No index, no token.
+- `integrations/openbot/plugin.json`: packaged version, both `iconUrl` fields
+  pinned to the tag, and the install line that actually works (the release wheel
+  URL plus `pipx ensurepath`) in place of `pipx install entropicmem`.
+  `tests/test_mcp_server.py` guards the validator's shape.
+- Install docs (README, `docs/OPENBOT.md`, `docs/HARNESSES.md`,
+  `integrations/openbot/README.md`) carry the same line.
+
+**Not done here:** push, tag, release, artifact upload, catalog PR (GitHubGert),
+and PyPI publication (needs the owner's account — no project, no token, no
+trusted publisher exists). The branch has no CI run.

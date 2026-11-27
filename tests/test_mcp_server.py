@@ -226,6 +226,51 @@ def test_the_console_script_is_declared() -> None:
     assert 'entropicmem-mcp = "em.mcp_server:main"' in text
 
 
+def test_listing_bundle_satisfies_the_catalog_validator() -> None:
+    """The bundle's shape is the upstream validator's, checked here so a listing
+    edit fails in this repo instead of in the catalog review.
+
+    ``scripts/build-plugin-catalog.ts`` in ``nightly-labs/openbot`` requires:
+    a known category, one to eight prompts, exactly one app, no skills, every
+    link ``https`` or ``null``, a stdio server with a command and string args,
+    and no secret-looking value. A stdio listing's command must already exist on
+    the user's machine, so the description has to carry the real install step —
+    and that step and the icon pin have to name this release, or the listing
+    ships a command the user cannot get.
+    """
+    from em import __version__
+
+    bundle = json.loads(
+        (REPO / "integrations" / "openbot" / "plugin.json").read_text(encoding="utf-8")
+    )
+    assert bundle["category"] in {"productivity", "developer-tools", "communication", "media"}
+    assert bundle["version"] == __version__
+    assert 1 <= len(bundle["prompts"]) <= 8
+    assert all(prompt["id"] and prompt["text"] for prompt in bundle["prompts"])
+
+    for field in ("iconUrl", "websiteUrl", "privacyPolicyUrl", "termsUrl"):
+        value = bundle[field]
+        assert value is None or value.startswith("https://"), (field, value)
+    # Immutable pins only: a `main` URL moves under the review and the icon
+    # would change without a commit.
+    for icon in (bundle["iconUrl"], bundle["apps"][0]["iconUrl"]):
+        assert icon.startswith("https://"), icon
+        assert "/main/" not in icon, icon
+        assert f"/v{__version__}/" in icon, icon
+
+    # The documented install has to be the artifact this release publishes.
+    install = (
+        f"https://github.com/Ufonik88/EntropicMem/releases/download/v{__version__}/"
+        f"entropicmem-{__version__}-py3-none-any.whl"
+    )
+    assert install in bundle["description"], bundle["description"]
+    assert "pipx install entropicmem" not in bundle["description"]
+
+    serialized = json.dumps(bundle)
+    for marker in ("ghp_", "github_pat_", "sk-live-", "AKIA", "BEGIN ", '"value"'):
+        assert marker not in serialized, marker
+
+
 def test_startup_failure_is_a_clean_stderr_error(tmp_path: Path) -> None:
     """A broken home exits nonzero with a stderr line, not a hung server."""
     home = tmp_path / "not-a-directory"
