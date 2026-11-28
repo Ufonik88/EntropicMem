@@ -1,5 +1,16 @@
 # EntropicMem: next steps (one chunk at a time)
 
+> **2026-11-28: the multi-writer contradiction benchmark is on the local branch
+> `evals/multi-writer-contradiction` (cut from `main` at `dac08e2`) and it is
+> not a development chunk.** It adds `evals/multi_writer/` — a generated corpus
+> in four shapes run through the shipped write and read path under three write
+> protocols — and measures what a stale value does to an answer when a second
+> agent writes about the same key: current-value-first 0/9 (`append`), 6/9
+> (`supersede`), 9/9 (`supersede_guard`), with the echo class named as the
+> residual and concurrent conflicts reported as unresolved. 10 guards, 3
+> mutation checks red, no production line changed. The next chunk below is
+> unchanged; the GitHub side (push, PR, merge) is GitHubGert's.
+
 > **2026-11-27: the `v3.0.3` release-prep is on the local branch
 > `release/v3.0.3-mcp-entrypoint` (cut from `main` at `d1c17b8`) and it is not a
 > development chunk.** It bumps the version so the tag carries the

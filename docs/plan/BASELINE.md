@@ -26,11 +26,29 @@ other three.
 
 | Environment | Command | Triple |
 |---|---|---|
-| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3375 passed, 4 skipped, 2 xfailed** *(**projected** by the recorder's host-pin relation from the one measured CI-equivalent leg at the `v3.0.3` release-prep stamp — the branch is local-only with no check-run yet, so the landing run's `test (3.12)` job log reads the figure and a later read pass replaces the projection)* |
-| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3280 passed, 20 skipped, 2 xfailed** |
-| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3281 passed, 19 skipped, 2 xfailed** |
-| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3377 passed, 2 skipped, 2 xfailed** |
-| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3377 passed, 2 skipped, 2 xfailed** |
+| **CI, `test` job, Python 3.12** (the figure of record) | `pytest -q tests/` | **3385 passed, 4 skipped, 2 xfailed** *(**projected** by the recorder's host-pin relation from the one measured CI-equivalent leg at the multi-writer benchmark stamp — the branch is local-only with no check-run yet, so the landing run's `test (3.12)` job log reads the figure and a later read pass replaces the projection)* |
+| This box, bare (`.venv311`, no extras) | `pytest -q tests/` | **3290 passed, 20 skipped, 2 xfailed** |
+| This box, + the private digest list | `ENTROPICMEM_PRIVACY_DIGESTS_FILE=… pytest -q` | **3291 passed, 19 skipped, 2 xfailed** |
+| This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3387 passed, 2 skipped, 2 xfailed** |
+| This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3387 passed, 2 skipped, 2 xfailed** |
+
+Read as at `dc657f9` (the multi-writer contradiction benchmark: `evals/multi_writer/`
+generates a corpus in four shapes and runs it through the shipped write and read
+path under `append` / `supersede` / `supersede_guard`, scoring which value is
+served — 10 guards in `tests/unit/test_em_multi_writer_bench.py`, 3 mutation
+checks red, no production line changed). **The one measured leg is the
+CI-equivalent, 3387 / 2 / 2, reconciled by the pinned relations:** the full suite
+under CI's own install line ran on the box against this exact tree — **3 failed,
+3383 passes, 3 skips, 2 xfails in 13:00** — and all three reds are rows this
+stamp or the host-pin relation accounts for: the known host-pin mismatch, the
+CHANGELOG-figure row the record resolves, and a cited-SHA row raised by an
+8-digit corpus seed read as if it were a commit (the seed was rewritten as a
+seed before the stamp; no commit was ever cited). The +10 passes over the
+`v3.0.3` stamp are the ten new guards. The three derived rows carry the measured
+delta: bare **3290 / 20 / 2**, digest **3291 / 19 / 2**, 3.10 **3387 / 2 / 2**;
+CI **3385 / 4 / 2**, **projected** by the host-pin relation — the branch is
+local-only, so the landing run's `test (3.12)` leg reads it and a later read pass
+replaces the projection.
 
 Read as at `fce8c09` (the `v3.0.3` release-prep, re-anchored at the squash merge
 that landed it — the merge touches `tests/`, so the ancestry rule needs the stamp
@@ -589,12 +607,12 @@ its row shows the same four skips as CI.
 **The full bare → CI ladder** (the `v3.0.3` release-prep's one listing guard adds +1 passed at every leg over the harness-compatibility stamp; the measured ladder below carries the rest):
 
 ```
-bare          3280 / 20 / 2
+bare          3290 / 20 / 2
 + extras      +96 passed, −17 skipped   (fastapi/crypto/numpy files)
 + digest list +1 passed,  −1 skipped    (test_no_personal_data.py)
-= CI-equiv    3377 /  2 / 2
+= CI-equiv    3387 /  2 / 2
 − host pins   −2 passed,  +2 skipped    (the two hermes-agent tests skip in CI)
-= CI          3375 /  4 / 2   (projected by the host-pin relation; the landing run's 3.12 job log reads it)
+= CI          3385 /  4 / 2   (projected by the host-pin relation; the landing run's 3.12 job log reads it)
 ```
 
 ## Citing CI evidence — one trap
