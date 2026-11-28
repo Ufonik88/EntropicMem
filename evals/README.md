@@ -31,6 +31,21 @@ baseline, and those numbers are S1+ fix targets.
 | `full` | `datasets/ci.jsonl` + `datasets/full.jsonl` | adds the vector backend when installed (embeddings allowed; run in the `vectors` CI job, plan line 1269). |
 | `external` | (reserved)             | EM-006 (LiveMem etc.). |
 
+## Multi-writer benchmark (`evals/multi_writer`)
+
+A separate, non-gated measurement: two writers, one store, conflicting facts about
+the same key. It runs the shipped write and read path over a generated corpus in
+three write protocols (`append`, `supersede`, `supersede_guard`) and scores which
+value is served, with no LLM judge.
+
+```bash
+python -m evals.multi_writer
+```
+
+Read `evals/multi_writer/README.md` before quoting a number from it: it states
+what each shape isolates and the five things it does not test (concurrency,
+semantic contradiction, embeddings, abstention, scale).
+
 ## Dataset format (JSONL, one scenario per line)
 
 ```json
