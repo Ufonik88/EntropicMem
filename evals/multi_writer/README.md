@@ -2,10 +2,10 @@
 
 A reproducible measurement of what happens when more than one agent writes about
 the same fact and one of them is behind. It exists because the retrieval suites
-in this repo, and LongMemEval's knowledge-update lane, are single-writer: they
-change a value over time and ask for the newest one, but nobody in the
-multi-agent-memory exchange has published what a *second* writer does to the
-answer.
+in this repo are single-writer, and so is the benchmark the public comparison
+leans on: LongMemEval's histories are one user's chat history, so its
+knowledge-update lane changes a value over time and asks for the newest one. A
+*second* writer changing the answer is not what either measures.
 
 ```bash
 python -m evals.multi_writer                 # markdown table
