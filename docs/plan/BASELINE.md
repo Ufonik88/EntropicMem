@@ -32,7 +32,9 @@ other three.
 | This box, CI-equivalent (`.venv` 3.12 + extras + digest) | `pytest -q tests/` | **3387 passed, 2 skipped, 2 xfailed** |
 | This box, Python 3.10 (`.venv310`, CI pins) | `pytest -q tests/` | **3387 passed, 2 skipped, 2 xfailed** |
 
-Read as at `dc657f9` (the multi-writer contradiction benchmark: `evals/multi_writer/`
+Read as at `8de76a5` (the multi-writer contradiction benchmark, re-anchored at the
+squash merge that landed it — the merge touches `tests/`, so the ancestry rule
+needs the stamp one commit later: `evals/multi_writer/`
 generates a corpus in four shapes and runs it through the shipped write and read
 path under `append` / `supersede` / `supersede_guard`, scoring which value is
 served — 10 guards in `tests/unit/test_em_multi_writer_bench.py`, 3 mutation
