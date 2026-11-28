@@ -92,10 +92,12 @@ not a seed artefact.
    the store, because the text differs and only the value is old. `supersede`
    alone leaves 3 of 9 wrong; the caller-side history check takes it to 0.
 4. **Concurrent conflicts stay visible, not resolved.** Two writers making
-   different claims half a day apart leave two live values; the ranking serves
-   the later write in 12 of 12 here, which is recency deciding an answer, not
-   truth. That is the honest boundary: the store's guarantee is that the conflict
-   is visible, actor-stamped and auditable, not that it picks the right one.
+   different claims half a day apart leave two live values. The ranking serves
+   the later write on 3 of the 3 conflict keys at seed `60828` (and on seeds 1,
+   2 and 42, except seed 3's `append` row, which served the first write on 1 of
+   3) — recency deciding an answer, not truth. That is the honest boundary: the
+   store's guarantee is that the conflict is visible, actor-stamped and
+   auditable, not that it picks the right one.
 5. **No protocol loses data.** `history kept` is 1.00 everywhere: superseded
    rows keep their content, `valid_to`, `superseded_by` and version snapshots.
 
